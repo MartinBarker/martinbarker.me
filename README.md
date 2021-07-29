@@ -1,6 +1,6 @@
 ### Hello, my name is Martin Barker and I'm a Seattle software developer who loves music.
 This repo is for my personal website www.martinbarker.me
-I also upload music 
+
 
 ## How to develop for this Website:
 - Fork and clone the Repo.
@@ -29,5 +29,4 @@ I also upload music
 # Projects / popularify
 - Organize a Spotify artist's discography by Popularity (Need to migrate from Python3 Django to Node.js)
 
-### Future To-Do:
-- Improve tagger.site UI
+
