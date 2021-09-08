@@ -1,26 +1,4 @@
-<!DOCTYPE html>
-
-<html>
-
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-
-    <title>Popularify</title>
-
-    <!--<link rel='icon' href='{{ icon }}' type='image/x-icon' />
-    <meta property="og:title" content='{{ previewCardTitle }}'/>
-    <meta property="og:url" content='{{ previewCardUrl }}'/>
-    <meta property="og:type" content='{{ previewCardWebsite }}'/>
-    <meta property="og:description" content='{{ previewCardDescription }}'/> 
-    <meta property="og:image" content='{{ previewCardImage }}'/>
-    -->
-
-    <!-- jquery 
-    <script src="http://code.jquery.com/jquery-1.9.1.js"></script>
-    <script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script> -->
-
     <!-- jQuery CDN - Slim version (=without AJAX) -->
     <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
         integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
@@ -37,7 +15,6 @@
         crossorigin="anonymous"></script>
 
     <!-- bootstrap css-->
-
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
         integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
 
@@ -47,837 +24,262 @@
     <!-- font-awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 
+    <!-- datatables css -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/dt-1.11.1/datatables.min.css" />
+
+    <!-- datatables js -->
+    <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.11.1/datatables.min.js"></script>
+
+
 </head>
 
+<div class="container">
+
+    <div class="row header-row">
+
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-md-3">
+
+                    <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                        class="img-responsive album-art" alt="Some picture" width="200px" height="200px">
+
+                </div>
+                <div class="album-text col-md-9">
+                    <h1 class="artist-heading-text">time to code</h1>
+                    <p>Your Information.</p>
+                </div>
+            </div>
+        </div>
+
+
+    </div>
+
+    <div class="row body-row">
+
+        <table id="tracklistTable" class="display" ></table>
+
+    </div>
+
+    <div id='debug-color-box'></div>
+
+
+</div>
+
+<script>
+
+    /*
+            Pink Floyd 1
+            updateArtistDisplay("http://www.classicrockhistory.com/wp-content/uploads/2015/10/81fvyZlrbAL._SL1300_-1024x1024.jpg", 'new')
+
+            New Order
+            updateArtistDisplay("https://img.discogs.com/9Qh48KAfjHx6iTzJuQ9F6NIresw=/fit-in/600x600/filters:strip_icc():format(jpeg):mode_rgb():quality(90)/discogs-images/R-8397631-1460829411-9240.jpeg.jpg", 'new')
+            
+    */
+
+    $(document).ready(function () {
+        initializeDatatable()
+    });
+
+    async function initializeDatatable() {
+        var dataSet = [
+            ["1", "song title 1", "FRANCHISE (feat Young)", "2 days ago", "3:22"],
+            ["2", "song title 2", "FRANCHISE (feat Young)", "45 minuts ago", "1:22"],
+            ["3", "song title 3", "FRANCHISE (feat Young)", "4 minutes ago", "0:21"],
+            ["4", "song title 4", "FRANCHISE (feat Young)", "8 weeks ago", "11:21"],
+        ];
+        $('#tracklistTable').DataTable({
+            data: dataSet,
+            "searching": false,   // Search Box will Be Disabled
+            "info": false,         // Will show "1 to n of n entries" Text at bottom
+            "lengthChange": false, // Will Disabled Record number per page,
+            "bPaginate": false, // Disable pagination "page 1 out of x"
+            columns: [
+                { title: "#" },
+                { title: "TITLE" },
+                { title: "ALBUM" },
+                { title: "DATE ADDED" },
+                { title: "TIME" }
+            ]
+        });
+    }
+
+    //call this function to update the artist display UI
+    async function updateArtistDisplay(imgURL, artistName) {
+        return new Promise(async function (resolve, reject) {
+            //get colors for image
+            let imageColors = await getImageColors(imgURL)
+            console.log(imageColors)
+            //update image html element
+            document.getElementsByClassName('album-art')[0].src = imgURL;
+            //get light vibrant hex
+            let VibrantHex = imageColors['Vibrant'].hex
+            //get 50% lighter version of Vibrant
+            let brighterVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, 0.5);
+            //update header css gradient 
+            document.getElementsByClassName('header-row')[0].style.background = `linear-gradient(0deg, rgb(18,18,18) -86%, ${brighterVibrant})`;
+            //get 60% darker version of Vibrant
+            let darkerVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, -0.6);
+            //update body css gradient
+            document.getElementsByClassName('body-row')[0].style.background = `linear-gradient(180deg, ${darkerVibrant}, rgb(18,18,18))`;
+
+            resolve("")
+        })
+    }
+
+    //lighten or darken a hex color
+    function ColorLuminance(hex, lum) {
+
+        // validate hex string
+        hex = String(hex).replace(/[^0-9a-f]/gi, '');
+        if (hex.length < 6) {
+            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        lum = lum || 0;
+
+        // convert to decimal and change luminosity
+        var rgb = "#", c, i;
+        for (i = 0; i < 3; i++) {
+            c = parseInt(hex.substr(i * 2, 2), 16);
+            c = Math.round(Math.min(Math.max(0, c + (c * lum)), 255)).toString(16);
+            rgb += ("00" + c).substr(c.length);
+        }
+
+        return rgb;
+    }
+
+    //send image url to backend, get back color swatches (name, rgb, hex)
+    async function getImageColors(imgURL) {
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'POST',
+                url: '/getImageColors',
+                data: {
+                    imgURL: imgURL
+                },
+            }).then((resp) => {
+
+
+                //for each color, create div and display on page
+                let htmlStr = ``;
+                for (const [key, value] of Object.entries(resp)) {
+                    htmlStr = `${htmlStr} <br> <div style="background:${value.hex}; width=200px;height=200px;">${key} ${value.hex}</div>`
+                }
+                document.getElementById('debug-color-box').innerHTML = htmlStr;
+
+                //calculate 50% darker version of LightVibrant
+                //let darkerLightVibrant = ColorLuminance(`${resp['LightVibrant'].hex.replace('#','')}`, -0.5);
+
+
+                resolve(resp)
+            }).catch((err) => {
+                console.log('getImageColors() err = ', err)
+                reject(err)
+            });
+        });
+    }
+</script>
+
 <style>
+    @font-face {
+        font-family: SpotifyCircularThin;
+        src: url("/static/assets/fonts/AvenirLTStd-Book.otf") format("opentype");
+    }
+
     @font-face {
         font-family: SpotifyCircular;
         src: url("/static/assets/fonts/AvenirLTStd-Black.otf") format("opentype");
     }
 
+    table {
+        font-family: SpotifyCircularThin !important;
+    }
+
+    table.dataTable thead th {
+        /* border-bottom: 0.1px solid rgb(179, 179, 179); */
+        color: rgb(179, 179, 179);
+    }
+    
+    table.dataTable thead th {
+        border-bottom: 0;
+    }
+    table.dataTable tfoot th {
+        border-top: 0;
+    }
+
+
+    #tracklistTable_wrapper{
+        width: 100% !important;
+    }
+
+    #tracklistTable {
+        color: white;
+        width:100%; 
+        padding-top:50px; 
+        padding-left:40px !important;
+        padding-right:40px !important; 
+    }
+
+    table.dataTable.no-footer {
+        border-bottom: 0 !important;
+    }
+
+    th {
+        border-bottom: 1px solid rgb(156, 25, 25);
+    }
+
+    td {
+        background: transparent !important
+    }
+
+    tr {
+        background: transparent !important;
+    }
+
 
 
     body {
-    font-family: 'SpotifyCircular';
-   
+        font-family: 'SpotifyCircular';
     }
 
-    .border {
-        border-style: solid;
-        border-color: #000000;
+    .container {
+        max-width: 100%;
     }
 
-    .artistOption:hover {
-        background: red;
-        cursor: pointer;
-
+    .header-row {
+        background: linear-gradient(0deg, rgb(18, 18, 18) -86%, rgb(106, 174, 212));
+        padding: 50px;
     }
 
-    .artistRowText {
-        font-size: 25px;
+    .body-row {
+        /* gradient from dark version of Light Vibrant to spotify grey*/
+        background: linear-gradient(#4c6c7e, rgb(18, 18, 18));
+        height: 100%;
     }
 
-    .artistCol {
-        padding-left: 0;
+    .album-art {
+        /* box-shadow: [horizontal offset] [vertical offset] [blur radius] [optional spread radius] [color]; */
+        box-shadow: 0px 0px 100px -23px rgb(18, 18, 18);
     }
 
-    .artistColText {
-        text-align: center;
+    @import url(//db.onlinewebfonts.com/c/01173b246d9d9ea808ea75a26b3b61bb?family=Circular+Spotify+Tx+T+Black);
+
+    @font-face {
+        font-family: "Circular Spotify Tx T Black";
+        src: url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.eot");
+        src: url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.eot?#iefix") format("embedded-opentype"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.woff2") format("woff2"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.woff") format("woff"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.ttf") format("truetype"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.svg#Circular Spotify Tx T Black") format("svg");
     }
 
-    .artistCol:hover {
-        background: rgb(206, 205, 205);
-        cursor: pointer;
+
+    .album-text {
+        color: white;
+        margin-top: 50px;
+        padding-left: 10px;
+        position: absolute;
+        padding-left: 230px;
     }
 
-    .hoverCursor {
-        cursor: pointer;
-    }
-
-    .hidden {
-        visibility: hidden;
-        display: none;
+    .artist-heading-text {
+        font-size: 60px;
     }
 </style>
-
-<!-- Page Content -->
-<div style='text-align:center'>
-
-    <br> <br>
-    <!-- Chosen Artist Display Box (Hidden By Default) -->
-    <div id='chosenArtistDisplay' class='hidden'>
-        Generating Data For Artist:<br>
-        <button id='cancelButton' onClick="cancel()" class='hoverCursor'>Cancel</button>
-        <!-- -->
-        <div id='artistDisplay' class="container" style='display:flex; width:fit-content;'>
-            <div class='row border'>
-                <!-- left: artist image -->
-                <div class="col"
-                    style='float: left;padding: 15px;margin: 0px;margin-left: 0px;padding-left: 0px;left: 0px;'>
-                    <img style='width:100px; height:100px;' class='img-fluid'
-                        src="https://i.scdn.co/image/e69f71e2be4b67b82af90fb8e9d805715e0684fa">
-                </div>
-                <!-- right: artist name (top) / popularity (bottom) -->
-                <div class="col">
-                    <div class="row" style="left: 0px;margin-left: 0px;padding-left: 0px;text-align: left;">
-                        <div class="col">Artist Name</div>
-                        <div class="w-100"></div>
-                        <div class="col">Popularity: 10x</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Artist Search Input And Button -->
-    <div style='display:block;'>
-        <h3>Search For An Artist:</h3>
-        <br>
-        <input type="text" id="artistSearch"><button id='artistSearchButton' class='hoverCursor'>Search</button>
-        <br> <br>
-    </div>
-
-    <!-- Artists Search Loading/Status Display -->
-    <div id='artistSearchLoading' class='hidden'>
-        <div>
-            <div class="spinner-border spinner-border-sm " role="status">
-                <span class="sr-only"> Loading...</span>
-            </div>Loading...
-        </div>
-    </div>
-
-    <!-- Artist Search Results Display -->
-    <div id="artistSearchResults" class="container" style='display:block;'>
-        Search For A Spotify Artist
-    </div>
-
-    <!-- Popularify data display -->
-    <div id='popularifyDisplay'>
-
-    </div>
-
-    <!-- footer ; legacy login & artist uri search -->
-    <div id='footer' style='display:block;'>
-        <br>
-        <h3>Login:</h3><a href="/spotifyLogin" class="button">Login</a>
-
-        <br>
-        loggedIn={{loggedIn}}
-        <br>
-        access_token=<div id='access_token'>{{access_token}}</div>
-        <br>
-
-        <h3>Enter Spotify Artist URI</h3>
-        <input size="22" type="text" placeholder='Spotify URI' name="url" id="uriInput">
-        <button style="cursor: pointer;" name="data" type="button"
-            onclick="submitUri(document.getElementById('uriInput').value); ">Submit</button>
-    </div>
-
-</div>
-
-<script type="text/javascript">
-    let globalAccesToken = null;
-    //when uri button is submitted
-    async function submitUri(uri) {
-        uri = 'spotify:artist:3x3jSlhyv5CiCZDZlaTq0M'
-        console.log('submitUri() uri = ', uri)
-        try {
-            let artistData = await getArtistData(uri)
-            console.log('submitUri() artistData=', artistData)
-        } catch (err) {
-            console.log('submitUri() err=', err)
-        }
-    }
-
-    //get artist data sorted by popularitty
-    async function getArtistData(uri) {
-        return new Promise(function (resolve, reject) {
-            $.ajax({
-                type: 'POST',
-                url: '/spotifyApi',
-                data: {
-                    uri: uri,
-                    access_token: document.getElementById('access_token').innerText
-                },
-            }).then((resp) => {
-                //if (resp.status == 400) {
-                //    console.log('/discogsAPI res.status=400, resp = ', resp)
-                //}
-                resolve(resp)
-            }).catch((err) => {
-                console.log('getArtistData() err = ', err)
-                reject(err)
-            });
-        });
-    }
-
-    //search spotify for artist, and get dropdown results
-    async function getArtistSearchResults(input) {
-        return new Promise(function (resolve, reject) {
-            $.ajax({
-                type: 'POST',
-                url: '/spotifySearch',
-                data: {
-                    input: input,
-                },
-            }).then((resp) => {
-                resolve(resp)
-            }).catch((err) => {
-                reject(err)
-            });
-        });
-    }
-
-    async function getAccessToken() {
-        return new Promise(function (resolve, reject) {
-            $.ajax({
-                type: 'POST',
-                url: '/getAccessToken',
-                //data: { id: artistId,},
-            }).then((resp) => {
-                resolve(resp)
-            }).catch((err) => {
-                reject(err)
-            });
-        })
-    }
-
-    //convert data obj to html element
-    async function formatArtistResultsAsHTML(artistSearchResults) {
-        return new Promise(function (resolve, reject) {
-            //sort data via popularity
-            artistSearchResults = artistSearchResults.sort((a, b) => parseFloat(b.popularity) - parseFloat(a.popularity));
-
-            //create row div
-            var rowDiv = document.createElement("div");
-            rowDiv.setAttribute('class', 'row')
-
-            //create col element for each artist search result
-            for (var x = 0; x < artistSearchResults.length; x++) {
-                //get important data variables
-                let artistName = artistSearchResults[x].name;
-                let artistImg = "../../static/assets/img/spotifyArtistUnknown.jpg";
-                if (artistSearchResults[x].images.length >= 1) {
-                    artistImg = artistSearchResults[x].images[0].url
-                }
-                let artistPopularity = artistSearchResults[x].popularity;
-                let artistId = artistSearchResults[x].id;
-                //construct html
-                var colDiv = document.createElement("div");
-                colDiv.setAttribute('class', 'col w-100 border artistCol')
-                colDiv.setAttribute('artistid', `${artistId}`)
-                colDiv.setAttribute('onClick', `selectArtist({
-                    artistName:"${artistName}",
-                    artistPopularity:"${artistPopularity}",
-                    artistImg:"${artistImg}",
-                    artistId: "${artistId}"
-                })`)
-
-                colDiv.innerHTML = `
-                <div style="float:left;" >
-                    <img style='width:100px; height:100px;' class='img-fluid' src="${artistImg}">  
-                </div> 
-                <div class='col artistColText'>
-                    <div class='row artistRowText' style="padding-left:20px; float:left" > 
-                        ${artistName}
-                    </div>
-                    
-                    <div class='row artistRowText' style='float:right'>
-                        Popularity: ${artistPopularity}
-                    </div>
-                   
-                </div> 
-                `
-                var dividerDiv = document.createElement('div')
-                dividerDiv.setAttribute('class', 'w-100')
-
-                //add col element to row element
-                rowDiv.appendChild(colDiv)
-                //add divider element
-                rowDiv.appendChild(dividerDiv)
-
-            }
-            //return constructed html
-            //var tempReturn = document.createElement("div");
-            //tempReturn.innerText = 'temp'
-            resolve(rowDiv)
-        })
-    }
-
-    //if cancel button is clicked
-    function cancel() {
-        //remove preexisting artist display element from page
-        var artistDisplayObj = document.getElementById('artistDisplay')
-        artistDisplayObj.remove();
-        //clear popularifyDisplay
-        document.getElementById('popularifyDisplay').innerHTML = '';
-    }
-
-    //display popularify data to the user
-    async function displayPopularifyData(popularifyData) {
-        //clear popularify data in browser localstorage
-        //store popularify data in browser localstorage
-        //clear popularifyDisplay
-        document.getElementById('popularifyDisplay').innerHTML = '';
-
-        //build and display table
-
-        document.getElementById('popularifyDisplay').innerText = `${popularifyData.toString()}`;
-
-    }
-
-    //construct html displaying the selected artist, and add it to page
-    async function displaySelectedArtist(input) {
-
-        //construct html element (include x button top right)
-
-        var artistDisplayDiv = document.createElement("div");
-        artistDisplayDiv.setAttribute('id', 'artistDisplay')
-        artistDisplayDiv.setAttribute('class', 'container')
-        artistDisplayDiv.setAttribute('style', `display:flex; width:fit-content`)
-        artistDisplayDiv.innerHTML = `
-                <div class='row border'>
-                    <!-- left: artist image -->
-                    <div class="col" style='float: left;padding: 15px;margin: 0px;margin-left: 0px;padding-left: 0px;left: 0px;'>    
-                        <img style='width:100px; height:100px;' class='img-fluid' src="${input.artistImg}">  
-                    </div>
-                    <!-- right: artist name (top) / popularity (bottom) -->
-                    <div class="col" >
-                        <div class="row" style="left: 0px;margin-left: 0px;padding-left: 0px;text-align: left;">
-                            <div class="col">${input.artistName}</div>
-                            <div class="w-100"></div>
-                            <div class="col">Popularity: ${input.artistPopularity}</div>
-                        </div>
-                    </div>
-                </div>
-                `;
-
-        //remove preexisting element from page
-        var artistDisplayObj = document.getElementById('artistDisplay')
-        artistDisplayObj.remove();
-        //add new html element to page
-        document.getElementById('chosenArtistDisplay').appendChild(artistDisplayDiv)
-        //make visible
-        var element = document.getElementById("chosenArtistDisplay");
-        element.classList.remove("hidden");
-
-
-    }
-
-    //when user clicks artist: begin getting Popularify data and displaying it to user
-    async function selectArtist(input) {
-        console.log('selectArtist = ', input)
-
-        //display loading 
-        $("#artistSearchLoading").show();
-
-        //clear artist search results
-        document.getElementById('artistSearchResults').innerText = '';
-
-        //display info about selected artist
-        displaySelectedArtist(input)
-
-        //begin generating data 
-        let popularifyData = await getPopularifyData(input.artistId)
-
-        //once artist data has been generated, display it
-        displayPopularifyData(popularifyData)
-
-        //hide loading 
-        $("#artistSearchLoading").hide();
-
-        console.log('popularifyData compelted: ', popularifyData)
-    }
-
-    async function getPopularifyData(artistId) {
-        return new Promise(async function (resolve, reject) {
-
-            var startDate = new Date();
-
-            let returnObj = {};
-            let albumIds = [];
-            ////////////////////////////////////////////////////
-            // Get all artist albums 
-            ////////////////////////////////////////////////////
-
-            //make initial request for albums
-            let initialAlbums = await getArtistAlbums(artistId, 0, false)
-            total = initialAlbums.total;
-            albumIds.push(initialAlbums.items)
-
-            //make additional queries if needed
-            console.log(`generatePopularifyData() Artist has ${total} albums. We have ${initialAlbums.items.length} so far and need to get ${total - (initialAlbums.items.length)} more`);
-            let artistAlbumsPromises = [];
-            for (var x = 20; x < total; x += 20) {
-                artistAlbumsPromises.push(getArtistAlbums(artistId, x, true))
-            }
-
-            //complete promises
-            let finishedArtistAlbumsPromises = await Promise.all(artistAlbumsPromises);
-
-            //combine initialAlbums.items with finishedArtistAlbumsPromises
-            let allAlbums = finishedArtistAlbumsPromises
-            allAlbums.push(initialAlbums.items)
-
-            //combine initial query with additional queries
-            let albumsObj = {}
-            //organize initialAlbums by album_group: album_type
-            for (var x = 0; x < allAlbums.length; x++) {
-                for (var y = 0; y < allAlbums[x].length; y++) {
-                    //get vars
-                    let albumGroup = allAlbums[x][y]['album_group']
-                    let albumType = allAlbums[x][y]['album_type']
-                    //if albumsObj.album_group does not exist, create it
-                    if (!albumsObj[`${albumGroup}`]) {
-                        albumsObj[`${albumGroup}`] = {}
-                    }
-                    //if albumsObj.album_group.album_type does not exist, create it
-                    if (!albumsObj[`${albumGroup}`][`${albumType}`]) {
-                        albumsObj[`${albumGroup}`][`${albumType}`] = []
-                    }
-                    //add album to albumsObj
-                    albumsObj[`${albumGroup}`][`${albumType}`].push(allAlbums[x][y])
-                    //console.log(`${x}-${y} ${albumGroup} ${albumType} ${allAlbums[x][y].name} ${allAlbums[x][y].artists[0].name}`, allAlbums[x][y])
-                }
-            }
-            //organize albumsObj into single list ordered by priority
-            console.log('albumsObj=',albumsObj)
-            let allAlbumsOrder = [];
-            let albumTypes=['album','single','compilation','appears_on']
-            for(var x = 0; x<albumTypes.length; x++){
-                for(var y=0; y<albumTypes.length; y++){
-                    //console.log(`${albumTypes[x]} - ${albumTypes[y]}`)
-                    try{ 
-                        allAlbumsOrder = allAlbumsOrder.concat(albumsObj[`${albumTypes[x]}`][`${albumTypes[y]}`] ? albumsObj[`${albumTypes[x]}`][`${albumTypes[y]}`] : [])
-                    }catch(err){}
-                }
-            }
-            console.log(`albumsObj sorted by priority into allAlbumsOrder`)
-            ////////////////////////////////////
-            // Get tracklist data for each album 20 albumIds at a time
-            // Priority List: album_group:'album','single','compilation','appears_on':album_type:'album','single','compilation'
-            ////////////////////////////////////
-            retryIn=1;
-            const albumTracklistPromises = [];
-            let multipleAlbumsQueryLimit = 20;
-            for (var x = 0; x < allAlbumsOrder.length; x += multipleAlbumsQueryLimit) {
-                let start = x;
-                let end = x + multipleAlbumsQueryLimit;
-                if (end > allAlbumsOrder.length) {
-                    end = allAlbumsOrder.length;
-                }
-                //slice list of albums we want to get info about
-                var albumsSliced = allAlbumsOrder.slice(start, end).map(i => {
-                    return i.id;
-                });
-
-                console.log(` getAllArtistAlbums() get data from albums from ${start} to ${end} `)
-                albumTracklistPromises.push(getAlbums(albumsSliced, 0, `start:${start}, end:${end}`));
-            }
-            console.log('created list of promises for getting tracklist data for each album')
-            //run promises to get album info
-            var albumTracklistPromisesFinished = await Promise.all(albumTracklistPromises);        
-            retryIn=1;
-            console.log('albumTracklistPromisesFinished=',albumTracklistPromisesFinished)
-
-            ////////////////////////////////////
-            // make sure we have complete tracklist for every album
-            // parse albumTracklistPromisesFinished() where each object has a list of albums
-            ////////////////////////////////////
-            let allAlbumTracks = []
-            //for each response containing at max 20 albums
-            for (var x = 0; x < albumTracklistPromisesFinished.length; x++) {
-                //console.log('x=',x)
-                //for each album
-                for (var y = 0; y < albumTracklistPromisesFinished[x].albums.length; y++) {
-                    //console.log('   y=',y)
-
-                    //get vars from album
-                    let currentAlbumId = albumTracklistPromisesFinished[x].albums[y].id;
-                    let currentAlbumTracks = albumTracklistPromisesFinished[x].albums[y].tracks.items;
-                    let tracksTotal = albumTracklistPromisesFinished[x].albums[y].tracks.total;
-                    //console.log(`for album, we have ${currentAlbumTracks.length} tracks out of ${tracksTotal}`)
-                    //console.log(`album total tracks:${albumTracklistPromisesFinished[x].albums[y].tracks.total}, current number of tracks:`,albumTracklistPromisesFinished[x].albums[y].tracks.items) 
-                    //if there are more tracks then get them
-                    while (currentAlbumTracks.length < tracksTotal) {
-                        console.log(`   need to get more tracks, we have ${currentAlbumTracks.length} and need ${tracksTotal}`)
-                        let additionalAlbumInfo = await getAlbumTracks(currentAlbumId, currentAlbumTracks.length)
-                        //console.log('   additionalAlbumInfo=',additionalAlbumInfo)
-                        let additionalAlbumTracks = additionalAlbumInfo.items
-                        //console.log('found these new tracks:', additionalAlbumInfo.items)
-
-                        currentAlbumTracks = currentAlbumTracks.concat(additionalAlbumTracks)
-                        //console.log('   currentAlbumTracks.length is now ', currentAlbumTracks.length)
-                        //console.log('   got more tracks, length now at:', additionalAlbumInfo.items)
-                    }
-                    //console.log('now we have all tracks: ',currentAlbumTracks)
-                    //concatenate all tracks to list
-                    allAlbumTracks = allAlbumTracks.concat(currentAlbumTracks)
-                }
-            }
-            retryIn=1;
-           
-            console.log('get popularity fo all tracks: ', allAlbumTracks)
-           
-            ////////////////////////////////////
-            // Fetch additional data (popularity) for each track (50 at a time)
-            ////////////////////////////////////
-            let tempSlices = []
-            const trackInfoPromises = [];
-            let multipleTracksQueryLimit = 50;
-            var tracks = [];
-            retryIn=1;
-            try{
-                for (var x = 0; x < allAlbumTracks.length; x += multipleTracksQueryLimit) {
-                    let start = x;
-                    let end = x + multipleTracksQueryLimit;
-                    if (end > allAlbumTracks.length) {
-                        end = allAlbumTracks.length;
-                    }
-                    //slice list of albums we want to get info about
-                    console.log(`slice tracks from ${start} to ${end} out of ${allAlbumTracks.length} in total`)
-                    var tracksSliced = allAlbumTracks.slice(start, end).map(i => {
-                        return i.id;
-                    });
-                    tempSlices.push(tracksSliced)
-
-                    //returnObj.tracksSliced = returnObj.tracksSliced.push(tracksSliced)
-                    trackInfoPromises.push(getTracks(tracksSliced));
-                }
-                console.log('begin completing track data promises')
-                //run promises to get album info
-                var trackInfoPromisesFinished=[]
-                try{
-                    trackInfoPromisesFinished = await Promise.all(trackInfoPromises);
-                }catch(err){
-                    console.log('err caught completing trackInfoPromisesFinished')
-                }
-                console.log('finished completing track data promises, no sort by popularity')
-                //concatenate results into single list since getTracks() returns 50 at a time
-                for (var i = 0; i < trackInfoPromisesFinished.length; i++) {
-                    tracks = tracks.concat(trackInfoPromisesFinished[i].tracks)
-                }
-            }catch(err){
-                console.log('err=',err)
-            }
-            
-
-            console.log('tracks=',tracks)
-            //sort by popularity
-            tracks=tracks.sort((a, b) => (a.popularity > b.popularity) ? 1 : -1)
-            console.log('sorted tracks=',tracks)
-
-            // Do your operations
-            var endDate   = new Date();
-            var seconds = (endDate.getTime() - startDate.getTime()) / 1000;
-            console.log('took this many seconds: ', seconds)
-
-            //
-            //  Return final data
-            //
-            returnObj = {
-                //allAlbums: allAlbums,
-                //albumsObj: albumsObj,
-                //allAlbumsOrder: allAlbumsOrder,
-                //albumsSliced:albumsSliced,
-                //albumTracklistPromisesFinished:albumTracklistPromisesFinished,
-                //allAlbumTracks:allAlbumTracks,
-                allAlbumTracks:allAlbumTracks //complete tracklist for every release
-            }
-
-            resolve(returnObj)
-        })
-    }
-
-    //
-    // spotify api calls
-    //
-
-
-
-    let retryIn = 1;
-    const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
-
-    async function getTracks(tracks) {
-        return new Promise(async function (resolve, reject) {
-            let didRequestErr = false;
-            console.log('getTracks() tracks[0]=',tracks[0], ', didRequestErr=',didRequestErr)
-            try{
-                $.ajax({
-                    url: '	https://api.spotify.com/v1/tracks',
-                    type: 'GET',
-                    dataType: "json",
-                    async:false,
-                    contentType: 'application/json',
-                    headers: {
-                        'Authorization': 'Bearer ' + globalAccesToken,
-                    },
-                    data: {
-                        ids:encodeURI(tracks),
-                    },
-                    success: function(data, textStatus, jqXHR) {
-                        
-                        console.log('getTracks() tracks[0]=',tracks[0], 'success, data=',data,', didRequestErr=',didRequestErr)
-                        if(data.error){
-                            console.log('getTracks() err =',error)
-                        }else{
-                            resolve(data)
-                        }
-                    },
-                    xhr: function(){
-                        var xhr = new window.XMLHttpRequest();
-                        xhr.addEventListener("error", function(evt){
-                            console.log("getTracks() an error occured");
-                            
-                            //didRequestErr=true;
-                        }, false);
-                        xhr.addEventListener("abort", function(){
-                            //console.log("getTracks() cancelled");
-                            
-                            didRequestErr=true;
-                        }, false);
-                        return xhr;
-                    },
-                    error: function (err) {
-                        didRequestErr=true
-                        console.log("getTracks() AJAX error in request. tracks[0]=",tracks[0],", err=" + JSON.stringify(err, null, 2), '\n didRequestErr=',didRequestErr);
-                        throw 'woah'
-                    },
-                    statusCode: {
-                        429: async function() {
-                            console.log('getTracks() 429 hit ')
-                            didRequestErr=true
-                        }
-                    }
-                    
-                }).fail(async function(err){
-                    console.log('getTracks() .fail, retryIn=',retryIn, ', err =',err)
-                    
-                        didRequestErr=true;
-                })
-                
-            }catch(err){
-                console.log('getTracks() err try/catch caught. retryIn=',retryIn, ', err=',err)
-               
-                didRequestErr=true;
-            }
-            console.log('getTracks() tracks[0]=',tracks[0],'. call finished. didRequestErr=',didRequestErr)
-            if(didRequestErr){
-                console.log('getTracks() tracks[0]=',tracks[0],'. didRequestErr=true, so retry. waiting for 7 ms')
-                await delay(7*1000)
-                retryIn=retryIn+1;
-                resolve(await getTracks(tracks))
-            }
-
-        })
-    }
-
-
-
-    //get multiple
-    async function getAlbumTracks(albumId, offset=0, limit=50, retry=0) {
-        //console.log(`getAlbumTracks() albumId=${albumId}, offset=${offset}, limit=${limit}, retry=${retry}`)
-        return new Promise(async function (resolve, reject) {
-            try{
-                $.ajax({
-                    url: `https://api.spotify.com/v1/albums/${albumId}/tracks`,
-                    type: 'GET',
-                    contentType: 'application/json',
-                    headers: {
-                        'Authorization': 'Bearer ' + globalAccesToken,
-                    },
-                    data: {
-                        id:encodeURI(albumId),
-                        offset:encodeURI(offset),
-                        limit:encodeURI(limit),
-                    }
-                }).done(function callback(response) {
-                    //console.log('getAlbumTracks() rsp')
-                    resolve(response)
-                }).fail(async function (err) {
-                    console.log('getAlbumTracks() err')
-                    console.log('getAlbumTracks() retryIn=',retryIn)
-                    console.log(`getAlbumTracks() ERR waiting for ${retryIn*1000} seconds`)
-                    await delay(retryIn*1000)
-                    retryIn=retryIn+1;
-                    resolve(await getAlbumTracks(albumId, offset, limit, ++retry))
-                });
-            }catch(err){
-                //console.log('err caught:',err)
-            }
-        })
-    }
-
-    //get more info for an album or multiple albums at once (20 at a time)
-    async function getAlbums(ids, retry=0, status) {
-        return new Promise(async function (resolve, reject) {
-            console.log(`getAlbums() ids=`,ids,` retry=${retry}, status=${status}`)
-            let didRequestErrAlbums = false;
-            try{
-                $.ajax({
-                    url: `https://api.spotify.com/v1/albums`,
-                    type: 'GET',
-                    dataType: "json",
-                    async:false,
-                    contentType: 'application/json',
-                    headers: {
-                        'Authorization': 'Bearer ' + globalAccesToken,
-                    },
-                    data: {
-                        ids: encodeURI(ids),
-                    },
-                    xhr: function(){
-                        var xhr = new window.XMLHttpRequest();
-                        xhr.addEventListener("error", function(evt){
-                            console.log("getAlbums() an error occured");
-                        }, false);
-                        xhr.addEventListener("abort", function(){
-                            console.log("getAlbums() cancelled");
-                        }, false);
-
-                        return xhr;
-                    },
-                    error: function (err) {
-                        console.log("getAlbums() AJAX error in request: " + JSON.stringify(err, null, 2));
-                        didRequestErrAlbums=true
-                        console.log("getAlbums() AJAX didRequestErrAlbums=",didRequestErrAlbums)
-                        throw 'ajax err'
-                    }
-                }).done(function callback(response) {
-                    console.log(`getAlbums() response=`,response)
-                    resolve(response)
-                    //}
-                });
-            }catch(err){
-                console.log('getAlbums() err caught: ',err)
-                didRequestErrAlbums=true
-            }
-
-            if(didRequestErrAlbums){
-                console.log('getAlbums() didRequestErrAlbums==true')
-                await delay(7*1000)
-                retryIn=retryIn+1;
-                resolve(await getAlbums(ids, ++retry, status))
-            }
-        })
-    }
-
-    async function getArtistAlbums(artistId, offset = 0, onlyReturnTracks = false) {
-        return new Promise(async function (resolve, reject) {
-            $.ajax({
-                url: `https://api.spotify.com/v1/artists/${artistId}/albums`,
-                type: 'GET',
-                contentType: 'application/json',
-                headers: {
-                    'Authorization': 'Bearer ' + globalAccesToken,
-                },
-                data: {
-                    offset: offset,
-                }
-            }).done(function callback(response) {
-                if (onlyReturnTracks) {
-                    resolve(response.items)
-                } else {
-                    resolve(response)
-                }
-            }).fail(async function (error) {
-                console.log(`getArtistAlbums() retryIn=${retryIn}, err=`,error)
-                await delay(retryIn*1000)
-                retryIn=retryIn+1;
-                resolve(await getArtistAlbums(artistId, offset, onlyReturnTracks))
-            });
-        })
-    }
-
-
-    $(document).ready(function () {
-        setAccessToken()
-        async function setAccessToken() {
-            let accessToken = await getAccessToken()
-            globalAccesToken = accessToken
-        }
-
-        async function spotifySearch(searchStr) {
-            return new Promise(async function (resolve, reject) {
-                $.ajax({
-                    url: `https://api.spotify.com/v1/search`,
-                    type: 'GET',
-                    contentType: 'application/json',
-                    headers: {
-                        'Authorization': 'Bearer ' + globalAccesToken,
-                    },
-                    data: {
-                        q: `${searchStr}`,
-                        type: 'artist'
-                    }
-                }).done(function callback(response) {
-                    resolve(response.artists.items)
-
-                }).fail(function (error) {
-                    console.log("spotifySearch(): err=", error);
-                    reject(error)
-                });
-            })
-        }
-
-        //make a query to search for artists 
-        async function searchForArtists(artistStr) {
-            return new Promise(async function (resolve, reject) {
-                console.log(`searchForArtists(${artistStr})`)
-                //make spotify api query for artists
-                let artistSearchResults = await spotifySearch(artistStr)
-                //format artist results as html
-                let artistResultsHTML = await formatArtistResultsAsHTML(artistSearchResults)
-                //clear pre-existing artists search results display
-                document.getElementById('artistSearchResults').innerHTML = '';
-                //add to artists search results display
-                document.getElementById('artistSearchResults').appendChild(artistResultsHTML)
-            });
-        }
-
-        let artistSearchInProgress = false;
-        //when artist search text input field changes
-        $("#artistSearch").on("input", async function () {
-            let searchVal = $(this).val();
-            searchVal = searchVal.trim();
-            //verify search value is not blank
-            if (searchVal != "" && searchVal != " " && searchVal != null) {
-                $('#artistSearchResults').show();
-                //display loading 
-                $("#artistSearchLoading").show();
-                //begin search for artist
-                artistSearchInProgress = true;
-                let result = await searchForArtists(searchVal)
-                //once query is done, hide loading and set artistSearchInProgress = false
-                $("artistSearchLoading").hide();
-                artistSearchInProgress = false;
-            } else {
-                console.log('empty?')
-                //search box is empty so hide search results
-                $('#artistSearchResults').hide();
-            }
-        });
-
-        //artist search button is clicked
-        $("#artistSearchButton").click(async function () {
-
-            //get input text
-            let textInputField = document.getElementById('artistSearch').value;
-            console.log('searching for artists with name:', textInputField);
-
-            //make spotify api query for artists
-            let artistSearchResults = await getArtistSearchResults(textInputField)
-            console.log('artistSearchResults = ', artistSearchResults)
-
-            //format artist results as html
-            let artistResultsHTML = await formatArtistResultsAsHTML(artistSearchResults)
-            console.log('artistResultsHTML=', artistResultsHTML)
-            //display html on page
-            document.getElementById('artistSearchResults').innerHTML = '';
-            document.getElementById('artistSearchResults').appendChild(artistResultsHTML)
-        });
-    });
-
-</script>
-
-</html>
