@@ -57,7 +57,7 @@
 
     <div class="row body-row">
 
-        <table id="tracklistTable" class="display" ></table>
+        <table id="tracklistTable" class="" ></table>
 
     </div>
 
@@ -195,18 +195,43 @@
         font-family: SpotifyCircularThin !important;
     }
 
+    /* border-bottom: 0.1px solid rgb(179, 179, 179); */
     table.dataTable thead th {
-        /* border-bottom: 0.1px solid rgb(179, 179, 179); */
-        color: rgb(179, 179, 179);
+        color: rgb(220, 217, 217);
     }
     
-    table.dataTable thead th {
-        border-bottom: 0;
+
+    td:first-child{
+        -moz-border-radius:10px 0 0 10px;
+        -webkit-border-radius:10px 0 0 10px;
     }
+    td:last-child{
+        -moz-border-radius:0 10px 10px 0;
+        -webkit-border-radius:0 10px 10px 0;
+    }
+
+    table#tracklistTable tr:hover{
+        background:rgb(113, 128, 134) !important;
+    }
+    
+    /*
+    thead:hover{
+        background:none !important;
+    }
+    */
+
+    tbody tr {
+        height: 55px !important; 
+    }
+
+    /* tracklist table header bottom line */
+    table.dataTable thead th {
+        border-bottom: 1px solid rgb(220, 217, 217);
+    }
+
     table.dataTable tfoot th {
         border-top: 0;
     }
-
 
     #tracklistTable_wrapper{
         width: 100% !important;
@@ -219,13 +244,9 @@
         padding-left:40px !important;
         padding-right:40px !important; 
     }
-
+    
     table.dataTable.no-footer {
         border-bottom: 0 !important;
-    }
-
-    th {
-        border-bottom: 1px solid rgb(156, 25, 25);
     }
 
     td {
