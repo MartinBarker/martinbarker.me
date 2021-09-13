@@ -33,9 +33,99 @@
 
 </head>
 
+<!-- nav bar -->
+<nav class="navbar navbar-expand-sm navbar-light bg-light">
+    <a class="navbar-brand" href="#">
+        <img src="https://www.freepnglogos.com/uploads/spotify-logo-png/spotify-download-logo-30.png" width="30"
+            height="30" class="d-inline-block align-top" alt="">
+        Popularify
+    </a>
+    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarTogglerDemo02"
+        aria-controls="navbarTogglerDemo02" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarTogglerDemo02">
+        <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
+            <li class="nav-item active">
+                <a class="nav-link" href="#">Home <span class="sr-only">(current)</span></a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#">About</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link " href="#">Contribute</a>
+            </li>
+        </ul>
+
+        <!-- right align -->
+        <ul class="navbar-nav my-2 my-lg-0">
+            <li class="nav-item">
+                <a class="nav-link " href="#">Login</a>
+            </li>
+        </ul>
+
+    </div>
+</nav>
+
+<!-- View 1: Initial Page (Search/Artist Selection) -->
 <div class="container">
 
-    <div class="row header-row">
+    <div class="row header-row-init">
+
+        <!-- Artist Search Input Area -->
+        <div id="artist-search" class="form-group has-search my-auto mx-auto">
+            <!-- instructional text -->
+            <p id="artist-search-text">Search for an artist</p>
+            <!-- artist search input text -->
+            <span class="fa fa-search form-control-feedback"></span>
+            <input id="artist-search-input" type="text" class="form-control" placeholder="Search">
+            <!-- search input loading spinner -->
+            <i id="artist-search-spinner" style="position:relative; float:right"
+                class="fa fa-spinner fa-pulse fa-3x fa-fw hidden"></i>
+            <span class="sr-only">Loading...</span>
+
+            <!-- Artist Search Results -->
+            <div class="container">
+                <div class="row" style="color:white; background:lightcoral">
+                    <div class="col">Lady Gaga</div>
+                    <div class="col">Popularity: 77</div>
+                    <div class="w-100"></div>
+                    <div class="col">Radiohead</div>
+                    <div class="col">Popularity: 77</div>
+                </div>
+            </div>
+
+
+        </div>
+
+        <!-- Artist Search Results 
+        <div class="d-flex flex-row my-auto mx-auto" style="color:white">
+          artist search result
+          </br>
+          artist search result
+          </br>
+          artist search result
+          </br>
+          artist search result
+          </br>
+        </div>
+        -->
+        
+        <!-- Initial Page Info / About -->
+        <div>
+            <p id="artist-info-text">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor
+                incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco
+                laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate
+                velit esse cillum</p>
+        </div>
+    </div>
+</div>
+
+<!-- View 2: Results -->
+<div class="container" hidden>
+
+    <div class="row header-row-results">
 
         <div class="container-fluid">
             <div class="row">
@@ -57,7 +147,7 @@
 
     <div class="row body-row">
 
-        <table id="tracklistTable" class="" ></table>
+        <table id="tracklistTable" class=""></table>
 
     </div>
 
@@ -67,6 +157,45 @@
 </div>
 
 <script>
+
+    //wait x milliseconds (debug function)
+    const delay = ms => new Promise(res => setTimeout(res, ms));
+
+    // When artist input text field changes
+    $("#artist-search-input").on("input", async function () {
+        let searchVal = $(this).val();
+        searchVal = searchVal.trim();
+        //verify search value is not blank
+        if (searchVal != "" && searchVal != " " && searchVal != null) {
+            console.log('artist search input changed: ', searchVal)
+            //display loading spinner
+            $('#artist-search-spinner').show()
+            //wait 5 seconds
+
+            console.log('before delay')
+            await delay(5000);
+            console.log('after delay')
+
+            //hide loading spinner 
+            $('#artist-search-spinner').hide()
+
+            /*
+            $('#artist-search-inputResults').show();
+            //display loading 
+            $("#artist-search-inputLoading").show();
+            //begin search for artist
+            artist-search-inputInProgress = true;
+            let result = await searchForArtists(searchVal)
+            //once query is done, hide loading and set artist-search-inputInProgress = false
+            $("artist-search-inputLoading").hide();
+            artist-search-inputInProgress = false;
+            */
+        } else {
+            //console.log('empty?')
+            //search box is empty so hide search results
+            //$('#artist-search-inputResults').hide();
+        }
+    });
 
     /*
             Pink Floyd 1
@@ -117,7 +246,7 @@
             //get 50% lighter version of Vibrant
             let brighterVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, 0.5);
             //update header css gradient 
-            document.getElementsByClassName('header-row')[0].style.background = `linear-gradient(0deg, rgb(18,18,18) -86%, ${brighterVibrant})`;
+            document.getElementsByClassName('header-row-results')[0].style.background = `linear-gradient(0deg, rgb(18,18,18) -86%, ${brighterVibrant})`;
             //get 60% darker version of Vibrant
             let darkerVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, -0.6);
             //update body css gradient
@@ -191,6 +320,75 @@
         src: url("/static/assets/fonts/AvenirLTStd-Black.otf") format("opentype");
     }
 
+    .hidden {
+        position: relative;
+        display: none;
+    }
+
+    #artist-search-spinner {
+        position: relative;
+        float: right;
+        top: -32px;
+        right: 5px;
+        font-size: 25px;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus,
+    button:focus {
+        outline: none;
+    }
+
+    input.middle:focus {
+        outline-width: 0;
+    }
+
+    #artist-info-text {
+        color: white;
+        font-size: 15px;
+        padding: 20%;
+    }
+
+    #artist-search-input {
+        outline: none;
+        box-shadow: none;
+    }
+
+    #artist-search {
+        margin-top: 20px !important;
+    }
+
+    #artist-search-text {
+        color: white;
+        font-size: 55px;
+    }
+
+    .navbar {
+        min-height: 60px !important;
+        padding-top: 0px;
+        padding-bottom: 0px;
+    }
+
+    /* Bootstrap 4 text input with search icon */
+    .has-search .form-control {
+        padding-left: 2.375rem;
+        border-radius: 50px;
+        border: none;
+    }
+
+    .has-search .form-control-feedback {
+        position: absolute;
+        z-index: 2;
+        display: block;
+        width: 2.375rem;
+        height: 2.375rem;
+        line-height: 2.375rem;
+        text-align: center;
+        pointer-events: none;
+        color: #aaa;
+    }
+
     table {
         font-family: SpotifyCircularThin !important;
     }
@@ -199,29 +397,28 @@
     table.dataTable thead th {
         color: rgb(220, 217, 217);
     }
-    
 
-    td:first-child{
-        -moz-border-radius:10px 0 0 10px;
-        -webkit-border-radius:10px 0 0 10px;
-    }
-    td:last-child{
-        -moz-border-radius:0 10px 10px 0;
-        -webkit-border-radius:0 10px 10px 0;
+
+    td:first-child {
+        -moz-border-radius: 10px 0 0 10px;
+        -webkit-border-radius: 10px 0 0 10px;
     }
 
-    table#tracklistTable tr:hover{
-        background:rgb(113, 128, 134) !important;
+    td:last-child {
+        -moz-border-radius: 0 10px 10px 0;
+        -webkit-border-radius: 0 10px 10px 0;
     }
-    
-    /*
-    thead:hover{
-        background:none !important;
+
+    table#tracklistTable tr:hover {
+        background: rgb(151, 165, 170) !important;
     }
-    */
+
+    table#tracklistTable thead tr:hover {
+        background: none !important;
+    }
 
     tbody tr {
-        height: 55px !important; 
+        height: 55px !important;
     }
 
     /* tracklist table header bottom line */
@@ -233,18 +430,18 @@
         border-top: 0;
     }
 
-    #tracklistTable_wrapper{
+    #tracklistTable_wrapper {
         width: 100% !important;
     }
 
     #tracklistTable {
         color: white;
-        width:100%; 
-        padding-top:50px; 
-        padding-left:40px !important;
-        padding-right:40px !important; 
+        width: 100%;
+        padding-top: 50px;
+        padding-left: 40px !important;
+        padding-right: 40px !important;
     }
-    
+
     table.dataTable.no-footer {
         border-bottom: 0 !important;
     }
@@ -257,8 +454,6 @@
         background: transparent !important;
     }
 
-
-
     body {
         font-family: 'SpotifyCircular';
     }
@@ -267,7 +462,12 @@
         max-width: 100%;
     }
 
-    .header-row {
+    .header-row-init {
+        height: 100%;
+        background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954);
+    }
+
+    .header-row-results {
         background: linear-gradient(0deg, rgb(18, 18, 18) -86%, rgb(106, 174, 212));
         padding: 50px;
     }
