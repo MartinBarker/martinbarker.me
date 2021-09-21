@@ -8,10 +8,15 @@ const Post = require('../database/models/Post.js');
 //connect to mongodb
 var mongodbutil = require('../static/assets/js/mongodbutils');
 var db = mongodbutil.getDb();
+
 //spotify api file
-var spotifyApiLogic = require('../static/assets/js/spotifyApiLogic');
+//var spotifyApiLogic = require('../static/assets/js/spotifyApiLogic');
+
 //spotify auth file
 var spotifyAuth = require('../static/assets/js/spotifyAuth');
+
+//final spotify auth file
+//var finalSpotifyAuth = require('../static/assets/js/finalSpotifyAuth');
 
 //global vars
 allBlogPosts = []

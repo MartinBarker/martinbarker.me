@@ -3,15 +3,12 @@
 ////////////////////////////////////////
 var SpotifyWebApi = require('spotify-web-api-node');
 const fs = require('fs');
-var spotifyTokens = require('../js/spotifyTokens');
+var spotifyTokens = require('./finalSpotifyTokens');
 let sessions = {}
 let sessionsStatus = {}
 let spotifyApps = {}
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
-
-
-
 
 ////////////////////////////////////////
 //init authentication setup functions
@@ -19,18 +16,28 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 //create spotify applications
 createSpotifyApplications()
+
 async function createSpotifyApplications() {
-    for (const [key, value] of Object.entries(spotifyTokens)) {
-        let clientId = value.clientId
-        let clientSecret = value.clientSecret
+    console.log("calling init createSpotifyApplications() function ")
+    //for (const [key, value] of Object.entries(spotifyTokens)) {
+
+        //get clientID and clientSecret
+        let clientId = spotifyTokens.clientId
+        let clientSecret = spotifyTokens.clientSecret
+        //create new spotifyApp object with spotify node web api
         var spotifyApp = await new SpotifyWebApi({
             clientId: clientId,
             clientSecret: clientSecret,
             redirectUri: 'http://localhost:8080/callback'
         });
-        spotifyApps[`${key}`] = spotifyApp
-    }
-    await authenticateAllSessions2()
+        //store active spotify app inside spotifyApps[] list
+        spotifyApps[`Popularify-app1`] = spotifyApp
+    //}
+    //authenticate session
+    await newauthSession(spotifyApp, `Popularify-app1`)
+        
+
+    //await authenticateAllSessions2()
 }
 
 //authenticate session for each app
@@ -49,6 +56,40 @@ async function authenticateAllSessions2() {
 ///utility functions
 ////////////////////////////////////////
 
+async function newauthSession(spotifyApp, sessionCredsName){ //(spotifyAppName, refreshToken, sessionCredsName) {
+    return new Promise(async function (resolve, reject) {
+        try {
+            //get spotifyApp
+            //let spotifyApp=spotifyApps[`${spotifyAppName}`]
+            //set refresh token
+            spotifyApp.setRefreshToken(spotifyTokens[`Popularify-app1`]['sessions']['martinbarker99']['refresh_token']);
+            const data = await spotifyApp.refreshAccessToken();
+            //get access token and expiresIn
+            var accessToken = data.body['access_token'];
+            var expiresIn = data.body['expires_in'];
+            spotifyApp.setAccessToken(accessToken);
+
+            sessions[`${sessionCredsName}`] = spotifyApp;
+            sessionsStatus[`${sessionCredsName}`] = 'active';
+
+            setInterval(async () => {
+                try {
+                    const data = await spotifyApp.refreshAccessToken();
+                    expiresIn = data.body['expires_in'];
+                    accessToken = data.body['access_token'];
+                    console.log('newauthSession() The access token has been refreshed! interval=', expiresIn / 2 * 1000);
+
+                } catch (err) {
+                    console.log('newauthSession() interval auth err=', err)
+                }
+            }, expiresIn / 2 * 1000);
+            resolve()
+        } catch (err) {
+            console.log('newauthSession() initial auth err=', err)
+        }
+    })
+}
+
 //authenticate a session and add it to sessions{} object as 'active'
 async function authSession(spotifyAppName, refreshToken, sessionCredsName) {
     return new Promise(async function (resolve, reject) {
@@ -63,14 +104,13 @@ async function authSession(spotifyAppName, refreshToken, sessionCredsName) {
 
             sessions[`${sessionCredsName}`] = spotifyApp;
             sessionsStatus[`${sessionCredsName}`] = 'active';
-            console.log(`${new Date().getTime()} authSession() expiresIn: `, expiresIn)
+
             setInterval(async () => {
-                console.log(`${new Date().getTime()} authSession() interval begin `)
                 try {
                     const data = await spotifyApp.refreshAccessToken();
                     expiresIn = data.body['expires_in'];
                     accessToken = data.body['access_token'];
-                    console.log('authSession() The access token has been refreshed! refresh in: ', expiresIn / 2 * 1000);
+                    console.log('authSession() The access token has been refreshed!');
 
                 } catch (err) {
                     console.log('authSession() interval auth err=', err)

@@ -61,7 +61,20 @@
         <!-- right align -->
         <ul class="navbar-nav my-2 my-lg-0">
             <li class="nav-item">
-                <a class="nav-link " href="#">Login</a>
+
+                <a class="nav-link" href="#">
+                    <img src="../../static/assets/img/user.png" width="25" height="25" class="d-inline-block align-top"
+                        alt="">
+                    Login
+                </a>
+
+                <!--
+                <div>
+                    <img src="../../static/assets/img/user.jpg" width="10" height="10" class="d-inline-block align-top" alt="">
+                 
+                    <a class="nav-link " href="#">Login</a>
+                </div>
+                -->
             </li>
         </ul>
 
@@ -87,37 +100,29 @@
 
             <!-- Artist Search Results -->
             <div class="container">
-                <div class="row" style="color:white; background:lightcoral">
+
+                <div class="row artist-row" style="">
+                    <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                        class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
                     <div class="col">Lady Gaga</div>
                     <div class="col">Popularity: 77</div>
-                    <div class="w-100"></div>
-                    <div class="col">Radiohead</div>
+                </div>
+
+                <div class="row artist-row" style="color:white; background:lightcoral">
+                    <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                        class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
+                    <div class="col">Lady Gaga</div>
                     <div class="col">Popularity: 77</div>
                 </div>
+
             </div>
 
-
         </div>
 
-        <!-- Artist Search Results 
-        <div class="d-flex flex-row my-auto mx-auto" style="color:white">
-          artist search result
-          </br>
-          artist search result
-          </br>
-          artist search result
-          </br>
-          artist search result
-          </br>
-        </div>
-        -->
-        
         <!-- Initial Page Info / About -->
         <div>
-            <p id="artist-info-text">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor
-                incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco
-                laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate
-                velit esse cillum</p>
+            <p id="artist-info-text">Search and select an artist to organize their entire discography by Popularity,
+                which you can then save and share to your own Spotify library.</p>
         </div>
     </div>
 </div>
@@ -157,9 +162,60 @@
 </div>
 
 <script>
+    let globalAccesToken = null;
+
+    $(document).ready(function () {
+
+        initializeDatatable()
+
+        setAccessToken()
+        async function setAccessToken() {
+            let accessToken = await getAccessToken()
+            globalAccesToken = accessToken
+        }
+
+        async function getAccessToken() {
+            return new Promise(function (resolve, reject) {
+                $.ajax({
+                    type: 'POST',
+                    url: '/getAccessToken'
+                }).then((resp) => {
+                    resolve(resp)
+                }).catch((err) => {
+                    reject(err)
+                });
+            })
+        }
+
+    });
+
 
     //wait x milliseconds (debug function)
     const delay = ms => new Promise(res => setTimeout(res, ms));
+
+    async function spotifySearch(searchStr) {
+        console.log(`spotifySearch(${searchStr})`)
+        return new Promise(async function (resolve, reject) {
+            $.ajax({
+                url: `https://api.spotify.com/v1/search`,
+                type: 'GET',
+                contentType: 'application/json',
+                headers: {
+                    'Authorization': 'Bearer ' + globalAccesToken,
+                },
+                data: {
+                    q: `${searchStr}`,
+                    type: 'artist'
+                }
+            }).done(function callback(response) {
+                resolve(response.artists.items)
+
+            }).fail(function (error) {
+                console.log("spotifySearch(): err=", error);
+                reject(error)
+            });
+        })
+    }
 
     // When artist input text field changes
     $("#artist-search-input").on("input", async function () {
@@ -168,28 +224,20 @@
         //verify search value is not blank
         if (searchVal != "" && searchVal != " " && searchVal != null) {
             console.log('artist search input changed: ', searchVal)
+            
             //display loading spinner
             $('#artist-search-spinner').show()
-            //wait 5 seconds
-
-            console.log('before delay')
-            await delay(5000);
-            console.log('after delay')
+            
+            //get search results
+            let artistSearchResults = await spotifySearch(searchVal)
+            console.log('artistSearchResults=',artistSearchResults)
+            
+            //display search results
+            await displaySearchResults(artistSearchResults)
 
             //hide loading spinner 
             $('#artist-search-spinner').hide()
 
-            /*
-            $('#artist-search-inputResults').show();
-            //display loading 
-            $("#artist-search-inputLoading").show();
-            //begin search for artist
-            artist-search-inputInProgress = true;
-            let result = await searchForArtists(searchVal)
-            //once query is done, hide loading and set artist-search-inputInProgress = false
-            $("artist-search-inputLoading").hide();
-            artist-search-inputInProgress = false;
-            */
         } else {
             //console.log('empty?')
             //search box is empty so hide search results
@@ -206,9 +254,13 @@
             
     */
 
-    $(document).ready(function () {
-        initializeDatatable()
-    });
+    async function displaySearchResults(artistData){
+        return new Promise(async function (resolve, reject) {
+            //clear html
+            //create new html
+            //display html
+        })
+    }
 
     async function initializeDatatable() {
         var dataSet = [
@@ -320,6 +372,12 @@
         src: url("/static/assets/fonts/AvenirLTStd-Black.otf") format("opentype");
     }
 
+    .artist-row {
+        align-items: center;
+        color: white;
+        background: lightcoral;
+    }
+
     .hidden {
         position: relative;
         display: none;
@@ -348,6 +406,7 @@
         color: white;
         font-size: 15px;
         padding: 20%;
+        padding-top: 10%;
     }
 
     #artist-search-input {
@@ -361,7 +420,8 @@
 
     #artist-search-text {
         color: white;
-        font-size: 55px;
+        font-size: 10vw;
+        padding-left: 10px;
     }
 
     .navbar {
