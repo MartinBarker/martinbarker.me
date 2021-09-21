@@ -82,17 +82,21 @@
 </nav>
 
 <!-- View 1: Initial Page (Search/Artist Selection) -->
-<div class="container">
+<div class="container init-page-container">
 
-    <div class="row header-row-init">
+    <div class="row header-row-init h-100">
 
         <!-- Artist Search Input Area -->
-        <div id="artist-search" class="form-group has-search my-auto mx-auto">
+        <div id="artist-search" class="form-group has-search ">
             <!-- instructional text -->
             <p id="artist-search-text">Search for an artist</p>
             <!-- artist search input text -->
             <span class="fa fa-search form-control-feedback"></span>
             <input id="artist-search-input" type="text" class="form-control" placeholder="Search">
+
+            <!-- artist search clear x button -->
+            <svg id="artist-search-clear" height="24" role="img" width="24" viewBox="0 0 24 24" class="hidden hover-mouse"><path d="M4.93,4.93,19.07,19.07m-14.14,0L19.07,4.93" fill="none" stroke="currentColor" stroke-miterlimit="10"></path></svg>
+            
             <!-- search input loading spinner -->
             <i id="artist-search-spinner" style="position:relative; float:right"
                 class="fa fa-spinner fa-pulse fa-3x fa-fw hidden"></i>
@@ -100,7 +104,8 @@
 
             <!-- Artist Search Results -->
             <div class="container">
-
+                <div id="artist-search-results"></div>
+<!--
                 <div class="row artist-row" style="">
                     <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
                         class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
@@ -114,13 +119,13 @@
                     <div class="col">Lady Gaga</div>
                     <div class="col">Popularity: 77</div>
                 </div>
-
+-->
             </div>
 
         </div>
 
         <!-- Initial Page Info / About -->
-        <div>
+        <div class="container">
             <p id="artist-info-text">Search and select an artist to organize their entire discography by Popularity,
                 which you can then save and share to your own Spotify library.</p>
         </div>
@@ -217,33 +222,59 @@
         })
     }
 
+    //when clear text input id is clicked
+    $('#artist-search-clear').click(function(){
+        //clear input value
+        document.getElementById('artist-search-input').value='';
+        //call function to handle changed artist-search-input
+        artistInputChanged()
+    });
+
     // When artist input text field changes
     $("#artist-search-input").on("input", async function () {
-        let searchVal = $(this).val();
-        searchVal = searchVal.trim();
-        //verify search value is not blank
-        if (searchVal != "" && searchVal != " " && searchVal != null) {
-            console.log('artist search input changed: ', searchVal)
-            
-            //display loading spinner
-            $('#artist-search-spinner').show()
-            
-            //get search results
-            let artistSearchResults = await spotifySearch(searchVal)
-            console.log('artistSearchResults=',artistSearchResults)
-            
-            //display search results
-            await displaySearchResults(artistSearchResults)
+        //call function to handle changed artist-search-input
+        artistInputChanged()
 
-            //hide loading spinner 
-            $('#artist-search-spinner').hide()
-
-        } else {
-            //console.log('empty?')
-            //search box is empty so hide search results
-            //$('#artist-search-inputResults').hide();
-        }
     });
+
+    async function artistInputChanged(){
+        try{
+            let searchVal = $("#artist-search-input").val();
+            searchVal = searchVal.trim();
+            //verify search value is not blank
+            if (searchVal != "" && searchVal != " " && searchVal != null) {
+                console.log('artist search input changed: ', searchVal)
+                
+                //display loading spinner
+                //$('#artist-search-spinner').show()
+
+                //display clear search button
+                $('#artist-search-clear').show()
+                
+                //get search results
+                let artistSearchResults = await spotifySearch(searchVal)
+                console.log('artistSearchResults=',artistSearchResults)
+
+                //clear search results html
+                document.getElementById(`artist-search-results`).innerHTML="";
+
+                //display search results
+                await displaySearchResults(artistSearchResults)
+
+                //hide loading spinner 
+                //$('#artist-search-spinner').hide()
+
+            } else {
+                //search box is empty so clear search results
+                document.getElementById(`artist-search-results`).innerHTML="";
+                //hide clear earch button
+                $('#artist-search-clear').hide()
+            }
+        }catch(err){
+            console.log('artistInputChanged() err=', err)
+
+        }
+    }
 
     /*
             Pink Floyd 1
@@ -256,9 +287,32 @@
 
     async function displaySearchResults(artistData){
         return new Promise(async function (resolve, reject) {
-            //clear html
+            //sort data via popularity
+            artistData = artistData.sort((a, b) => parseFloat(a.popularity) - parseFloat(b.popularity));
+
             //create new html
+            let newHTMLcontent='';
+            for(var i = 0; i < artistData.length; i++){
+                //get artist data
+                let artistName = artistData[i].name
+                let artistPopularity = artistData[i].popularity
+                let artistId = artistData[i].id
+                let artistImage = artistData[i].images[0] ? artistData[i].images[0].url : "../../static/assets/img/spotifyArtistUnknown.jpg"
+                //construct html row
+                let htmlRow = `
+                <div class="row artist-row hover-mouse" >
+                    <img src="${artistImage}"
+                        class="img-responsive artist-results-album-art" alt="${artistName} image" width="50px" height="50px">
+                    <div class="col">${artistName}</div>
+                    <div class="col">Popularity: ${artistPopularity}</div>
+                </div>
+                `;
+                //add html row to new html content
+                newHTMLcontent=`${htmlRow}${newHTMLcontent}`
+            }
             //display html
+            document.getElementById(`artist-search-results`).innerHTML=`${newHTMLcontent}`;
+            resolve()
         })
     }
 
@@ -372,15 +426,48 @@
         src: url("/static/assets/fonts/AvenirLTStd-Black.otf") format("opentype");
     }
 
+    #artist-search-results{
+        padding-top: 25px;
+    }
+
+    .artist-results-album-art{
+        border-radius: 50%;
+    }
+
+    .hover-mouse{
+        cursor: pointer;
+    }
+
+    .init-page-container{
+        width:100%;
+        padding:0px;
+        margin:0px;
+    }
+
     .artist-row {
         align-items: center;
         color: white;
-        background: lightcoral;
+        margin-bottom: 5px;
+        border: 1px white solid;
+        border-radius: 25px;
+    }
+
+    .artist-row:hover{
+        background:white;
+        color:black;
     }
 
     .hidden {
         position: relative;
         display: none;
+    }
+
+    #artist-search-clear{
+        position: relative;
+        float: right;
+        top: -32px;
+        right: 5px;
+        font-size: 25px; 
     }
 
     #artist-search-spinner {
@@ -415,19 +502,20 @@
     }
 
     #artist-search {
+        max-width: 93vw !important;
+        min-width: 93vw !important;
+        padding-right: 10px;
         margin-top: 20px !important;
     }
 
     #artist-search-text {
         color: white;
         font-size: 10vw;
-        padding-left: 10px;
     }
 
     .navbar {
-        min-height: 60px !important;
-        padding-top: 0px;
-        padding-bottom: 0px;
+        padding-top: 5px;
+        padding-bottom: 5px;
     }
 
     /* Bootstrap 4 text input with search icon */
@@ -523,8 +611,13 @@
     }
 
     .header-row-init {
-        height: 100%;
+        /* height: 100%; */
         background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954);
+        margin:0px;
+        padding:0px;
+        padding-left: 3vw;
+        padding-right: 3vw;
+        
     }
 
     .header-row-results {
@@ -541,6 +634,7 @@
     .album-art {
         /* box-shadow: [horizontal offset] [vertical offset] [blur radius] [optional spread radius] [color]; */
         box-shadow: 0px 0px 100px -23px rgb(18, 18, 18);
+        
     }
 
     @import url(//db.onlinewebfonts.com/c/01173b246d9d9ea808ea75a26b3b61bb?family=Circular+Spotify+Tx+T+Black);
