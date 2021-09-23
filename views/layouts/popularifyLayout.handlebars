@@ -9,6 +9,9 @@
         integrity="sha384-cs/chFZiN24E4KMATLdqdvsezGxaGsi4hLGOzlXwp5UZB1LY//20VyM2taTB4QvJ"
         crossorigin="anonymous"></script>
 
+    <!-- jQuery  -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+
     <!-- Bootstrap JS -->
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/js/bootstrap.min.js"
         integrity="sha384-uefMccjFJAIv6A+rW+L4AHf99KvxDjWSu1z9VI8SKNVmz4sk7buKt/6v9KI65qnm"
@@ -17,9 +20,6 @@
     <!-- bootstrap css-->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
         integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
-
-    <!-- jQuery  -->
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
 
     <!-- font-awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
@@ -30,8 +30,37 @@
     <!-- datatables js -->
     <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.11.1/datatables.min.js"></script>
 
-
 </head>
+
+<button type="button" class="btn btn-primary" data-toggle="modal" data-target="#rate-limit-warning-popup">
+    Launch demo modal
+</button>
+
+<!-- Modal -->
+<div class="modal fade" id="rate-limit-warning-popup" tabindex="-1" role="dialog"
+    aria-labelledby="rate-limit-warning-popupLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="rate-limit-warning-popupLabel">API Rate Limit Exceeded</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                Users who don't login to their own Spotify account will have to all share one single Spotify account to
+                make API calls. <br>
+                In this case your session is starting to get rate limited because too many people are making requests.
+                <br>
+                Either wait a minute and try again, or login to your Spotify account to get more API calls.<br>
+            </div>
+            <div class="modal-footer">
+                <button type="button" onClick="openLoginPopup()" class="btn btn-primary">Login</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- nav bar -->
 <nav class="navbar navbar-expand-sm navbar-light bg-light">
@@ -95,17 +124,16 @@
             <input id="artist-search-input" type="text" class="form-control" placeholder="Search">
 
             <!-- artist search clear x button -->
-            <svg id="artist-search-clear" height="24" role="img" width="24" viewBox="0 0 24 24" class="hidden hover-mouse"><path d="M4.93,4.93,19.07,19.07m-14.14,0L19.07,4.93" fill="none" stroke="currentColor" stroke-miterlimit="10"></path></svg>
-            
-            <!-- search input loading spinner -->
-            <i id="artist-search-spinner" style="position:relative; float:right"
-                class="fa fa-spinner fa-pulse fa-3x fa-fw hidden"></i>
-            <span class="sr-only">Loading...</span>
+            <svg id="artist-search-clear" height="24" role="img" width="24" viewBox="0 0 24 24"
+                class="hidden hover-mouse">
+                <path d="M4.93,4.93,19.07,19.07m-14.14,0L19.07,4.93" fill="none" stroke="currentColor"
+                    stroke-miterlimit="10"></path>
+            </svg>
 
             <!-- Artist Search Results -->
             <div class="container">
                 <div id="artist-search-results"></div>
-<!--
+                <!--
                 <div class="row artist-row" style="">
                     <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
                         class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
@@ -169,6 +197,29 @@
 <script>
     let globalAccesToken = null;
 
+            async function getSpotifyLoginURL() {
+            return new Promise(function (resolve, reject) {
+                $.ajax({
+                    type: 'GET',
+                    url: '/getSpotifyLoginURL'
+                }).then((resp) => {
+                    resolve(resp)
+                }).catch((err) => {
+                    reject(err)
+                });
+            })
+        }
+
+        async function openLoginPopup(){
+        console.log('openLoginPopup')
+        let AUTHORIZATION_URL = await getSpotifyLoginURL()
+        popup = window.open(
+            AUTHORIZATION_URL,
+            'Login with Spotify',
+            'width=800,height=600'
+        );
+    }
+
     $(document).ready(function () {
 
         initializeDatatable()
@@ -192,12 +243,27 @@
             })
         }
 
+        async function openLoginPopup2() {
+            console.log('openLoginPopup()')
+            let AUTHORIZATION_URL = await getSpotifyLoginURL()
+            popup = window.open(
+                AUTHORIZATION_URL,
+                'Login with Spotify',
+                'width=800,height=600'
+            )
+        }
+
+
+
     });
 
 
     //wait x milliseconds (debug function)
     const delay = ms => new Promise(res => setTimeout(res, ms));
 
+    let artistSearchInProgress = false;
+
+    //artist search 
     async function spotifySearch(searchStr) {
         console.log(`spotifySearch(${searchStr})`)
         return new Promise(async function (resolve, reject) {
@@ -223,9 +289,9 @@
     }
 
     //when clear text input id is clicked
-    $('#artist-search-clear').click(function(){
+    $('#artist-search-clear').click(function () {
         //clear input value
-        document.getElementById('artist-search-input').value='';
+        document.getElementById('artist-search-input').value = '';
         //call function to handle changed artist-search-input
         artistInputChanged()
     });
@@ -237,43 +303,56 @@
 
     });
 
-    async function artistInputChanged(){
-        try{
+    async function artistInputChanged() {
+        try {
             let searchVal = $("#artist-search-input").val();
             searchVal = searchVal.trim();
             //verify search value is not blank
-            if (searchVal != "" && searchVal != " " && searchVal != null) {
+            if (searchVal != "" && searchVal != " " && searchVal != null && searchVal.length >= 2) {
                 console.log('artist search input changed: ', searchVal)
-                
-                //display loading spinner
-                //$('#artist-search-spinner').show()
 
                 //display clear search button
                 $('#artist-search-clear').show()
-                
+
                 //get search results
-                let artistSearchResults = await spotifySearch(searchVal)
-                console.log('artistSearchResults=',artistSearchResults)
+                artistSearchInProgress = true
+                let artistSearchResults = null;
+                try {
+                    artistSearchResults = await spotifySearch(searchVal)
+                } catch (err) {
+                    artistSearchInProgress = false;
+                    //if search failed because of 429 (api rate limit exceeded)
+                    if (err.status === 429) {
+                        //open api rate limit popup message
+                        displayRateLimitWarning()
+                    }
+                }
+                console.log('artistSearchResults=', artistSearchResults)
+                artistSearchInProgress = false;
 
                 //clear search results html
-                document.getElementById(`artist-search-results`).innerHTML="";
+                document.getElementById(`artist-search-results`).innerHTML = "";
 
-                //display search results
-                await displaySearchResults(artistSearchResults)
-
-                //hide loading spinner 
-                //$('#artist-search-spinner').hide()
+                //if artistSearchResults is not null, display search results
+                if (artistSearchResults) {
+                    await displaySearchResults(artistSearchResults)
+                }
 
             } else {
                 //search box is empty so clear search results
-                document.getElementById(`artist-search-results`).innerHTML="";
+                document.getElementById(`artist-search-results`).innerHTML = "";
                 //hide clear earch button
                 $('#artist-search-clear').hide()
             }
-        }catch(err){
+        } catch (err) {
             console.log('artistInputChanged() err=', err)
 
         }
+    }
+
+    async function displayRateLimitWarning() {
+        //reveal html element
+        $('#rate-limit-warning-popup').modal('toggle')
     }
 
     /*
@@ -285,14 +364,14 @@
             
     */
 
-    async function displaySearchResults(artistData){
+    async function displaySearchResults(artistData) {
         return new Promise(async function (resolve, reject) {
             //sort data via popularity
             artistData = artistData.sort((a, b) => parseFloat(a.popularity) - parseFloat(b.popularity));
 
             //create new html
-            let newHTMLcontent='';
-            for(var i = 0; i < artistData.length; i++){
+            let newHTMLcontent = '';
+            for (var i = 0; i < artistData.length; i++) {
                 //get artist data
                 let artistName = artistData[i].name
                 let artistPopularity = artistData[i].popularity
@@ -308,10 +387,10 @@
                 </div>
                 `;
                 //add html row to new html content
-                newHTMLcontent=`${htmlRow}${newHTMLcontent}`
+                newHTMLcontent = `${htmlRow}${newHTMLcontent}`
             }
             //display html
-            document.getElementById(`artist-search-results`).innerHTML=`${newHTMLcontent}`;
+            document.getElementById(`artist-search-results`).innerHTML = `${newHTMLcontent}`;
             resolve()
         })
     }
@@ -426,22 +505,22 @@
         src: url("/static/assets/fonts/AvenirLTStd-Black.otf") format("opentype");
     }
 
-    #artist-search-results{
+    #artist-search-results {
         padding-top: 25px;
     }
 
-    .artist-results-album-art{
+    .artist-results-album-art {
         border-radius: 50%;
     }
 
-    .hover-mouse{
+    .hover-mouse {
         cursor: pointer;
     }
 
-    .init-page-container{
-        width:100%;
-        padding:0px;
-        margin:0px;
+    .init-page-container {
+        width: 100%;
+        padding: 0px;
+        margin: 0px;
     }
 
     .artist-row {
@@ -452,9 +531,9 @@
         border-radius: 25px;
     }
 
-    .artist-row:hover{
-        background:white;
-        color:black;
+    .artist-row:hover {
+        background: white;
+        color: black;
     }
 
     .hidden {
@@ -462,15 +541,7 @@
         display: none;
     }
 
-    #artist-search-clear{
-        position: relative;
-        float: right;
-        top: -32px;
-        right: 5px;
-        font-size: 25px; 
-    }
-
-    #artist-search-spinner {
+    #artist-search-clear {
         position: relative;
         float: right;
         top: -32px;
@@ -499,6 +570,7 @@
     #artist-search-input {
         outline: none;
         box-shadow: none;
+        padding-right: 30px;
     }
 
     #artist-search {
@@ -613,11 +685,11 @@
     .header-row-init {
         /* height: 100%; */
         background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954);
-        margin:0px;
-        padding:0px;
+        margin: 0px;
+        padding: 0px;
         padding-left: 3vw;
         padding-right: 3vw;
-        
+
     }
 
     .header-row-results {
@@ -634,7 +706,7 @@
     .album-art {
         /* box-shadow: [horizontal offset] [vertical offset] [blur radius] [optional spread radius] [color]; */
         box-shadow: 0px 0px 100px -23px rgb(18, 18, 18);
-        
+
     }
 
     @import url(//db.onlinewebfonts.com/c/01173b246d9d9ea808ea75a26b3b61bb?family=Circular+Spotify+Tx+T+Black);

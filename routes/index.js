@@ -481,6 +481,15 @@ app.get('/spotifyLogin', async function (req, res) {
   res.redirect(redirectURL);
 })
 
+app.get('/getSpotifyLoginURL', async function (req, res) {
+  try{
+    let redirectURL = await spotifyAuth.createRedirectURL()  
+    res.status(200).send(redirectURL)
+  }catch(err){
+    res.status(400).send(err)
+  }
+})
+
 app.get('/callback', async (req, res) => {
   try {
     const error = req.query.error;

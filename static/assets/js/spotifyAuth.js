@@ -314,6 +314,7 @@ async function searchArtists(searchStr) {
 //create redirect url
 async function createRedirectURL() {
     return new Promise(async function (resolve, reject) {
+        console.log('createRedirectURL()')
         //create scopes
         const scopes = [
             'ugc-image-upload',
@@ -337,8 +338,11 @@ async function createRedirectURL() {
             'user-follow-modify'
         ];
         //get spotify app
-        let spotifyApp = spotifyApps[`Popularify-app3`]
-        resolve(spotifyApp.createAuthorizeURL(scopes));
+        let spotifyApp = spotifyApps[`Popularify-app1`]
+        //get url
+        let url = spotifyApp.createAuthorizeURL(scopes)
+        //return url
+        resolve(url);
     })
 }
 
