@@ -10,7 +10,23 @@ let spotifyApps = {}
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
+//testing: make proxy ip request 
+const axios = require("axios");
 
+let httpsProxyAgent = require("https-proxy-agent");
+let user=`buwbgsdl`
+let pass=`cu8ogpft3ipc`
+let host=`209.127.191.180`
+let port=`9279`
+const agent = new httpsProxyAgent(`http://${user}:${pass}@${host}:${port}`);
+
+const config = {
+  method: "GET",
+  url,
+  httpsAgent: agent,
+};
+
+const resp = await axios.request(config);
 
 
 ////////////////////////////////////////

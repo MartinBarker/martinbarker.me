@@ -32,10 +32,6 @@
 
 </head>
 
-<button type="button" class="btn btn-primary" data-toggle="modal" data-target="#rate-limit-warning-popup">
-    Launch demo modal
-</button>
-
 <!-- Modal -->
 <div class="modal fade" id="rate-limit-warning-popup" tabindex="-1" role="dialog"
     aria-labelledby="rate-limit-warning-popupLabel" aria-hidden="true">
@@ -117,22 +113,37 @@
 
         <!-- Artist Search Input Area -->
         <div id="artist-search" class="form-group has-search ">
-            <!-- instructional text -->
-            <p id="artist-search-text">Search for an artist</p>
-            <!-- artist search input text -->
-            <span class="fa fa-search form-control-feedback"></span>
-            <input id="artist-search-input" type="text" class="form-control" placeholder="Search">
 
-            <!-- artist search clear x button -->
-            <svg id="artist-search-clear" height="24" role="img" width="24" viewBox="0 0 24 24"
-                class="hidden hover-mouse">
-                <path d="M4.93,4.93,19.07,19.07m-14.14,0L19.07,4.93" fill="none" stroke="currentColor"
-                    stroke-miterlimit="10"></path>
-            </svg>
+            <!-- instructional text -->
+            <p id="artist-search-text">Search for an artist to sort their discography by popularity</p>
+
+            <!-- artist search input -->
+
+    <div class="input-group mb-3">
+  <input type="text" id='artist-search-input' class="form-control" placeholder="Search">
+  <div class="input-group-append">
+    <button class="btn btn-dark" id='artist-search-button' style="border-radius: 0px 10px 10px 0px;" type="submit">Go</button>
+  </div>
+</div>
+
+      
 
             <!-- Artist Search Results -->
             <div class="container">
+
+                <!-- loading spinner -->
+                <div hidden id='artist-search-results-loading' style="margin-left: 50%;" class="spinner-border"
+                    role="status">
+                    <span class="sr-only">Loading...</span>
+                </div>
+
                 <div id="artist-search-results"></div>
+
+                <button type="button" class="btn btn-primary" data-toggle="modal"
+                    data-target="#rate-limit-warning-popup">
+                    Launch demo modal
+                </button>
+
                 <!--
                 <div class="row artist-row" style="">
                     <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
@@ -152,11 +163,6 @@
 
         </div>
 
-        <!-- Initial Page Info / About -->
-        <div class="container">
-            <p id="artist-info-text">Search and select an artist to organize their entire discography by Popularity,
-                which you can then save and share to your own Spotify library.</p>
-        </div>
     </div>
 </div>
 
@@ -197,20 +203,20 @@
 <script>
     let globalAccesToken = null;
 
-            async function getSpotifyLoginURL() {
-            return new Promise(function (resolve, reject) {
-                $.ajax({
-                    type: 'GET',
-                    url: '/getSpotifyLoginURL'
-                }).then((resp) => {
-                    resolve(resp)
-                }).catch((err) => {
-                    reject(err)
-                });
-            })
-        }
+    async function getSpotifyLoginURL() {
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'GET',
+                url: '/getSpotifyLoginURL'
+            }).then((resp) => {
+                resolve(resp)
+            }).catch((err) => {
+                reject(err)
+            });
+        })
+    }
 
-        async function openLoginPopup(){
+    async function openLoginPopup() {
         console.log('openLoginPopup')
         let AUTHORIZATION_URL = await getSpotifyLoginURL()
         popup = window.open(
@@ -241,6 +247,17 @@
                     reject(err)
                 });
             })
+        }
+
+        //if user hits enter key inside artist-search-input
+        document.getElementById('artist-search-input').onkeypress = function(e){
+            if (!e) e = window.event;
+            var keyCode = e.code || e.key;
+            if (keyCode == 'Enter'){
+                // Enter pressed
+                artistInputChanged()
+                return false;
+            }
         }
 
         async function openLoginPopup2() {
@@ -288,6 +305,12 @@
         })
     }
 
+    //when search artist is clicked
+    $('#artist-search-button').click(function () {
+        //call function to handle changed artist-search-input
+        artistInputChanged()
+    });
+
     //when clear text input id is clicked
     $('#artist-search-clear').click(function () {
         //clear input value
@@ -297,11 +320,12 @@
     });
 
     // When artist input text field changes
+    /*
     $("#artist-search-input").on("input", async function () {
         //call function to handle changed artist-search-input
         artistInputChanged()
-
     });
+    */
 
     async function artistInputChanged() {
         try {
@@ -311,8 +335,8 @@
             if (searchVal != "" && searchVal != " " && searchVal != null && searchVal.length >= 2) {
                 console.log('artist search input changed: ', searchVal)
 
-                //display clear search button
-                $('#artist-search-clear').show()
+                //display loading spinner
+                $('#artist-search-results-loading').show()
 
                 //get search results
                 artistSearchInProgress = true
@@ -328,6 +352,8 @@
                     }
                 }
                 console.log('artistSearchResults=', artistSearchResults)
+                //hide loading spinner
+                $('#artist-search-results-loading').hide()
                 artistSearchInProgress = false;
 
                 //clear search results html
@@ -509,6 +535,10 @@
         padding-top: 25px;
     }
 
+    #artist-search-button {
+        border-radius: 0px 10px 10px 0px;
+    }
+
     .artist-results-album-art {
         border-radius: 50%;
     }
@@ -560,17 +590,10 @@
         outline-width: 0;
     }
 
-    #artist-info-text {
-        color: white;
-        font-size: 15px;
-        padding: 20%;
-        padding-top: 10%;
-    }
-
     #artist-search-input {
-        outline: none;
-        box-shadow: none;
-        padding-right: 30px;
+     
+
+        
     }
 
     #artist-search {
@@ -582,12 +605,18 @@
 
     #artist-search-text {
         color: white;
-        font-size: 10vw;
+        font-size: 5vw;
+        text-align: center;
     }
 
     .navbar {
         padding-top: 5px;
         padding-bottom: 5px;
+    }
+
+    .fa-search {
+        left: 4vw;
+        padding-top: 1vw;
     }
 
     /* Bootstrap 4 text input with search icon */
