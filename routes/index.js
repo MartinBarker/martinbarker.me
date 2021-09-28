@@ -582,11 +582,12 @@ app.post('/spotifySearch', async function (req, res) {
 //get all tracks for an artist sorted by popularity
 app.post('/generatePopularifyData', async function (req, res) {
   //get artist id
-  let id = req.body.id;
+  let id = req.body.artistId;
+  let globalAccesToken = req.body.globalAccesToken
   //use api to get data
   let popularifyData = []
   try {
-    popularifyData = await spotifyAuth.generatePopularifyData(id);
+    popularifyData = await spotifyAuth.generatePopularifyData(id, globalAccesToken);
   } catch (err) {
     popularifyData = [];
   }

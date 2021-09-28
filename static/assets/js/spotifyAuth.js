@@ -111,13 +111,15 @@ async function getAccessToken(){
 //retrieve a session for making queries with 
 async function getSession(dontUseTheseCreds = []) {
     return new Promise(async function (resolve, reject) {
-        console.log('getSession() sessionsStatus = \n', sessionsStatus)
+        //console.log('getSession() sessionsStatus = \n', sessionsStatus)
+        
         //find a session to use
         let activeSessionFound = false;
         for (const [key, value] of Object.entries(sessionsStatus)) {
             if (value == 'active') {
                 //console.log(`       getSession() ${key} session is active, so return it`)
                 activeSessionFound = true;
+                //https://www.twitch.tv/tsm_imperialhal
                 resolve({
                     session: sessions[`${key}`],
                     name: `${key}`
@@ -129,6 +131,7 @@ async function getSession(dontUseTheseCreds = []) {
         if (!activeSessionFound) {
             //console.log(`getSession() no active session found`)
         }
+        
     })
 
 }
@@ -142,7 +145,9 @@ async function handle429Err(sessionName, debugFunctionName) {
             //console.log(`handle429Err() ${debugFunctionName} setting ${sessionName} session to cooldown`)
             sessionsStatus[`${sessionName}`] = 'cooldown';
             //after 30 seconds, mark session as 'active'
-            await delay(7000)
+            console.log(`handle429Err() ${debugFunctionName} begin wait `)
+            await delay(15000)
+            console.log(`handle429Err() ${debugFunctionName} end wait `)
             //changeSessionStatus(sessionName, 'active', 1500)
             //setTimeout(function () {
             //    console.log(`handle429Err() ${debugFunctionName} setting ${sessionName} session to active`)
@@ -167,10 +172,52 @@ async function changeSessionStatus(sessionName, status, delayTime){
     console.log(`changeSessionStatus() ${sessionName} set to ${status} `)
 }
 
+async function proxyIPtest(globalAccesToken){
+    return new Promise(async function (resolve, reject) {
+        const axios = require("axios");
+
+        let httpsProxyAgent = require("https-proxy-agent");
+
+        let proxyuser = 'buwbgsdl';
+        let proxypass = 'cu8ogpft3ipc';
+        let proxyhost = '209.127.191.180';
+        let proxyport = '9279';
+        const agent = new httpsProxyAgent(`http://${proxyuser}:${proxypass}@${proxyhost}:${proxyport}`);
+        let url = 'https://api.spotify.com/v1/search'
+        const config = {
+          method: "GET",
+          url,
+          httpsAgent: agent,
+    
+            contentType: 'application/json',
+            headers: {
+                'Authorization': 'Bearer ' + globalAccesToken,
+            },
+            data: {
+                q: `gaga`,
+                type: 'artist'
+            }
+
+        };
+        
+        const resp2 = null;
+        try{
+            resp2 = await axios.request(config);
+        }catch(err){
+            console.log('err=',err)
+        }
+        resolve(resp2)
+    })
+}
+
 //generate popularify data
-async function generatePopularifyData(artistURI) {
+async function generatePopularifyData(artistURI, globalAccesToken) {
     return new Promise(async function (resolve, reject) {
         try {
+            console.log('\n\n generatePopularifyData() begin')
+            let tempResults = await proxyIPtest(globalAccesToken)
+            resolve(tempResults)
+            /*
             let returnObj = {};
             let albumIds = [];
             ////////////////////////////////////////////////////
@@ -287,6 +334,8 @@ async function generatePopularifyData(artistURI) {
             returnObj.tracks = tracks
 
             resolve(returnObj)
+            
+        */
         } catch (err) {
             console.log('generatePopularifyData() err=', err)
         }
@@ -558,9 +607,11 @@ async function getTracks(tracks) {
             }, async function (err) {
                 console.error('getTracks() err: ', err);
                 if (err.statusCode == 429) {
+                    console.error('getTracks() calling handle429Err()');
                     await handle429Err(useThisSessionName, 'getTracks()')
+                    console.error('getTracks() finished calling handle429Err()');
                     //rerun function
-                    return await getTracks(tracks);
+                    resolve(await getTracks(tracks));
                 }
                 //reject(err)
             });

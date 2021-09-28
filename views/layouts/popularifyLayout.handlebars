@@ -166,6 +166,10 @@
     </div>
 </div>
 
+
+            <!-- cancel artist popularify data, select new artist -->
+            <button id='changeArtistButton' type="button" class="btn btn-danger">Change Artist</button>
+
 <!-- View 2: Results -->
 <div id='view2-artist-loading' class="container" hidden>
 
@@ -184,8 +188,6 @@
                     <p id='artist-heading-description'>Your Information.</p>
                 </div>
             </div>
-            <!-- cancel artist popularify data, select new artist -->
-            <button id='changeArtistButton' type="button" class="btn btn-danger">Change Artist</button>
         </div>
 
 
@@ -462,7 +464,33 @@
         document.getElementById('view2-artist-loading').removeAttribute("hidden");
         
         //begin generating popularify data
-        let popularifyData = await getPopularifyData(artistId)
+        //let popularifyData = await getPopularifyData(artistId)
+        
+        var start = new Date().getTime();
+        let popularifyData = await getPopularifyDataBackend(artistId)
+        var end = new Date().getTime();
+        var time = end - start;
+        console.log('popularifyDataBackend() finished time:', time/1000)
+
+        console.log('popularifyDataBackend result = ', popularifyData)
+    }
+
+    //call backend to get popularify data
+    async function getPopularifyDataBackend(artistId){
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'post',
+                url: '/generatePopularifyData',
+                data: {
+                    artistId: artistId,
+                    globalAccesToken: globalAccesToken
+                },
+            }).then((resp) => {
+                resolve(resp)
+            }).catch((err) => {
+                reject(err)
+            });
+        })
     }
 
     //generate popularify data for an artist id 
@@ -855,6 +883,7 @@
             $.ajax({
                 type: 'POST',
                 url: '/getImageColors',
+                timeout:120000,
                 data: {
                     imgURL: imgURL
                 },
