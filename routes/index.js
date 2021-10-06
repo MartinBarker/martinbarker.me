@@ -518,7 +518,6 @@ app.post('/getImageColors', async function (req, res) {
 
   //get color swatches
   var swatches = await Vibrant.from(imgURL).getPalette()
-  console.log('swatches=',swatches)
   //format rbg and swatch type into list
   let colors = {}
   for (const [key, value] of Object.entries(swatches)) {
@@ -530,9 +529,6 @@ app.post('/getImageColors', async function (req, res) {
     var keyName = `${key}`
     colors[keyName] = { 'hex': hexColor, 'rgb': colorValue }
   }
-  console.log('colors=',colors)
-
-  console.log('returning')
   res.status(200).send(colors)
 });
 

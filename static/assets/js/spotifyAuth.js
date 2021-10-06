@@ -215,9 +215,10 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
     return new Promise(async function (resolve, reject) {
         try {
             console.log('\n\n generatePopularifyData() begin')
-            let tempResults = await proxyIPtest(globalAccesToken)
-            resolve(tempResults)
-            /*
+            
+            //let tempResults = await proxyIPtest(globalAccesToken)
+            //resolve(tempResults)
+            
             let returnObj = {};
             let albumIds = [];
             ////////////////////////////////////////////////////
@@ -253,6 +254,7 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             }
             console.log(`generatePopularifyData() found ${allAlbums.length} albums in total`)
 
+            
             ////////////////////////////////////
             // Get tracklist data for each albumId 20 albumIds at a time
             ////////////////////////////////////
@@ -333,9 +335,9 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             returnObj.tempSlices = tempSlices
             returnObj.tracks = tracks
 
+        
             resolve(returnObj)
             
-        */
         } catch (err) {
             console.log('generatePopularifyData() err=', err)
         }
@@ -593,7 +595,7 @@ async function getAlbumTracks(album, offset = 0, limit = 50) {
     })
 }
 
-async function getTracks(tracks) {
+async function getTracks(tracks, retry=1) {
     return new Promise(async function (resolve, reject) {
         //get session
         let useThisSessionRsp = await getSession()
@@ -605,13 +607,15 @@ async function getTracks(tracks) {
                 //console.log(data.body);
                 resolve(data.body)
             }, async function (err) {
-                console.error('getTracks() err: ', err);
+                console.error('getTracks() retry=',retry, ', err: ', err);
                 if (err.statusCode == 429) {
                     console.error('getTracks() calling handle429Err()');
-                    await handle429Err(useThisSessionName, 'getTracks()')
+                    await delay(3000*retry)
+                    ///await handle429Err(useThisSessionName, 'getTracks()')
                     console.error('getTracks() finished calling handle429Err()');
                     //rerun function
-                    resolve(await getTracks(tracks));
+                    retry=retry+1
+                    resolve(await getTracks(tracks, retry));
                 }
                 //reject(err)
             });
