@@ -8,6 +8,7 @@ const Post = require('../database/models/Post.js');
 //connect to mongodb
 var mongodbutil = require('../static/assets/js/mongodbutils');
 var db = mongodbutil.getDb();
+require('dotenv').config();
 
 //spotify api file
 //var spotifyApiLogic = require('../static/assets/js/spotifyApiLogic');
@@ -469,6 +470,98 @@ app.post('/getColors', async function (req, res) {
 /*
   Popularify / Spotify API routes
 */
+//proxy ip debug ip route
+app.post('/proxyiprequest', async function (req, res) {
+  const https = require('https')
+  try {
+
+    //get access token
+    let accessToken = await spotifyAuth.getAccessToken();
+
+    //create data
+    const data = JSON.stringify({
+      offset: 0,
+    })
+
+    //create options data obj
+    const options = {
+      host: "220.135.165.38",
+      port: 8080,
+
+      hostname: 'api.spotify.com',
+      path: '/v1/artists/1XqqyIQYMonHgllb1uysL3/albums',
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+      },
+    }
+
+    const req = https.request(options, res => {
+      console.log(`proxyiprequest() statusCode: ${res.statusCode}`)
+      res.on('data', d => {
+        process.stdout.write(d)
+      })
+    })
+
+    req.on('error', error => {
+      console.error('proxyiprequest() err=', error)
+    })
+
+    req.write(data)
+    req.end()
+
+    /*
+    //get access token
+    let accessToken = await spotifyAuth.getAccessToken();
+    //set artist (surkin)
+    let artistId='1XqqyIQYMonHgllb1uysL3'
+    //make artist album request with proxy ip
+    $.ajax({
+      url: `https://api.spotify.com/v1/artists/${artistId}/albums`,
+      type: 'GET',
+      contentType: 'application/json',
+      headers: {
+          'Authorization': 'Bearer ' + accessToken,
+      },
+      data: {
+          offset: 0,
+      }
+    }).done(function callback(response) {
+      console.log(`index.js getArtistAlbums() success response=`,response)
+      //if (onlyReturnTracks) {
+        //    resolve(response.items)
+        //} else {
+        //    resolve(response)
+        //}
+    }).fail(async function (error) {
+        console.log(`index.js getArtistAlbums() err=`,error)
+        //await delay(retryIn*1000)
+        //retryIn=retryIn+1;
+        //resolve(await getArtistAlbums(artistId, offset, onlyReturnTracks))
+    });
+    */
+
+    /*
+    var options = {
+      host: "165.227.35.11",
+      port: 80,
+      path: "http://www.google.com",
+      headers: {
+        Host: "www.google.com"
+      }
+    };
+    http.get(options, function (res) {
+      console.log('proxyiprequest() res.statusCode=', res.statusCode);
+      res.pipe(process.stdout);
+    });
+    */
+  } catch (err) {
+    console.log('proxyiprequest() err=', err)
+  }
+
+  res.send('success')
+})
+
 //popularify route
 app.get('/popularify', async function (req, res) {
   res.render('popularifyBody', {
@@ -482,10 +575,10 @@ app.get('/spotifyLogin', async function (req, res) {
 })
 
 app.get('/getSpotifyLoginURL', async function (req, res) {
-  try{
-    let redirectURL = await spotifyAuth.createRedirectURL()  
+  try {
+    let redirectURL = await spotifyAuth.createRedirectURL()
     res.status(200).send(redirectURL)
-  }catch(err){
+  } catch (err) {
     res.status(400).send(err)
   }
 })
@@ -514,11 +607,11 @@ app.get('/callback', async (req, res) => {
 app.post('/getImageColors', async function (req, res) {
   //get vars 
   let imgURL = req.body.imgURL;
-  console.log(`/getImageColors imgURL=${imgURL}`)
+  //console.log(`/getImageColors imgURL=${imgURL}`)
 
   //get color swatches
   var swatches = await Vibrant.from(imgURL).getPalette()
-  console.log('swatches=',swatches)
+  //console.log('swatches=', swatches)
   //format rbg and swatch type into list
   let colors = {}
   for (const [key, value] of Object.entries(swatches)) {
@@ -530,9 +623,9 @@ app.post('/getImageColors', async function (req, res) {
     var keyName = `${key}`
     colors[keyName] = { 'hex': hexColor, 'rgb': colorValue }
   }
-  console.log('colors=',colors)
+  //console.log('colors=', colors)
 
-  console.log('returning')
+  //console.log('returning')
   res.status(200).send(colors)
 });
 
@@ -579,16 +672,42 @@ app.post('/spotifySearch', async function (req, res) {
   res.status(200).send(searchResults)
 });
 
+//any route that starts with generatePopularifyData
+app.get(/^\/generatePopularifyData\/(.*)/, async function (req, res) {
+  res.connection.setTimeout(0);
+  
+  let id = req.params[0].split('/')[0];
+  let globalAccesToken = req.params[0].split('/')[1];
+  console.log(`/generatePopularifyData artistId=${id}, token=${globalAccesToken}`)
+  //use api to get data
+  let popularifyData = []
+  try {
+    console.log('/generatePopularifyData calling spotifyAuth.generatePopularifyData')
+    popularifyData = await spotifyAuth.generatePopularifyData(id, globalAccesToken);
+    console.log('/generatePopularifyData finished getting popularifyData sucesfully')
+  } catch (err) {
+    console.log('spotifyAuth.generatePopularifyData err=', err)
+    popularifyData = null;
+  }
+  if(popularifyData){
+    res.status(200).send(popularifyData)
+  }
+})
+
 //get all tracks for an artist sorted by popularity
-app.post('/generatePopularifyData', async function (req, res) {
+app.post('/generatePopularifyDatZ', async function (req, res) {
+  console.log('/generatePopularifyData route called')
   //get artist id
   let id = req.body.artistId;
   let globalAccesToken = req.body.globalAccesToken
   //use api to get data
   let popularifyData = []
   try {
+    console.log('/generatePopularifyData calling spotifyAuth.generatePopularifyData')
     popularifyData = await spotifyAuth.generatePopularifyData(id, globalAccesToken);
+    console.log('/generatePopularifyData finished getting popularifyData sucesfully')
   } catch (err) {
+    console.log('spotifyAuth.generatePopularifyData err=', err)
     popularifyData = [];
   }
   res.status(200).send(popularifyData)

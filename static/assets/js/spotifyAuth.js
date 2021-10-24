@@ -11,7 +11,7 @@ let spotifyApps = {}
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 //testing: make proxy ip request 
-async function proxyIPtest(){
+async function proxyIPtest() {
     /*
     const axios = require("axios");
     let httpsProxyAgent = require("https-proxy-agent");
@@ -56,7 +56,7 @@ async function authenticateAllSessions2() {
             console.log('authenticateAllSessions2() authenticate: ', key)
             await authSession(key, value['sessions']['martinbarker99']['refresh_token'], key)
         }
-        console.log('authenticateAllSessions2() finished, sessionsStatus=',sessionsStatus)
+        console.log('spotifyAuth() authenticateAllSessions2() finished, sessionsStatus=', sessionsStatus)
         resolve()
     })
 }
@@ -70,11 +70,13 @@ async function authSession(spotifyAppName, refreshToken, sessionCredsName) {
     return new Promise(async function (resolve, reject) {
         try {
             //get spotifyApp
-            let spotifyApp=spotifyApps[`${spotifyAppName}`]
+            let spotifyApp = spotifyApps[`${spotifyAppName}`]
             spotifyApp.setRefreshToken(refreshToken);
             const data = await spotifyApp.refreshAccessToken();
             var accessToken = data.body['access_token'];
             var expiresIn = data.body['expires_in'];
+            expiresIn = expiresIn * 1000;
+
             spotifyApp.setAccessToken(accessToken);
 
             sessions[`${sessionCredsName}`] = spotifyApp;
@@ -86,12 +88,12 @@ async function authSession(spotifyAppName, refreshToken, sessionCredsName) {
                     const data = await spotifyApp.refreshAccessToken();
                     expiresIn = data.body['expires_in'];
                     accessToken = data.body['access_token'];
-                    console.log('authSession() The access token has been refreshed! refresh in: ', expiresIn / 2 * 1000);
+                    console.log('authSession() The access token has been refreshed! refresh in: ', expiresIn);
 
                 } catch (err) {
                     console.log('authSession() interval auth err=', err)
                 }
-            }, expiresIn / 2 * 1000);
+            }, expiresIn);
             resolve()
         } catch (err) {
             console.log('authSession() initial auth err=', err)
@@ -99,11 +101,11 @@ async function authSession(spotifyAppName, refreshToken, sessionCredsName) {
     })
 }
 
-async function getAccessToken(){
+async function getAccessToken() {
     return new Promise(async function (resolve, reject) {
         let accessToken = sessions['Popularify-app1']['_credentials']['accessToken']
-        console.log('getAccessToken() accessToken=',accessToken)
-        
+        console.log('getAccessToken() accessToken=', accessToken)
+
         resolve(accessToken)
     })
 }
@@ -112,7 +114,7 @@ async function getAccessToken(){
 async function getSession(dontUseTheseCreds = []) {
     return new Promise(async function (resolve, reject) {
         //console.log('getSession() sessionsStatus = \n', sessionsStatus)
-        
+
         //find a session to use
         let activeSessionFound = false;
         for (const [key, value] of Object.entries(sessionsStatus)) {
@@ -131,7 +133,7 @@ async function getSession(dontUseTheseCreds = []) {
         if (!activeSessionFound) {
             //console.log(`getSession() no active session found`)
         }
-        
+
     })
 
 }
@@ -139,7 +141,7 @@ async function getSession(dontUseTheseCreds = []) {
 //handle 429 error for when a spotify app session has had too many requests and needs to go into cooldown
 async function handle429Err(sessionName, debugFunctionName) {
     return new Promise(async function (resolve, reject) {
-        try{
+        try {
             console.log(`handle429Err() ${debugFunctionName} too many requests, need to set this session as "cooldown" for 30 seconds`)
             //mark this session as in cooldown mode
             //console.log(`handle429Err() ${debugFunctionName} setting ${sessionName} session to cooldown`)
@@ -155,7 +157,7 @@ async function handle429Err(sessionName, debugFunctionName) {
             //}, 3000);
             //console.log(`handle429Err() done`)
             resolve()
-        }catch(err){
+        } catch (err) {
             //console.log('handle429Err() err=',err)
             reject()
         }
@@ -164,15 +166,15 @@ async function handle429Err(sessionName, debugFunctionName) {
 }
 
 //change sesion status after waiting
-async function changeSessionStatus(sessionName, status, delayTime){
+async function changeSessionStatus(sessionName, status, delayTime) {
     //wait
-    await delay(delayTime) 
+    await delay(delayTime)
     //change
     sessionsStatus[`${sessionName}`] = status
     console.log(`changeSessionStatus() ${sessionName} set to ${status} `)
 }
 
-async function proxyIPtest(globalAccesToken){
+async function proxyIPtest(globalAccesToken) {
     return new Promise(async function (resolve, reject) {
         const axios = require("axios");
 
@@ -185,10 +187,10 @@ async function proxyIPtest(globalAccesToken){
         const agent = new httpsProxyAgent(`http://${proxyuser}:${proxypass}@${proxyhost}:${proxyport}`);
         let url = 'https://api.spotify.com/v1/search'
         const config = {
-          method: "GET",
-          url,
-          httpsAgent: agent,
-    
+            method: "GET",
+            url,
+            httpsAgent: agent,
+
             contentType: 'application/json',
             headers: {
                 'Authorization': 'Bearer ' + globalAccesToken,
@@ -199,26 +201,29 @@ async function proxyIPtest(globalAccesToken){
             }
 
         };
-        
+
         const resp2 = null;
-        try{
+        try {
             resp2 = await axios.request(config);
-        }catch(err){
-            console.log('err=',err)
+        } catch (err) {
+            console.log('err=', err)
         }
         resolve(resp2)
     })
 }
 
 //generate popularify data
+//only do 5 requests in parallel at once 
 async function generatePopularifyData(artistURI, globalAccesToken) {
     return new Promise(async function (resolve, reject) {
+        console.log('generatePopularifyData() begin')
+
+        let returnObj = {};
+
         try {
-            console.log('\n\n generatePopularifyData() begin')
-            let tempResults = await proxyIPtest(globalAccesToken)
-            resolve(tempResults)
-            /*
-            let returnObj = {};
+
+
+
             let albumIds = [];
             ////////////////////////////////////////////////////
             // Get albums 20 ids at a time
@@ -232,9 +237,21 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             //make additional queries if needed
             console.log(`generatePopularifyData() Artist has ${total} albums. We have ${initialAlbums.items.length} so far and need to get ${total - (initialAlbums.items.length)} more`);
             let artistAlbumsPromises = [];
+
+            //let finishedArtistAlbumsPromises = [];
             for (var x = 20; x < total; x += 20) {
+                //for (var x = 0; x < total; x += 1) {
+                console.log(`   x=${x}, calling getArtistAlbums()`)
                 artistAlbumsPromises.push(getArtistAlbums(artistURI, x, true))
+                //await delay(4000)
+                //
+                //let artistAlbumsRsp = await getArtistAlbums(artistURI, x, true)
+                //console.log(`   x=${x}, finished calling getArtistAlbums()`)
+                //finishedArtistAlbumsPromises.push(artistAlbumsRsp)
             }
+
+            console.log(`generatePopularifyData() finished getting all artist albums`);
+
 
             //complete promises
             let finishedArtistAlbumsPromises = await Promise.all(artistAlbumsPromises);
@@ -246,11 +263,13 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
                 allAlbums = allAlbums.concat(finishedArtistAlbumsPromises[x])
             }
 
-            returnObj = {
-                initialAlbums: initialAlbums.items,
-                //finishedArtistAlbumsPromises:finishedArtistAlbumsPromises,
-                allAlbums: allAlbums
-            }
+
+
+            //returnObj = {
+            //    initialAlbums: initialAlbums.items,
+            //finishedArtistAlbumsPromises:finishedArtistAlbumsPromises,
+            //    allAlbums: allAlbums
+            //}
             console.log(`generatePopularifyData() found ${allAlbums.length} albums in total`)
 
             ////////////////////////////////////
@@ -274,7 +293,7 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             }
             //run promises to get album info
             var albumTracklistPromisesFinished = await Promise.all(albumTracklistPromises);
-            returnObj.albumTracklistPromisesFinished = albumTracklistPromisesFinished
+            //returnObj.albumTracklistPromisesFinished = albumTracklistPromisesFinished
 
             ////////////////////////////////////
             // make sure we have complete tracklist for every album
@@ -285,57 +304,241 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
                     let currentAlbumId = albumTracklistPromisesFinished[x][y].id;
                     let currentAlbumTracks = albumTracklistPromisesFinished[x][y].tracks.items;
                     let tracksTotal = albumTracklistPromisesFinished[x][y].tracks.total;
+                    //get complete tracklist if needed
                     while (currentAlbumTracks.length < tracksTotal) {
                         //console.log(`currentAlbumId=${currentAlbumId}, tracksTotal=${tracksTotal}, currentAlbumTracks.length=${currentAlbumTracks.length} so get more tracks`)
                         let additionalAlbumInfo = await getAlbumTracks(currentAlbumId, currentAlbumTracks.length)
                         currentAlbumTracks = currentAlbumTracks.concat(additionalAlbumInfo.items)
                     }
                     //console.log(`album needs ${tracksTotal} tracks in total, we have ${currentAlbumTracks.length}`)
+
+                    //extract only the important popularify data
+                    //let currentAlbumTracksFiltered = [];
+                    //for(var z = 0; z < currentAlbumTracks.length; z++){
+                    //    currentAlbumTracksFiltered.push({
+
+                    //    })
+                    //}
                     allAlbumTracks = allAlbumTracks.concat(currentAlbumTracks)
                 }
             }
-            returnObj.allAlbumTracks = allAlbumTracks;
-            console.log('generatePopularifyData() allAlbumTracks.length=',allAlbumTracks.length)
+            //returnObj.allAlbumTracks = allAlbumTracks;
+            console.log('generatePopularifyData() allAlbumTracks.length=', allAlbumTracks.length)
 
 
             ////////////////////////////////////
             // Fetch additional data (popularity) for each track (50 at a time)
             ////////////////////////////////////
-            let tempSlices = []
-
+            var trackInfoPromisesFinished = [];
             const trackInfoPromises = [];
             let multipleTracksQueryLimit = 50;
+            //for each track, 50 tracks at a time
             for (var x = 0; x < allAlbumTracks.length; x += multipleTracksQueryLimit) {
+                
+                //slice allAlbumTracks into a list of at max 50 tracks
                 let start = x;
                 let end = x + multipleTracksQueryLimit;
                 if (end > allAlbumTracks.length) {
                     end = allAlbumTracks.length;
                 }
-                //slice list of albums we want to get info about
-                //console.log(`slice tracks from ${start} to ${end}`)
                 var tracksSliced = allAlbumTracks.slice(start, end).map(i => {
                     return i.id;
                 });
-                tempSlices.push(tracksSliced)
 
-                //returnObj.tracksSliced = returnObj.tracksSliced.push(tracksSliced)
                 trackInfoPromises.push(getTracks(tracksSliced));
             }
-            //run promises to get album info
+            console.log(`generatePopularifyData() trackInfoPromises.length=${trackInfoPromises.length}`)
+
             var trackInfoPromisesFinished = await Promise.all(trackInfoPromises);
+
             //concatenate results into single list since getTracks() returns 50 at a time
             var tracks = [];
+            var filteredTracks=[];
             for (var i = 0; i < trackInfoPromisesFinished.length; i++) {
-                tracks = tracks.concat(trackInfoPromisesFinished[i].tracks)
+                //tracks = tracks.concat(trackInfoPromisesFinished[i].tracks)
+                for(var x = 0; x < trackInfoPromisesFinished[i].tracks.length; x++){
+                    filteredTracks.push({
+                        trackName: trackInfoPromisesFinished[i].tracks[x].name,
+                        artists: createArtistsNameValue(trackInfoPromisesFinished[i].tracks[x].artists),
+                        regions:'',
+                        artwork:'',
+                        albumName:'',
+                        length:'',
+                        popularity:'',
+                        trackId:'',
+
+                    })
+                }
             }
-            console.log('generatePopularifyData() tracks.length=',tracks.length)
+            console.log('generatePopularifyData() filteredTracks.length=', filteredTracks.length)
+            returnObj.filteredTracks=filteredTracks;
 
-            returnObj.tempSlices = tempSlices
-            returnObj.tracks = tracks
+        } catch (err) {
+            returnObj.err = err
+        }
 
-            resolve(returnObj)
-            
-        */
+        console.log('generatePopularifyData() end')
+        resolve(returnObj)
+    })
+}
+
+//utility functions
+function createArtistsNameValue(artistsList){
+    let artistsStr = "";
+    for(var x = 0; x < artistsList.length; x++){
+        artistsStr=`${artistsStr}${artistsList[x].name}`
+        if(x != artistsList.length-1){
+            artistsStr=`${artistsStr}, `
+        }
+    }
+    return artistsStr;
+}
+
+var inProg = false
+async function generatePopularifyDataOld(artistURI, globalAccesToken) {
+    return new Promise(async function (resolve, reject) {
+        try {
+            console.log('\n\n generatePopularifyData() begin')
+            if (!inProg) {
+
+                //let tempResults = await proxyIPtest(globalAccesToken)
+                //resolve(tempResults)
+
+                let returnObj = {};
+                let albumIds = [];
+                ////////////////////////////////////////////////////
+                // Get albums 20 ids at a time
+                ////////////////////////////////////////////////////
+
+                //make initial request for albums
+                let initialAlbums = await getArtistAlbums(artistURI, 0, false)
+                total = initialAlbums.total;
+                albumIds.push(initialAlbums.items)
+
+                //make additional queries if needed
+                console.log(`generatePopularifyData() Artist has ${total} albums. We have ${initialAlbums.items.length} so far and need to get ${total - (initialAlbums.items.length)} more`);
+                let artistAlbumsPromises = [];
+                for (var x = 20; x < total; x += 20) {
+                    artistAlbumsPromises.push(getArtistAlbums(artistURI, x, true))
+                }
+
+                //complete promises
+                let finishedArtistAlbumsPromises = await Promise.all(artistAlbumsPromises);
+
+                //combine initial query with additional queries
+                let allAlbums = initialAlbums.items
+                for (var x = 0; x < finishedArtistAlbumsPromises.length; x++) {
+                    //finishedArtistAlbumsPromises is a list of objects where each object contains a list of albums, so we need to extract and concat them into one list 
+                    allAlbums = allAlbums.concat(finishedArtistAlbumsPromises[x])
+                }
+
+                returnObj = {
+                    initialAlbums: initialAlbums.items,
+                    //finishedArtistAlbumsPromises:finishedArtistAlbumsPromises,
+                    allAlbums: allAlbums
+                }
+                console.log(`generatePopularifyData() found ${allAlbums.length} albums in total`)
+
+                ////////////////////////////////////
+                // Get tracklist data for each albumId 20 albumIds at a time
+                ////////////////////////////////////
+                const albumTracklistPromises = [];
+                let multipleAlbumsQueryLimit = 20;
+                for (var x = 0; x < allAlbums.length; x += multipleAlbumsQueryLimit) {
+                    let start = x;
+                    let end = x + multipleAlbumsQueryLimit;
+                    if (end > allAlbums.length) {
+                        end = allAlbums.length;
+                    }
+                    //slice list of albums we want to get info about
+                    var albumsSliced = allAlbums.slice(start, end).map(i => {
+                        return i.id;
+                    });
+
+                    //console.log(` getAllArtistAlbums() get data for ${albumsSliced.length} albums: ${start} to ${end}`)
+                    albumTracklistPromises.push(getAlbums(albumsSliced));
+                }
+                //run promises to get album info
+                var albumTracklistPromisesFinished = await Promise.all(albumTracklistPromises);
+                returnObj.albumTracklistPromisesFinished = albumTracklistPromisesFinished
+
+                ////////////////////////////////////
+                // make sure we have complete tracklist for every album
+                ////////////////////////////////////
+                let allAlbumTracks = []
+                for (var x = 0; x < albumTracklistPromisesFinished.length; x++) {
+                    for (var y = 0; y < albumTracklistPromisesFinished[x].length; y++) {
+                        let currentAlbumId = albumTracklistPromisesFinished[x][y].id;
+                        let currentAlbumTracks = albumTracklistPromisesFinished[x][y].tracks.items;
+                        let tracksTotal = albumTracklistPromisesFinished[x][y].tracks.total;
+                        while (currentAlbumTracks.length < tracksTotal) {
+                            //console.log(`currentAlbumId=${currentAlbumId}, tracksTotal=${tracksTotal}, currentAlbumTracks.length=${currentAlbumTracks.length} so get more tracks`)
+                            let additionalAlbumInfo = await getAlbumTracks(currentAlbumId, currentAlbumTracks.length)
+                            currentAlbumTracks = currentAlbumTracks.concat(additionalAlbumInfo.items)
+                        }
+                        //console.log(`album needs ${tracksTotal} tracks in total, we have ${currentAlbumTracks.length}`)
+                        allAlbumTracks = allAlbumTracks.concat(currentAlbumTracks)
+                    }
+                }
+                returnObj.allAlbumTracks = allAlbumTracks;
+                console.log('generatePopularifyData() allAlbumTracks.length=', allAlbumTracks.length)
+
+
+                ////////////////////////////////////
+                // Fetch additional data (popularity) for each track (50 at a time)
+                ////////////////////////////////////
+                let tempSlices = []
+                var trackInfoPromisesFinished = [];
+
+                const trackInfoPromises = [];
+                let multipleTracksQueryLimit = 50;
+                for (var x = 0; x < allAlbumTracks.length; x += multipleTracksQueryLimit) {
+                    let start = x;
+                    let end = x + multipleTracksQueryLimit;
+                    if (end > allAlbumTracks.length) {
+                        end = allAlbumTracks.length;
+                    }
+                    //slice list of albums we want to get info about
+                    //console.log(`slice tracks from ${start} to ${end}`)
+                    var tracksSliced = allAlbumTracks.slice(start, end).map(i => {
+                        return i.id;
+                    });
+                    tempSlices.push(tracksSliced)
+
+                    //trackInfoPromises.push(getTracks(tracksSliced));
+                    console.log('get tracks called')
+                    let trackRsp = await getTracks(tracksSliced)
+                    console.log('get tracks finished')
+
+                    trackInfoPromisesFinished.push(trackRsp)
+                }
+                console.log(`generatePopularifyData() trackInfoPromises.length=${trackInfoPromises.length}`)
+
+                //split into two 
+                //var p1 = trackInfoPromises.slice(0,trackInfoPromises.length/2);
+                //var p2 = trackInfoPromises.slice(trackInfoPromises.length/2);
+                //console.log(`generatePopularifyData() p1.length=${p1.length}, p2.length=${p2.length}`)
+
+                //run promises to get album info
+                //trackInfoPromisesFinished.push(await Promise.all(p1))
+                //trackInfoPromisesFinished.push(await Promise.all(p2))
+                //var trackInfoPromisesFinished = await Promise.all(trackInfoPromises);
+
+                //concatenate results into single list since getTracks() returns 50 at a time
+                var tracks = [];
+                for (var i = 0; i < trackInfoPromisesFinished.length; i++) {
+                    tracks = tracks.concat(trackInfoPromisesFinished[i].tracks)
+                }
+                console.log('generatePopularifyData() tracks.length=', tracks.length)
+
+                //returnObj.tempSlices = tempSlices
+                //returnObj.tracks = tracks
+
+                resolve(tracks)
+            } else {
+                console.log('inProg==true')
+            }
+
         } catch (err) {
             console.log('generatePopularifyData() err=', err)
         }
@@ -519,19 +722,15 @@ async function getArtistAlbums(artistURI, offset = 0, returnTracks = false) {
             }
 
         }, async function (err) {
-            console.error('getArtistAlbums() err: ', err);
-            if (err.statusCode == 429) {
-                await handle429Err(useThisSessionName, 'getArtistAlbums()')
-                //rerun function
-                return await getArtistAlbums(artistURI, offset, returnTracks);
-            }
-            //reject(err)
+            console.error('getArtistAlbums() err: ', err, ' waiting 30 seconds and trying again');
+            await delay(30000)
+            resolve(await getArtistAlbums(artistURI, offset, returnTracks))
         });
     })
 }
 
 //get more info for an album or multiple albums at once (20 at a time)
-async function getAlbums(albums, retry=0) {
+async function getAlbums(albums, retry = 0) {
     return new Promise(async function (resolve, reject) {
         //get session
         let useThisSessionRsp = await getSession()
@@ -542,14 +741,9 @@ async function getAlbums(albums, retry=0) {
             .then(function (data) {
                 resolve(data.body.albums)
             }, async function (err) {
-                console.log(`getAlbums() retry=${retry}, wait ${3*retry} seconds. err=`,err)
-                await delay(3000*retry) 
-                if (err.statusCode == 429) {
-                    await handle429Err(useThisSessionName, 'getAlbums()')
-                    //rerun function
-                    return await getAlbums(albums, ++retry);
-                }
-                //reject(err)
+                console.log(`getAlbums() retry=${retry}, wait ${3 * retry} seconds. err=`, err)
+                await delay(30000)
+                resolve(await getAlbums(albums, ++retry));
             });
     })
 }
@@ -583,12 +777,8 @@ async function getAlbumTracks(album, offset = 0, limit = 50) {
                 resolve(data.body)
             }, async function (err) {
                 console.error('getAlbumTracks() err: ', err);
-                if (err.statusCode == 429) {
-                    await handle429Err(useThisSessionName, 'getAlbumTracks()')
-                    //rerun function
-                    return await getAlbumTracks(album, offset, limit);
-                }
-                //reject(err)
+                await delay(30000)
+                resolve(await getAlbumTracks(album, offset, limit));
             });
     })
 }
@@ -606,14 +796,8 @@ async function getTracks(tracks) {
                 resolve(data.body)
             }, async function (err) {
                 console.error('getTracks() err: ', err);
-                if (err.statusCode == 429) {
-                    console.error('getTracks() calling handle429Err()');
-                    await handle429Err(useThisSessionName, 'getTracks()')
-                    console.error('getTracks() finished calling handle429Err()');
-                    //rerun function
-                    resolve(await getTracks(tracks));
-                }
-                //reject(err)
+                await delay(30000)
+                resolve(await getTracks(tracks));
             });
     })
 }
