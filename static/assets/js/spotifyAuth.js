@@ -7,6 +7,7 @@ var spotifyTokens = require('../js/spotifyTokens');
 let sessions = {}
 let sessionsStatus = {}
 let spotifyApps = {}
+var io = require("../../../server").io;
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -222,8 +223,6 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
 
         try {
 
-
-
             let albumIds = [];
             ////////////////////////////////////////////////////
             // Get albums 20 ids at a time
@@ -235,6 +234,7 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             albumIds.push(initialAlbums.items)
 
             //make additional queries if needed
+            sendPopularifySocketUpdate(`artist has ${total} albums`)
             console.log(`generatePopularifyData() Artist has ${total} albums. We have ${initialAlbums.items.length} so far and need to get ${total - (initialAlbums.items.length)} more`);
             let artistAlbumsPromises = [];
 
@@ -271,6 +271,8 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             //    allAlbums: allAlbums
             //}
             console.log(`generatePopularifyData() found ${allAlbums.length} albums in total`)
+            
+            sendPopularifySocketUpdate(`found data for all ${total} albums`)
 
             ////////////////////////////////////
             // Get tracklist data for each albumId 20 albumIds at a time
@@ -298,6 +300,8 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             ////////////////////////////////////
             // make sure we have complete tracklist for every album
             ////////////////////////////////////
+            sendPopularifySocketUpdate(`getting complete tracklist for large albums`)
+
             let allAlbumTracks = []
             for (var x = 0; x < albumTracklistPromisesFinished.length; x++) {
                 for (var y = 0; y < albumTracklistPromisesFinished[x].length; y++) {
@@ -324,11 +328,13 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             }
             //returnObj.allAlbumTracks = allAlbumTracks;
             console.log('generatePopularifyData() allAlbumTracks.length=', allAlbumTracks.length)
-
+            sendPopularifySocketUpdate(`found ${allAlbumTracks.length} tracks in total, now getting popularity for each track`)
 
             ////////////////////////////////////
             // Fetch additional data (popularity) for each track (50 at a time)
             ////////////////////////////////////
+
+
             var trackInfoPromisesFinished = [];
             const trackInfoPromises = [];
             let multipleTracksQueryLimit = 50;
@@ -350,6 +356,8 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             console.log(`generatePopularifyData() trackInfoPromises.length=${trackInfoPromises.length}`)
 
             var trackInfoPromisesFinished = await Promise.all(trackInfoPromises);
+            
+            sendPopularifySocketUpdate(`finished getting popularity for each track`)
 
             //concatenate results into single list since getTracks() returns 50 at a time
             var tracks = [];
@@ -357,21 +365,32 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             for (var i = 0; i < trackInfoPromisesFinished.length; i++) {
                 //tracks = tracks.concat(trackInfoPromisesFinished[i].tracks)
                 for(var x = 0; x < trackInfoPromisesFinished[i].tracks.length; x++){
-                    filteredTracks.push({
-                        trackName: trackInfoPromisesFinished[i].tracks[x].name,
-                        artists: createArtistsNameValue(trackInfoPromisesFinished[i].tracks[x].artists),
-                        regions:'',
-                        artwork:'',
-                        albumName:'',
-                        length:'',
-                        popularity:'',
-                        trackId:'',
+                    filteredTracks.push([
+                        //title
+                        `${trackInfoPromisesFinished[i].tracks[x].name}`,
+                        
+                        //artists
+                        `${createArtistsNameValue(trackInfoPromisesFinished[i].tracks[x].artists)}`,
+                        
+                        //artwork: trackInfoPromisesFinished[i].tracks[x].album.images[0].url,
+                        
+                        //album
+                        `${trackInfoPromisesFinished[i].tracks[x].album.name}`,
 
-                    })
+                        //releaseDate: trackInfoPromisesFinished[i].tracks[x].album.release_date,
+
+                        //duration
+                        `${trackInfoPromisesFinished[i].tracks[x].duration_ms}`,
+
+                        //popularity
+                        `${trackInfoPromisesFinished[i].tracks[x].popularity}`,
+
+                        //trackId: trackInfoPromisesFinished[i].tracks[x].album.id,
+                    ])
                 }
             }
             console.log('generatePopularifyData() filteredTracks.length=', filteredTracks.length)
-            returnObj.filteredTracks=filteredTracks;
+            returnObj=filteredTracks;
 
         } catch (err) {
             returnObj.err = err
@@ -383,6 +402,16 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
 }
 
 //utility functions
+
+//send data back to front end in form of socket.io event
+function sendPopularifySocketUpdate(infoString){
+    try{
+        io.emit('popularifyDataUpdate', { description: `${infoString}` });
+    }catch(err){
+        console.log('sendPopularifySocketUpdate() err=',err)
+    }
+}
+
 function createArtistsNameValue(artistsList){
     let artistsStr = "";
     for(var x = 0; x < artistsList.length; x++){

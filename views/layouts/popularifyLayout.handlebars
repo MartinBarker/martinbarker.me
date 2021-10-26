@@ -33,6 +33,7 @@
     <link rel="shortcut icon" type="image/jpg"
         href="https://www.seoptimer.com/blog/wp-content/uploads/2018/09/image22.png" />
 </head>
+<script src="/socket.io/socket.io.js"></script>
 
 <!-- Modal -->
 <div class="modal fade" id="rate-limit-warning-popup" tabindex="-1" role="dialog"
@@ -110,7 +111,6 @@
 
 <!-- View 1: Initial Page (Search/Artist Selection) -->
 <div id='view1-artist-search' class="container init-page-container">
-
     <div class="row header-row-init h-100">
 
         <!-- Artist Search Input Area -->
@@ -142,10 +142,12 @@
 
                 <div id="artist-search-results"></div>
 
+                <!--
                 <button type="button" class="btn btn-primary" data-toggle="modal"
                     data-target="#rate-limit-warning-popup">
                     Launch demo modal
                 </button>
+                -->
 
                 <!--
                 <div class="row artist-row" style="">
@@ -169,10 +171,6 @@
     </div>
 </div>
 
-
-<!-- cancel artist popularify data, select new artist -->
-<button id='changeArtistButton' type="button" class="btn btn-danger">Change Artist</button>
-
 <!-- View 2: Results -->
 <div id='view2-artist-loading' class="container" hidden>
 
@@ -182,15 +180,26 @@
             <div class="row">
                 <div class="col-md-3">
 
-                    <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                        class="img-responsive album-art" alt="Some picture" width="200px" height="200px">
+                    <div style="width: 200px; height: 200px;">
+                        <img 
+                            src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                            class="img-responsive album-art" 
+                            style="width: inherit" 
+                        />
+                    </div>
 
                 </div>
                 <div class="album-text col-md-9">
-                    <h1 id='artist-heading-text'>time to code</h1>
-                    <p id='artist-heading-description'>Your Information.</p>
+                    <h1 id='artist-heading-text'>Artist Name</h1>
+                    <p id='artist-heading-description'>Popularity: ##</p>
                 </div>
+                
             </div>
+
+              <!-- cancel artist popularify data, select new artist -->
+                <button id='changeArtistButton' type="button" class="btn btn-danger">Change Artist</button>
+
+
         </div>
 
 
@@ -207,7 +216,19 @@
 
 </div>
 
+
+<!-- rest of background -->
+<div class="body-row-init"></div>
+
+
 <script>
+    //initialize socket.io
+    const socket = io();
+    //recieve socket.io event from the backend for "generatePopularifyDataStatusUpdate"
+    socket.on('popularifyDataUpdate', function (data) {
+        console.log('popularifyDataUpdate: ', data.description)
+    });
+
     let popularifyProgress = 0
     let globalAccesToken = null;
 
@@ -248,7 +269,7 @@
             let artistName = $(this)[0].attributes["artistname"].value
             let artistPopularity = $(this)[0].attributes["artistpopularity"].value
 
-           artistSelected(artistId, artistImg, artistName, artistPopularity)
+            artistSelected(artistId, artistImg, artistName, artistPopularity)
 
         });
 
@@ -460,12 +481,15 @@
     }
 
     async function initializeDatatable() {
-        var dataSet = [
+        var dataSet = []
+        /*
+        [
             ["1", "song title 1", "FRANCHISE (feat Young)", "2 days ago", "3:22"],
             ["2", "song title 2", "FRANCHISE (feat Young)", "45 minuts ago", "1:22"],
             ["3", "song title 3", "FRANCHISE (feat Young)", "4 minutes ago", "0:21"],
             ["4", "song title 4", "FRANCHISE (feat Young)", "8 weeks ago", "11:21"],
         ];
+        */
         $('#tracklistTable').DataTable({
             data: dataSet,
             "searching": false,   // Search Box will Be Disabled
@@ -473,11 +497,12 @@
             "lengthChange": false, // Will Disabled Record number per page,
             "bPaginate": false, // Disable pagination "page 1 out of x"
             columns: [
-                { title: "#" },
+                //{ title: "#" },
                 { title: "TITLE" },
+                { title: "ARTISTS" },
                 { title: "ALBUM" },
-                { title: "DATE ADDED" },
-                { title: "TIME" }
+                { title: "LENGTH" },
+                { title: "POPULARITY" }
             ]
         });
     }
@@ -506,8 +531,12 @@
         var end = new Date().getTime();
         var time = end - start;
         console.log('popularifyDataBackend() finished time:', time / 1000)
-
         console.log('popularifyDataBackend result = ', popularifyData)
+
+        //add data to table
+        var table = $('#tracklistTable').DataTable();
+        table.clear();
+        table.rows.add(popularifyData).draw();
     }
 
     //call backend to get popularify data
@@ -874,10 +903,10 @@
             //update artist name text
             document.getElementById('artist-heading-text').innerText = artistName
             //update artist description text
-            document.getElementById('artist-heading-description').innerText = `Popularity: ${artistPopularity}`
+            document.getElementById('artist-heading-description').innerText = `Popularity: ${artistPopularity}`;
             //get colors for image
             let imageColors = await getImageColors(imgURL)
-            console.log(imageColors)
+            //console.log(imageColors)
             //update image html element
             document.getElementsByClassName('album-art')[0].src = imgURL;
             //get light vibrant hex
@@ -929,12 +958,6 @@
             }).then((resp) => {
 
 
-                //for each color, create div and display on page
-                let htmlStr = ``;
-                for (const [key, value] of Object.entries(resp)) {
-                    htmlStr = `${htmlStr} <br> <div style="background:${value.hex}; width=200px;height=200px;">${key} ${value.hex}</div>`
-                }
-                document.getElementById('debug-color-box').innerHTML = htmlStr;
 
                 //calculate 50% darker version of LightVibrant
                 //let darkerLightVibrant = ColorLuminance(`${resp['LightVibrant'].hex.replace('#','')}`, -0.5);
@@ -1143,7 +1166,11 @@
         padding: 0px;
         padding-left: 3vw;
         padding-right: 3vw;
+    }
 
+    .body-row-init {
+        background: rgb(18, 18, 18);
+        height: 120%;
     }
 
     .header-row-results {

@@ -10,14 +10,10 @@ var mongodbutil = require('../static/assets/js/mongodbutils');
 var db = mongodbutil.getDb();
 require('dotenv').config();
 
-//spotify api file
-//var spotifyApiLogic = require('../static/assets/js/spotifyApiLogic');
+var io = require("../server").io;
 
 //spotify auth file
 var spotifyAuth = require('../static/assets/js/spotifyAuth');
-
-//final spotify auth file
-//var finalSpotifyAuth = require('../static/assets/js/finalSpotifyAuth');
 
 //global vars
 allBlogPosts = []
@@ -675,7 +671,10 @@ app.post('/spotifySearch', async function (req, res) {
 //any route that starts with generatePopularifyData
 app.get(/^\/generatePopularifyData\/(.*)/, async function (req, res) {
   res.connection.setTimeout(0);
-  
+
+  //emit event
+  //io.emit('popularifyDataUpdate', { description: 'generatePopularifyData route called' });
+
   let id = req.params[0].split('/')[0];
   let globalAccesToken = req.params[0].split('/')[1];
   console.log(`/generatePopularifyData artistId=${id}, token=${globalAccesToken}`)
