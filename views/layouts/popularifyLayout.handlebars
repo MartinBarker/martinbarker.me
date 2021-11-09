@@ -109,6 +109,10 @@
     </div>
 </nav>
 
+<!-- cancel artist popularify data, select new artist -->
+<button id='changeArtistButton' type="button" class="btn btn-danger">Change Artist</button>
+
+
 <!-- View 1: Initial Page (Search/Artist Selection) -->
 <div id='view1-artist-search' class="container init-page-container">
     <div class="row header-row-init h-100">
@@ -171,6 +175,9 @@
     </div>
 </div>
 
+
+
+
 <!-- View 2: Results -->
 <div id='view2-artist-loading' class="container" hidden>
 
@@ -180,24 +187,26 @@
             <div class="row">
                 <div class="col-md-3">
 
+                    <img
+                        src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                        class="album-art" 
+                        style="width: 200px; height: 200px; object-fit: cover;"
+                    />
+
+                    <!--
                     <div style="width: 200px; height: 200px;">
-                        <img 
-                            src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                            class="img-responsive album-art" 
-                            style="width: inherit" 
-                        />
+                        <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                            class="img-responsive album-art" style="width: inherit" />
                     </div>
+                    -->
 
                 </div>
                 <div class="album-text col-md-9">
                     <h1 id='artist-heading-text'>Artist Name</h1>
                     <p id='artist-heading-description'>Popularity: ##</p>
                 </div>
-                
-            </div>
 
-              <!-- cancel artist popularify data, select new artist -->
-                <button id='changeArtistButton' type="button" class="btn btn-danger">Change Artist</button>
+            </div>
 
 
         </div>
@@ -993,6 +1002,10 @@
 
     .artist-results-album-art {
         border-radius: 50%;
+    }
+
+    .tr{
+        cursor: pointer;
     }
 
     .hover-mouse {
