@@ -35,200 +35,193 @@
 </head>
 <script src="/socket.io/socket.io.js"></script>
 
-<!-- Modal -->
-<div class="modal fade" id="rate-limit-warning-popup" tabindex="-1" role="dialog"
-    aria-labelledby="rate-limit-warning-popupLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered" role="document">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="rate-limit-warning-popupLabel">API Rate Limit Exceeded</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-            <div class="modal-body">
-                Users who don't login to their own Spotify account will have to all share one single Spotify account to
-                make API calls. <br>
-                In this case your session is starting to get rate limited because too many people are making requests.
-                <br>
-                Either wait a minute and try again, or login to your Spotify account to get more API calls.<br>
-            </div>
-            <div class="modal-footer">
-                <button type="button" onClick="openLoginPopup()" class="btn btn-primary">Login</button>
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
+<html>
+    <body style="background-repeat: no-repeat !important;">
 
-<!-- nav bar -->
-<nav class="navbar navbar-expand-sm navbar-light bg-light">
-    <a class="navbar-brand" href="#">
-        <img src="https://www.freepnglogos.com/uploads/spotify-logo-png/spotify-download-logo-30.png" width="30"
-            height="30" class="d-inline-block align-top" alt="">
-        Popularify
-    </a>
-    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarTogglerDemo02"
-        aria-controls="navbarTogglerDemo02" aria-expanded="false" aria-label="Toggle navigation">
-        <span class="navbar-toggler-icon"></span>
-    </button>
-
-    <div class="collapse navbar-collapse" id="navbarTogglerDemo02">
-        <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
-            <li class="nav-item active">
-                <a class="nav-link" href="#">Home <span class="sr-only">(current)</span></a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="#">About</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link " href="#">Contribute</a>
-            </li>
-        </ul>
-
-        <!-- right align -->
-        <ul class="navbar-nav my-2 my-lg-0">
-            <li class="nav-item">
-
-                <a class="nav-link" href="#">
-                    <img src="../../static/assets/img/user.png" width="25" height="25" class="d-inline-block align-top"
-                        alt="">
-                    Login
-                </a>
-
-                <!--
-                <div>
-                    <img src="../../static/assets/img/user.jpg" width="10" height="10" class="d-inline-block align-top" alt="">
-                 
-                    <a class="nav-link " href="#">Login</a>
-                </div>
-                -->
-            </li>
-        </ul>
-
-    </div>
-</nav>
-
-<!-- cancel artist popularify data, select new artist -->
-<button id='changeArtistButton' type="button" class="btn btn-danger">Change Artist</button>
-
-
-<!-- View 1: Initial Page (Search/Artist Selection) -->
-<div id='view1-artist-search' class="container init-page-container">
-    <div class="row header-row-init h-100">
-
-        <!-- Artist Search Input Area -->
-        <div id="artist-search" class="form-group has-search ">
-
-            <!-- instructional text -->
-            <p id="artist-search-text">Search for an artist to sort their discography by popularity</p>
-
-            <!-- artist search input -->
-
-            <div class="input-group mb-3">
-                <input type="text" id='artist-search-input' class="form-control" placeholder="Search">
-                <div class="input-group-append">
-                    <button class="btn btn-dark" id='artist-search-button' style="border-radius: 0px 10px 10px 0px;"
-                        type="submit">Go</button>
-                </div>
-            </div>
-
-
-
-            <!-- Artist Search Results -->
-            <div class="container">
-
-                <!-- loading spinner -->
-                <div hidden id='artist-search-results-loading' style="margin-left: 50%;" class="spinner-border"
-                    role="status">
-                    <span class="sr-only">Loading...</span>
-                </div>
-
-                <div id="artist-search-results"></div>
-
-                <!--
-                <button type="button" class="btn btn-primary" data-toggle="modal"
-                    data-target="#rate-limit-warning-popup">
-                    Launch demo modal
-                </button>
-                -->
-
-                <!--
-                <div class="row artist-row" style="">
-                    <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                        class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
-                    <div class="col">Lady Gaga</div>
-                    <div class="col">Popularity: 77</div>
-                </div>
-
-                <div class="row artist-row" style="color:white; background:lightcoral">
-                    <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                        class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
-                    <div class="col">Lady Gaga</div>
-                    <div class="col">Popularity: 77</div>
-                </div>
--->
-            </div>
-
-        </div>
-
-    </div>
-</div>
-
-
-
-
-<!-- View 2: Results -->
-<div id='view2-artist-loading' class="container" hidden>
-
-    <div class="row header-row-results">
-
-        <div class="container-fluid">
-            <div class="row">
-                <div class="col-md-3">
-
-                    <img
-                        src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                        class="album-art" 
-                        style="width: 200px; height: 200px; object-fit: cover;"
-                    />
-
-                    <!--
-                    <div style="width: 200px; height: 200px;">
-                        <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                            class="img-responsive album-art" style="width: inherit" />
+        <!-- Modal -->
+        <div class="modal fade" id="rate-limit-warning-popup" tabindex="-1" role="dialog"
+            aria-labelledby="rate-limit-warning-popupLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="rate-limit-warning-popupLabel">API Rate Limit Exceeded</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
                     </div>
-                    -->
-
+                    <div class="modal-body">
+                        Users who don't login to their own Spotify account will have to all share one single Spotify account to
+                        make API calls. <br>
+                        In this case your session is starting to get rate limited because too many people are making requests.
+                        <br>
+                        Either wait a minute and try again, or login to your Spotify account to get more API calls.<br>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" onClick="openLoginPopup()" class="btn btn-primary">Login</button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
                 </div>
-                <div class="album-text col-md-9">
-                    <h1 id='artist-heading-text'>Artist Name</h1>
-                    <p id='artist-heading-description'>Popularity: ##</p>
+            </div>
+        </div>
+
+        <!-- nav bar -->
+        <nav class="navbar navbar-expand-sm navbar-light bg-light">
+            <a class="navbar-brand" href="#">
+                <img src="https://www.freepnglogos.com/uploads/spotify-logo-png/spotify-download-logo-30.png" width="30"
+                    height="30" class="d-inline-block align-top" alt="">
+                Popularify
+            </a>
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarTogglerDemo02"
+                aria-controls="navbarTogglerDemo02" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarTogglerDemo02">
+                <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
+                    <li class="nav-item active">
+                        <a class="nav-link" href="#">Home <span class="sr-only">(current)</span></a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#">About</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link " href="#">Contribute</a>
+                    </li>
+                </ul>
+
+                <!-- right align -->
+                <ul class="navbar-nav my-2 my-lg-0">
+                    <li class="nav-item">
+
+                        <a class="nav-link" href="#">
+                            <img src="../../static/assets/img/user.png" width="25" height="25" class="d-inline-block align-top"
+                                alt="">
+                            Login
+                        </a>
+
+                        <!--
+                        <div>
+                            <img src="../../static/assets/img/user.jpg" width="10" height="10" class="d-inline-block align-top" alt="">
+                        
+                            <a class="nav-link " href="#">Login</a>
+                        </div>
+                        -->
+                    </li>
+                </ul>
+
+            </div>
+        </nav>
+
+        <!-- View 1: Initial Page (Search/Artist Selection) -->
+        <div id='view1-artist-search' class="container init-page-container">
+            <div class="row header-row-init h-100">
+
+                <!-- Artist Search Input Area -->
+                <div id="artist-search" class="form-group has-search ">
+
+                    <!-- instructional text -->
+                    <p id="artist-search-text">Search for an artist to sort their discography by popularity</p>
+
+                    <!-- artist search input -->
+
+                    <div class="input-group mb-3">
+                        <input type="text" id='artist-search-input' class="form-control" placeholder="Search">
+                        <div class="input-group-append">
+                            <button class="btn btn-dark" id='artist-search-button' style="border-radius: 0px 10px 10px 0px;"
+                                type="submit">Go</button>
+                        </div>
+                    </div>
+
+                    <!-- Artist Search Results -->
+                    <div class="container">
+
+                        <!-- loading spinner -->
+                        <div hidden id='artist-search-results-loading' style="margin-left: 50%;" class="spinner-border"
+                            role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+
+                        <div id="artist-search-results"></div>
+
+                        <!--
+                        <button type="button" class="btn btn-primary" data-toggle="modal"
+                            data-target="#rate-limit-warning-popup">
+                            Launch demo modal
+                        </button>
+                        -->
+
+                        <!--
+                        <div class="row artist-row" style="">
+                            <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                                class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
+                            <div class="col">Lady Gaga</div>
+                            <div class="col">Popularity: 77</div>
+                        </div>
+
+                        <div class="row artist-row" style="color:white; background:lightcoral">
+                            <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                                class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
+                            <div class="col">Lady Gaga</div>
+                            <div class="col">Popularity: 77</div>
+                        </div>
+        -->
+                    </div>
+
                 </div>
 
             </div>
+        </div>
+
+        <!-- View 2: Results -->
+        <div id='view2-artist-results' class="container" hidden>
+
+            <div class="row header-row-results">
+
+                <div class="container-fluid">
+                    <div class="row">
+                        <div class="col-md-3">
+
+                            <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                                class="album-art" style="width: 200px; height: 200px; object-fit: cover;" />
+
+                            <!--
+                            <div style="width: 200px; height: 200px;">
+                                <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                                    class="img-responsive album-art" style="width: inherit" />
+                            </div>
+                            -->
+
+                        </div>
+                        <div class="album-text col-md-9">
+                            <h1 id='artist-heading-text'>Artist Name</h1>
+                            <div>
+                                <p id='artist-heading-description'>Popularity: ##</p>
+                                <!-- cancel artist popularify data, select new artist -->
+                                <button id='changeArtistButton' type="button" class="btn btn-danger btn-sm">Change Artist</button>
+                            </div>
+                        </div>
+
+                    </div>
+
+
+                </div>
+
+
+            </div>
+
+            <div class="row body-row">
+
+                <table style="cursor:pointer" id="tracklistTable"></table>
+
+            </div>
+
+            <div id='debug-color-box'></div>
 
 
         </div>
 
-
-    </div>
-
-    <div class="row body-row">
-
-        <table id="tracklistTable"></table>
-
-    </div>
-
-    <div id='debug-color-box'></div>
-
-
-</div>
-
-
-<!-- rest of background -->
-<div class="body-row-init"></div>
-
+    </body>
+</html>
 
 <script>
     //initialize socket.io
@@ -501,7 +494,7 @@
         */
         $('#tracklistTable').DataTable({
             data: dataSet,
-            "searching": false,   // Search Box will Be Disabled
+            "searching": true,   // Search Box will Be Disabled
             "info": false,         // Will show "1 to n of n entries" Text at bottom
             "lengthChange": false, // Will Disabled Record number per page,
             "bPaginate": false, // Disable pagination "page 1 out of x"
@@ -511,7 +504,11 @@
                 { title: "ARTISTS" },
                 { title: "ALBUM" },
                 { title: "LENGTH" },
-                { title: "POPULARITY" }
+                { title: "POPULARITY" },
+                { title: "URL" },
+                { title: "ALBUM_GROUP" },
+                { title: "ALBUM_TYPE" },
+                { title: "MARKETS" }
             ]
         });
     }
@@ -521,7 +518,10 @@
 
     //call this funciton when the user clicks an artist-row to generate popularify data for that artist
     async function artistSelected(artistId, artistImg, artistName, artistPopularity) {
-        console.log(`artistSelected(${artistId})`)
+        console.log(`artistSelected(${artistId}) artistImg=${artistImg}`)
+
+        //reveal artist results
+        $('#view2-artist-results').show();
 
         //edit popularify artist loading html
         await updateArtistDisplay(artistImg, artistName, artistPopularity)
@@ -530,7 +530,7 @@
         $('#view1-artist-search').hide()
 
         //reveal view2 artist loading page
-        document.getElementById('view2-artist-loading').removeAttribute("hidden");
+        document.getElementById('view2-artist-results').removeAttribute("hidden");
 
         //begin generating popularify data
         //let popularifyData = await getPopularifyData(artistId)
@@ -895,8 +895,16 @@
         //cancel any api queries in progress
         popularifyProgress = 0
 
-        //hide view2
-        $('#view2-artist-loading').show()
+        //clear datatable
+        var table = $('#tracklistTable').DataTable();
+        table.clear().draw();
+
+        //clear and hide view2
+        //$('#view2-artist-results').innerHTML="";
+        $('#view2-artist-results').hide()
+
+        //reset background gradient color
+        document.querySelector('body').style.background = `linear-gradient(180deg, #1DB954, rgb(18,18,18)) no-repeat fixed`;
 
         //clear artist search input and update view1
         document.getElementById('artist-search-input').value = '';
@@ -915,7 +923,6 @@
             document.getElementById('artist-heading-description').innerText = `Popularity: ${artistPopularity}`;
             //get colors for image
             let imageColors = await getImageColors(imgURL)
-            //console.log(imageColors)
             //update image html element
             document.getElementsByClassName('album-art')[0].src = imgURL;
             //get light vibrant hex
@@ -926,8 +933,27 @@
             document.getElementsByClassName('header-row-results')[0].style.background = `linear-gradient(0deg, rgb(18,18,18) -86%, ${brighterVibrant})`;
             //get 60% darker version of Vibrant
             let darkerVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, -0.6);
+
             //update body css gradient
-            document.getElementsByClassName('body-row')[0].style.background = `linear-gradient(180deg, ${darkerVibrant}, rgb(18,18,18))`;
+            //document.getElementsByClassName('body-row')[0].style.background = `linear-gradient(180deg, ${darkerVibrant}, rgb(18,18,18))`;
+
+            //var bodyElement = document.querySelector('body');
+            //bodyElement.style.background = null;
+            
+            document.querySelector('body').style.background = `linear-gradient(180deg, ${imageColors['Vibrant'].hex}, 400px, rgb(18,18,18)) no-repeat fixed`;
+            //document.querySelector('body').style.height = `100%`;
+            //document.querySelector('body').style.margin = 0;
+            
+            //document.querySelector('body').style.backgroundRepeat  = `no-repeat !important;`;
+
+            //var body = $('body');
+            //body.css('background-repeat', 'no-repeat !important;');
+            //body.css('background-attachment', 'fixed !important;');
+
+            //$('.body').css('background-repeat', "no-repeat !important;");
+            //$('.body').css('background-attachment', "fixed !important;");
+
+            //document.querySelector('body').style.backgroundAttachment = `fixed !important;`;
 
             resolve("")
         })
@@ -1004,8 +1030,8 @@
         border-radius: 50%;
     }
 
-    .tr{
-        cursor: pointer;
+    .tr:hover {
+        cursor: pointer !important;
     }
 
     .hover-mouse {
@@ -1106,6 +1132,7 @@
     /* border-bottom: 0.1px solid rgb(179, 179, 179); */
     table.dataTable thead th {
         color: rgb(220, 217, 217);
+        text-shadow: black 0px 0px 2px; /* color offset-x offset-y blur-radius */
     }
 
 
@@ -1164,8 +1191,24 @@
         background: transparent !important;
     }
 
+    html {
+        height: 100%;
+    }
+
     body {
         font-family: 'SpotifyCircular';
+        background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954);
+        height: 100%;
+        margin: 0;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }
+
+    #view2-artist-loading{
+        height: 100%;
+        margin: 0;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
     }
 
     .container {
@@ -1173,8 +1216,7 @@
     }
 
     .header-row-init {
-        /* height: 100%; */
-        background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954);
+        /* background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954); */
         margin: 0px;
         padding: 0px;
         padding-left: 3vw;
@@ -1187,13 +1229,12 @@
     }
 
     .header-row-results {
-        background: linear-gradient(0deg, rgb(18, 18, 18) -86%, rgb(106, 174, 212));
+        /* background: linear-gradient(0deg, rgb(18, 18, 18) -86%, rgb(106, 174, 212)); */
         padding: 50px;
     }
 
     .body-row {
-        /* gradient from dark version of Light Vibrant to spotify grey*/
-        background: linear-gradient(#4c6c7e, rgb(18, 18, 18));
+        /* background: linear-gradient(#4c6c7e, rgb(18, 18, 18)); */
         height: 100%;
     }
 

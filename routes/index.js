@@ -603,25 +603,35 @@ app.get('/callback', async (req, res) => {
 app.post('/getImageColors', async function (req, res) {
   //get vars 
   let imgURL = req.body.imgURL;
-  //console.log(`/getImageColors imgURL=${imgURL}`)
-
-  //get color swatches
-  var swatches = await Vibrant.from(imgURL).getPalette()
-  //console.log('swatches=', swatches)
-  //format rbg and swatch type into list
   let colors = {}
-  for (const [key, value] of Object.entries(swatches)) {
-    //get rgb color value
-    let colorValue = value.rgb
-    //convert to hex color value
-    let hexColor = rgbToHex(colorValue)
-    //construct object
-    var keyName = `${key}`
-    colors[keyName] = { 'hex': hexColor, 'rgb': colorValue }
-  }
-  //console.log('colors=', colors)
 
-  //console.log('returning')
+  if(imgURL.includes('spotifyArtistUnknown.jpg')){
+    colors={
+      DarkMuted:{hex:'#828282', rgb:[130, 130, 130]},
+      DarkVibrant:{hex:'#828282', rgb:[130, 130, 130]},
+      LightMuted:{hex:'#828282', rgb:[130, 130, 130]},
+      Muted:{hex:'#828282', rgb:[130, 130, 130]},
+      Vibrant:{hex:'#828282', rgb:[130, 130, 130]},
+    }
+  }else{
+    try{
+      //get color swatches
+      var swatches = await Vibrant.from(imgURL).getPalette()
+      //format rbg and swatch type into list
+      for (const [key, value] of Object.entries(swatches)) {
+        //get rgb color value
+        let colorValue = value.rgb
+        //convert to hex color value
+        let hexColor = rgbToHex(colorValue)
+        //construct object
+        var keyName = `${key}`
+        colors[keyName] = { 'hex': hexColor, 'rgb': colorValue }
+      }
+    }catch(err){
+      console.log('/getImageColors err getting img colors =',err);
+    }
+  }
+
   res.status(200).send(colors)
 });
 
