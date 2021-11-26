@@ -229,12 +229,14 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
                 let albumId = appearsOnAlbums[x].id
                 let albumGroup = appearsOnAlbums[x].album_group
                 let albumType = appearsOnAlbums[x].album_type
+                let albumArtist = appearsOnAlbums[x].artists[0].name ? appearsOnAlbums[x].artists[0].name : ""
                 //push to lists
                 slicedAlbumIds.push(albumId)
                 slicedAlbumInfo.push({
                     albumId: albumId,
                     albumGroup: albumGroup,
-                    albumType: albumType
+                    albumType: albumType,
+                    albumArtist: albumArtist,
                 })
                 //if it is time to make an api call:
                 if(slicedAlbumIds.length == multipleAlbumsQueryLimit){
@@ -269,6 +271,7 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
                     let currentAlbumId = appearsOnAlbumTracklistPromisesFinished[x][y].id;
                     let currentAlbumGroup = appearsOnAlbumTracklistPromisesFinished[x][y].album_group;
                     let currentAlbumType = appearsOnAlbumTracklistPromisesFinished[x][y].album_type;
+                    let currentAlbumArtist = appearsOnAlbumTracklistPromisesFinished[x][y].album_artist;
                     let currentAlbumTracks = appearsOnAlbumTracklistPromisesFinished[x][y].tracks.items;
                     let tracksTotal = appearsOnAlbumTracklistPromisesFinished[x][y].tracks.total;
                     //get complete tracklist if needed
@@ -283,6 +286,7 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
                         //add album_group and album_type to track object
                         albumTrack["album_group"] = currentAlbumGroup
                         albumTrack["album_type"] = currentAlbumType
+                        albumTrack["album_artist"] = currentAlbumArtist
                         //get id for each artist on track
                         let artistIDs = [];
                         for(var k = 0; k < albumTrack.artists.length; k++ ){
@@ -399,12 +403,14 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
                 let trackId = allAlbumTracks[x].id
                 let albumGroup = allAlbumTracks[x].album_group
                 let albumType = allAlbumTracks[x].album_type
+                let albumArtist = allAlbumTracks[x].album_artist
                 //push to lists
                 slicedTrackIds.push(trackId)
                 slicedTrackInfo.push({
                     trackId: trackId,
                     albumGroup: albumGroup,
-                    albumType: albumType
+                    albumType: albumType,
+                    albumArtist: albumArtist
                 })
                 //if it is time to make an api call:
                 if(slicedTrackIds.length == multipleTracksQueryLimit){
@@ -451,6 +457,9 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
                         //artists
                         `${createArtistsNameValue(trackInfoPromisesFinished[i].tracks[x].artists)}`,
                         
+                        //album_artist
+                        `${trackInfoPromisesFinished[i].tracks[x].album_artist}`,
+
                         //artwork: trackInfoPromisesFinished[i].tracks[x].album.images[0].url,
                         
                         //album
@@ -718,8 +727,10 @@ async function getAlbums(albums, slicedAlbumInfo, retry = 0) {
                 for(var x = 0; x < data.body.albums.length; x++ ){
                     let albumGroup = slicedAlbumInfo[x].albumGroup
                     let albumType = slicedAlbumInfo[x].albumType
+                    let albumArtist = slicedAlbumInfo[x].albumArtist
                     data.body.albums[x].album_group = albumGroup
                     data.body.albums[x].album_type = albumType
+                    data.body.albums[x].album_artist = albumArtist
                 }
                 resolve(data.body.albums)
             }, async function (err) {
@@ -779,8 +790,10 @@ async function getTracks(tracks, slicedTrackInfo, retry=0) {
                 for(var x = 0; x < data.body.tracks.length; x++ ){
                     let albumGroup = slicedTrackInfo[x].albumGroup
                     let albumType = slicedTrackInfo[x].albumType
+                    let albumArtist = slicedTrackInfo[x].albumArtist
                     data.body.tracks[x].album_group = albumGroup
                     data.body.tracks[x].album_type = albumType
+                    data.body.tracks[x].album_artist = albumArtist
                 }
                 resolve(data.body)
             }, async function (err) {
