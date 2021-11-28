@@ -94,7 +94,7 @@ async function authSession(spotifyAppName, refreshToken, sessionCredsName) {
                 } catch (err) {
                     console.log('authSession() interval auth err=', err)
                 }
-            }, expiresIn / 2 * 1000);
+            }, expiresIn);
             resolve()
         } catch (err) {
             console.log('authSession() initial auth err=', err)
