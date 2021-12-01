@@ -1,0 +1,1431 @@
+<head>
+    <!-- jQuery CDN - Slim version (=without AJAX) 
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"></script>
+        -->
+    <!-- Popper.JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.0/umd/popper.min.js"
+        integrity="sha384-cs/chFZiN24E4KMATLdqdvsezGxaGsi4hLGOzlXwp5UZB1LY//20VyM2taTB4QvJ"
+        crossorigin="anonymous"></script>
+
+    <!-- jQuery  -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+
+    <!-- Bootstrap JS -->
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/js/bootstrap.min.js"
+        integrity="sha384-uefMccjFJAIv6A+rW+L4AHf99KvxDjWSu1z9VI8SKNVmz4sk7buKt/6v9KI65qnm"
+        crossorigin="anonymous"></script>
+
+    <!-- bootstrap css-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
+        integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+
+    <!-- font-awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+    <!-- datatables css -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/dt-1.11.1/datatables.min.css" />
+
+    <!-- datatables js -->
+    <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.11.1/datatables.min.js"></script>
+
+    <link rel="shortcut icon" type="image/jpg"
+        href="https://www.seoptimer.com/blog/wp-content/uploads/2018/09/image22.png" />
+</head>
+<script src="/socket.io/socket.io.js"></script>
+
+<html>
+    <body style="background-repeat: no-repeat !important;">
+
+        <!-- Modal -->
+        <div class="modal fade" id="rate-limit-warning-popup" tabindex="-1" role="dialog"
+            aria-labelledby="rate-limit-warning-popupLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="rate-limit-warning-popupLabel">API Rate Limit Exceeded</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        Users who don't login to their own Spotify account will have to all share one single Spotify account to
+                        make API calls. <br>
+                        In this case your session is starting to get rate limited because too many people are making requests.
+                        <br>
+                        Either wait a minute and try again, or login to your Spotify account to get more API calls.<br>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" onClick="openLoginPopup()" class="btn btn-primary">Login</button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- nav bar -->
+            <nav class="navbar navbar-expand-sm navbar-light bg-light">
+                <a class="navbar-brand" href="#">
+                    <img src="https://www.freepnglogos.com/uploads/spotify-logo-png/spotify-download-logo-30.png" width="30"
+                        height="30" class="d-inline-block align-top" alt="">
+                    Popularify
+                </a>
+                <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarTogglerDemo02"
+                    aria-controls="navbarTogglerDemo02" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <div class="collapse navbar-collapse" id="navbarTogglerDemo02">
+                    <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
+                        <!--
+                        <li class="nav-item active">
+                            <a class="nav-link" href="#">Home <span class="sr-only">(current)</span></a>
+                        </li>
+                        -->
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" >
+                                <button id="changeArtistButton" type="button" class="btn btn-danger btn-sm">Change Artist</button>
+                            </a>
+                        </li>
+                    </ul>
+
+                    <!-- right align -->
+                    <ul class="navbar-nav my-2 my-lg-0">
+                        <li id='loginButton' class="nav-item">
+
+                            <a class="nav-link" href="#">
+                                <img src="../../static/assets/img/user.png" width="25" height="25" class="d-inline-block align-top"
+                                    alt="">
+                                Login
+                            </a>
+
+                            <!--
+                            <div>
+                                <img src="../../static/assets/img/user.jpg" width="10" height="10" class="d-inline-block align-top" alt="">
+                            
+                                <a class="nav-link " href="#">Login</a>
+                            </div>
+                            -->
+                        </li>
+                    </ul>
+
+                </div>
+            </nav>
+
+        <!-- View 1: Initial Page (Search/Artist Selection) -->
+        <div id='view1-artist-search' class="container init-page-container" >
+            <div class="row header-row-init h-100">
+
+                <!-- Artist Search Input Area -->
+                <div id="artist-search" class="form-group has-search ">
+
+                    <!-- instructional text -->
+                    <p id="artist-search-text">Search for an artist to sort their discography by popularity</p>
+
+                    <!-- artist search input -->
+
+                    <div class="input-group mb-3">
+                        <input type="text" id='artist-search-input' class="form-control" placeholder="Search">
+                        <div class="input-group-append">
+                            <button class="btn btn-dark" id='artist-search-button' style="border-radius: 0px 10px 10px 0px;"
+                                type="submit">Go</button>
+                        </div>
+                    </div>
+
+                    <!-- Artist Search Results -->
+                    <div class="container">
+
+                        <!-- loading spinner -->
+                        <div hidden id='artist-search-results-loading' style="margin-left: 50%;" class="spinner-border"
+                            role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+
+                        <div id="artist-search-results"></div>
+
+                        <!--
+                        <button type="button" class="btn btn-primary" data-toggle="modal"
+                            data-target="#rate-limit-warning-popup">
+                            Launch demo modal
+                        </button>
+                        -->
+
+                        <!--
+                        <div class="row artist-row" style="">
+                            <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                                class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
+                            <div class="col">Lady Gaga</div>
+                            <div class="col">Popularity: 77</div>
+                        </div>
+
+                        <div class="row artist-row" style="color:white; background:lightcoral">
+                            <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
+                                class="img-responsive album-art" alt="Some picture" width="50px" height="50px">
+                            <div class="col">Lady Gaga</div>
+                            <div class="col">Popularity: 77</div>
+                        </div>
+        -->
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+
+        <!-- View 2: Results -->
+        <div id='view2-artist-results' class="container" hidden>
+            
+            <!-- View2: Header -->
+            <div id='view2-artist-header' >
+
+                <div class="row header-row-results">
+                    <div class="container-fluid">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326" class="album-art" style="width: 200px; height: 200px; object-fit: cover;" />
+                            </div>
+                            <div class="album-text col-md-9">
+                                <h1 id='artist-heading-text'>Artist Name</h1>
+                                <p id='artist-heading-description'>Popularity: ##</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+
+            <!-- View 2: Body -->
+            <div id="view2-artist-body" class="row body-row">
+                <table style="cursor:pointer" id="tracklistTable"></table>
+            </div>
+
+        </div>
+
+        <!--
+        <div id='view2-artist-results-old' class="container" hidden>
+
+        </div>
+        -->
+
+    </body>
+</html>
+
+<script>
+    //initialize socket.io
+    const socket = io();
+    socket.on('popularifyDataUpdate', function (data) {
+        console.log('popularifyDataUpdate: ', data.description);
+        document.getElementById('statusUpdate').innerText=data.description;
+    });
+    socket.on('popularifyDataUpdateError', function (data) {
+        console.log('popularifyDataUpdateError: ', data.description);
+        document.getElementById('statusUpdateError').innerText=data.description;
+    });
+
+    let popularifyProgress = 0
+    let globalAccesToken = null;
+
+    async function getSpotifyLoginURL() {
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'GET',
+                url: '/getSpotifyLoginURL'
+            }).then((resp) => {
+                resolve(resp)
+            }).catch((err) => {
+                reject(err)
+            });
+        })
+    }
+
+    async function openLoginPopup() {
+        console.log('openLoginPopup')
+        let AUTHORIZATION_URL = await getSpotifyLoginURL()
+        popup = window.open(
+            AUTHORIZATION_URL,
+            'Login with Spotify',
+            'width=800,height=600'
+        );
+    }
+
+    $(document).ready(function () {
+
+        //check for token in url
+        let token=window.location.href.split('?code=')[1]
+        if (token) {
+            window.opener.spotifyCallback(token)
+        }
+        
+        //hide changeArtistButton
+        $('#changeArtistButton').hide();
+
+        initializeDatatable()
+
+        $(document).on('click', '.artist-row-click', function () {
+            console.log('clciked artist-row-click ', $(this), ' attr=', $(this)[0].attributes)
+
+            let artistId = $(this)[0].attributes["artistId"].value
+            let artistImg = $(this)[0].attributes["artistimage"].value
+            let artistName = $(this)[0].attributes["artistname"].value
+            let artistPopularity = $(this)[0].attributes["artistpopularity"].value
+
+            artistSelected(artistId, artistImg, artistName, artistPopularity)
+
+        });
+
+        setAccessToken()
+        async function setAccessToken() {
+            try {
+                let accessToken = await getAccessToken()
+                globalAccesToken = accessToken
+            } catch (err) {
+                console.log('setAccessToken() err=', err)
+            }
+        }
+
+        async function getAccessToken() {
+            return new Promise(function (resolve, reject) {
+                $.ajax({
+                    type: 'POST',
+                    url: '/getAccessToken'
+                }).then((resp) => {
+                    resolve(resp)
+                }).catch((err) => {
+                    reject(err)
+                });
+            })
+        }
+
+        //if user hits enter key inside artist-search-input
+        document.getElementById('artist-search-input').onkeypress = function (e) {
+            if (!e) e = window.event;
+            var keyCode = e.code || e.key;
+            if (keyCode == 'Enter') {
+                // Enter pressed
+                artistInputChanged()
+                return false;
+            }
+        }
+
+        async function openLoginPopup2() {
+            console.log('openLoginPopup()')
+            let AUTHORIZATION_URL = await getSpotifyLoginURL()
+            popup = window.open(
+                AUTHORIZATION_URL,
+                'Login with Spotify',
+                'width=800,height=600'
+            )
+        }
+
+    });
+
+    async function shareSong(songId){
+        console.log(`shareSong(${songId})`)
+    }
+
+    async function initializeDatatable() {
+        var dataSet = []
+        $('#tracklistTable').DataTable({
+            data: dataSet,
+            "searching": true,   // Search Box will Be Disabled
+            "info": false,         // Will show "1 to n of n entries" Text at bottom
+            "lengthChange": false, // Will Disabled Record number per page,
+            "bPaginate": false, // Disable pagination "page 1 out of x",
+
+
+            columns: [
+                { 
+                    title: "ART", 
+                    render: function (data, type, row, meta) {
+                        return '<img class="img-responsive" src="' + data +'" alt="tbl_StaffImage" height="100px" width="100px">';
+                    }
+                },
+                { title: "POPULARITY" },
+                { title: "TITLE" },
+                { title: "ARTISTS",  },
+                { title: "ALBUM" },
+                {
+                    title: "MORE INFO", 
+                    "className":      'dt-control',
+                    "orderable":      false,
+                    "data":           null,
+                    "defaultContent": '<button type="button" class="btn btn-dark btn-circle btn-xl"><i class="fa fa-plus" aria-hidden="true"></i></button>'
+                },
+                { title: "SHARE" },
+                
+            ]
+        });
+
+        // Add event listener for opening and closing details
+        $('#tracklistTable tbody').on('click', 'td.dt-control', function () {
+            console.log('event listener for opening and closing details')
+            var tr = $(this).closest('tr');
+            var table = $('#tracklistTable').DataTable();
+            var row = table.row( tr );
+    
+            if ( row.child.isShown() ) {
+                // This row is already open - close it
+                row.child.hide();
+                tr.removeClass('shown');
+            }
+            else {
+                // Open this row
+                row.child( formatRowDetail(row.data()) ).show();
+                tr.addClass('shown');
+            }
+        } );
+
+    }
+
+    function formatRowDetail ( d ) {
+        // `d` is the original data object for the row
+        return `
+        <table style="color: white; overflow:scroll; max-width: 60vw; " cellpadding="5" cellspacing="0" border="0" style="color:white; padding-left:50px;">
+            <tr>
+                <td>Album Group: ${d[7]}</td>
+            </tr>
+            <tr>
+                <td>Album Type: ${d[8]}</td>
+            </tr>
+            <tr>
+                <td>Track ID: ${d[9]}</td>
+            </tr>
+            <tr>
+                <td>Album Artist[0]: ${d[10]}</td>
+            </tr>
+            <tr>
+                <td>Release Date: ${d[11]}</td>
+            </tr>
+            <tr>
+                <td>Length: ${d[12]}</td>
+            </tr>
+            <tr>
+                <td>Track ID: ${d[13]}</td>
+            </tr>
+            <tr>
+                <td>Track URL: ${d[14]}</td>
+            </tr>
+            <tr>
+                <td>Markets: ${d[16]}</td>
+            </tr>
+        </table>
+        `;
+
+    }
+
+    //wait x milliseconds (debug function)
+    const delay = ms => new Promise(res => setTimeout(res, ms));
+    let retryIn = 1;
+    let artistSearchInProgress = false;
+
+    //artist search 
+    async function spotifySearch(searchStr) {
+        console.log(`spotifySearch(${searchStr})`)
+        return new Promise(async function (resolve, reject) {
+            $.ajax({
+                url: `https://api.spotify.com/v1/search`,
+                type: 'GET',
+                contentType: 'application/json',
+                headers: {
+                    'Authorization': 'Bearer ' + globalAccesToken,
+                },
+                data: {
+                    q: `${searchStr}`,
+                    type: 'artist'
+                }
+            }).done(function callback(response) {
+                resolve(response.artists.items)
+
+            }).fail(function (error) {
+                console.log("spotifySearch(): err=", error);
+                reject(error)
+            });
+        })
+    }
+
+    //when search artist is clicked
+    $('#artist-search-button').click(function () {
+        //call function to handle changed artist-search-input
+        artistInputChanged()
+    });
+
+    //when clear text input id is clicked
+    $('#artist-search-clear').click(function () {
+        //clear input value
+        document.getElementById('artist-search-input').value = '';
+        //call function to handle changed artist-search-input
+        artistInputChanged()
+    });
+
+    async function artistInputChanged() {
+        try {
+            let searchVal = $("#artist-search-input").val();
+            searchVal = searchVal.trim();
+            //verify search value is not blank
+            if (searchVal != "" && searchVal != " " && searchVal != null && searchVal.length >= 2) {
+                console.log('artist search input changed: ', searchVal)
+
+                //display loading spinner
+                $('#artist-search-results-loading').show()
+
+                //get search results
+                artistSearchInProgress = true
+                let artistSearchResults = null;
+                try {
+                    artistSearchResults = await spotifySearch(searchVal)
+                } catch (err) {
+                    artistSearchInProgress = false;
+                    //if search failed because of 429 (api rate limit exceeded)
+                    if (err.status === 429) {
+                        //open api rate limit popup message
+                        displayRateLimitWarning()
+                    }
+                }
+                console.log('artistSearchResults=', artistSearchResults)
+                //hide loading spinner
+                $('#artist-search-results-loading').hide()
+                artistSearchInProgress = false;
+
+                //clear search results html
+                document.getElementById(`artist-search-results`).innerHTML = "";
+
+                //if artistSearchResults is not null, display search results
+                if (artistSearchResults) {
+                    await displaySearchResults(artistSearchResults)
+                }
+
+            } else {
+                //search box is empty so clear search results
+                document.getElementById(`artist-search-results`).innerHTML = "";
+                //hide clear earch button
+                $('#artist-search-clear').hide()
+            }
+        } catch (err) {
+            console.log('artistInputChanged() err=', err)
+
+        }
+    }
+
+    async function displayRateLimitWarning() {
+        //reveal html element
+        $('#rate-limit-warning-popup').modal('toggle')
+    }
+
+    async function displaySearchResults(artistData) {
+        return new Promise(async function (resolve, reject) {
+            //sort data via popularity
+            artistData = artistData.sort((a, b) => parseFloat(a.popularity) - parseFloat(b.popularity));
+
+            //create new html
+            let newHTMLcontent = '';
+            for (var i = 0; i < artistData.length; i++) {
+                //get artist data
+                let artistName = artistData[i].name
+                let artistPopularity = artistData[i].popularity
+                let artistId = artistData[i].id
+                let artistImage = artistData[i].images[0] ? artistData[i].images[0].url : "../../static/assets/img/spotifyArtistUnknown.jpg"
+                //construct html row
+                //onClick="artistSelected('${artistId}', '${artistImage}', '${artistName}', '${artistPopularity}')"
+
+                let htmlRow = `
+                <div class='artist-row-click' artistId="${artistId}" artistImage="${artistImage}" artistName="${artistName}" artistPopularity="${artistPopularity}">
+
+                <div class="row artist-row hover-mouse " >
+                    <img src="${artistImage}"
+                        class="img-responsive artist-results-album-art" alt="${artistName} image" width="50px" height="50px">
+                    <div class="col">${artistName}</div>
+                    <div class="col">Popularity: ${artistPopularity}</div>
+                </div>
+
+                
+                </div>
+                `;
+                //add html row to new html content
+                newHTMLcontent = `${htmlRow}${newHTMLcontent}`
+
+
+            }
+            //display html
+            document.getElementById(`artist-search-results`).innerHTML = `${newHTMLcontent}`;
+            resolve()
+        })
+    }
+
+    //call this funciton when the user clicks an artist-row to generate popularify data for that artist
+    async function artistSelected(artistId, artistImg, artistName, artistPopularity) {
+        console.log(`artistSelected(${artistId}) artistImg=${artistImg}`)
+
+        //show change artist button
+        $('#changeArtistButton').show();
+
+        //initially edit popularify artist loading html for #view2-artist-results
+        document.getElementById("view2-artist-header").innerHTML= await getArtistContentHTML(artistImg, artistName, artistPopularity);
+
+        //reveal view2-artist-results inital artist results
+        $('#view2-artist-results').show();
+
+        //hide view1-artist-search
+        $('#view1-artist-search').hide()
+
+        //continuously update popularify data status and reveal status on #view2-artist-results
+
+        //reveal view2 artist loading page
+        document.getElementById('view2-artist-results').removeAttribute("hidden");
+
+        //get start time
+        //var start = new Date().getTime();
+
+        //call backend to get Popularify table data
+        let popularifyData = await getPopularifyDataBackend(artistId)
+
+        //get end time
+        //var end = new Date().getTime();
+        
+        //calculate time it took to get all Popularify data
+        //var time = end - start;
+        //console.log('popularifyDataBackend() finished time:', time / 1000)
+        let tempResultsVar = $("#tracklistTable")
+        console.log("tempResultsVar tracklistTable=",tempResultsVar)
+
+        //clear add data to table
+        var table = $('#tracklistTable').DataTable();
+        table.clear();
+        table.rows.add(popularifyData).draw();
+    }
+
+    //call backend to get popularify redirect url
+    async function getSpotifyRedirectURL(){
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'get',
+                url: `/createSpotifyRedirectURL`
+            }).then((resp) => {
+                resolve(resp)
+            }).catch((err) => {
+                reject(err)
+            });
+        })
+    }
+
+
+    //call backend to get popularify data
+    async function getPopularifyDataBackend(artistId) {
+        console.log('getPopularifyDataBackend()')
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'get',
+                url: `/generatePopularifyData/${artistId}/${globalAccesToken}`,
+                timeout: 360000000,
+            }).then((resp) => {
+                resolve(resp)
+            }).catch((err) => {
+                reject(err)
+            });
+        })
+    }
+
+    //generate popularify data for an artist id 
+    async function getPopularifyData(artistId) {
+        return new Promise(async function (resolve, reject) {
+
+            var startDate = new Date();
+
+            /*
+                        let returnObj = {};
+                        let albumIds = [];
+                        ////////////////////////////////////////////////////
+                        // Get all artist albums 
+                        ////////////////////////////////////////////////////
+            
+                        //make initial request for albums
+                        let initialAlbums = await getArtistAlbums(artistId, 0, false)
+                        total = initialAlbums.total;
+                        albumIds.push(initialAlbums.items)
+            
+                        
+                        //make additional queries if needed
+                        console.log(`generatePopularifyData() Artist has ${total} albums. We have ${initialAlbums.items.length} so far and need to get ${total - (initialAlbums.items.length)} more`);
+                        let artistAlbumsPromises = [];
+                        for (var x = 20; x < total; x += 20) {
+                            artistAlbumsPromises.push(getArtistAlbums(artistId, x, true))
+                        }
+            
+                        //complete promises
+                        let finishedArtistAlbumsPromises = await Promise.all(artistAlbumsPromises);
+            
+                        //combine initialAlbums.items with finishedArtistAlbumsPromises
+                        let allAlbums = finishedArtistAlbumsPromises
+                        allAlbums.push(initialAlbums.items)
+                        
+                        //combine initial query with additional queries
+                        let albumsObj = {}
+                        //organize initialAlbums by album_group: album_type
+                        for (var x = 0; x < allAlbums.length; x++) {
+                            for (var y = 0; y < allAlbums[x].length; y++) {
+                                //get vars
+                                let albumGroup = allAlbums[x][y]['album_group']
+                                let albumType = allAlbums[x][y]['album_type']
+                                //if albumsObj.album_group does not exist, create it
+                                if (!albumsObj[`${albumGroup}`]) {
+                                    albumsObj[`${albumGroup}`] = {}
+                                }
+                                //if albumsObj.album_group.album_type does not exist, create it
+                                if (!albumsObj[`${albumGroup}`][`${albumType}`]) {
+                                    albumsObj[`${albumGroup}`][`${albumType}`] = []
+                                }
+                                //add album to albumsObj
+                                albumsObj[`${albumGroup}`][`${albumType}`].push(allAlbums[x][y])
+                                //console.log(`${x}-${y} ${albumGroup} ${albumType} ${allAlbums[x][y].name} ${allAlbums[x][y].artists[0].name}`, allAlbums[x][y])
+                            }
+                        }
+                        //organize albumsObj into single list ordered by priority
+                        console.log('albumsObj=',albumsObj)
+                        let allAlbumsOrder = [];
+                        let albumTypes=['album','single','compilation','appears_on']
+                        for(var x = 0; x<albumTypes.length; x++){
+                            for(var y=0; y<albumTypes.length; y++){
+                                //console.log(`${albumTypes[x]} - ${albumTypes[y]}`)
+                                try{ 
+                                    allAlbumsOrder = allAlbumsOrder.concat(albumsObj[`${albumTypes[x]}`][`${albumTypes[y]}`] ? albumsObj[`${albumTypes[x]}`][`${albumTypes[y]}`] : [])
+                                }catch(err){}
+                            }
+                        }
+                        console.log(`albumsObj sorted by priority into allAlbumsOrder`)
+                        ////////////////////////////////////
+                        // Get tracklist data for each album 20 albumIds at a time
+                        // Priority List: album_group:'album','single','compilation','appears_on':album_type:'album','single','compilation'
+                        ////////////////////////////////////
+                        retryIn=1;
+                        const albumTracklistPromises = [];
+                        let multipleAlbumsQueryLimit = 20;
+                        for (var x = 0; x < allAlbumsOrder.length; x += multipleAlbumsQueryLimit) {
+                            let start = x;
+                            let end = x + multipleAlbumsQueryLimit;
+                            if (end > allAlbumsOrder.length) {
+                                end = allAlbumsOrder.length;
+                            }
+                            //slice list of albums we want to get info about
+                            var albumsSliced = allAlbumsOrder.slice(start, end).map(i => {
+                                return i.id;
+                            });
+            
+                            console.log(` getAllArtistAlbums() get data from albums from ${start} to ${end} `)
+                            albumTracklistPromises.push(getAlbums(albumsSliced, 0, `start:${start}, end:${end}`));
+                        }
+                        console.log('created list of promises for getting tracklist data for each album')
+                        //run promises to get album info
+                        var albumTracklistPromisesFinished = await Promise.all(albumTracklistPromises);        
+                        retryIn=1;
+                        console.log('albumTracklistPromisesFinished=',albumTracklistPromisesFinished)
+            
+                        ////////////////////////////////////
+                        // make sure we have complete tracklist for every album
+                        // parse albumTracklistPromisesFinished() where each object has a list of albums
+                        ////////////////////////////////////
+                        let allAlbumTracks = []
+                        //for each response containing at max 20 albums
+                        for (var x = 0; x < albumTracklistPromisesFinished.length; x++) {
+                            //console.log('x=',x)
+                            //for each album
+                            for (var y = 0; y < albumTracklistPromisesFinished[x].albums.length; y++) {
+                                //console.log('   y=',y)
+            
+                                //get vars from album
+                                let currentAlbumId = albumTracklistPromisesFinished[x].albums[y].id;
+                                let currentAlbumTracks = albumTracklistPromisesFinished[x].albums[y].tracks.items;
+                                let tracksTotal = albumTracklistPromisesFinished[x].albums[y].tracks.total;
+                                //console.log(`for album, we have ${currentAlbumTracks.length} tracks out of ${tracksTotal}`)
+                                //console.log(`album total tracks:${albumTracklistPromisesFinished[x].albums[y].tracks.total}, current number of tracks:`,albumTracklistPromisesFinished[x].albums[y].tracks.items) 
+                                //if there are more tracks then get them
+                                while (currentAlbumTracks.length < tracksTotal) {
+                                    console.log(`   need to get more tracks, we have ${currentAlbumTracks.length} and need ${tracksTotal}`)
+                                    let additionalAlbumInfo = await getAlbumTracks(currentAlbumId, currentAlbumTracks.length)
+                                    //console.log('   additionalAlbumInfo=',additionalAlbumInfo)
+                                    let additionalAlbumTracks = additionalAlbumInfo.items
+                                    //console.log('found these new tracks:', additionalAlbumInfo.items)
+            
+                                    currentAlbumTracks = currentAlbumTracks.concat(additionalAlbumTracks)
+                                    //console.log('   currentAlbumTracks.length is now ', currentAlbumTracks.length)
+                                    //console.log('   got more tracks, length now at:', additionalAlbumInfo.items)
+                                }
+                                //console.log('now we have all tracks: ',currentAlbumTracks)
+                                //concatenate all tracks to list
+                                allAlbumTracks = allAlbumTracks.concat(currentAlbumTracks)
+                            }
+                        }
+                        retryIn=1;
+                       
+                        console.log('get popularity fo all tracks: ', allAlbumTracks)
+                       
+                        ////////////////////////////////////
+                        // Fetch additional data (popularity) for each track (50 at a time)
+                        ////////////////////////////////////
+                        let tempSlices = []
+                        const trackInfoPromises = [];
+                        let multipleTracksQueryLimit = 50;
+                        var tracks = [];
+                        retryIn=1;
+                        try{
+                            for (var x = 0; x < allAlbumTracks.length; x += multipleTracksQueryLimit) {
+                                let start = x;
+                                let end = x + multipleTracksQueryLimit;
+                                if (end > allAlbumTracks.length) {
+                                    end = allAlbumTracks.length;
+                                }
+                                //slice list of albums we want to get info about
+                                console.log(`slice tracks from ${start} to ${end} out of ${allAlbumTracks.length} in total`)
+                                var tracksSliced = allAlbumTracks.slice(start, end).map(i => {
+                                    return i.id;
+                                });
+                                tempSlices.push(tracksSliced)
+            
+                                //returnObj.tracksSliced = returnObj.tracksSliced.push(tracksSliced)
+                                trackInfoPromises.push(getTracks(tracksSliced));
+                            }
+                            console.log('begin completing track data promises')
+                            //run promises to get album info
+                            var trackInfoPromisesFinished=[]
+                            try{
+                                trackInfoPromisesFinished = await Promise.all(trackInfoPromises);
+                            }catch(err){
+                                console.log('err caught completing trackInfoPromisesFinished')
+                            }
+                            console.log('finished completing track data promises, no sort by popularity')
+                            //concatenate results into single list since getTracks() returns 50 at a time
+                            for (var i = 0; i < trackInfoPromisesFinished.length; i++) {
+                                tracks = tracks.concat(trackInfoPromisesFinished[i].tracks)
+                            }
+                        }catch(err){
+                            console.log('err=',err)
+                        }
+                        
+            
+                        console.log('tracks=',tracks)
+                        //sort by popularity
+                        tracks=tracks.sort((a, b) => (a.popularity > b.popularity) ? 1 : -1)
+                        console.log('sorted tracks=',tracks)
+            */
+            // Do your operations
+            var endDate = new Date();
+            var seconds = (endDate.getTime() - startDate.getTime()) / 1000;
+            console.log('took this many seconds: ', seconds)
+
+            //
+            //  Return final data
+            //
+            //returnObj = {
+            //allAlbums: allAlbums,
+            //albumsObj: albumsObj,
+            //allAlbumsOrder: allAlbumsOrder,
+            //albumsSliced:albumsSliced,
+            //albumTracklistPromisesFinished:albumTracklistPromisesFinished,
+            //allAlbumTracks:allAlbumTracks,
+            //    allAlbumTracks:allAlbumTracks //complete tracklist for every release
+            //}
+
+            resolve(returnObj)
+        })
+    }
+
+    //get more info for an album or multiple albums at once (20 at a time)
+    async function getAlbums(ids, retry = 0, status) {
+        return new Promise(async function (resolve, reject) {
+            console.log(`getAlbums() ids=`, ids, ` retry=${retry}, status=${status}`)
+            let didRequestErrAlbums = false;
+            try {
+                $.ajax({
+                    url: `https://api.spotify.com/v1/albums`,
+                    type: 'GET',
+                    dataType: "json",
+                    async: false,
+                    contentType: 'application/json',
+                    headers: {
+                        'Authorization': 'Bearer ' + globalAccesToken,
+                    },
+                    data: {
+                        ids: encodeURI(ids),
+                    },
+                    xhr: function () {
+                        var xhr = new window.XMLHttpRequest();
+                        xhr.addEventListener("error", function (evt) {
+                            console.log("getAlbums() an error occured");
+                        }, false);
+                        xhr.addEventListener("abort", function () {
+                            console.log("getAlbums() cancelled");
+                        }, false);
+
+                        return xhr;
+                    },
+                    error: function (err) {
+                        console.log("getAlbums() AJAX error in request: " + JSON.stringify(err, null, 2));
+                        didRequestErrAlbums = true
+                        console.log("getAlbums() AJAX didRequestErrAlbums=", didRequestErrAlbums)
+                        throw 'ajax err'
+                    }
+                }).done(function callback(response) {
+                    console.log(`getAlbums() response=`, response)
+                    resolve(response)
+                    //}
+                });
+            } catch (err) {
+                console.log('getAlbums() err caught: ', err)
+                didRequestErrAlbums = true
+            }
+
+            if (didRequestErrAlbums) {
+                console.log('getAlbums() didRequestErrAlbums==true')
+                await delay(7 * 1000)
+                retryIn = retryIn + 1;
+                resolve(await getAlbums(ids, ++retry, status))
+            }
+        })
+    }
+
+    //get info for multiple tracks 
+    async function getAlbumTracks(albumId, offset = 0, limit = 50, retry = 0) {
+        //console.log(`getAlbumTracks() albumId=${albumId}, offset=${offset}, limit=${limit}, retry=${retry}`)
+        return new Promise(async function (resolve, reject) {
+            try {
+                $.ajax({
+                    url: `https://api.spotify.com/v1/albums/${albumId}/tracks`,
+                    type: 'GET',
+                    contentType: 'application/json',
+                    headers: {
+                        'Authorization': 'Bearer ' + globalAccesToken,
+                    },
+                    data: {
+                        id: encodeURI(albumId),
+                        offset: encodeURI(offset),
+                        limit: encodeURI(limit),
+                    }
+                }).done(function callback(response) {
+                    //console.log('getAlbumTracks() rsp')
+                    resolve(response)
+                }).fail(async function (err) {
+                    console.log('getAlbumTracks() err')
+                    console.log('getAlbumTracks() retryIn=', retryIn)
+                    console.log(`getAlbumTracks() ERR waiting for ${retryIn * 1000} seconds`)
+                    await delay(retryIn * 1000)
+                    retryIn = retryIn + 1;
+                    resolve(await getAlbumTracks(albumId, offset, limit, ++retry))
+                });
+            } catch (err) {
+                //console.log('err caught:',err)
+            }
+        })
+    }
+
+
+    //make a spotify web api query to get artist albums
+    async function getArtistAlbums(artistId, offset = 0, onlyReturnTracks = false) {
+        return new Promise(async function (resolve, reject) {
+            $.ajax({
+                url: `https://api.spotify.com/v1/artists/${artistId}/albums`,
+                type: 'GET',
+                contentType: 'application/json',
+                headers: {
+                    'Authorization': 'Bearer ' + globalAccesToken,
+                },
+                data: {
+                    offset: offset,
+                }
+            }).done(function callback(response) {
+                if (onlyReturnTracks) {
+                    resolve(response.items)
+                } else {
+                    resolve(response)
+                }
+            }).fail(async function (error) {
+                console.log(`getArtistAlbums() retryIn=${retryIn}, err=`, error)
+                await delay(retryIn * 1000)
+                retryIn = retryIn + 1;
+                resolve(await getArtistAlbums(artistId, offset, onlyReturnTracks))
+            });
+        })
+    }
+
+    //when user clicks loginButton
+    $('#loginButton').click(async function () {
+
+        let redirectURL = await getSpotifyRedirectURL()
+        console.log('loginButton clicked, redirecturl=', redirectURL)
+        //open popup
+        popup = window.open(
+            redirectURL,
+            'Login with Spotify',
+            'width=800,height=600'
+        )
+        //sucesfull login callback
+        window.spotifyCallback = (payload) => {
+            //popup.close()
+            console.log('login popup closed, payload=',payload)
+            $.ajax({
+                type: 'post',
+                url: `/popularify/logUserIn`,
+                data: {
+                    payload: payload
+                },
+            }).then((resp) => {
+                console.log('good: ', resp)
+            }).catch((err) => {
+                console.log('bad:', err)
+            });
+        }
+
+    })
+
+    //when user clicks changeArtist button
+    $('#changeArtistButton').click(function () {
+        //hide changeArtistButton
+        $('#changeArtistButton').hide();
+
+        //cancel any api queries in progress
+        popularifyProgress = 0
+
+        //clear datatable
+        var table = $('#tracklistTable').DataTable();
+        table.clear().draw();
+
+        //clear and hide view2
+        $('#view2-artist-results').hide()
+
+        //reset background gradient color
+        document.querySelector('body').style.background = `linear-gradient(180deg, #1DB954, rgb(18,18,18)) no-repeat fixed`;
+
+        //clear artist search input and update view1
+        document.getElementById('artist-search-input').value = '';
+        artistInputChanged()
+
+        //reveal view1
+        $('#view1-artist-search').show()
+    });
+
+    //call this function to update the artist display UI
+    async function getArtistContentHTML(imgURL, artistName, artistPopularity) {
+        return new Promise(async function (resolve, reject) {
+            
+            //get colors for image
+            let imageColors = await getImageColors(imgURL)
+            //get light vibrant hex
+            let VibrantHex = imageColors['Vibrant'].hex
+            //get 50% lighter version of Vibrant
+            let brighterVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, 0.5);
+            
+            //get 60% darker version of Vibrant
+            let darkerVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, -0.6);
+            //update body css gradient
+            //document.getElementsByClassName('body-row')[0].style.background = `linear-gradient(180deg, ${darkerVibrant}, rgb(18,18,18))`;
+            //update css background full length
+            document.querySelector('body').style.background = `linear-gradient(180deg, ${imageColors['Vibrant'].hex}, 400px, rgb(18,18,18)) no-repeat fixed`;
+
+            let artistHeaderTemp=`
+            <div class='row header-row-results' style=" background:linear-gradient(0deg, rgb(18,18,18) -86%, ${brighterVibrant});">
+                <div class="container">
+                    <div class="row artist-heading-text">
+                        <div class="col" style="flex-grow: 0;">
+                            <img src="${imgURL}" class="album-art" style="width: 200px; height: 200px; object-fit: cover;" /> 
+                        </div>
+                        <div class="col-sm">
+                            <div class='row'>
+                                <div id='artist-heading-text'>${artistName}</div>
+                                </div>
+                            <div class='row'>
+                                <div id="artist-heading-description">Popularity: ${artistPopularity}</div>
+                            </div>
+                            <div class='row'>
+                                <div id="statusUpdate"></div>
+                            </div>
+                            <div class='row'>
+                                <div id="statusUpdateError"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>                
+            </div>
+            `
+            resolve(artistHeaderTemp)
+/*
+            //update artist name text
+            document.getElementById('artist-heading-text').innerText = artistName
+            //update artist description text
+            document.getElementById('artist-heading-description').innerText = `Popularity: ${artistPopularity}`;
+            //get colors for image
+            let imageColors = await getImageColors(imgURL)
+            //update image html element
+            document.getElementsByClassName('album-art')[0].src = imgURL;
+            //get light vibrant hex
+            let VibrantHex = imageColors['Vibrant'].hex
+            //get 50% lighter version of Vibrant
+            let brighterVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, 0.5);
+            //update header css gradient 
+            document.getElementsByClassName('header-row-results')[0].style.background = `linear-gradient(0deg, rgb(18,18,18) -86%, ${brighterVibrant})`;
+            //get 60% darker version of Vibrant
+            let darkerVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, -0.6);
+
+            //update body css gradient
+            //document.getElementsByClassName('body-row')[0].style.background = `linear-gradient(180deg, ${darkerVibrant}, rgb(18,18,18))`;
+
+            //var bodyElement = document.querySelector('body');
+            //bodyElement.style.background = null;
+            
+            document.querySelector('body').style.background = `linear-gradient(180deg, ${imageColors['Vibrant'].hex}, 400px, rgb(18,18,18)) no-repeat fixed`;
+            //document.querySelector('body').style.height = `100%`;
+            //document.querySelector('body').style.margin = 0;
+            
+            //document.querySelector('body').style.backgroundRepeat  = `no-repeat !important;`;
+
+            //var body = $('body');
+            //body.css('background-repeat', 'no-repeat !important;');
+            //body.css('background-attachment', 'fixed !important;');
+
+            //$('.body').css('background-repeat', "no-repeat !important;");
+            //$('.body').css('background-attachment', "fixed !important;");
+
+            //document.querySelector('body').style.backgroundAttachment = `fixed !important;`;
+            
+            */
+            
+            
+        })
+    }
+
+    //lighten or darken a hex color
+    function ColorLuminance(hex, lum) {
+
+        // validate hex string
+        hex = String(hex).replace(/[^0-9a-f]/gi, '');
+        if (hex.length < 6) {
+            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        lum = lum || 0;
+
+        // convert to decimal and change luminosity
+        var rgb = "#", c, i;
+        for (i = 0; i < 3; i++) {
+            c = parseInt(hex.substr(i * 2, 2), 16);
+            c = Math.round(Math.min(Math.max(0, c + (c * lum)), 255)).toString(16);
+            rgb += ("00" + c).substr(c.length);
+        }
+
+        return rgb;
+    }
+
+    //send image url to backend, get back color swatches (name, rgb, hex)
+    async function getImageColors(imgURL) {
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'POST',
+                url: '/getImageColors',
+                timeout: 120000,
+                data: {
+                    imgURL: imgURL
+                },
+            }).then((resp) => {
+
+
+
+                //calculate 50% darker version of LightVibrant
+                //let darkerLightVibrant = ColorLuminance(`${resp['LightVibrant'].hex.replace('#','')}`, -0.5);
+
+
+                resolve(resp)
+            }).catch((err) => {
+                console.log('getImageColors() err = ', err)
+                reject(err)
+            });
+        });
+    }
+</script>
+
+<style>
+    @font-face {
+        font-family: SpotifyCircularThin;
+        src: url("/static/assets/fonts/AvenirLTStd-Book.otf") format("opentype");
+    }
+
+    @font-face {
+        font-family: SpotifyCircular;
+        src: url("/static/assets/fonts/AvenirLTStd-Black.otf") format("opentype");
+    }
+
+    .dataTables tbody tr {
+        min-height: 35px; /* or whatever height you need to make them all consistent */
+        max-height: 35px; /* or whatever height you need to make them all consistent */
+        overflow: hidden;
+    }
+
+    #artist-search-results {
+        padding-top: 25px;
+    }
+
+    #artist-search-button {
+        border-radius: 0px 10px 10px 0px;
+    }
+
+    .artist-results-album-art {
+        border-radius: 50%;
+    }
+
+    .tr:hover {
+        cursor: pointer !important;
+    }
+
+    .hover-mouse {
+        cursor: pointer;
+    }
+
+    .init-page-container {
+        width: 100%;
+        padding: 0px;
+        margin: 0px;
+    }
+
+    .artist-row {
+        align-items: center;
+        color: white;
+        margin-bottom: 5px;
+        border: 1px white solid;
+        border-radius: 25px;
+    }
+
+    .artist-row:hover {
+        background: white;
+        color: black;
+    }
+
+    .hidden {
+        position: relative;
+        display: none;
+    }
+
+    #artist-search-clear {
+        position: relative;
+        float: right;
+        top: -32px;
+        right: 5px;
+        font-size: 25px;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus,
+    button:focus {
+        outline: none;
+    }
+
+    input.middle:focus {
+        outline-width: 0;
+    }
+
+    #artist-search-input {}
+
+    #artist-search {
+        max-width: 93vw !important;
+        min-width: 93vw !important;
+        padding-right: 10px;
+        margin-top: 20px !important;
+    }
+
+    #artist-search-text {
+        color: white;
+        font-size: 5vw;
+        text-align: center;
+    }
+
+    .navbar {
+        padding-top: 5px;
+        padding-bottom: 5px;
+    }
+
+    .fa-search {
+        left: 4vw;
+        padding-top: 1vw;
+    }
+
+    /* Bootstrap 4 text input with search icon */
+    .has-search .form-control {
+        padding-left: 2.375rem;
+        border-radius: 50px;
+        border: none;
+    }
+
+    .has-search .form-control-feedback {
+        position: absolute;
+        z-index: 2;
+        display: block;
+        width: 2.375rem;
+        height: 2.375rem;
+        line-height: 2.375rem;
+        text-align: center;
+        pointer-events: none;
+        color: #aaa;
+    }
+
+    table {
+        font-family: SpotifyCircularThin !important;
+    }
+
+    /* border-bottom: 0.1px solid rgb(179, 179, 179); */
+    table.dataTable thead th {
+        color: rgb(220, 217, 217);
+        text-shadow: black 0px 0px 2px; /* color offset-x offset-y blur-radius */
+    }
+
+
+    td:first-child {
+        -moz-border-radius: 10px 0 0 10px;
+        -webkit-border-radius: 10px 0 0 10px;
+    }
+
+    td:last-child {
+        -moz-border-radius: 0 10px 10px 0;
+        -webkit-border-radius: 0 10px 10px 0;
+    }
+
+    table#tracklistTable tr:hover {
+        background: rgb(151, 165, 170) !important;
+    }
+
+    table#tracklistTable thead tr:hover {
+        background: none !important;
+    }
+
+    tbody tr {
+        height: 55px !important;
+    }
+
+    /* tracklist table header bottom line */
+    table.dataTable thead th {
+        border-bottom: 1px solid rgb(220, 217, 217);
+    }
+
+    table.dataTable tfoot th {
+        border-top: 0;
+    }
+
+    #tracklistTable_wrapper {
+        width: 100% !important;
+    }
+
+    #tracklistTable {
+        color: white;
+        width: 100% !important;
+        /* padding-top: 50px; */
+        padding-left: 40px !important;
+        padding-right: 40px !important;
+    }
+
+    #tracklistTable_filter{
+        float: left !important;
+        padding-left: 40px !important;
+        color: white;
+    }
+
+    table.dataTable.no-footer {
+        border-bottom: 0 !important;
+    }
+
+    td {
+        background: transparent !important
+    }
+
+    tr {
+        background: transparent !important;
+    }
+
+    html {
+        height: 100%;
+    }
+
+    body {
+        font-family: 'SpotifyCircular';
+        background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954);
+        height: 100%;
+        margin: 0;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }
+
+    #view2-artist-loading{
+        height: 100%;
+        margin: 0;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }
+
+    .container {
+        max-width: 100%;
+    }
+
+    .header-row-init {
+        /* background: linear-gradient(0deg, rgb(18, 18, 18), #1DB954); */
+        margin: 0px;
+        padding: 0px;
+        padding-left: 3vw;
+        padding-right: 3vw;
+    }
+
+    .body-row-init {
+        background: rgb(18, 18, 18);
+        height: 120%;
+    }
+
+    .header-row-results {
+        /* background: linear-gradient(0deg, rgb(18, 18, 18) -86%, rgb(106, 174, 212)); */
+        padding: 50px;
+    }
+
+    .body-row {
+        /* background: linear-gradient(#4c6c7e, rgb(18, 18, 18)); */
+        height: 100%;
+    }
+
+    .album-art {
+        width: 200px; 
+        height: 200px; 
+        object-fit: cover;
+        /* box-shadow: [horizontal offset] [vertical offset] [blur radius] [optional spread radius] [color]; */
+        box-shadow: 0px 0px 100px -23px rgb(18, 18, 18);
+
+    }
+
+    @import url(//db.onlinewebfonts.com/c/01173b246d9d9ea808ea75a26b3b61bb?family=Circular+Spotify+Tx+T+Black);
+
+    @font-face {
+        font-family: "Circular Spotify Tx T Black";
+        src: url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.eot");
+        src: url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.eot?#iefix") format("embedded-opentype"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.woff2") format("woff2"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.woff") format("woff"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.ttf") format("truetype"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.svg#Circular Spotify Tx T Black") format("svg");
+    }
+
+/*
+    .album-text {
+        color: white;
+        margin-top: 50px;
+        padding-left: 10px;
+        position: absolute;
+        padding-left: 230px;
+    }
+*/
+    #artist-heading-text{
+        color: white;
+        font-size: 5vw;
+    }
+
+    #artist-heading-text {
+        font-size: 5vw;
+    }
+
+    #artist-heading-description{
+        color: white;
+    }
+
+    #statusUpdate{
+        color: white;
+    }
+
+    #statusUpdateError{
+        color:red;
+    }
+</style>

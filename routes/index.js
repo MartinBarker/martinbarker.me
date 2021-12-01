@@ -8,6 +8,12 @@ const Post = require('../database/models/Post.js');
 //connect to mongodb
 var mongodbutil = require('../static/assets/js/mongodbutils');
 var db = mongodbutil.getDb();
+require('dotenv').config();
+
+var io = require("../server").io;
+
+//spotify auth file
+var spotifyAuth = require('../static/assets/js/spotifyAuth');
 
 //global vars
 allBlogPosts = []
@@ -35,12 +41,12 @@ app.get('/posts/:id', async (req, res) => {
     post: post,
     pageTitle: post.title,
     blog: 'active',
-    icon:'https://cdn0.iconfinder.com/data/icons/picons-social/57/53-medium-512.png',
-    previewCardTitle:'Martin Barker',
-    previewCardUrl:'http://www.martinbarker.me',
-    previewCardWebsite:'website',
-    previewCardDescription:'Blog Post',
-    previewCardImage:'../static/assets/img/headshot.jpg',
+    icon: 'https://cdn0.iconfinder.com/data/icons/picons-social/57/53-medium-512.png',
+    previewCardTitle: 'Martin Barker',
+    previewCardUrl: 'http://www.martinbarker.me',
+    previewCardWebsite: 'website',
+    previewCardDescription: 'Blog Post',
+    previewCardImage: '../static/assets/img/headshot.jpg',
     pageBodyNavTitle: `${post.title}`,
     pageBodyNaavGithub: '',
     postTitle: post.title,
@@ -50,8 +56,8 @@ app.get('/posts/:id', async (req, res) => {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -74,7 +80,7 @@ app.get('/', async function (req, res) {
   let displayPosts = await getPostsDisplay(colorData.colors['LightMuted'].hex, req.params.id, getReadableTextColor(colorData.colors['LightMuted'].rgb))
   //create colorObj
   let colorsObj = await createColorObj(colorData);
-  
+
   res.render('about', {
     //template layout to use
     layout: 'mainTemplate',
@@ -82,11 +88,11 @@ app.get('/', async function (req, res) {
     pageTitle: 'martinbarker.me',
     //page tab icon
     icon: "https://cdn0.iconfinder.com/data/icons/picons-social/57/53-medium-512.png",
-    previewCardTitle:'Martin Barker',
-    previewCardUrl:'http://www.martinbarker.me',
-    previewCardWebsite:'website',
-    previewCardDescription:'',
-    previewCardImage:'../static/assets/img/headshot.jpg', 
+    previewCardTitle: 'Martin Barker',
+    previewCardUrl: 'http://www.martinbarker.me',
+    previewCardWebsite: 'website',
+    previewCardDescription: '',
+    previewCardImage: '../static/assets/img/headshot.jpg',
     //set active current tab
     about: 'active',
     //body content title 
@@ -96,8 +102,8 @@ app.get('/', async function (req, res) {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -131,11 +137,11 @@ app.get('/audio-archiver', async function (req, res) {
     pageTitle: 'audio-archiver',
     //page tab icon
     icon: "../static/assets/img/icon.png",
-    previewCardTitle:'audio-archiver',
-    previewCardUrl:'http://www.martinbarker.me/audio-archiver',
-    previewCardWebsite:'website',
-    previewCardDescription:'',
-    previewCardImage:'../static/assets/img/headshot.jpg',
+    previewCardTitle: 'audio-archiver',
+    previewCardUrl: 'http://www.martinbarker.me/audio-archiver',
+    previewCardWebsite: 'website',
+    previewCardDescription: '',
+    previewCardImage: '../static/assets/img/headshot.jpg',
     //expand projects tab
     projects: 'active',
     //set active current tab
@@ -147,8 +153,8 @@ app.get('/audio-archiver', async function (req, res) {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -161,42 +167,6 @@ app.get('/audio-archiver', async function (req, res) {
   });
 })
 
-
-
-//betterspotify routes
-
-
-app.get(/^\/betterspotify(.*)/, async function (req, res) {
-  var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
-  var lastRoute = fullUrl.substr(fullUrl.lastIndexOf('/')+1)
-  //console.log('fullUrl = ', fullUrl, ', lastRoute=', lastRoute)
-
-  if(lastRoute=='login'){
-    //console.log('redirect to /login/ route')
-    var scopes = 'user-read-playback-position user-read-currently-playing user-modify-playback-state user-read-playback-state streaming app-remote-control user-library-modify user-library-read playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative';
-    var my_client_id = '199c96b7d70f4dd28f188f9c6bc86045';
-    var redirect_uri = 'http://localhost:8080/betterspotify';
-    
-    res.redirect('https://accounts.spotify.com/authorize' +
-      '?response_type=code' +
-      '&client_id=' + my_client_id +
-      (scopes ? '&scope=' + encodeURIComponent(scopes) : '') +
-      '&redirect_uri=' + encodeURIComponent(redirect_uri));
-
-  }else{
-    let spotifyAuthCode = '';
-    if(fullUrl.includes('?code=')){
-      spotifyAuthCode = fullUrl.substr(fullUrl.lastIndexOf('?code=')+7);
-      console.log('spotifyAuthCode=',spotifyAuthCode);
-      spotifyAPex(spotifyAuthCode)
-    }
-
-    res.render('betterspotify', {
-      spotifyAuthCode:spotifyAuthCode,
-      layout: '',
-    });
-  }
-})
 
 app.get('/api/:version', function(req, res) {
   res.send(req.params.version);
@@ -215,34 +185,10 @@ app.get('/login', function(req, res) {
 
   });
 
-async function spotifyAPex(token){
-  var SpotifyWebApi = require('spotify-web-api-node');
 
-  var spotifyApi = new SpotifyWebApi();
-  
-  // Set all credentials at the same time
-  spotifyApi.setCredentials({
-    accessToken: `${token}`,
-    redirectUri: 'https://localhost:8080/betterspotify',
-    'clientId ': '199c96b7d70f4dd28f188f9c6bc86045',
-    clientSecret: '7402b3a32bf14e6dbef22204dece674c'
-  });
-
-  spotifyApi.setAccessToken(`${token}`);
-
-  // Get Elvis' albums
-  spotifyApi.getArtistAlbums('43ZHCT0cAZBISjO8DG9PnE').then(
-    function(data) {
-      console.log('Artist albums', data.body);
-    },
-    function(err) {
-      console.error(err);
-    }
-  );
-}
 
 //popularify route
-app.get('/popularify', async function (req, res) {
+app.get('/popularifyOld', async function (req, res) {
   //get color Data
   let colorData = await getColorData();
   //get blog posts
@@ -288,31 +234,6 @@ app.get('/popularify', async function (req, res) {
   });
 })
 
-//popularify spotify api route
-app.post('/popularifyRequest', async function (req, res) {
-  console.log("/popularifyRequest req.body=", req.body)
-
-  var SpotifyWebApi = require('spotify-web-api-node');
-
-  // credentials are optional
-  var spotifyApi = new SpotifyWebApi({
-    clientId: 'f80489d0401f431b9ce0b7bff0244248',
-    clientSecret: 'b7ec06f77e2340ec939882b267a3f178',
-    redirectUri: 'https://masterb-j2xzapyrnq-uc.a.run.app/popularify'
-  });
-
-  // Get Elvis' albums
-  spotifyApi.getArtistAlbums('5fAix5NwfNgHQqYRrHIPxo').then(
-    function (data) {
-      res.send(data.body);
-    },
-    function (err) {
-      res.send(err);
-    }
-  );
-
-});
-
 //redirect discogstagger to tagger
 app.get('/discogstagger', async function (req, res) {
   res.redirect('/tagger');
@@ -335,13 +256,13 @@ app.get('/rendertune', async function (req, res) {
     //page tab icon
     icon: './static/assets/img/icon.png',
     //shareable preview-cart metadata
-   
-    previewCardTitle:'RenderTune Free Video Rendering App',
-    previewCardUrl:'http://www.martinbarker.me/rendertune',
-    previewCardWebsite:'website',
-    previewCardDescription:'Combine audio + image file(s) into video files',
-    previewCardImage:'https://i.imgur.com/c3yaWWZ.png',
-   
+
+    previewCardTitle: 'RenderTune Free Video Rendering App',
+    previewCardUrl: 'http://www.martinbarker.me/rendertune',
+    previewCardWebsite: 'website',
+    previewCardDescription: 'Combine audio + image file(s) into video files',
+    previewCardImage: 'https://i.imgur.com/c3yaWWZ.png',
+
     //expand projects tab
     projects: 'active',
     //set active current tab
@@ -353,8 +274,8 @@ app.get('/rendertune', async function (req, res) {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -385,11 +306,11 @@ app.get('/digify', async function (req, res) {
     icon: './static/assets/img/icon.png',
     //shareable preview-cart metadata
 
-    previewCardTitle:'RenderTune Free Video Rendering App',
-    previewCardUrl:'http://www.martinbarker.me/rendertune',
-    previewCardWebsite:'website',
-    previewCardDescription:'Combine audio + image file(s) into video files',
-    previewCardImage:'https://i.imgur.com/c3yaWWZ.png',
+    previewCardTitle: 'RenderTune Free Video Rendering App',
+    previewCardUrl: 'http://www.martinbarker.me/rendertune',
+    previewCardWebsite: 'website',
+    previewCardDescription: 'Combine audio + image file(s) into video files',
+    previewCardImage: 'https://i.imgur.com/c3yaWWZ.png',
 
     //expand projects tab
     projects: 'active',
@@ -402,8 +323,8 @@ app.get('/digify', async function (req, res) {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -434,11 +355,11 @@ app.get('/tagger', async function (req, res) {
     //page tab icon
     icon: 'https://cdn4.iconfinder.com/data/icons/48-bubbles/48/06.Tags-512.png',
     //shareable preview-cart metadata
-    previewCardTitle:'Timestamped Tracklist Generator',
-    previewCardUrl:'http://www.tagger.site',
-    previewCardWebsite:'website',
-    previewCardDescription:'Generate tags using files or a Discogs URL',
-    previewCardImage:'https://i.imgur.com/f0xepPT.jpg',
+    previewCardTitle: 'Timestamped Tracklist Generator',
+    previewCardUrl: 'http://www.tagger.site',
+    previewCardWebsite: 'website',
+    previewCardDescription: 'Generate tags using files or a Discogs URL',
+    previewCardImage: 'https://i.imgur.com/f0xepPT.jpg',
     //expand projects tab
     projects: 'active',
     //set active current tab
@@ -450,8 +371,8 @@ app.get('/tagger', async function (req, res) {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -464,10 +385,10 @@ app.get('/tagger', async function (req, res) {
   });
 })
 
-async function getMostReadableTextColor(hex){
+async function getMostReadableTextColor(hex) {
   return new Promise(async function (resolve, reject) {
     console.log('getMostReadableTextColor() hex = ', hex)
-    let rgb=convertHexToRGB(hex)
+    let rgb = convertHexToRGB(hex)
     console.log('getMostReadableTextColor() rgb = ', rgb)
     if (((rgb[0]) * 0.299 + (rgb[1]) * 0.587 + (rgb[2]) * 0.114) > 186) {
       console.log('getMostReadableTextColor() returning black')
@@ -479,7 +400,7 @@ async function getMostReadableTextColor(hex){
   })
 }
 
-async function convertHexToRGB(hex){
+async function convertHexToRGB(hex) {
   var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result ? [
     parseInt(result[1], 16),
@@ -510,11 +431,11 @@ app.get(/^\/tagger\/(.*)/, async function (req, res) {
     //page tab icon
     icon: 'https://cdn4.iconfinder.com/data/icons/48-bubbles/48/06.Tags-512.png',
     //shareable preview-cart metadata
-    previewCardTitle:'Timestamped Tracklist Generator',
-    previewCardUrl:'http://www.tagger.site',
-    previewCardWebsite:'website',
-    previewCardDescription:'Generate tags using files or a Discogs URL',
-    previewCardImage:'https://i.imgur.com/f0xepPT.jpg',
+    previewCardTitle: 'Timestamped Tracklist Generator',
+    previewCardUrl: 'http://www.tagger.site',
+    previewCardWebsite: 'website',
+    previewCardDescription: 'Generate tags using files or a Discogs URL',
+    previewCardImage: 'https://i.imgur.com/f0xepPT.jpg',
     //expand projects tab
     projects: 'active',
     //set active current tab
@@ -526,8 +447,8 @@ app.get(/^\/tagger\/(.*)/, async function (req, res) {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -550,7 +471,7 @@ app.get(/^\/unix\/(.*)/, async function (req, res) {
   unixRoute(req, res)
 })
 
-async function unixRoute(req, res){
+async function unixRoute(req, res) {
   let unxiTimestamp = req.params[0];
 
   //get color Data
@@ -570,11 +491,11 @@ async function unixRoute(req, res){
     //page tab icon
     icon: 'https://cdn.iconscout.com/icon/free/png-512/unix-1-599990.png',
     //shareable preview-cart metadata
-    previewCardTitle:'Convert Unix Timestamp',
-    previewCardUrl:'http://www.martinbarker.me/unix',
-    previewCardWebsite:'website',
-    previewCardDescription:'Convert a Unix Timestamp to a Readable DateTime',
-    previewCardImage:'https://cdn.iconscout.com/icon/free/png-512/unix-1-599990.png',
+    previewCardTitle: 'Convert Unix Timestamp',
+    previewCardUrl: 'http://www.martinbarker.me/unix',
+    previewCardWebsite: 'website',
+    previewCardDescription: 'Convert a Unix Timestamp to a Readable DateTime',
+    previewCardImage: 'https://cdn.iconscout.com/icon/free/png-512/unix-1-599990.png',
     //expand projects tab
     projects: 'active',
     //set active current tab
@@ -586,8 +507,8 @@ async function unixRoute(req, res){
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -609,62 +530,413 @@ app.post('/getColors', async function (req, res) {
   res.send(colorsObj)
 });
 
+/*
+  Popularify / Spotify API routes
+*/
+//proxy ip debug ip route
+app.post('/proxyiprequest', async function (req, res) {
+  const https = require('https')
+  try {
+
+    //get access token
+    let accessToken = await spotifyAuth.getAccessToken();
+
+    //create data
+    const data = JSON.stringify({
+      offset: 0,
+    })
+
+    //create options data obj
+    const options = {
+      host: "220.135.165.38",
+      port: 8080,
+
+      hostname: 'api.spotify.com',
+      path: '/v1/artists/1XqqyIQYMonHgllb1uysL3/albums',
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + accessToken,
+      },
+    }
+
+    const req = https.request(options, res => {
+      console.log(`proxyiprequest() statusCode: ${res.statusCode}`)
+      res.on('data', d => {
+        process.stdout.write(d)
+      })
+    })
+
+    req.on('error', error => {
+      console.error('proxyiprequest() err=', error)
+    })
+
+    req.write(data)
+    req.end()
+
+    /*
+    //get access token
+    let accessToken = await spotifyAuth.getAccessToken();
+    //set artist (surkin)
+    let artistId='1XqqyIQYMonHgllb1uysL3'
+    //make artist album request with proxy ip
+    $.ajax({
+      url: `https://api.spotify.com/v1/artists/${artistId}/albums`,
+      type: 'GET',
+      contentType: 'application/json',
+      headers: {
+          'Authorization': 'Bearer ' + accessToken,
+      },
+      data: {
+          offset: 0,
+      }
+    }).done(function callback(response) {
+      console.log(`index.js getArtistAlbums() success response=`,response)
+      //if (onlyReturnTracks) {
+        //    resolve(response.items)
+        //} else {
+        //    resolve(response)
+        //}
+    }).fail(async function (error) {
+        console.log(`index.js getArtistAlbums() err=`,error)
+        //await delay(retryIn*1000)
+        //retryIn=retryIn+1;
+        //resolve(await getArtistAlbums(artistId, offset, onlyReturnTracks))
+    });
+    */
+
+    /*
+    var options = {
+      host: "165.227.35.11",
+      port: 80,
+      path: "http://www.google.com",
+      headers: {
+        Host: "www.google.com"
+      }
+    };
+    http.get(options, function (res) {
+      console.log('proxyiprequest() res.statusCode=', res.statusCode);
+      res.pipe(process.stdout);
+    });
+    */
+  } catch (err) {
+    console.log('proxyiprequest() err=', err)
+  }
+
+  res.send('success')
+})
+
+//popularify route
+app.get('/popularify', async function (req, res) {
+  var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+  console.log(`/popularify fullUrl=${fullUrl}`)
+
+  res.render('popularifyBody', {
+    layout: 'popularifyLayout',
+  });
+})
+
+//popularify route
+app.get('/popularify/callback', async function (req, res) {
+  var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+  console.log(`fullUrl=${fullUrl}`)
+  res.status(200).send(fullUrl)
+  
+})
+
+var querystring = require('querystring');
+app.get('/createSpotifyRedirectURL', async function (req, res) {
+  try{
+    let redirectURL = 'https://accounts.spotify.com/authorize?' +
+            querystring.stringify({
+                response_type: 'code',
+                client_id: "0073a7f25706462a8850c97796960e87",
+                scope: 'user-read-private user-read-email',
+                redirect_uri: "http://localhost:8080/popularify",
+                state: "random-state"
+        })
+
+    //let redirectURL = await spotifyAuth.createRedirectURL()
+    res.status(200).send(redirectURL)
+  }catch(err){
+    console.log(`/createSpotifyRedirectURL err=`, err)
+    res.status(400).send(err)
+  }
+  
+})
+
+app.get('/spotifyLogin', async function (req, res) {
+  let redirectURL = await spotifyAuth.createRedirectURL()
+  res.redirect(redirectURL);
+})
+
+app.get('/getSpotifyLoginURL', async function (req, res) {
+  try {
+    let redirectURL = await spotifyAuth.createRedirectURL()
+    res.status(200).send(redirectURL)
+  } catch (err) {
+    res.status(400).send(err)
+  }
+})
+
+app.get('/callback', async (req, res) => {
+  try {
+    const error = req.query.error;
+    const code = req.query.code;
+    const state = req.query.state;
+
+    //log user in, get access_token and refresh_code
+    let resp = await spotifyAuth.authCallback(error, code, state)
+
+    res.render('popularifyBody', {
+      layout: 'popularifyLayout',
+      loggedIn: 'true',
+      access_token: resp.access_token
+    });
+  } catch (err) {
+    console.log('/callback err=', err)
+  }
+
+});
+
+//get colors for image
+app.post('/getImageColors', async function (req, res) {
+  //get vars 
+  let imgURL = req.body.imgURL;
+  let colors = {}
+
+  if(imgURL.includes('spotifyArtistUnknown.jpg')){
+    colors={
+      DarkMuted:{hex:'#828282', rgb:[130, 130, 130]},
+      DarkVibrant:{hex:'#828282', rgb:[130, 130, 130]},
+      LightMuted:{hex:'#828282', rgb:[130, 130, 130]},
+      Muted:{hex:'#828282', rgb:[130, 130, 130]},
+      Vibrant:{hex:'#828282', rgb:[130, 130, 130]},
+    }
+  }else{
+    try{
+      //get color swatches
+      var swatches = await Vibrant.from(imgURL).getPalette()
+      //format rbg and swatch type into list
+      for (const [key, value] of Object.entries(swatches)) {
+        //get rgb color value
+        let colorValue = value.rgb
+        //convert to hex color value
+        let hexColor = rgbToHex(colorValue)
+        //construct object
+        var keyName = `${key}`
+        colors[keyName] = { 'hex': hexColor, 'rgb': colorValue }
+      }
+    }catch(err){
+      console.log('/getImageColors err getting img colors =',err);
+    }
+  }
+
+  res.status(200).send(colors)
+});
+
+//spotifyAPI
+app.post('/spotifyApi', async function (req, res) {
+  //get vars 
+  let uri = req.body.uri.replace('spotify:artist:', '');
+  let access_token = req.body.access_token;
+  //use api to get data
+  let artistAlbums = []
+  try {
+    //uri='spotify:artist:0IbLwpihllhH3E9bRPCOmJ'
+    artistAlbums = await spotifyApiLogic.getAllArtistAlbums(uri)
+    //artistAlbums = await spotifyApiLogic.createPlaylist('myPlaylistName', "description", "public", access_token)
+  } catch (err) {
+    artistAlbums = [];
+  }
+  res.status(200).send(artistAlbums)
+});
+
+app.post('/getAccessToken', async function (req, res) {
+  let accessToken = null;
+  try {
+    accessToken = await spotifyAuth.getAccessToken();
+  } catch (err) {
+    accessToken = null;
+  }
+  res.status(200).send(accessToken)
+});
+
+//search spotify for artist, return results
+app.post('/spotifySearch', async function (req, res) {
+  //get vars 
+  let input = req.body.input;
+  //use api to get data
+  let searchResults = []
+  try {
+    //let spotifyApiSession = spotifyAuth.getSession()
+    searchResults = await spotifyAuth.searchArtists(input);
+  } catch (err) {
+    searchResults = [];
+    console.log('/spotifySearch err=', err)
+  }
+  res.status(200).send(searchResults)
+});
+
+//any route that starts with generatePopularifyData
+app.get(/^\/generatePopularifyData\/(.*)/, async function (req, res) {
+  res.connection.setTimeout(0);
+
+  //emit event
+  //io.emit('popularifyDataUpdate', { description: 'generatePopularifyData route called' });
+
+  let id = req.params[0].split('/')[0];
+  let globalAccesToken = req.params[0].split('/')[1];
+  console.log(`/generatePopularifyData artistId=${id}, token=${globalAccesToken}`)
+  //use api to get data
+  let popularifyData = []
+  try {
+    console.log('/generatePopularifyData calling spotifyAuth.generatePopularifyData')
+    popularifyData = await spotifyAuth.generatePopularifyData(id, globalAccesToken);
+    console.log('/generatePopularifyData finished getting popularifyData sucesfully')
+  } catch (err) {
+    console.log('spotifyAuth.generatePopularifyData err=', err)
+    popularifyData = null;
+  }
+  if(popularifyData){
+    res.status(200).send(popularifyData)
+  }
+})
+
+var request = require('request');
+app.post('/popularify/logUserIn', async function (req, res) {
+  console.log('popularify/logUserIn')
+  //get payload
+  let payload = req.body.payload.split('&state')[0].trim();
+  console.log(`/logUserIn payload=${payload}`)
+  var authOptions = {
+      url: 'https://accounts.spotify.com/api/token',
+      form: {
+          code: payload,
+          redirect_uri: "http://localhost:8080/popularify",
+          grant_type: 'authorization_code'
+      },
+      headers: {
+          'Authorization': 'Basic ' + (new Buffer("0073a7f25706462a8850c97796960e87" + ':' + "99a48c817c6249da948ae83dcd513934").toString('base64'))
+      },
+      json: true
+  };
+
+  request.post(authOptions, function(error, response, body) {
+      if (!error && response.statusCode === 200) {
+
+        var access_token = body.access_token,
+            refresh_token = body.refresh_token;
+
+        var options = {
+          url: 'https://api.spotify.com/v1/me',
+          headers: { 'Authorization': 'Bearer ' + access_token },
+          json: true
+        };
+
+        // use the access token to access the Spotify Web API
+        request.get(options, function(error, response, body) {
+          console.log('user info: ', body);
+          res.status(200).send(body)
+        });
+
+        // we can also pass the token to the browser to make requests from there
+        /*
+        res.redirect('/#' +
+          querystring.stringify({
+            access_token: access_token,
+            refresh_token: refresh_token
+          }));
+          */
+      } else {
+        res.status(200).send('err')
+        res.redirect('/#' +
+          querystring.stringify({
+            error: 'invalid_token'
+          }));
+      }
+    });
+
+  //let logUserInRsp = await spotifyAuth.logUserIn(payload);
+  
+  
+});
+
+
+//get all tracks for an artist sorted by popularity
+app.post('/generatePopularifyDatZ', async function (req, res) {
+  console.log('/generatePopularifyData route called')
+  //get artist id
+  let id = req.body.artistId;
+  let globalAccesToken = req.body.globalAccesToken
+  //use api to get data
+  let popularifyData = []
+  try {
+    console.log('/generatePopularifyData calling spotifyAuth.generatePopularifyData')
+    popularifyData = await spotifyAuth.generatePopularifyData(id, globalAccesToken);
+    console.log('/generatePopularifyData finished getting popularifyData sucesfully')
+  } catch (err) {
+    console.log('spotifyAuth.generatePopularifyData err=', err)
+    popularifyData = [];
+  }
+  res.status(200).send(popularifyData)
+});
+
 //get discogs api info
 app.post('/discogsAPI', async function (req, res) {
   //get vars 
   let code = req.body.code
   let type = req.body.type
-    
+
   //setup using npm package 'disconnect' for getting discogs api data
   var Discogs = require('disconnect').Client;
   var db = new Discogs().database();
 
   console.log(`/discogsAPI code = ${code}, type = ${type}`)
-  if(type=='master'){
+  if (type == 'master') {
     //cant get master data 
-    db.getMaster(code, function(err, resp){
+    db.getMaster(code, function (err, resp) {
 
       //if err message is present return that, else return full response 
-      if(resp.message){
+      if (resp.message) {
         res.status(400).send(resp.message)
-      }else{
+      } else {
         res.status(200).send(resp)
       }
     });
 
-  }else if(type=='release'){
+  } else if (type == 'release') {
 
-      //get discogs api data
-      db.getRelease(code, function(err, resp){
-        //console.log('resp = ', resp)
+    //get discogs api data
+    db.getRelease(code, function (err, resp) {
+      //console.log('resp = ', resp)
 
-        //if err message is present return that, else return full response 
-        if(resp.message){
-          res.status(400).send(resp.message)
-        }else{
-          res.status(200).send(resp)
-        }
-      });
+      //if err message is present return that, else return full response 
+      if (resp.message) {
+        res.status(400).send(resp.message)
+      } else {
+        res.status(200).send(resp)
+      }
+    });
 
-  }else if(type=='artist'){
+  } else if (type == 'artist') {
     console.log('get artist data')
     //get discogs artist api data
-    try{
-      db.getArtist(code, function(err, resp){
-        if(resp.message){
-          res.status(400).send({err:resp.message})
-        }else{
+    try {
+      db.getArtist(code, function (err, resp) {
+        if (resp.message) {
+          res.status(400).send({ err: resp.message })
+        } else {
           res.status(200).send(resp)
         }
       });
-    
-    }catch(err){
-        console.log('err getting artist info from discogs')
+
+    } catch (err) {
+      console.log('err getting artist info from discogs')
     }
-  
+
   }
 
-  
+
 });
 
 //api audio file metadata tags
@@ -748,34 +1020,34 @@ async function getPostsDisplay(activeTabColorHex, activeTabId, activeTabTextColo
   })
 }
 
-async function createColorObj(colorData){
+async function createColorObj(colorData) {
   return new Promise(async function (resolve, reject) {
     let colorsObj = {
 
-      'cssClassElements':{
+      'cssClassElements': {
         'sidebarStyle': [
           {
-            "attribute":"background", 
-            "value":`${colorData.colors['LightVibrant'].hex}`
+            "attribute": "background",
+            "value": `${colorData.colors['LightVibrant'].hex}`
           },
           {
-            "attribute":"color", 
-            "value":`${getReadableTextColor(colorData.colors['LightVibrant'].rgb)}`
+            "attribute": "color",
+            "value": `${getReadableTextColor(colorData.colors['LightVibrant'].rgb)}`
           }
         ],
-        'sidebarHeaderStyle':[
+        'sidebarHeaderStyle': [
           {
             "attribute": 'background',
             "value": `${colorData.colors['DarkMuted'].hex}`
           }
         ],
-        'sidebarHeaderText':[
+        'sidebarHeaderText': [
           {
             "attribute": 'color',
             "value": `${getReadableTextColor(colorData.colors['DarkMuted'].rgb)}`
           }
         ],
-        'sidebarItemsStyle':[
+        'sidebarItemsStyle': [
           {
             "attribute": 'background',
             "value": `${colorData.colors['DarkVibrant'].hex}`
@@ -785,7 +1057,7 @@ async function createColorObj(colorData){
             "value": `${getReadableTextColor(colorData.colors['DarkVibrant'].hex)}`
           },
         ],
-        'sidebarActiveItem':[
+        'sidebarActiveItem': [
           {
             "attribute": 'background',
             "value": `${colorData.colors['LightMuted'].hex}`
@@ -795,19 +1067,19 @@ async function createColorObj(colorData){
             "value": `${getReadableTextColor(colorData.colors['LightMuted'].rgb)}`
           },
         ],
-        'pageContentStyle':[
+        'pageContentStyle': [
           {
             "attribute": 'background',
             "value": `${colorData.colors['LightMuted'].hex}`
           }
         ],
-        'pageContentBodyText':[
+        'pageContentBodyText': [
           {
             "attribute": 'color',
             "value": `${getReadableTextColor(colorData.colors['LightMuted'].rgb)}`
           },
         ],
-        'pageContentTitleCardStyle':[
+        'pageContentTitleCardStyle': [
           {
             "attribute": 'background',
             "value": `${colorData.colors['Muted'].hex}`
@@ -818,23 +1090,23 @@ async function createColorObj(colorData){
           }
         ]
       },
-      'imgPath':`${colorData.imgPath}`,
-      'filename':`${colorData.filename}`,
-      'hoverColors':{
-        'hoverUrl1':`${colorData.colors['DarkMuted'].hex}`,
-        'hoverUrl2':`${colorData.colors['Vibrant'].hex}`,
-        'sidebarHoverColor':`${colorData.colors['Vibrant'].hex}`,
-        'sidebarHoverText':`${getReadableTextColor(colorData.colors['Vibrant'].rgb)}`,
+      'imgPath': `${colorData.imgPath}`,
+      'filename': `${colorData.filename}`,
+      'hoverColors': {
+        'hoverUrl1': `${colorData.colors['DarkMuted'].hex}`,
+        'hoverUrl2': `${colorData.colors['Vibrant'].hex}`,
+        'sidebarHoverColor': `${colorData.colors['Vibrant'].hex}`,
+        'sidebarHoverText': `${getReadableTextColor(colorData.colors['Vibrant'].rgb)}`,
       },
-      'colors':{
-        'Vibrant':`${colorData.colors['Vibrant'].hex}`,
-        'LightVibrant':`${colorData.colors['LightVibrant'].hex}`,
-        'DarkVibrant':`${colorData.colors['DarkVibrant'].hex}`,
-        'Muted':`${colorData.colors['Muted'].hex}`,
-        'LightMuted':`${colorData.colors['LightMuted'].hex}`,
-        'DarkMuted':`${colorData.colors['DarkMuted'].hex}`,
+      'colors': {
+        'Vibrant': `${colorData.colors['Vibrant'].hex}`,
+        'LightVibrant': `${colorData.colors['LightVibrant'].hex}`,
+        'DarkVibrant': `${colorData.colors['DarkVibrant'].hex}`,
+        'Muted': `${colorData.colors['Muted'].hex}`,
+        'LightMuted': `${colorData.colors['LightMuted'].hex}`,
+        'DarkMuted': `${colorData.colors['DarkMuted'].hex}`,
       }
-      
+
     }
     resolve(colorsObj)
   })
@@ -940,20 +1212,20 @@ function componentToHex(c) {
 
 function getImgMetadata(imgFilename) {
   return new Promise(async function (resolve, reject) {
-    try{
+    try {
       const exif = require('exif-parser')
       const fs = require('fs')
       let pathOneFolderUp = __dirname.split('/')
       let filepath = `${__dirname}/../static/assets/aesthetic-images/${imgFilename}`
       console.log('get metadata')
-    
+
       const buffer = fs.readFileSync(filepath)
       const parser = exif.create(buffer)
       const result = parser.parse()
-      resolve({'title':result.tags.ImageDescription, 'listen':'tempListenUrl'})
-    }catch(err){
+      resolve({ 'title': result.tags.ImageDescription, 'listen': 'tempListenUrl' })
+    } catch (err) {
       console.log('there was an err getting this img metadata, err = ', err)
-      resolve({'title':"", 'listen':'tempListenUrl'})
+      resolve({ 'title': "", 'listen': 'tempListenUrl' })
     }
 
   });

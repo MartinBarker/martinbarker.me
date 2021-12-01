@@ -4,30 +4,47 @@ const app = express();
 var router = express.Router();
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
+const http = require('http').Server(app);
+
+//socket.io
+const io = require('socket.io')(http);
+//Whenever someone connects this gets executed
+io.on('connection', function (socket) {
+    console.log('A user connected');
+
+    //send event to front end
+    setTimeout(function () {
+        // Sending an object when emmiting an event
+        socket.emit('testerEvent', { description: 'A custom event named testerEvent!' });
+    }, 4000);
+
+    //receive event from front end
+    socket.on('clientEvent', function (data) {
+        console.log('clientEvent recieved',data);
+    });
+
+    //Whenever someone disconnects this piece of code executed
+    socket.on('disconnect', function () {
+        console.log('A user disconnected');
+    });
+});
 
 //port and hosting info
 const port = 8080;
 
 //connect to mongodb server
-var mongodbutil = require( './static/assets/js/mongodbutils' );
+var mongodbutil = require('./static/assets/js/mongodbutils');
 mongodbutil.connectToServer(function (err) {
     //app goes online once this callback occurs
-
+    if (err) {
+        console.log('mongodbutil.connectToServer err=', err)
+    }
     // error handler
     app.use(function (err, req, res, next) {
         res.status(err.status || 500);
         res.render('error');
     });
     //end of calback
-
-
-    //set cors for all routes
-    /*
-    app.use('/', function (req, res, next) {
-        res.header("Access-Control-Allow-Origin", "*");
-        res.header("Access-Control-Allow-Headers", "X-Requested-With");
-        next();
-    });*/
 
     // Add headers
     app.use(function (req, res, next) {
@@ -86,8 +103,15 @@ mongodbutil.connectToServer(function (err) {
     app.use('/static/', express.static(__dirname + '/static/'));
 
     //render and startup server
-    app.listen(port, () => console.log(`App listening to port ${port}`));
+    //app.listen(port, () => console.log(`App listening to port ${port}`));
+
+    http.listen(port, function () {
+        console.log(`App listening to port ${port}`)
+    });
 
 });
 
-module.exports = app;
+module.exports = {
+    app:app,
+    io:io
+};

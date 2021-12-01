@@ -9,7 +9,7 @@ This repo is for my personal website www.martinbarker.me
 
 ## How colors work for this website:
 - Every time you load a page on this website, a random image is chosen from the folder `\static\assets\aesthetic-images`
-- Color Data is generated for this image, including the 6 most prominent colors: Vibrant, Light Vibrant, Dark Vibrant, Muted, Light Muted, and Dark Muted.
+- Color Data is generated for this image, including the 6 most prominent colors: Vibrant, Light Vibrant, Dark Vibrant, Muted, Light Muted, and Dark Muted. 
 - These colors are sent to the page's CSS content to color different parts of the page.
 - For each area where color is applied, the text color is also calculated as to weather it is better to color the text black or white.
 
