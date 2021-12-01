@@ -489,8 +489,8 @@ async function submitDiscogsURL(input) {
     //parse release id from url
     var urlArr = input.split('/');
     var discogsListingType = urlArr[urlArr.length - 2];
-    var discogsListingCode = urlArr[urlArr.length - 1];
-
+    var discogsListingCode = urlArr[urlArr.length - 1].split("-")[0];
+    console.log(`submitDiscogsURL() discogsListingType=${discogsListingType}, discogsListingCode=${discogsListingCode}`)
     try {
         //get data from discogs API
         let discogsData = await getDiscogsData(discogsListingType, discogsListingCode);

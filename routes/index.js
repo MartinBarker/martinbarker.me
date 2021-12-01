@@ -167,6 +167,73 @@ app.get('/audio-archiver', async function (req, res) {
   });
 })
 
+
+app.get('/api/:version', function(req, res) {
+  res.send(req.params.version);
+});
+
+app.get('/login', function(req, res) {
+  var scopes = 'user-read-playback-position user-read-currently-playing user-modify-playback-state user-read-playback-state streaming app-remote-control user-library-modify user-library-read playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative';
+  var my_client_id = '199c96b7d70f4dd28f188f9c6bc86045';
+  var redirect_uri = 'http://localhost:8080/betterspotify';
+  
+  res.redirect('https://accounts.spotify.com/authorize' +
+    '?response_type=code' +
+    '&client_id=' + my_client_id +
+    (scopes ? '&scope=' + encodeURIComponent(scopes) : '') +
+    '&redirect_uri=' + encodeURIComponent(redirect_uri));
+
+  });
+
+
+
+//popularify route
+app.get('/popularifyOld', async function (req, res) {
+  //get color Data
+  let colorData = await getColorData();
+  //get blog posts
+  let displayPosts = await getPostsDisplay(colorData.colors['LightMuted'].hex, req.params.id, getReadableTextColor(colorData.colors['LightMuted'].rgb))
+  //create colorObj
+  let colorsObj = await createColorObj(colorData);
+
+  res.render('popularify', {
+    //template layout to use
+    layout: 'mainTemplate',
+    //page title of tab
+    pageTitle: 'popularify.site',
+    //page tab icon
+    icon: 'https://cdn4.iconfinder.com/data/icons/48-bubbles/48/06.Tags-512.png',
+    //shareable preview-cart metadata
+    previewCardTitle:'Popularify',
+    previewCardUrl:'http://www.popularify.site',
+    previewCardWebsite:'website',
+    previewCardDescription:'',
+    previewCardImage:'../static/assets/img/headshot.jpg',
+    //expand projects tab
+    projects: 'active',
+    //set active current tab
+    popularify: 'active',
+    //body content title 
+    pageBodyNavTitle: 'Popularify',
+    //body content github link
+    pageBodyNavGithub: 'https://github.com/MartinBarker/martinbarker/pull/10',
+    //list to display for navbar 'Blog' options
+    posts: displayPosts,
+    //color info
+    colorsObj:colorsObj,
+    colorsStr:JSON.stringify(colorsObj),
+    imgPath: '/' + colorData.imgPath,
+    imgSrcUrl: colorData.imgSrc,
+    imgListen: colorData.imgListen,
+    Vibrant: colorData.colors['Vibrant'].hex,
+    LightVibrant: colorData.colors['LightVibrant'].hex,
+    DarkVibrant: colorData.colors['DarkVibrant'].hex,
+    Muted: colorData.colors['Muted'].hex,
+    LightMuted: colorData.colors['LightMuted'].hex,
+    DarkMuted: colorData.colors['DarkMuted'].hex,
+  });
+})
+
 //redirect discogstagger to tagger
 app.get('/discogstagger', async function (req, res) {
   res.redirect('/tagger');
