@@ -429,13 +429,14 @@
                             href="/tagger" class='navbarItem'>tagger.site</a>
                     </li>
                     
-                    <!-- Unix Timestamp Converter -->
+                    <!-- Unix Timestamp Converter 
                     <li>
                         <a {{#ifEquals unix 'active'}}
                             class='sidebarActiveItem' style='{{#colorsObj.cssClassElements.sidebarActiveItem }} {{attribute}}:{{value}};{{/colorsObj.cssClassElements.sidebarActiveItem}}' 
                             {{/ifEquals}}
                             href="/unix" class='navbarItem'>Unix Timestamp Converter</a>
                     </li>
+                    -->
 
                     <!-- RenderTune -->
                     <li>
@@ -445,12 +446,21 @@
                             href="/RenderTune" class='navbarItem'>RenderTune</a>
                     </li>
                     
-                    <!-- audio-archiver -->
+                    <!-- audio-archiver 
                     <li>
                         <a {{#ifEquals audioarchiver 'active'}}
                             class='sidebarActiveItem' style='{{#colorsObj.cssClassElements.sidebarActiveItem }} {{attribute}}:{{value}};{{/colorsObj.cssClassElements.sidebarActiveItem}}'
                             {{/ifEquals}}
                             href="/audio-archiver" class='navbarItem'>audio-archiver</a>
+                    </li>
+                    -->
+
+                    <!-- audio-archiver --> 
+                    <li>
+                        <a {{#ifEquals audioarchiver 'active'}}
+                            class='sidebarActiveItem' style='{{#colorsObj.cssClassElements.sidebarActiveItem }} {{attribute}}:{{value}};{{/colorsObj.cssClassElements.sidebarActiveItem}}'
+                            {{/ifEquals}}
+                            href="https://github.com/MartinBarker/vinyl2digital" class='navbarItem'>Vinyl2Digital</a>
                     </li>
 
                     <!-- popularify.site -->
