@@ -560,9 +560,41 @@ app.post('/proxyiprequest', async function (req, res) {
 
 //popularify route
 app.get('/popularify', async function (req, res) {
+  var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+  console.log(`/popularify fullUrl=${fullUrl}`)
+
   res.render('popularifyBody', {
     layout: 'popularifyLayout',
   });
+})
+
+//popularify route
+app.get('/popularify/callback', async function (req, res) {
+  var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+  console.log(`fullUrl=${fullUrl}`)
+  res.status(200).send(fullUrl)
+  
+})
+
+var querystring = require('querystring');
+app.get('/createSpotifyRedirectURL', async function (req, res) {
+  try{
+    let redirectURL = 'https://accounts.spotify.com/authorize?' +
+            querystring.stringify({
+                response_type: 'code',
+                client_id: "0073a7f25706462a8850c97796960e87",
+                scope: 'user-read-private user-read-email',
+                redirect_uri: "http://localhost:8080/popularify",
+                state: "random-state"
+        })
+
+    //let redirectURL = await spotifyAuth.createRedirectURL()
+    res.status(200).send(redirectURL)
+  }catch(err){
+    console.log(`/createSpotifyRedirectURL err=`, err)
+    res.status(400).send(err)
+  }
+  
 })
 
 app.get('/spotifyLogin', async function (req, res) {
@@ -702,6 +734,66 @@ app.get(/^\/generatePopularifyData\/(.*)/, async function (req, res) {
     res.status(200).send(popularifyData)
   }
 })
+
+var request = require('request');
+app.post('/popularify/logUserIn', async function (req, res) {
+  console.log('popularify/logUserIn')
+  //get payload
+  let payload = req.body.payload.split('&state')[0].trim();
+  console.log(`/logUserIn payload=${payload}`)
+  var authOptions = {
+      url: 'https://accounts.spotify.com/api/token',
+      form: {
+          code: payload,
+          redirect_uri: "http://localhost:8080/popularify",
+          grant_type: 'authorization_code'
+      },
+      headers: {
+          'Authorization': 'Basic ' + (new Buffer("0073a7f25706462a8850c97796960e87" + ':' + "99a48c817c6249da948ae83dcd513934").toString('base64'))
+      },
+      json: true
+  };
+
+  request.post(authOptions, function(error, response, body) {
+      if (!error && response.statusCode === 200) {
+
+        var access_token = body.access_token,
+            refresh_token = body.refresh_token;
+
+        var options = {
+          url: 'https://api.spotify.com/v1/me',
+          headers: { 'Authorization': 'Bearer ' + access_token },
+          json: true
+        };
+
+        // use the access token to access the Spotify Web API
+        request.get(options, function(error, response, body) {
+          console.log('user info: ', body);
+          res.status(200).send(body)
+        });
+
+        // we can also pass the token to the browser to make requests from there
+        /*
+        res.redirect('/#' +
+          querystring.stringify({
+            access_token: access_token,
+            refresh_token: refresh_token
+          }));
+          */
+      } else {
+        res.status(200).send('err')
+        res.redirect('/#' +
+          querystring.stringify({
+            error: 'invalid_token'
+          }));
+      }
+    });
+
+  //let logUserInRsp = await spotifyAuth.logUserIn(payload);
+  
+  
+});
+
 
 //get all tracks for an artist sorted by popularity
 app.post('/generatePopularifyDatZ', async function (req, res) {

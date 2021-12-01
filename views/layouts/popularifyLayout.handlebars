@@ -65,55 +65,56 @@
         </div>
 
         <!-- nav bar -->
-        <nav class="navbar navbar-expand-sm navbar-light bg-light">
-            <a class="navbar-brand" href="#">
-                <img src="https://www.freepnglogos.com/uploads/spotify-logo-png/spotify-download-logo-30.png" width="30"
-                    height="30" class="d-inline-block align-top" alt="">
-                Popularify
-            </a>
-            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarTogglerDemo02"
-                aria-controls="navbarTogglerDemo02" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
+            <nav class="navbar navbar-expand-sm navbar-light bg-light">
+                <a class="navbar-brand" href="#">
+                    <img src="https://www.freepnglogos.com/uploads/spotify-logo-png/spotify-download-logo-30.png" width="30"
+                        height="30" class="d-inline-block align-top" alt="">
+                    Popularify
+                </a>
+                <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarTogglerDemo02"
+                    aria-controls="navbarTogglerDemo02" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
 
-            <div class="collapse navbar-collapse" id="navbarTogglerDemo02">
-                <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
-                    <li class="nav-item active">
-                        <a class="nav-link" href="#">Home <span class="sr-only">(current)</span></a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#">About</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link " href="#">Contribute</a>
-                    </li>
-                </ul>
-
-                <!-- right align -->
-                <ul class="navbar-nav my-2 my-lg-0">
-                    <li class="nav-item">
-
-                        <a class="nav-link" href="#">
-                            <img src="../../static/assets/img/user.png" width="25" height="25" class="d-inline-block align-top"
-                                alt="">
-                            Login
-                        </a>
-
+                <div class="collapse navbar-collapse" id="navbarTogglerDemo02">
+                    <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
                         <!--
-                        <div>
-                            <img src="../../static/assets/img/user.jpg" width="10" height="10" class="d-inline-block align-top" alt="">
-                        
-                            <a class="nav-link " href="#">Login</a>
-                        </div>
+                        <li class="nav-item active">
+                            <a class="nav-link" href="#">Home <span class="sr-only">(current)</span></a>
+                        </li>
                         -->
-                    </li>
-                </ul>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" >
+                                <button id="changeArtistButton" type="button" class="btn btn-danger btn-sm">Change Artist</button>
+                            </a>
+                        </li>
+                    </ul>
 
-            </div>
-        </nav>
+                    <!-- right align -->
+                    <ul class="navbar-nav my-2 my-lg-0">
+                        <li id='loginButton' class="nav-item">
+
+                            <a class="nav-link" href="#">
+                                <img src="../../static/assets/img/user.png" width="25" height="25" class="d-inline-block align-top"
+                                    alt="">
+                                Login
+                            </a>
+
+                            <!--
+                            <div>
+                                <img src="../../static/assets/img/user.jpg" width="10" height="10" class="d-inline-block align-top" alt="">
+                            
+                                <a class="nav-link " href="#">Login</a>
+                            </div>
+                            -->
+                        </li>
+                    </ul>
+
+                </div>
+            </nav>
 
         <!-- View 1: Initial Page (Search/Artist Selection) -->
-        <div id='view1-artist-search' class="container init-page-container">
+        <div id='view1-artist-search' class="container init-page-container" >
             <div class="row header-row-init h-100">
 
                 <!-- Artist Search Input Area -->
@@ -174,51 +175,39 @@
 
         <!-- View 2: Results -->
         <div id='view2-artist-results' class="container" hidden>
+            
+            <!-- View2: Header -->
+            <div id='view2-artist-header' >
 
-            <div class="row header-row-results">
-
-                <div class="container-fluid">
-                    <div class="row">
-                        <div class="col-md-3">
-
-                            <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                                class="album-art" style="width: 200px; height: 200px; object-fit: cover;" />
-
-                            <!--
-                            <div style="width: 200px; height: 200px;">
-                                <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326"
-                                    class="img-responsive album-art" style="width: inherit" />
+                <div class="row header-row-results">
+                    <div class="container-fluid">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <img src="https://preview.redd.it/2qj2f97pnko51.jpg?auto=webp&s=178262420f562a2334461d8d9370ad8122446326" class="album-art" style="width: 200px; height: 200px; object-fit: cover;" />
                             </div>
-                            -->
-
-                        </div>
-                        <div class="album-text col-md-9">
-                            <h1 id='artist-heading-text'>Artist Name</h1>
-                            <div>
+                            <div class="album-text col-md-9">
+                                <h1 id='artist-heading-text'>Artist Name</h1>
                                 <p id='artist-heading-description'>Popularity: ##</p>
-                                <!-- cancel artist popularify data, select new artist -->
-                                <button id='changeArtistButton' type="button" class="btn btn-danger btn-sm">Change Artist</button>
                             </div>
                         </div>
-
                     </div>
-
-
                 </div>
 
-
             </div>
 
-            <div class="row body-row">
 
+            <!-- View 2: Body -->
+            <div id="view2-artist-body" class="row body-row">
                 <table style="cursor:pointer" id="tracklistTable"></table>
-
             </div>
-
-            <div id='debug-color-box'></div>
-
 
         </div>
+
+        <!--
+        <div id='view2-artist-results-old' class="container" hidden>
+
+        </div>
+        -->
 
     </body>
 </html>
@@ -226,9 +215,13 @@
 <script>
     //initialize socket.io
     const socket = io();
-    //recieve socket.io event from the backend for "generatePopularifyDataStatusUpdate"
     socket.on('popularifyDataUpdate', function (data) {
-        console.log('popularifyDataUpdate: ', data.description)
+        console.log('popularifyDataUpdate: ', data.description);
+        document.getElementById('statusUpdate').innerText=data.description;
+    });
+    socket.on('popularifyDataUpdateError', function (data) {
+        console.log('popularifyDataUpdateError: ', data.description);
+        document.getElementById('statusUpdateError').innerText=data.description;
     });
 
     let popularifyProgress = 0
@@ -257,11 +250,18 @@
         );
     }
 
-
-
-
-
     $(document).ready(function () {
+
+        //check for token in url
+        let token=window.location.href.split('?code=')[1]
+        if (token) {
+            window.opener.spotifyCallback(token)
+        }
+        
+        //hide changeArtistButton
+        $('#changeArtistButton').hide();
+
+        initializeDatatable()
 
         $(document).on('click', '.artist-row-click', function () {
             console.log('clciked artist-row-click ', $(this), ' attr=', $(this)[0].attributes)
@@ -274,8 +274,6 @@
             artistSelected(artistId, artistImg, artistName, artistPopularity)
 
         });
-
-        initializeDatatable()
 
         setAccessToken()
         async function setAccessToken() {
@@ -321,15 +319,105 @@
             )
         }
 
-
-
     });
 
+    async function shareSong(songId){
+        console.log(`shareSong(${songId})`)
+    }
+
+    async function initializeDatatable() {
+        var dataSet = []
+        $('#tracklistTable').DataTable({
+            data: dataSet,
+            "searching": true,   // Search Box will Be Disabled
+            "info": false,         // Will show "1 to n of n entries" Text at bottom
+            "lengthChange": false, // Will Disabled Record number per page,
+            "bPaginate": false, // Disable pagination "page 1 out of x",
+
+
+            columns: [
+                { 
+                    title: "ART", 
+                    render: function (data, type, row, meta) {
+                        return '<img class="img-responsive" src="' + data +'" alt="tbl_StaffImage" height="100px" width="100px">';
+                    }
+                },
+                { title: "POPULARITY" },
+                { title: "TITLE" },
+                { title: "ARTISTS",  },
+                { title: "ALBUM" },
+                {
+                    title: "MORE INFO", 
+                    "className":      'dt-control',
+                    "orderable":      false,
+                    "data":           null,
+                    "defaultContent": '<button type="button" class="btn btn-dark btn-circle btn-xl"><i class="fa fa-plus" aria-hidden="true"></i></button>'
+                },
+                { title: "SHARE" },
+                
+            ]
+        });
+
+        // Add event listener for opening and closing details
+        $('#tracklistTable tbody').on('click', 'td.dt-control', function () {
+            console.log('event listener for opening and closing details')
+            var tr = $(this).closest('tr');
+            var table = $('#tracklistTable').DataTable();
+            var row = table.row( tr );
+    
+            if ( row.child.isShown() ) {
+                // This row is already open - close it
+                row.child.hide();
+                tr.removeClass('shown');
+            }
+            else {
+                // Open this row
+                row.child( formatRowDetail(row.data()) ).show();
+                tr.addClass('shown');
+            }
+        } );
+
+    }
+
+    function formatRowDetail ( d ) {
+        // `d` is the original data object for the row
+        return `
+        <table style="color: white; overflow:scroll; max-width: 60vw; " cellpadding="5" cellspacing="0" border="0" style="color:white; padding-left:50px;">
+            <tr>
+                <td>Album Group: ${d[7]}</td>
+            </tr>
+            <tr>
+                <td>Album Type: ${d[8]}</td>
+            </tr>
+            <tr>
+                <td>Track ID: ${d[9]}</td>
+            </tr>
+            <tr>
+                <td>Album Artist[0]: ${d[10]}</td>
+            </tr>
+            <tr>
+                <td>Release Date: ${d[11]}</td>
+            </tr>
+            <tr>
+                <td>Length: ${d[12]}</td>
+            </tr>
+            <tr>
+                <td>Track ID: ${d[13]}</td>
+            </tr>
+            <tr>
+                <td>Track URL: ${d[14]}</td>
+            </tr>
+            <tr>
+                <td>Markets: ${d[16]}</td>
+            </tr>
+        </table>
+        `;
+
+    }
 
     //wait x milliseconds (debug function)
     const delay = ms => new Promise(res => setTimeout(res, ms));
     let retryIn = 1;
-
     let artistSearchInProgress = false;
 
     //artist search 
@@ -370,14 +458,6 @@
         //call function to handle changed artist-search-input
         artistInputChanged()
     });
-
-    // When artist input text field changes
-    /*
-    $("#artist-search-input").on("input", async function () {
-        //call function to handle changed artist-search-input
-        artistInputChanged()
-    });
-    */
 
     async function artistInputChanged() {
         try {
@@ -433,15 +513,6 @@
         $('#rate-limit-warning-popup').modal('toggle')
     }
 
-    /*
-            Pink Floyd 1
-            updateArtistDisplay("http://www.classicrockhistory.com/wp-content/uploads/2015/10/81fvyZlrbAL._SL1300_-1024x1024.jpg", 'new')
-
-            New Order
-            updateArtistDisplay("https://img.discogs.com/9Qh48KAfjHx6iTzJuQ9F6NIresw=/fit-in/600x600/filters:strip_icc():format(jpeg):mode_rgb():quality(90)/discogs-images/R-8397631-1460829411-9240.jpeg.jpg", 'new')
-            
-    */
-
     async function displaySearchResults(artistData) {
         return new Promise(async function (resolve, reject) {
             //sort data via popularity
@@ -482,72 +553,62 @@
         })
     }
 
-    async function initializeDatatable() {
-        var dataSet = []
-        /*
-        [
-            ["1", "song title 1", "FRANCHISE (feat Young)", "2 days ago", "3:22"],
-            ["2", "song title 2", "FRANCHISE (feat Young)", "45 minuts ago", "1:22"],
-            ["3", "song title 3", "FRANCHISE (feat Young)", "4 minutes ago", "0:21"],
-            ["4", "song title 4", "FRANCHISE (feat Young)", "8 weeks ago", "11:21"],
-        ];
-        */
-        $('#tracklistTable').DataTable({
-            data: dataSet,
-            "searching": true,   // Search Box will Be Disabled
-            "info": false,         // Will show "1 to n of n entries" Text at bottom
-            "lengthChange": false, // Will Disabled Record number per page,
-            "bPaginate": false, // Disable pagination "page 1 out of x"
-            columns: [
-                //{ title: "#" },
-                { title: "TITLE" },
-                { title: "ARTISTS" },
-                { title: "ALBUM_ARTIST" },
-                { title: "ALBUM" },
-                { title: "LENGTH" },
-                { title: "POPULARITY" },
-                { title: "URL" },
-                { title: "ALBUM_GROUP" },
-                { title: "ALBUM_TYPE" },
-                { title: "MARKETS" }
-            ]
-        });
-    }
-
-
-
-
     //call this funciton when the user clicks an artist-row to generate popularify data for that artist
     async function artistSelected(artistId, artistImg, artistName, artistPopularity) {
         console.log(`artistSelected(${artistId}) artistImg=${artistImg}`)
 
-        //reveal artist results
+        //show change artist button
+        $('#changeArtistButton').show();
+
+        //initially edit popularify artist loading html for #view2-artist-results
+        document.getElementById("view2-artist-header").innerHTML= await getArtistContentHTML(artistImg, artistName, artistPopularity);
+
+        //reveal view2-artist-results inital artist results
         $('#view2-artist-results').show();
 
-        //edit popularify artist loading html
-        await updateArtistDisplay(artistImg, artistName, artistPopularity)
-
-        //hide view1 artist search html
+        //hide view1-artist-search
         $('#view1-artist-search').hide()
+
+        //continuously update popularify data status and reveal status on #view2-artist-results
 
         //reveal view2 artist loading page
         document.getElementById('view2-artist-results').removeAttribute("hidden");
 
-        //begin generating popularify data
-        //let popularifyData = await getPopularifyData(artistId)
+        //get start time
+        //var start = new Date().getTime();
 
-        var start = new Date().getTime();
+        //call backend to get Popularify table data
         let popularifyData = await getPopularifyDataBackend(artistId)
-        var end = new Date().getTime();
-        var time = end - start;
-        console.log('popularifyDataBackend() finished time:', time / 1000)
-        console.log('popularifyDataBackend result = ', popularifyData)
 
-        //add data to table
+        //get end time
+        //var end = new Date().getTime();
+        
+        //calculate time it took to get all Popularify data
+        //var time = end - start;
+        //console.log('popularifyDataBackend() finished time:', time / 1000)
+        let tempResultsVar = $("#tracklistTable")
+        console.log("tempResultsVar tracklistTable=",tempResultsVar)
+
+        //clear add data to table
         var table = $('#tracklistTable').DataTable();
         table.clear();
         table.rows.add(popularifyData).draw();
     }
+
+    //call backend to get popularify redirect url
+    async function getSpotifyRedirectURL(){
+        return new Promise(function (resolve, reject) {
+            $.ajax({
+                type: 'get',
+                url: `/createSpotifyRedirectURL`
+            }).then((resp) => {
+                resolve(resp)
+            }).catch((err) => {
+                reject(err)
+            });
+        })
+    }
+
 
     //call backend to get popularify data
     async function getPopularifyDataBackend(artistId) {
@@ -557,11 +618,6 @@
                 type: 'get',
                 url: `/generatePopularifyData/${artistId}/${globalAccesToken}`,
                 timeout: 360000000,
-                //async:false,
-                //data: {
-                //    artistId: artistId,
-                //    globalAccesToken: globalAccesToken
-                //},
             }).then((resp) => {
                 resolve(resp)
             }).catch((err) => {
@@ -890,9 +946,41 @@
         })
     }
 
+    //when user clicks loginButton
+    $('#loginButton').click(async function () {
+
+        let redirectURL = await getSpotifyRedirectURL()
+        console.log('loginButton clicked, redirecturl=', redirectURL)
+        //open popup
+        popup = window.open(
+            redirectURL,
+            'Login with Spotify',
+            'width=800,height=600'
+        )
+        //sucesfull login callback
+        window.spotifyCallback = (payload) => {
+            //popup.close()
+            console.log('login popup closed, payload=',payload)
+            $.ajax({
+                type: 'post',
+                url: `/popularify/logUserIn`,
+                data: {
+                    payload: payload
+                },
+            }).then((resp) => {
+                console.log('good: ', resp)
+            }).catch((err) => {
+                console.log('bad:', err)
+            });
+        }
+
+    })
 
     //when user clicks changeArtist button
     $('#changeArtistButton').click(function () {
+        //hide changeArtistButton
+        $('#changeArtistButton').hide();
+
         //cancel any api queries in progress
         popularifyProgress = 0
 
@@ -901,7 +989,6 @@
         table.clear().draw();
 
         //clear and hide view2
-        //$('#view2-artist-results').innerHTML="";
         $('#view2-artist-results').hide()
 
         //reset background gradient color
@@ -916,8 +1003,50 @@
     });
 
     //call this function to update the artist display UI
-    async function updateArtistDisplay(imgURL, artistName, artistPopularity) {
+    async function getArtistContentHTML(imgURL, artistName, artistPopularity) {
         return new Promise(async function (resolve, reject) {
+            
+            //get colors for image
+            let imageColors = await getImageColors(imgURL)
+            //get light vibrant hex
+            let VibrantHex = imageColors['Vibrant'].hex
+            //get 50% lighter version of Vibrant
+            let brighterVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, 0.5);
+            
+            //get 60% darker version of Vibrant
+            let darkerVibrant = ColorLuminance(`${VibrantHex.replace('#', '')}`, -0.6);
+            //update body css gradient
+            //document.getElementsByClassName('body-row')[0].style.background = `linear-gradient(180deg, ${darkerVibrant}, rgb(18,18,18))`;
+            //update css background full length
+            document.querySelector('body').style.background = `linear-gradient(180deg, ${imageColors['Vibrant'].hex}, 400px, rgb(18,18,18)) no-repeat fixed`;
+
+            let artistHeaderTemp=`
+            <div class='row header-row-results' style=" background:linear-gradient(0deg, rgb(18,18,18) -86%, ${brighterVibrant});">
+                <div class="container">
+                    <div class="row artist-heading-text">
+                        <div class="col" style="flex-grow: 0;">
+                            <img src="${imgURL}" class="album-art" style="width: 200px; height: 200px; object-fit: cover;" /> 
+                        </div>
+                        <div class="col-sm">
+                            <div class='row'>
+                                <div id='artist-heading-text'>${artistName}</div>
+                                </div>
+                            <div class='row'>
+                                <div id="artist-heading-description">Popularity: ${artistPopularity}</div>
+                            </div>
+                            <div class='row'>
+                                <div id="statusUpdate"></div>
+                            </div>
+                            <div class='row'>
+                                <div id="statusUpdateError"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>                
+            </div>
+            `
+            resolve(artistHeaderTemp)
+/*
             //update artist name text
             document.getElementById('artist-heading-text').innerText = artistName
             //update artist description text
@@ -955,8 +1084,10 @@
             //$('.body').css('background-attachment', "fixed !important;");
 
             //document.querySelector('body').style.backgroundAttachment = `fixed !important;`;
-
-            resolve("")
+            
+            */
+            
+            
         })
     }
 
@@ -1017,6 +1148,12 @@
     @font-face {
         font-family: SpotifyCircular;
         src: url("/static/assets/fonts/AvenirLTStd-Black.otf") format("opentype");
+    }
+
+    .dataTables tbody tr {
+        min-height: 35px; /* or whatever height you need to make them all consistent */
+        max-height: 35px; /* or whatever height you need to make them all consistent */
+        overflow: hidden;
     }
 
     #artist-search-results {
@@ -1175,9 +1312,15 @@
     #tracklistTable {
         color: white;
         width: 100% !important;
-        padding-top: 50px;
+        /* padding-top: 50px; */
         padding-left: 40px !important;
         padding-right: 40px !important;
+    }
+
+    #tracklistTable_filter{
+        float: left !important;
+        padding-left: 40px !important;
+        color: white;
     }
 
     table.dataTable.no-footer {
@@ -1240,6 +1383,9 @@
     }
 
     .album-art {
+        width: 200px; 
+        height: 200px; 
+        object-fit: cover;
         /* box-shadow: [horizontal offset] [vertical offset] [blur radius] [optional spread radius] [color]; */
         box-shadow: 0px 0px 100px -23px rgb(18, 18, 18);
 
@@ -1253,7 +1399,7 @@
         src: url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.eot?#iefix") format("embedded-opentype"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.woff2") format("woff2"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.woff") format("woff"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.ttf") format("truetype"), url("//db.onlinewebfonts.com/t/01173b246d9d9ea808ea75a26b3b61bb.svg#Circular Spotify Tx T Black") format("svg");
     }
 
-
+/*
     .album-text {
         color: white;
         margin-top: 50px;
@@ -1261,8 +1407,25 @@
         position: absolute;
         padding-left: 230px;
     }
+*/
+    #artist-heading-text{
+        color: white;
+        font-size: 5vw;
+    }
 
     #artist-heading-text {
-        font-size: 60px;
+        font-size: 5vw;
+    }
+
+    #artist-heading-description{
+        color: white;
+    }
+
+    #statusUpdate{
+        color: white;
+    }
+
+    #statusUpdateError{
+        color:red;
     }
 </style>

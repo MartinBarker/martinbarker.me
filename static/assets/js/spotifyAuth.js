@@ -43,7 +43,7 @@ async function createSpotifyApplications() {
         var spotifyApp = await new SpotifyWebApi({
             clientId: clientId,
             clientSecret: clientSecret,
-            redirectUri: 'http://localhost:8080/callback'
+            redirectUri: 'http://localhost:8080/popularify'
         });
         spotifyApps[`${key}`] = spotifyApp
     }
@@ -89,7 +89,8 @@ async function authSession(spotifyAppName, refreshToken, sessionCredsName) {
                     const data = await spotifyApp.refreshAccessToken();
                     expiresIn = data.body['expires_in'];
                     accessToken = data.body['access_token'];
-                    console.log('authSession() The access token has been refreshed! refresh in: ', expiresIn);
+                    spotifyApp.setAccessToken(accessToken);
+                    console.log('authSession() The access token has been refreshed! refresh in: ', expiresIn, ` new access_token=${accessToken}`);
 
                 } catch (err) {
                     console.log('authSession() interval auth err=', err)
@@ -227,6 +228,7 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
             for(var x = 0; x < appearsOnAlbums.length; x++){
                 //get data
                 let albumId = appearsOnAlbums[x].id
+                let albumArt = appearsOnAlbums[x].albumArt
                 let albumGroup = appearsOnAlbums[x].album_group
                 let albumType = appearsOnAlbums[x].album_type
                 let albumArtist = appearsOnAlbums[x].artists[0].name ? appearsOnAlbums[x].artists[0].name : ""
@@ -234,6 +236,7 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
                 slicedAlbumIds.push(albumId)
                 slicedAlbumInfo.push({
                     albumId: albumId,
+                    albumArt: albumArt,
                     albumGroup: albumGroup,
                     albumType: albumType,
                     albumArtist: albumArtist,
@@ -243,7 +246,6 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
                     runningTally=runningTally+slicedAlbumIds.length
                     //push spotify call
                     appearsOnAlbumTracklistPromises.push(getAlbums(slicedAlbumIds, slicedAlbumInfo));
-                    console.log(`x=${x} pushed ${slicedAlbumIds.length} slicedAlbumIds, runningTally=${runningTally}`)
                     //clear sliced lists
                     slicedAlbumIds = []
                     slicedAlbumInfo = []
@@ -254,11 +256,11 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
                 runningTally=runningTally+slicedAlbumIds.length
                 //push spotify request for remaining values
                 appearsOnAlbumTracklistPromises.push(getAlbums(slicedAlbumIds, slicedAlbumInfo));
-                console.log('runningTally=',runningTally)
             }
+            console.log('runningTally=',runningTally)
             //run promises to get album info
             var appearsOnAlbumTracklistPromisesFinished = await Promise.all(appearsOnAlbumTracklistPromises);
-            sendPopularifySocketUpdate(`Got tracklists for appears_on albums: ${appearsOnAlbumTracklistPromisesFinished.length}`)
+            //sendPopularifySocketUpdate(`Got tracklists for appears_on albums: ${appearsOnAlbumTracklistPromisesFinished.length}`)
 
             ////////////////////////////////////
             // get complete tracklist (if needed) for every appears_on album
@@ -269,6 +271,9 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
             for (var x = 0; x < appearsOnAlbumTracklistPromisesFinished.length; x++) {
                 for (var y = 0; y < appearsOnAlbumTracklistPromisesFinished[x].length; y++) {
                     let currentAlbumId = appearsOnAlbumTracklistPromisesFinished[x][y].id;
+                    
+                    let currentAlbumArt = appearsOnAlbumTracklistPromisesFinished[x][y].images[0].url;
+
                     let currentAlbumGroup = appearsOnAlbumTracklistPromisesFinished[x][y].album_group;
                     let currentAlbumType = appearsOnAlbumTracklistPromisesFinished[x][y].album_type;
                     let currentAlbumArtist = appearsOnAlbumTracklistPromisesFinished[x][y].album_artist;
@@ -284,6 +289,7 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
                     for(var z = 0; z < currentAlbumTracks.length; z++){
                         let albumTrack = currentAlbumTracks[z]
                         //add album_group and album_type to track object
+                        albumTrack["album_art"] = currentAlbumArt
                         albumTrack["album_group"] = currentAlbumGroup
                         albumTrack["album_type"] = currentAlbumType
                         albumTrack["album_artist"] = currentAlbumArtist
@@ -315,6 +321,10 @@ async function getTracksFromAlbums(appearsOnAlbums, appearsOnCheck=false, artist
 async function generatePopularifyData(artistURI, globalAccesToken) {
     return new Promise(async function (resolve, reject) {
         console.log('generatePopularifyData() begin')
+        //init vars
+        var albumCount, songCount = 0;
+        //get start time
+        var start = new Date().getTime();
 
         let returnObj = {};
 
@@ -330,11 +340,12 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             total = initialAlbums.total;
 
             //make additional request if needed (20 album ids at a time)
-            sendPopularifySocketUpdate(`artist has ${total} albums`)
+            albumCount=total;
+            sendPopularifySocketUpdate(`Getting tracklist from artist album 0/${total}.`)
             console.log(`generatePopularifyData() Artist has ${total} albums. We have ${initialAlbums.items.length} so far and need to get ${total - (initialAlbums.items.length)} more`);
             let artistAlbumsPromises = [];
             for (var x = 20; x < total; x += 20) {
-                artistAlbumsPromises.push(getArtistAlbums(artistURI, x, true))
+                artistAlbumsPromises.push(getArtistAlbums(artistURI, x, true, initialAlbums.items.length))
             }
 
             //complete promises for additional requests
@@ -371,7 +382,11 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
 
 
             console.log(`generatePopularifyData() found ${appearsOnAlbums.length} appearsOnAlbums, ${nonAppearsOnAlbums.length} nonAppearsOnAlbums`)
-            sendPopularifySocketUpdate(`found ${appearsOnAlbums.length} appearsOnAlbums, ${nonAppearsOnAlbums.length} nonAppearsOnAlbums`)
+            
+            
+            sendPopularifySocketUpdate(`Got tracklists for all ${total} artist albums, extracting into tracks. `)
+
+            //sendPopularifySocketUpdate(`found ${appearsOnAlbums.length} appearsOnAlbums, ${nonAppearsOnAlbums.length} nonAppearsOnAlbums`)
             
             //get tracks from appears_on category
             let allAlbumTracks = []     
@@ -385,7 +400,9 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
 
             //returnObj.allAlbumTracks = allAlbumTracks;
             console.log('generatePopularifyData() allAlbumTracks.length=', allAlbumTracks.length)
-            sendPopularifySocketUpdate(`found ${allAlbumTracks.length} tracks in total, now getting popularity for each track`)
+            
+            songCount=allAlbumTracks.length
+            sendPopularifySocketUpdate(`Got tracklists for all ${total} artist albums. getting popularity for 0/${allAlbumTracks.length} tracks.`)
 
             ////////////////////////////////////
             // Fetch additional data (popularity) for each track (50 at a time)
@@ -401,6 +418,7 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
             for (var x = 0; x < allAlbumTracks.length; x ++) {
                 //get data
                 let trackId = allAlbumTracks[x].id
+                let albumArt = allAlbumTracks[x].album_art
                 let albumGroup = allAlbumTracks[x].album_group
                 let albumType = allAlbumTracks[x].album_type
                 let albumArtist = allAlbumTracks[x].album_artist
@@ -408,6 +426,7 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
                 slicedTrackIds.push(trackId)
                 slicedTrackInfo.push({
                     trackId: trackId,
+                    albumArt: albumArt,
                     albumGroup: albumGroup,
                     albumType: albumType,
                     albumArtist: albumArtist
@@ -415,7 +434,7 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
                 //if it is time to make an api call:
                 if(slicedTrackIds.length == multipleTracksQueryLimit){
                     //push spotify call
-                    trackInfoPromises.push(getTracks(slicedTrackIds, slicedTrackInfo));
+                    trackInfoPromises.push(getTracks(slicedTrackIds, slicedTrackInfo, allAlbumTracks.length));
 
                     //appearsOnAlbumTracklistPromises.push(getAlbums(slicedAlbumIds, slicedAlbumInfo));
                     //console.log(`x=${x} pushed ${slicedAlbumIds.length} slicedAlbumIds, runningTally=${runningTally}`)
@@ -429,75 +448,136 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
                 //runningTally=runningTally+slicedAlbumIds.length
                 
                 //push spotify request for remaining values
-                trackInfoPromises.push(getTracks(slicedTrackIds, slicedTrackInfo));
+                trackInfoPromises.push(getTracks(slicedTrackIds, slicedTrackInfo, allAlbumTracks.length));
             }
             console.log(`generatePopularifyData() trackInfoPromises.length=${trackInfoPromises.length}`)
             var trackInfoPromisesFinished = await Promise.all(trackInfoPromises);
-            sendPopularifySocketUpdate(`finished getting popularity for each track`)
+            //sendPopularifySocketUpdate(`finished getting popularity for each track`)
 
+            //flatten nested lists arrays
+            let trackResults = []
+            for(var x = 0; x < trackInfoPromisesFinished.length; x++){
+                trackResults=trackResults.concat(trackInfoPromisesFinished[x].tracks)
+            }
+            
+            //sort in order of popularity
+            trackInfoPromisesFinished=trackResults.sort(function(a, b) {
+                var keyA = a.popularity;
+                var keyB = b.popularity;
+                // Compare the 2 dates
+                if (keyA < keyB) return 1;
+                if (keyA > keyB) return -1;
+                return 0;
+              });
 
             //concatenate results into single list since getTracks() returns 50 at a time
             var tracks = [];
             var filteredTracks=[];
             for (var i = 0; i < trackInfoPromisesFinished.length; i++) {
                 //tracks = tracks.concat(trackInfoPromisesFinished[i].tracks)
-                for(var x = 0; x < trackInfoPromisesFinished[i].tracks.length; x++){
-                    
-                    //calculate unavailable markets
-                    //let availableMarkets = trackInfoPromisesFinished[i].tracks[x].available_markets
-                    //let allMarkets = ["AD","AE","AG","AL","AM","AO","AR","AT","AU","AZ","BA","BB","BD","BE","BF","BG","BH","BI","BJ","BN","BO","BR","BS","BT","BW","BY","BZ","CA","CD","CG","CH","CI","CL","CM","CO","CR","CV","CW","CY","CZ","DE","DJ","DK","DM","DO","DZ","EC","EE","EG","ES","FI","FJ","FM","FR","GA","GB","GD","GE","GH","GM","GN","GQ","GR","GT","GW","GY","HK","HN","HR","HT","HU","ID","IE","IL","IN","IQ","IS","IT","JM","JO","JP","KE","KG","KH","KI","KM","KN","KR","KW","KZ","LA","LB","LC","LI","LK","LR","LS","LT","LU","LV","LY","MA","MC","MD","ME","MG","MH","MK","ML","MN","MO","MR","MT","MU","MV","MW","MX","MY","MZ","NA","NE","NG","NI","NL","NO","NP","NR","NZ","OM","PA","PE","PG","PH","PK","PL","PS","PT","PW","PY","QA","RO","RS","RU","RW","SA","SB","SC","SE","SG","SI","SK","SL","SM","SN","SR","ST","SV","SZ","TD","TG","TH","TJ","TL","TN","TO","TR","TT","TV","TW","TZ","UA","UG","US","UY","UZ","VC","VE","VN","VU","WS","XK","ZA","ZM","ZW"]
-                    //var unavailableMarkets = allMarkets.filter(function(itm){
-                    //    return availableMarkets.indexOf(itm)==-1;
-                    //});
+                //for(var x = 0; x < trackInfoPromisesFinished[i].tracks.length; x++){
+
+
 
                     filteredTracks.push([
+                        
+                        //albumArt
+                        //`${"../static/assets/img/spotifyTrackUnknown.jpg"}` 
+                        `${trackInfoPromisesFinished[i].album_art ? trackInfoPromisesFinished[i].album_art : "../static/assets/img/spotifyTrackUnknown.jpg"}`,
+                        //Popularify
+                        `${trackInfoPromisesFinished[i].popularity}`,
                         //title
-                        `${trackInfoPromisesFinished[i].tracks[x].name}`,
+                        `${trackInfoPromisesFinished[i].name}`,
+                        //artists
+                        `${createArtistsNameValue(trackInfoPromisesFinished[i].artists)}`,
+                        //album
+                        `${trackInfoPromisesFinished[i].album.name}`,
+                        //empty row for additional info button
+                        [],
+                        //share button
+                        `<button type="button" onClick="shareSong('${trackInfoPromisesFinished[i].id}')" class="btn btn-dark btn-circle btn-xl"><i class="fa fa-share" aria-hidden="true"></i></button>`,
+                        //album_group (hidden)
+                        trackInfoPromisesFinished[i].album_group,
+                        //album_type (hidden)
+                        trackInfoPromisesFinished[i].album_type,
+                        //track id (hidden)
+                        trackInfoPromisesFinished[i].album_type,
+                        //album artist (hidden)
+                        trackInfoPromisesFinished[i].album_artist,
+                        //release_date (hidden)
+                        trackInfoPromisesFinished[i].album.release_date,
+                        //length
+                        `${trackInfoPromisesFinished[i].duration_ms}`,
+                        //trackId: 
+                        trackInfoPromisesFinished[i].id,
+                        //trackURL
+                        `${trackInfoPromisesFinished[i].external_urls.spotify}`,
+                        //available markets
+                        `${trackInfoPromisesFinished[i].available_markets.join()}`
+
+                        
+                        /////////////////////////
+
+                        /*
+                        //empty row for additional detail dropdown icon
+                        [],
+
+                        //title
+                        `${trackInfoPromisesFinished[i].name}`,
                         
                         //artists
-                        `${createArtistsNameValue(trackInfoPromisesFinished[i].tracks[x].artists)}`,
+                        `${createArtistsNameValue(trackInfoPromisesFinished[i].artists)}`,
                         
                         //album_artist
-                        `${trackInfoPromisesFinished[i].tracks[x].album_artist}`,
+                        `${trackInfoPromisesFinished[i].album_artist}`,
 
-                        //artwork: trackInfoPromisesFinished[i].tracks[x].album.images[0].url,
+                        //artwork: trackInfoPromisesFinished[i].album.images[0].url,
                         
                         //album
-                        `${trackInfoPromisesFinished[i].tracks[x].album.name}`,
+                        `${trackInfoPromisesFinished[i].album.name}`,
 
-                        //releaseDate: trackInfoPromisesFinished[i].tracks[x].album.release_date,
+                        //releaseDate: trackInfoPromisesFinished[i].album.release_date,
 
                         //duration
-                        `${trackInfoPromisesFinished[i].tracks[x].duration_ms}`,
+                        `${trackInfoPromisesFinished[i].duration_ms}`,
 
                         //popularity
-                        `${trackInfoPromisesFinished[i].tracks[x].popularity}`,
+                        `${trackInfoPromisesFinished[i].popularity}`,
 
                         //trackId: 
-                        //trackInfoPromisesFinished[i].tracks[x].album.id,
+                        //trackInfoPromisesFinished[i].album.id,
                         
                         //trackURL
-                        `${trackInfoPromisesFinished[i].tracks[x].external_urls.spotify}`,
+                        `${trackInfoPromisesFinished[i].external_urls.spotify}`,
+                        
+                        //available markets
+                        `${trackInfoPromisesFinished[i].available_markets.join()}`
 
                         //group
-                        `${trackInfoPromisesFinished[i].tracks[x].album_group}`,
+                        `${trackInfoPromisesFinished[i].album_group}`,
 
                         //type
-                        `${trackInfoPromisesFinished[i].tracks[x].album_type}`,
+                        `${trackInfoPromisesFinished[i].album_type}`,
 
-                        //available markets
-                        `${trackInfoPromisesFinished[i].tracks[x].available_markets.join()}`
+                        */
                     ])
-                }
+                //}
             }
             console.log('generatePopularifyData() filteredTracks.length=', filteredTracks.length)
             returnObj=filteredTracks;
+
+
 
         } catch (err) {
             console.log(err)
             returnObj.err = err
         }
 
+        //get end time
+        var end = new Date().getTime();
+        //get total time
+        var totalTime = (end - start) / 1000
+        sendPopularifySocketUpdate(`Got popularity data for ${songCount} tracks from ${albumCount} albums in ${totalTime} seconds `)
         console.log('generatePopularifyData() end')
         resolve(returnObj)
     })
@@ -506,9 +586,13 @@ async function generatePopularifyData(artistURI, globalAccesToken) {
 //utility functions
 
 //send data back to front end in form of socket.io event
-function sendPopularifySocketUpdate(infoString){
+function sendPopularifySocketUpdate(infoString, isError=false){
     try{
-        io.emit('popularifyDataUpdate', { description: `${infoString}` });
+        if(isError){
+            io.emit('popularifyDataUpdateError', { description: `${infoString}` });
+        }else{
+            io.emit('popularifyDataUpdate', { description: `${infoString}` });
+        }
     }catch(err){
         console.log('sendPopularifySocketUpdate() err=',err)
     }
@@ -566,7 +650,7 @@ async function createRedirectURL() {
     return new Promise(async function (resolve, reject) {
         console.log('createRedirectURL()')
         //create scopes
-        const scopes = [
+        var scopes = [
             'ugc-image-upload',
             'user-read-playback-state',
             'user-modify-playback-state',
@@ -590,7 +674,27 @@ async function createRedirectURL() {
         //get spotify app
         let spotifyApp = spotifyApps[`Popularify-app1`]
         //get url
-        let url = spotifyApp.createAuthorizeURL(scopes)
+        var state = 'some-state'
+        var showDialog = true;
+        var responseType = 'code';
+        
+        scopes=['user-read-private', 'user-read-email']
+
+        let url = spotifyApp.createAuthorizeURL(
+            scopes,
+            state,
+            showDialog,
+            responseType
+
+            //response_type: 'code',
+            //client_id: client_id,
+            //scope: scope,
+            //redirect_uri: redirect_uri,
+            //state: state
+          );
+
+        
+
         //return url
         resolve(url);
     })
@@ -641,54 +745,10 @@ async function authCallback(error, code, state) {
     })
 }
 
-//authenticate all sessions
-//authenticateAllSessions()
-async function authenticateAllSessions_old() {
-    for (const [key, value] of Object.entries(spotifyTokensJSON)) {
-        authenticateSession(key)
-    }
-}
 
-//authenticate a session
-async function authenticateSession_old(sessionCredsName) {
-    var spotifyApiMartin = await new SpotifyWebApi({
-        clientId: 'f98aecb59dfa4336921925b2ea14857c',
-        clientSecret: process.env.clientSecret,
-        redirectUri: 'http://localhost:8080/callback'
-    });
-
-    spotifyApiMartin.setRefreshToken(spotifyTokensJSON[`${sessionCredsName}`].refresh_token);
-    const data = await spotifyApiMartin.refreshAccessToken();
-    var access_token = data.body['access_token'];
-    expires_in = data.body['expires_in'];
-    spotifyApiMartin.setAccessToken(access_token);
-    console.log('authenticateSession1() The access token has been refreshed!');
-    console.log('authenticateSession1() access_token:', access_token);
-    console.log('authenticateSession1() expires_in:', expires_in);
-
-    sessions[`${sessionCredsName}`] = spotifyApiMartin;
-    sessionsStatus[`${sessionCredsName}`] = 'active';
-
-    setInterval(async () => {
-        console.log('keepRefreshingMyCredentials()')
-        try {
-            const data = await spotifyApiMartin.refreshAccessToken();
-            expires_in = data.body['expires_in'];
-            const access_token = data.body['access_token'];
-
-            console.log('authenticateSession1() The access token has been refreshed!');
-            console.log('authenticateSession1() access_token:', access_token);
-            console.log('authenticateSession1() expires_in:', expires_in);
-
-        } catch (err) {
-            console.log('eeeer=', err)
-        }
-    }, expires_in / 2 * 1000);
-
-}
-
+var albumsStatusTotal = 0;
 // Get albums by a certain artist
-async function getArtistAlbums(artistURI, offset = 0, returnTracks = false, market = "") {
+async function getArtistAlbums(artistURI, offset = 0, returnTracks = false, totalAlbumsCount) {
     //console.log(`   getArtistAlbums() offset=${offset}`)
     return new Promise(async function (resolve, reject) {
         //get session
@@ -697,6 +757,8 @@ async function getArtistAlbums(artistURI, offset = 0, returnTracks = false, mark
         let useThisSessionName = useThisSessionRsp.name
         //run query
         useThisSession.getArtistAlbums(artistURI, { offset: offset, market: "US" }).then(function (data) {
+            albumsStatusTotal=albumsStatusTotal+data.body.items.length
+            sendPopularifySocketUpdate(`Getting tracklist from artist album ${albumsStatusTotal}/${totalAlbumsCount}.`, false)
             if (returnTracks) {
                 resolve(data.body.items)
             } else {
@@ -704,9 +766,10 @@ async function getArtistAlbums(artistURI, offset = 0, returnTracks = false, mark
             }
 
         }, async function (err) {
+
             console.error('getArtistAlbums() err: ', err, ' waiting 30 seconds and trying again');
             await delay(30000)
-            resolve(await getArtistAlbums(artistURI, offset, returnTracks))
+            resolve(await getArtistAlbums(artistURI, offset, returnTracks, totalAlbumsCount))
         });
     })
 }
@@ -723,18 +786,22 @@ async function getAlbums(albums, slicedAlbumInfo, retry = 0) {
         //run query 
         useThisSession.getAlbums(albums)
             .then(function (data) {
+                //console.log(`getAlbums() got data: `, data)
                 //extract album_group and album_type and add them into returned list of album objects
                 for(var x = 0; x < data.body.albums.length; x++ ){
+                    let albumArt = slicedAlbumInfo[x].albumArt
                     let albumGroup = slicedAlbumInfo[x].albumGroup
                     let albumType = slicedAlbumInfo[x].albumType
                     let albumArtist = slicedAlbumInfo[x].albumArtist
+                    //console.log(`getAlbums() albumGroup=${albumGroup}, albumType=${albumType}, albumArtist=${albumArtist}`)
+                    data.body.albums[x].album_art = albumArt
                     data.body.albums[x].album_group = albumGroup
                     data.body.albums[x].album_type = albumType
                     data.body.albums[x].album_artist = albumArtist
                 }
                 resolve(data.body.albums)
             }, async function (err) {
-                console.log(`getAlbums() retry=${retry}, wait ${3 * retry} seconds. err=`, err, ` albums.length=${albums.length} `)
+                console.log(`getAlbums() retry=${retry}, wait ${3 * retry} seconds. err=`, err, `, albums[0]=${albums[0]}`)
                 await delay(30000)
                 resolve(await getAlbums(albums, slicedAlbumInfo, ++retry));
             });
@@ -777,7 +844,63 @@ async function getAlbumTracks(album, offset = 0, limit = 50) {
     })
 }
 
-async function getTracks(tracks, slicedTrackInfo, retry=0) {
+//authenticate user
+var request = require('request');
+async function logUserIn(code){
+    return new Promise(async function (resolve, reject) {
+
+        var authOptions = {
+            url: 'https://accounts.spotify.com/api/token',
+            form: {
+                code: code,
+                redirect_uri: "http://localhost:8080/popularify",
+                grant_type: 'authorization_code'
+            },
+            headers: {
+                'Authorization': 'Basic ' + (new Buffer("0073a7f25706462a8850c97796960e87" + ':' + "99a48c817c6249da948ae83dcd513934").toString('base64'))
+            },
+            json: true
+        };
+
+        request.post(authOptions, function(error, response, body) {
+            if (!error && response.statusCode === 200) {
+      
+              var access_token = body.access_token,
+                  refresh_token = body.refresh_token;
+      
+              var options = {
+                url: 'https://api.spotify.com/v1/me',
+                headers: { 'Authorization': 'Bearer ' + access_token },
+                json: true
+              };
+      
+              // use the access token to access the Spotify Web API
+              request.get(options, function(error, response, body) {
+                console.log('user info: ', body);
+              });
+      
+              // we can also pass the token to the browser to make requests from there
+              /*
+              res.redirect('/#' +
+                querystring.stringify({
+                  access_token: access_token,
+                  refresh_token: refresh_token
+                }));
+                */
+            } else {
+              res.redirect('/#' +
+                querystring.stringify({
+                  error: 'invalid_token'
+                }));
+            }
+          });
+
+        resolve('done')
+    })
+}
+
+var popularityTracksFinished = 0;
+async function getTracks(tracks, slicedTrackInfo, allAlbumTracksLength, retry=0) {
     return new Promise(async function (resolve, reject) {
         //get session
         let useThisSessionRsp = await getSession()
@@ -788,18 +911,22 @@ async function getTracks(tracks, slicedTrackInfo, retry=0) {
             .then(function (data) {
                 //extract album_group/album_type from tracks[] and add into data[]
                 for(var x = 0; x < data.body.tracks.length; x++ ){
+                    let albumArt = slicedTrackInfo[x].albumArt
                     let albumGroup = slicedTrackInfo[x].albumGroup
                     let albumType = slicedTrackInfo[x].albumType
                     let albumArtist = slicedTrackInfo[x].albumArtist
+                    data.body.tracks[x].album_art = albumArt
                     data.body.tracks[x].album_group = albumGroup
                     data.body.tracks[x].album_type = albumType
                     data.body.tracks[x].album_artist = albumArtist
                 }
+                popularityTracksFinished=popularityTracksFinished+data.body.tracks.length;
+                sendPopularifySocketUpdate(`Got tracklists for all ${total} artist albums, getting popularity for ${popularityTracksFinished}/${allAlbumTracksLength} tracks.`)
                 resolve(data.body)
             }, async function (err) {
                 console.error('getTracks() err: ', err);
                 await delay(30000)
-                resolve(await getTracks(tracks, slicedTrackInfo));
+                resolve(await getTracks(tracks, slicedTrackInfo, allAlbumTracksLength));
             });
     })
 }
@@ -810,5 +937,6 @@ async function getTracks(tracks, slicedTrackInfo, retry=0) {
     createRedirectURL: createRedirectURL,
     getSession: getSession,
     searchArtists: searchArtists,
-    generatePopularifyData: generatePopularifyData
+    generatePopularifyData: generatePopularifyData,
+    logUserIn: logUserIn
 };

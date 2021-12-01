@@ -32,6 +32,7 @@
     "music-metadata": "^7.0.2",
     "node-vibrant": "^3.1.5",
     "nodemon": "^2.0.12",
+    "request": "^2.88.2",
     "socket.io": "^4.3.1",
     "socket.io-client": "^4.3.2",
     "spotify-web-api-node": "^4.0.0"
