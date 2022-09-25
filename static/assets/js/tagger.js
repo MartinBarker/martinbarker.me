@@ -38,6 +38,8 @@ $(document).ready(function () {
     dropArea.addEventListener('drop', handleDrop, false)
     async function handleDrop(e) {
 
+        console.log('handle file drop event')
+
         document.querySelector('#loading').style.display = "flex";
 
         let dt = e.dataTransfer
@@ -276,7 +278,7 @@ $(document).ready(function () {
             var endTimeSeconds = 0
             var taggerData = []
             for (i = 0; i < numberOfSongs; i++) {
-                //console.log(`getFileTaggerData() songs[${i}].type=`, songs[i].type)
+                console.log(`getFileTaggerData() songs[${i}]=`, songs[i])
                 if (!songs[i].type.includes('image')) {
                     let songLength = await getLength(songs[i]);
                     //let songLength = await getSongLength(songs[i], i);
