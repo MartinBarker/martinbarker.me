@@ -280,24 +280,34 @@ $(document).ready(function () {
             for (i = 0; i < numberOfSongs; i++) {
                 console.log(`getFileTaggerData() songs[${i}]=`, songs[i])
                 if (!songs[i].type.includes('image')) {
+                    //get length from audio file
                     let songLength = await getLength(songs[i]);
-                    //let songLength = await getSongLength(songs[i], i);
-                    let songTitle = await getSongTitle(songs[i], i);
-
+                    //detect if we want to use titles from url
+                    var songTitle = ''
+                    if($('#useUrlTitlesCheck').is(':checked')){
+                        try{
+                            console.log('use titles from url instead of files')
+                            songTitle = currentTaggerTrackData[i]['title']
+                        }catch(err){
+                            songTitle = '!!!not enough titles!!!'
+                        }
+                    }else{
+                        //get title from audio file
+                        songTitle = await getSongTitle(songs[i], i);
+                    }
+                    console.log(`${i} songTitle=`,songTitle)
+                    //calculate times
                     var endTimeSeconds = startTimeSeconds + songLength
-
-                    //convert seconds to minutes 
                     startTime = convertSecondsToTimestamp(startTimeSeconds);
-
-                    //convert seconds to minutes
                     endTime = convertSecondsToTimestamp(endTimeSeconds);
-
+                    //create track data obj and push it
                     var trackData = { title: songTitle, startTime: startTime, endTime: endTime }
                     taggerData.push(trackData)
 
                     var startTimeSeconds = endTimeSeconds
                 }
             }
+            console.log('file taggerData = ',taggerData)
             resolve(taggerData)
         })
     }
@@ -416,6 +426,7 @@ async function displayData(input) {
     document.getElementById("tracklistCopy").innerText = `Copy ${textResult.length} Chars to Clipboard`;
 }
 
+var currentTaggerTrackData = null;
 //take an object with track times and titles and calculate the timestamped tracklist to display
 async function getDiscogsTaggerData(tracklistData) {
     return new Promise(async function (resolve, reject) {
@@ -427,6 +438,7 @@ async function getDiscogsTaggerData(tracklistData) {
             let isHeadingTrackBool = await isHeadingTrack(tracklistData[i])
             //if track is not a discogs 'heading' track
             if (!isHeadingTrackBool) {
+                /*
                 if (tracklistData[i].duration == "") {
                     taggerData = []
                     var trackData = { title: "Track durations not available on every track for this Discogs URL", startTime: "", endTime: "" }
@@ -434,28 +446,36 @@ async function getDiscogsTaggerData(tracklistData) {
                     taggerData.push(trackData)
                     break
                 } else {
-
-                    if ((tracklistData[i].duration.toString(2)).includes(":")) {
-                        var trackTimeSeconds = moment.duration(tracklistData[i].duration).asMinutes()
+                    */
+                    var startTime = 0 
+                    var endTime = 0
+                    var trackTimeSeconds = 0
+                    if (tracklistData[i].duration == "") {
+                        trackTimeSeconds = null;
+                        endTimeSeconds = null;
+                        startTime = null 
+                        endTime = null
                     } else {
-                        var trackTimeSeconds = tracklistData[i].duration
+                        if ((tracklistData[i].duration.toString(2)).includes(":")) {
+                            trackTimeSeconds = moment.duration(tracklistData[i].duration).asMinutes()
+                        } else {
+                            trackTimeSeconds = tracklistData[i].duration
+                        }
+                        endTimeSeconds = parseFloat(endTimeSeconds) + parseFloat(trackTimeSeconds)
+                        startTime = secondsToTimestamp(startTimeSeconds),
+                        endTime = secondsToTimestamp(endTimeSeconds)
                     }
 
-                    var trackTimeMinutes = new Date(trackTimeSeconds * 1000).toISOString().substr(11, 8);
-                    endTimeSeconds = parseFloat(endTimeSeconds) + parseFloat(trackTimeSeconds)
 
-                    //get track artists
+                    //get track artist(s)
                     let trackArtistsString = ''
-
                     let trackArtistArr = []
                     if (tracklistData[i].artists) {
-
                         for (var z = 0; z < tracklistData[i].artists.length; z++) {
                             let trackArtist = removeNumberParenthesesAndComma(tracklistData[i].artists[z].name)
                             trackArtistArr.push(trackArtist) //trackArtistArr
                         }
                         trackArtistsString = `${trackArtistsString} - ${trackArtistArr.join(',')}`
-
                     } else {
                         trackArtistsString = ` NA`
                     }
@@ -464,8 +484,8 @@ async function getDiscogsTaggerData(tracklistData) {
                     var trackData = {
                         title: tracklistData[i].title,
                         trackArtist: trackArtistsString,
-                        startTime: secondsToTimestamp(startTimeSeconds),
-                        endTime: secondsToTimestamp(endTimeSeconds)
+                        startTime: startTime, 
+                        endTime: endTime,
                     }
                     taggerData.push(trackData)
 
@@ -474,10 +494,12 @@ async function getDiscogsTaggerData(tracklistData) {
 
                 }
 
-            }
+           // }
 
         }
-
+        //check if taggerData incldues times
+        console.log('taggerData=',taggerData)
+        currentTaggerTrackData = taggerData
         resolve(taggerData)
 
     });
@@ -526,6 +548,10 @@ async function submitDiscogsURL(input) {
 
     //hide loading spinner
     document.querySelector('#loading').style.display = "none";
+
+    //reveal checkbox to use url song titles with file timestamps 
+    document.querySelector("#checkboxURLTitlesFileTimes").style.display="flex"
+
 
 }
 

@@ -133,6 +133,9 @@
                     });
                     
                 </script>
+                <div id='checkboxURLTitlesFileTimes' class="container" style="display:none">
+                    <a>Check box to use URL input song titles with file timestamps:<input id='useUrlTitlesCheck' type="checkbox"/></a>
+                </div>
             </div>
         </div>
 
@@ -311,11 +314,18 @@
         <h3>Changelog:</h3>
         <div class="container" style='padding-right:0;margin-left:0;margin-right:0;'>
             <ul>
+                <li>10/25/2022: Added new checkbox 'Check box to use URL input song titles with file timestamps' which will appear when a Discogs URL is used as input. If selected, the next time you drag/choose files, it will use the song title values from the discogs url input, but use the timestamps from your files.</li>
                 <li>04/17/2021: Added loading spinner when tags are being generated, changed artist tags generation system so that tags for each artist are organized smarter.</li>
                 <li>11/18/2020: tagger.site now accepts a Discogs URL as input by appending the Discogs URL after tagger.site. So If you visit <a class='hoverURLClassBody' href='https://tagger.site/https://www.discogs.com/New-Golden-Wings-Its-Rough-Its-Tough/release/5390422'>https://tagger.site/https://www.discogs.com/New-Golden-Wings-Its-Rough-Its-Tough/release/5390422</a> it will have the Discogs data already generated when the page loads.</li>
                 <li>11/17/2020: .cue files now work for generating a timestamped tracklist, and I improved the error handling for <a class='hoverURLClassBody' href='https://www.discogs.com/New-Golden-Wings-Its-Rough-Its-Tough/release/5390422'>release URLs like this</a> which have a broken artist page. </li>
             </ul>
-        </div>
+            
+            <h3>Roadmap:</h3>
+            <div class="container" style='padding-right:0;margin-left:0;margin-right:0;'>
+                <ul>
+                    <li>10/25/2022: Currently working on a react.js rewrite, as well as adding tons of new features.</li>
+                </ul>
+            </div>
 
 
     </div>
