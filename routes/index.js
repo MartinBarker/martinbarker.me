@@ -36,6 +36,14 @@ app.get('/posts/:id', async (req, res) => {
     }
   }
 
+  let postTitle = "Blog Post"
+  try{
+    postTitle = post.title
+  }catch(err){
+    console.log(err)
+    postTitle = "Blog Post"
+  }
+
   res.render('post', {
     layout: 'mainTemplate',
     post: post,
