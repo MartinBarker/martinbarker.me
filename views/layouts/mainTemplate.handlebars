@@ -518,9 +518,28 @@
 
             <!-- contact dropdown -->
             <li>
-                <a href="#contactSubmenu" data-toggle="collapse" aria-expanded="false"
-                    class="dropdown-toggle">Contact</a>
-                <ul class="collapse list-unstyled" id="contactSubmenu">
+                <a 
+                    href="#contactSubmenu" 
+                    data-toggle="collapse" 
+                    
+                    {{#ifEquals contact 'active'}} 
+                        aria-expanded="true" 
+                    {{/ifEquals}} 
+                    {{#ifEquals contact null}}
+                        aria-expanded="false" 
+                    {{/ifEquals}}
+
+
+                    class="dropdown-toggle"
+                >Contact</a>
+                
+              
+                <ul class="collapse list-unstyled 
+                {{#ifEquals contact 'active'}}
+                    show
+                {{/ifEquals}} 
+                " id="contactSubmenu">
+
                     <li>
                         <a href="mailto:martinbarker99@gmail.com">Email</a>
                     </li>

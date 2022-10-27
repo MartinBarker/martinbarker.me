@@ -95,6 +95,9 @@ app.get('/', async function (req, res) {
     previewCardImage: '../static/assets/img/headshot.jpg',
     //set active current tab
     about: 'active',
+    
+    contact: 'active',
+
     //body content title 
     pageBodyNavTitle: 'martinbarker.me',
     //body content github link
