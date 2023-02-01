@@ -53,6 +53,7 @@ $(document).ready(function () {
             //console.log('drag files: .cue')
             var cueFileContents = await readText(e.dataTransfer)
             taggerData = await getCueTaggerData(cueFileContents)
+            console.log('cue taggerData = ', taggerData)
         } else {
             //console.log('drag files: NOT .cue')
             //var songs = e.currentTarget.files;
@@ -211,10 +212,15 @@ $(document).ready(function () {
             var cueFileTrackCount = 0;
             for (var x = 0; x < splitTracksCue.length; x++) {
                 var cueTrackSplitInfo = splitTracksCue[x].split(/\n/);
+                
+                
+
+
                 var durationSeconds = 0;
                 var trackTitle = ""
                 var tempStartTimeSeconds;
                 var tempEndTimeSeconds;
+                var artist = 'undefined'
                 //console.log(`cueTrackSplitInfo=`, cueTrackSplitInfo)
                 if (cueTrackSplitInfo[0].toUpperCase().includes('AUDIO')) {
                     //look through each option to get title and durationSeconds
@@ -233,7 +239,11 @@ $(document).ready(function () {
                             //convert duration to seconds
                             tempStartTimeSeconds = (+m_s_ms_split[0] * 60) + (+m_s_ms_split[1]);
                             durationSeconds = 200;
-
+                        }
+                        //get artist/performer
+                        if(optionStr.includes(`PERFORMER "`)){
+                            artist = optionStr.replace(`PERFORMER "`, '')
+                            artist=artist.slice(0, -1); 
                         }
                     }
                     //x is track number i am on
@@ -242,7 +252,8 @@ $(document).ready(function () {
                     var trackData = {
                         title: trackTitle,
                         startTime: convertSecondsToTimestamp(tempStartTimeSeconds),
-                        endTime: convertSecondsToTimestamp(0)
+                        endTime: convertSecondsToTimestamp(0),
+                        trackArtist: artist,
                     }
                     taggerData.push(trackData);
                     //console.log('before taggerData.length', taggerData.length, 'taggerData=', taggerData, '\n')
@@ -409,7 +420,7 @@ async function displayData(input) {
 
         //determine option5
         if (taggerDisplayOption5 == 'artist') {
-            textLine = `${textLine}${trackArtist}`
+            textLine = `${textLine} - ${trackArtist}`
         } else if (taggerDisplayOption5 == 'blank') {
             textLine = `${textLine}`
         }
