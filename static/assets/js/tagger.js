@@ -53,7 +53,6 @@ $(document).ready(function () {
             //console.log('drag files: .cue')
             var cueFileContents = await readText(e.dataTransfer)
             taggerData = await getCueTaggerData(cueFileContents)
-            console.log('cue taggerData = ', taggerData)
         } else {
             //console.log('drag files: NOT .cue')
             //var songs = e.currentTarget.files;
