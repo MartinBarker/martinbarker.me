@@ -23,6 +23,8 @@
     "express": "^4.17.1",
     "express-handlebars": "^4.0.4",
     "fluent-ffmpeg": "^2.1.2",
+    "fs": "0.0.1-security",
+    "googleapis": "^112.0.0",
     "handlebars": "^4.7.6",
     "https-proxy-agent": "^5.0.0",
     "imagemagick": "^0.1.3",

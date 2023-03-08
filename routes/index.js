@@ -9,6 +9,9 @@ const Post = require('../database/models/Post.js');
 var mongodbutil = require('../static/assets/js/mongodbutils');
 var db = mongodbutil.getDb();
 require('dotenv').config();
+const fs = require('fs');
+const { google } = require('googleapis');
+const OAuth2 = google.auth.OAuth2;
 
 var io = require("../server").io;
 
@@ -37,9 +40,9 @@ app.get('/posts/:id', async (req, res) => {
   }
 
   let postTitle = "Blog Post"
-  try{
+  try {
     postTitle = post.title
-  }catch(err){
+  } catch (err) {
     console.log(err)
     postTitle = "Blog Post"
   }
@@ -103,7 +106,7 @@ app.get('/', async function (req, res) {
     previewCardImage: '../static/assets/img/headshot.jpg',
     //set active current tab
     about: 'active',
-    
+
     contact: 'active',
 
     //body content title 
@@ -179,22 +182,22 @@ app.get('/audio-archiver', async function (req, res) {
 })
 
 
-app.get('/api/:version', function(req, res) {
+app.get('/api/:version', function (req, res) {
   res.send(req.params.version);
 });
 
-app.get('/login', function(req, res) {
+app.get('/login', function (req, res) {
   var scopes = 'user-read-playback-position user-read-currently-playing user-modify-playback-state user-read-playback-state streaming app-remote-control user-library-modify user-library-read playlist-modify-public playlist-modify-private playlist-read-private playlist-read-collaborative';
   var my_client_id = '199c96b7d70f4dd28f188f9c6bc86045';
   var redirect_uri = 'http://localhost:8080/betterspotify';
-  
+
   res.redirect('https://accounts.spotify.com/authorize' +
     '?response_type=code' +
     '&client_id=' + my_client_id +
     (scopes ? '&scope=' + encodeURIComponent(scopes) : '') +
     '&redirect_uri=' + encodeURIComponent(redirect_uri));
 
-  });
+});
 
 
 
@@ -215,11 +218,11 @@ app.get('/popularifyOld', async function (req, res) {
     //page tab icon
     icon: 'https://cdn4.iconfinder.com/data/icons/48-bubbles/48/06.Tags-512.png',
     //shareable preview-cart metadata
-    previewCardTitle:'Popularify',
-    previewCardUrl:'http://www.popularify.site',
-    previewCardWebsite:'website',
-    previewCardDescription:'',
-    previewCardImage:'../static/assets/img/headshot.jpg',
+    previewCardTitle: 'Popularify',
+    previewCardUrl: 'http://www.popularify.site',
+    previewCardWebsite: 'website',
+    previewCardDescription: '',
+    previewCardImage: '../static/assets/img/headshot.jpg',
     //expand projects tab
     projects: 'active',
     //set active current tab
@@ -231,8 +234,8 @@ app.get('/popularifyOld', async function (req, res) {
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
-    colorsObj:colorsObj,
-    colorsStr:JSON.stringify(colorsObj),
+    colorsObj: colorsObj,
+    colorsStr: JSON.stringify(colorsObj),
     imgPath: '/' + colorData.imgPath,
     imgSrcUrl: colorData.imgSrc,
     imgListen: colorData.imgListen,
@@ -348,6 +351,69 @@ app.get('/digify', async function (req, res) {
   });
 })
 
+initYouTubeOauth2ClientSetup();
+var oauth2Client = null;
+async function initYouTubeOauth2ClientSetup(){
+  oauth2Client = await createOauth2Client()
+}
+
+//generate youtube api url 
+// http://localhost:8080/getYtUrl?port=3112
+app.get('/getYtUrl', async function (req, res) {
+  try{
+    let callbackPort = req.query.port;
+    //console.log('/getYtUrl callbackPort=',callbackPort)
+    var ytApiUrl = await generateUrl(callbackPort);
+    res.status(200).json({ url: ytApiUrl });
+  }catch(err){
+    res.status(400).json({ error: `${err}` });
+  }
+})
+
+
+
+async function createOauth2Client() {
+  return new Promise(async function (resolve, reject) {
+    console.log('createOauth2Client()')
+    try {
+      fs.readFile(`${__dirname}/../static/assets/youtubeAuth/auth.json`, async function processClientSecrets(err, content) {
+        if (err) {
+          console.log('createOauth2Client() Error loading client secret file: ' + err);
+          return;
+        }
+        console.log('createOauth2Client() read auth.json file fine')
+        // Authorize a client with the loaded credentials
+        let credentials = JSON.parse(content)
+        const clientSecret = credentials.installed.client_secret;
+        const clientId = credentials.installed.client_id;
+        oauth2Client = new OAuth2(clientId, clientSecret, null);
+        console.log('createOauth2Client() done')
+        resolve(oauth2Client)
+      });
+    } catch (err) {
+      throw(`Error creating Oauth2 Client: ${err}`)
+    }
+  })
+}
+
+async function generateUrl(callbackPort) {
+  return new Promise(async function (resolve, reject) {
+    try {
+      console.log('generateUrl()')
+      var redirectUrl = `http://localhost:${callbackPort}/ytCode`
+      const authUrl = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['https://www.googleapis.com/auth/youtube.upload'],
+        redirect_uri: redirectUrl
+      });
+     
+      console.log('generateUrl() Authorize this app by visiting this url: ', authUrl);
+      resolve(authUrl)
+    } catch (err) {
+      throw(`Error generating sign in url: ${err}`)
+    }
+  })
+}
 
 //tagger route
 app.get('/tagger', async function (req, res) {
@@ -651,28 +717,28 @@ app.get('/popularify/callback', async function (req, res) {
   var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
   console.log(`fullUrl=${fullUrl}`)
   res.status(200).send(fullUrl)
-  
+
 })
 
 var querystring = require('querystring');
 app.get('/createSpotifyRedirectURL', async function (req, res) {
-  try{
+  try {
     let redirectURL = 'https://accounts.spotify.com/authorize?' +
-            querystring.stringify({
-                response_type: 'code',
-                client_id: "0073a7f25706462a8850c97796960e87",
-                scope: 'user-read-private user-read-email',
-                redirect_uri: "http://localhost:8080/popularify",
-                state: "random-state"
-        })
+      querystring.stringify({
+        response_type: 'code',
+        client_id: "0073a7f25706462a8850c97796960e87",
+        scope: 'user-read-private user-read-email',
+        redirect_uri: "http://localhost:8080/popularify",
+        state: "random-state"
+      })
 
     //let redirectURL = await spotifyAuth.createRedirectURL()
     res.status(200).send(redirectURL)
-  }catch(err){
+  } catch (err) {
     console.log(`/createSpotifyRedirectURL err=`, err)
     res.status(400).send(err)
   }
-  
+
 })
 
 app.get('/spotifyLogin', async function (req, res) {
@@ -715,16 +781,16 @@ app.post('/getImageColors', async function (req, res) {
   let imgURL = req.body.imgURL;
   let colors = {}
 
-  if(imgURL.includes('spotifyArtistUnknown.jpg')){
-    colors={
-      DarkMuted:{hex:'#828282', rgb:[130, 130, 130]},
-      DarkVibrant:{hex:'#828282', rgb:[130, 130, 130]},
-      LightMuted:{hex:'#828282', rgb:[130, 130, 130]},
-      Muted:{hex:'#828282', rgb:[130, 130, 130]},
-      Vibrant:{hex:'#828282', rgb:[130, 130, 130]},
+  if (imgURL.includes('spotifyArtistUnknown.jpg')) {
+    colors = {
+      DarkMuted: { hex: '#828282', rgb: [130, 130, 130] },
+      DarkVibrant: { hex: '#828282', rgb: [130, 130, 130] },
+      LightMuted: { hex: '#828282', rgb: [130, 130, 130] },
+      Muted: { hex: '#828282', rgb: [130, 130, 130] },
+      Vibrant: { hex: '#828282', rgb: [130, 130, 130] },
     }
-  }else{
-    try{
+  } else {
+    try {
       //get color swatches
       var swatches = await Vibrant.from(imgURL).getPalette()
       //format rbg and swatch type into list
@@ -737,8 +803,8 @@ app.post('/getImageColors', async function (req, res) {
         var keyName = `${key}`
         colors[keyName] = { 'hex': hexColor, 'rgb': colorValue }
       }
-    }catch(err){
-      console.log('/getImageColors err getting img colors =',err);
+    } catch (err) {
+      console.log('/getImageColors err getting img colors =', err);
     }
   }
 
@@ -808,7 +874,7 @@ app.get(/^\/generatePopularifyData\/(.*)/, async function (req, res) {
     console.log('spotifyAuth.generatePopularifyData err=', err)
     popularifyData = null;
   }
-  if(popularifyData){
+  if (popularifyData) {
     res.status(200).send(popularifyData)
   }
 })
@@ -820,56 +886,56 @@ app.post('/popularify/logUserIn', async function (req, res) {
   let payload = req.body.payload.split('&state')[0].trim();
   console.log(`/logUserIn payload=${payload}`)
   var authOptions = {
-      url: 'https://accounts.spotify.com/api/token',
-      form: {
-          code: payload,
-          redirect_uri: "http://localhost:8080/popularify",
-          grant_type: 'authorization_code'
-      },
-      headers: {
-          'Authorization': 'Basic ' + (new Buffer("0073a7f25706462a8850c97796960e87" + ':' + "99a48c817c6249da948ae83dcd513934").toString('base64'))
-      },
-      json: true
+    url: 'https://accounts.spotify.com/api/token',
+    form: {
+      code: payload,
+      redirect_uri: "http://localhost:8080/popularify",
+      grant_type: 'authorization_code'
+    },
+    headers: {
+      'Authorization': 'Basic ' + (new Buffer("0073a7f25706462a8850c97796960e87" + ':' + "99a48c817c6249da948ae83dcd513934").toString('base64'))
+    },
+    json: true
   };
 
-  request.post(authOptions, function(error, response, body) {
-      if (!error && response.statusCode === 200) {
+  request.post(authOptions, function (error, response, body) {
+    if (!error && response.statusCode === 200) {
 
-        var access_token = body.access_token,
-            refresh_token = body.refresh_token;
+      var access_token = body.access_token,
+        refresh_token = body.refresh_token;
 
-        var options = {
-          url: 'https://api.spotify.com/v1/me',
-          headers: { 'Authorization': 'Bearer ' + access_token },
-          json: true
-        };
+      var options = {
+        url: 'https://api.spotify.com/v1/me',
+        headers: { 'Authorization': 'Bearer ' + access_token },
+        json: true
+      };
 
-        // use the access token to access the Spotify Web API
-        request.get(options, function(error, response, body) {
-          console.log('user info: ', body);
-          res.status(200).send(body)
-        });
+      // use the access token to access the Spotify Web API
+      request.get(options, function (error, response, body) {
+        console.log('user info: ', body);
+        res.status(200).send(body)
+      });
 
-        // we can also pass the token to the browser to make requests from there
-        /*
-        res.redirect('/#' +
-          querystring.stringify({
-            access_token: access_token,
-            refresh_token: refresh_token
-          }));
-          */
-      } else {
-        res.status(200).send('err')
-        res.redirect('/#' +
-          querystring.stringify({
-            error: 'invalid_token'
-          }));
-      }
-    });
+      // we can also pass the token to the browser to make requests from there
+      /*
+      res.redirect('/#' +
+        querystring.stringify({
+          access_token: access_token,
+          refresh_token: refresh_token
+        }));
+        */
+    } else {
+      res.status(200).send('err')
+      res.redirect('/#' +
+        querystring.stringify({
+          error: 'invalid_token'
+        }));
+    }
+  });
 
   //let logUserInRsp = await spotifyAuth.logUserIn(payload);
-  
-  
+
+
 });
 
 
