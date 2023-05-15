@@ -2,7 +2,9 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 // Use the cors middleware to allow requests from all origins
-app.use(cors());
+app.use(cors({
+  origin: '*'
+}));
 
 var router = express.Router();
 //nodejs virbant color picker extension
