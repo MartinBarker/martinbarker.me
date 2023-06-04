@@ -205,8 +205,6 @@ app.get('/login', function (req, res) {
 
 });
 
-
-
 //popularify route
 app.get('/popularifyOld', async function (req, res) {
   //get color Data
@@ -357,14 +355,17 @@ app.get('/digify', async function (req, res) {
   });
 })
 
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// YouTube Auth Stuff Begin
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 initYouTubeOauth2ClientSetup();
 var oauth2Client = null;
 async function initYouTubeOauth2ClientSetup(){
   oauth2Client = await createOauth2Client()
 }
 
-//generate youtube api url 
-// http://localhost:8080/getYtUrl?port=3112
+//generate youtube api url. ex: http://localhost:8080/getYtUrl?port=3112
 app.get('/getYtUrl', async function (req, res) {
   try{
     let callbackPort = req.query.port;
@@ -376,8 +377,48 @@ app.get('/getYtUrl', async function (req, res) {
   }
 })
 
+//auth with token, return sanitized oauth2client. ex: http://localhost:8080/getOauth2Client?token=4/0AAAAAA_AAAAA_AAA-AAAA-AAA_BBBB_UQ&scope=https://www.googleapis.com/auth/youtube.upload.
+app.get('/getOauth2Client', async function (req, res) {
+  try{
+    //get token from url http request
+    const authToken = req.originalUrl.substring(req.originalUrl.indexOf('token=') + 'token='.length);
+    console.log('/getOauth2Client authToken=[',authToken,']')  
+    //auth with token
+    var userOauth2client = await addTokenToOauth2client(authToken);
+    console.log('userOauth2client=',userOauth2client)
+    //sanitize
+    userOauth2client._clientId = "NAH"
+    userOauth2client._clientSecret = "NAH"
+    //return 
+    res.status(200).json(userOauth2client);
+    
+  }catch(err){
+    res.status(400).json({ error: `${err}` });
+  }
+})
 
+//authenticate oauth2client with user token
+async function addTokenToOauth2client(authToken){
+  return new Promise(async function (resolve, reject) {
+    try{
+      //oauth2Client.redirectUri = 'http://localhost:3001/ytCode';
+      var clientoauth2Client = oauth2Client;
+      clientoauth2Client.getToken(authToken, function (err, token) {
+        if (err) {
+            console.log('addTokenToOauth2client() Error trying to retrieve access token', err);
+            reject(err);
+        }
+        clientoauth2Client.credentials = token;
+        console.log('\n\n addTokenToOauth2client() done. clientoauth2Client=\n\n',clientoauth2Client,'\n\n')
+        resolve(clientoauth2Client);
+    })
+    }catch(err){
+      console.log('addTokenToOauth2client() err:', err)
+    }
+  })
+}
 
+//create oauth2client using local auth.json file 
 async function createOauth2Client() {
   return new Promise(async function (resolve, reject) {
     console.log('createOauth2Client()')
@@ -392,7 +433,8 @@ async function createOauth2Client() {
         let credentials = JSON.parse(content)
         const clientSecret = credentials.installed.client_secret;
         const clientId = credentials.installed.client_id;
-        oauth2Client = new OAuth2(clientId, clientSecret, null);
+        const redirect_uris = credentials.installed.redirect_uris;
+        oauth2Client = new OAuth2(clientId, clientSecret, redirect_uris);
         console.log('createOauth2Client() done')
         resolve(oauth2Client)
       });
@@ -402,6 +444,7 @@ async function createOauth2Client() {
   })
 }
 
+//generate youtube auth login url 
 async function generateUrl(callbackPort) {
   return new Promise(async function (resolve, reject) {
     try {
@@ -420,6 +463,10 @@ async function generateUrl(callbackPort) {
     }
   })
 }
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// YouTube Auth Stuff End
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 //tagger route
 app.get('/tagger', async function (req, res) {
