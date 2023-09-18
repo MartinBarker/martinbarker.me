@@ -462,8 +462,8 @@ async function getDiscogsTaggerData(tracklistData) {
                             trackTimeSeconds = tracklistData[i].duration
                         }
                         endTimeSeconds = parseFloat(endTimeSeconds) + parseFloat(trackTimeSeconds)
-                        startTime = secondsToTimestamp(startTimeSeconds),
-                        endTime = secondsToTimestamp(endTimeSeconds)
+                        startTime = convertSecondsToTimestamp(startTimeSeconds),
+                        endTime = convertSecondsToTimestamp(endTimeSeconds)
                     }
 
 
