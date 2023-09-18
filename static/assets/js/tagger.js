@@ -1375,10 +1375,14 @@ function convertSecondsToTimestamp(seconds) {
     if (duration.seconds() < 10) {
         append_s = "0"
     }
-    if (duration.minutes() < 10) {
+    if (duration.minutes() < 10 && hours == 0) {
         append_m = "0"
     }
-    total_string = time + append_m + duration.minutes() + ":" + append_s + duration.seconds();
+    if (hours > 0) {
+        total_string = time + append_m + duration.minutes() + ":" + append_s + duration.seconds();
+    } else {
+        total_string = append_m + duration.minutes() + ":" + append_s + duration.seconds();
+    }
     return total_string;
 }
 
