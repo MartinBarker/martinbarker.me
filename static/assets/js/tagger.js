@@ -211,7 +211,6 @@ $(document).ready(function () {
             var cueFileTrackCount = 0;
             for (var x = 0; x < splitTracksCue.length; x++) {
                 var cueTrackSplitInfo = splitTracksCue[x].split(/\n/);
-                var durationSeconds = 0;
                 var trackTitle = ""
                 var tempStartTimeSeconds;
                 var tempEndTimeSeconds;
@@ -231,41 +230,26 @@ $(document).ready(function () {
                             var m_s_ms = optionStr.split(' ')[2];
                             var m_s_ms_split = m_s_ms.split(':');
                             //convert duration to seconds
-                            tempStartTimeSeconds = (+m_s_ms_split[0] * 60) + (+m_s_ms_split[1]);
-                            durationSeconds = 200;
-
+                            tempStartTimeSeconds = (+m_s_ms_split[0] * 3600) + (+m_s_ms_split[1] * 60) + (+m_s_ms_split[1]);
                         }
                     }
-                    //x is track number i am on
-                    //console.log('tempStartTimeSeconds=', tempStartTimeSeconds, ` (${convertSecondsToTimestamp(tempStartTimeSeconds)})`)
-
                     var trackData = {
                         title: trackTitle,
                         startTime: convertSecondsToTimestamp(tempStartTimeSeconds),
                         endTime: convertSecondsToTimestamp(0)
                     }
                     taggerData.push(trackData);
-                    //console.log('before taggerData.length', taggerData.length, 'taggerData=', taggerData, '\n')
+                    
                     //if we have already pushed a track to taggerData:
                     if (cueFileTrackCount > 0) {
-                        //console.log('set value of taggerData[', cueFileTrackCount-1, '].endTime = taggerData[', cueFileTrackCount, '].startTime')
                         taggerData[cueFileTrackCount - 1].endTime = taggerData[cueFileTrackCount].startTime
                     }
-
-
-                    //startTimeSeconds = endTimeSeconds;
                     cueFileTrackCount += 1;
-                    //console.log(" . ")
                 }
-
-                //let splitTrackInfo = splitTracksCue[x].split('↵')
-
             }
-            //console.log('taggerData.length-1 = ', taggerData.length-1, ', taggerData=', taggerData)
             taggerData[taggerData.length - 1].endTime = ""
             resolve(taggerData)
-            //resolve([{title: "04 Lifting 2nd Resurrection", startTime: "06:29", endTime: "10:15"},{title: "02 Lifting 2nd Resurrection", startTime: "06:29", endTime: "10:15"}])
-        })
+       })
     }
 
     //convert files to tagger data
@@ -1367,24 +1351,19 @@ function secondsToTimestamp(input) {
 
 function convertSecondsToTimestamp(seconds) {
     var duration = moment.duration(seconds, "seconds");
-    var time = "";
-    var hours = duration.hours();
-    if (hours > 0) { time = hours + ":"; }
-    var append_s = ""
-    var append_m = ""
-    if (duration.seconds() < 10) {
-        append_s = "0"
-    }
-    if (duration.minutes() < 10 && hours == 0) {
-        append_m = "0"
-    }
-    if (hours > 0) {
-        total_string = time + append_m + duration.minutes() + ":" + append_s + duration.seconds();
+    
+    var totalHours = Math.floor(duration.asHours());
+    var minutes = duration.minutes();
+    var secs = duration.seconds();
+    
+    if (totalHours > 0) { 
+        return `${totalHours}:${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
     } else {
-        total_string = append_m + duration.minutes() + ":" + append_s + duration.seconds();
+        return `${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
     }
-    return total_string;
 }
+
+
 
 function getSongLength(song, i) {
     return new Promise(function (resolve, reject) {
