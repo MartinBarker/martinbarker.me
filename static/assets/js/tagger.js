@@ -196,9 +196,24 @@ $(document).ready(function () {
 
         })
     }
-
+    function secondsToHMS(seconds) {
+        console.log(`secondsToHMS(${seconds})`)
+        let hours = Math.floor(seconds / 3600);
+        seconds %= 3600;
+        let minutes = Math.floor(seconds / 60);
+        let secs = seconds % 60;
+    
+        // Convert to strings and pad with zeros if needed
+        let hoursStr = String(hours).padStart(2, '0');
+        let minutesStr = String(minutes).padStart(2, '0');
+        let secsStr = String(secs).padStart(2, '0');
+    
+        console.log(`secondsToHMS() return: `,`${hoursStr}:${minutesStr}:${secsStr}`)
+        return `${hoursStr}:${minutesStr}:${secsStr}`;
+    }
     //convert cue file to tagger data
     async function getCueTaggerData(cueStr) {
+        //console.log('getCueTaggerData() cueStr = ', cueStr)
         return new Promise(async function (resolve, reject) {
             let splitTracksCue = cueStr.split('TRACK')
 
@@ -209,12 +224,13 @@ $(document).ready(function () {
 
             //for each track
             var cueFileTrackCount = 0;
+            /*
             for (var x = 0; x < splitTracksCue.length; x++) {
                 var cueTrackSplitInfo = splitTracksCue[x].split(/\n/);
                 var trackTitle = ""
                 var tempStartTimeSeconds;
                 var tempEndTimeSeconds;
-                //console.log(`cueTrackSplitInfo=`, cueTrackSplitInfo)
+                
                 if (cueTrackSplitInfo[0].toUpperCase().includes('AUDIO')) {
                     //look through each option to get title and durationSeconds
                     for (var z = 0; z < cueTrackSplitInfo.length; z++) {
@@ -223,14 +239,17 @@ $(document).ready(function () {
                         if (optionStr.substr(0, 5) == 'TITLE') {
                             trackTitle = optionStr;
                             trackTitle = trackTitle.substring(7, trackTitle.length - 1)
+                            console.log('title line: ', trackTitle)
                         }
                         //get endTime
                         if (optionStr.substr(0, 5) == 'INDEX') {  // && !optionStr.includes('INDEX 01 00:00:00')
+                            console.log('duration line: ', optionStr)
                             //get duration (minutes:seconds:milliseconds)
                             var m_s_ms = optionStr.split(' ')[2];
                             var m_s_ms_split = m_s_ms.split(':');
                             //convert duration to seconds
                             tempStartTimeSeconds = (+m_s_ms_split[0] * 3600) + (+m_s_ms_split[1] * 60) + (+m_s_ms_split[1]);
+                            console.log('tempStartTimeSeconds = ', tempStartTimeSeconds)
                         }
                     }
                     var trackData = {
@@ -239,6 +258,7 @@ $(document).ready(function () {
                         endTime: convertSecondsToTimestamp(0)
                     }
                     taggerData.push(trackData);
+                    console.log('pushed trackData: ', trackData, '\n')
                     
                     //if we have already pushed a track to taggerData:
                     if (cueFileTrackCount > 0) {
@@ -247,7 +267,68 @@ $(document).ready(function () {
                     cueFileTrackCount += 1;
                 }
             }
+            
             taggerData[taggerData.length - 1].endTime = ""
+            */
+
+            var temptaggerdata = []
+            var start = 0;
+            var end = 0;
+
+            for (var x = splitTracksCue.length - 1; x >= 1 ; x--) {
+                var trackTitle = '';
+                var trackStartTime = '';
+
+                var cueTrackSplitInfo = splitTracksCue[x].split(/\n/);
+                //console.log('cueTrackSplitInfo=',cueTrackSplitInfo)
+                
+
+                for (var z = 0; z < cueTrackSplitInfo.length; z++) {
+                    let optionStr = cueTrackSplitInfo[z].trim();
+                    //title
+                    if (optionStr.substr(0, 5) == 'TITLE') {
+                        trackTitle = optionStr;
+                        trackTitle = trackTitle.substring(7, trackTitle.length - 1)
+                        //console.log('trackTitle: ', trackTitle)
+                    
+                    }else if(optionStr.substr(0, 5) == 'INDEX') {
+                        //get duration (minutes:seconds:milliseconds)
+                        var trackStartTime = optionStr.split(' ')[2].trim();
+                        //console.log('start time: ', trackStartTime)
+
+                        //var m_s_ms_split = m_s_ms.split(':');
+                        //convert duration to seconds
+                        //start = (+m_s_ms_split[0] * 3600) + (+m_s_ms_split[1] * 60) + (+m_s_ms_split[1]);
+                        //console.log(`start: ${m_s_ms} aka ${start} seconds`)
+                        //console.log(`end: ${secondsToHMS(end)} aka ${end} seconds`)
+                        //
+                        //end = start;
+                    var newFirstElement = `${trackStartTime} ${trackTitle}`;
+                    temptaggerdata = [newFirstElement].concat(temptaggerdata)
+                        
+
+                    }
+                }
+
+            }
+            console.log(temptaggerdata.join('\n'))
+
+            /*
+            for (let i = splitTracksCue.length - 1; i >= 0; i--) {
+                const line = splitTracksCue[i].trim();
+                console.log('line=',line)
+
+                //var cueTrackSplitInfo = splitTracksCue[x].split(/\n/);
+                var trackTitle = ""
+                var tempStartTimeSeconds;
+                var tempEndTimeSeconds;
+                
+                if (line.startsWith('FILE "')) {
+                    console.log('line starts with FILE ')
+                }
+              }
+              */
+
             resolve(taggerData)
        })
     }
