@@ -8,4 +8,14 @@ Following this guide: https://medium.com/@nwosuonyedikachi/deploying-a-react-app
 - name: dev-portfolio-react
 
 3. Go to Elastic Container Service(ECS) and Create a Cluster
-- name: DevPortfolioCluster
+- name: portfolioCluster
+
+4. Create new task definition
+- name: DevTaskDefPortfolio
+- In 'Container - 1:
+    - Enter name "DevContainerPortfolio"
+    - For image URI put image name from ECR in step 2 (https://922671116400.dkr.ecr.us-west-1.amazonaws.com/dev-portfolio-react)
+
+5. Create an ECS service for the newly created ECS cluster
+- Set name = "DevPortfolioClusterService"
+- Select the task we created in previous step 
