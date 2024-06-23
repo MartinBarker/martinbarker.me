@@ -19,3 +19,7 @@ Following this guide: https://medium.com/@nwosuonyedikachi/deploying-a-react-app
 5. Create an ECS service for the newly created ECS cluster
 - Set name = "DevPortfolioClusterService"
 - Select the task we created in previous step 
+
+6. Create GH actions workflow yml
+7. Update the `env:` vars in the workflow.yml to contain the real values.
+8. Update the github repo secrets to include `` and ``.
