@@ -28,6 +28,8 @@ COPY supervisord.conf /etc/supervisord.conf
 
 # Expose port 80
 EXPOSE 80
+# Expose port 30
+EXPOSE 80
 
 # Command to run supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
