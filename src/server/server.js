@@ -6,7 +6,7 @@ const port = 3030;
 // Enable CORS for all routes
 app.use(cors());
 
-app.get('/', (req, res) => {
+app.get('/db/getCreds', (req, res) => {
   res.send('Hello from the Node.js server!');
 });
 

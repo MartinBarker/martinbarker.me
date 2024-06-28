@@ -7,8 +7,9 @@ function App() {
   const [error, setError] = useState('');
 
   const fetchData = async () => {
+    console.log('fetching data..')
     try {
-      const response = await fetch('http://localhost:3030'); // Change to your server's endpoint if different
+      const response = await fetch('http://jermasearch.com:3030/db/getCreds'); 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
