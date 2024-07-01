@@ -26,10 +26,10 @@ COPY --from=build /app/build /usr/share/nginx/html
 # Copy the supervisord configuration
 COPY supervisord.conf /etc/supervisord.conf
 
-# Expose port 80
+# Expose ports
 EXPOSE 80
-# Expose port 30
-EXPOSE 80
+EXPOSE 30
+EXPOSE 3030
 
 # Command to run supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
