@@ -8,7 +8,7 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const response = await fetch('http://localhost:3030'); // Change to your server's endpoint if different
+      const response = await fetch('http://localhost:3030/dbtest'); // Change to your server's endpoint if different
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
