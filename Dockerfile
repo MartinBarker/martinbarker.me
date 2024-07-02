@@ -27,7 +27,7 @@ COPY --from=build /app/build /usr/share/nginx/html
 COPY src/server/server.js /app/src/server/server.js
 COPY package*.json /app/
 COPY src/ /app/src/
-COPY public/ /app/public/
+COPY public/ /app/public/ 
 
 # Copy the supervisord configuration
 COPY supervisord.conf /etc/supervisord.conf
