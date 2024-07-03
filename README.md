@@ -1,3 +1,25 @@
+# Local Dev Setup:
+- Run `npm i`
+
+# How to test docker setup:
+- Build docker image and run container:
+-  `docker build -t myapp . && docker run -p 80:80 -p 3030:3030 myapp`
+- React app should now be at `http://localhost`
+- Server should accept requests at `/dbtest` route.
+
+# How to access docker logs:
+- Find container ID: `docker ps`
+- Open a shell session in the running container `docker exec -it id /bin/sh`
+- Navigate to logs folder and print: `cd /var/log && cat node_server.log`
+
+# How to clena up docker:
+- Stop container: `docker stop 123abc456def`
+- Remove all stopped containers: `docker container prune`
+    - Or remove container by id: `docker rm 123abc456def`
+- Remove all hanging images: `docker image prune`
+
+
+# How I created the aws deployment for this project:
 Following this guide: https://medium.com/@nwosuonyedikachi/deploying-a-react-app-to-aws-ecs-with-github-actions-5c74c1869800
 
 1. Create, setup, and run react site using npx create-react-app
