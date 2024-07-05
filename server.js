@@ -12,6 +12,7 @@ async function retrieveSecretsFromAWS() {
   return new Promise(async function (resolve, reject) {
     let response = "init rsp val";
     try {
+      /*
       const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
       const secret_name = "algoliaDbIndex_Secret_Name";
       const client = new SecretsManagerClient({
@@ -23,6 +24,7 @@ async function retrieveSecretsFromAWS() {
           VersionStage: "AWSCURRENT"
         })
       );
+      */
     } catch (error) {
       response = `Error getting aws secret: ${error}`
     }
