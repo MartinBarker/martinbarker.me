@@ -1,0 +1,95 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif; /* Optional: set a font for the entire page */
+    background: linear-gradient(to bottom, #154e5f, #139287);
+    background-size: cover; /* Ensure the gradient covers the entire background */
+    color: white; /* Ensure text is readable on dark background */
+    overflow: auto; /* Allow scrolling */
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.todo-container {
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+    color: white; /* Ensure text is readable on dark background */
+    border-radius: 10px; /* Optional: to give a rounded corner look */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    min-height: 100vh; /* Ensure the container expands with content */
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+input[type="text"] {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 20px;
+    box-sizing: border-box;
+    border: 1px solid #ccc; /* Add a light border for input field */
+    border-radius: 5px; /* Optional: rounded corners for input field */
+}
+
+.results-count {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.todo-content {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.result-item {
+    display: flex;
+    border: 2px solid #fff; /* Light border to contrast with dark background */
+    padding: 20px;
+    border-radius: 10px; /* Optional: rounded corners for result items */
+    background: rgba(255, 255, 255, 0.1); /* Slightly transparent background for result items */
+}
+
+.thumbnail {
+    margin-right: 20px;
+}
+
+.thumbnail img {
+    width: 200px;
+    height: auto;
+    display: block;
+    border-radius: 5px; /* Optional: rounded corners for thumbnails */
+}
+
+.quote-info {
+    flex-grow: 1;
+}
+
+.quote-info p {
+    margin: 5px 0;
+}
+
+.quote-info button {
+    margin-top: 10px;
+    padding: 5px 10px;
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+}
+
+.video-embed {
+    margin-top: 20px;
+}
