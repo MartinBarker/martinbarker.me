@@ -9,27 +9,25 @@ app.use(cors());
 
 // Retrieve secrets from AWS
 async function retrieveSecretsFromAWS() {
-  const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
-  const secret_name = "algoliaDbIndex_Secret_Name";
-  const client = new SecretsManagerClient({
-    region: process.env.AWS_REGION || "us-west-2",
-  });
-  let response;
-  try {
-    response = await client.send(
-      new GetSecretValueCommand({
-        SecretId: secret_name,
-        VersionStage: "AWSCURRENT", // VersionStage defaults to AWSCURRENT if unspecified
-      })
-    );
-  } catch (error) {
-    // For a list of exceptions thrown, see
-    // https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
-    console.error('Error retrieving secret from AWS:', error);
-    throw error;
-  }
-  const secret = response.SecretString;
-  return secret;
+  return new Promise(async function (resolve, reject) {
+    let response = "init rsp val";
+    try {
+      const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
+      const secret_name = "algoliaDbIndex_Secret_Name";
+      const client = new SecretsManagerClient({
+        region: process.env.AWS_REGION || "us-west-2",
+      });
+      response = await client.send(
+        new GetSecretValueCommand({
+          SecretId: secret_name,
+          VersionStage: "AWSCURRENT"
+        })
+      );
+    } catch (error) {
+      response = `Error getting aws secret: ${error}`
+    }
+    resolve(response); //response.SecretString;
+  })
 }
 
 // Fetch data from Algolia database
@@ -71,7 +69,7 @@ app.get('/dbtest', async (req, res) => {
 
 app.get('/secretTest', async (req, res) => {
   let awsSecret = await retrieveSecretsFromAWS()
-  res.send({'awsSecret': awsSecret});
+  res.send({ 'awsSecret': awsSecret });
 });
 
 app.listen(port, () => {
