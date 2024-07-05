@@ -29,18 +29,18 @@ async function retrieveSecretsFromAWS() {
     throw error;
   }
   const secret = response.SecretString;
-  console.log('secret = ', secret);
+  return secret;
 }
-
-retrieveSecretsFromAWS().catch(console.error);
 
 // Fetch data from Algolia database
 async function fetchDataFromAlgolia() {
   return new Promise(async function (resolve, reject) {
     try {
+      resolve("wip");
+      /*
       // Setup DB connection creds
-      const client = algoliasearch('A91VDJYTFI', 'b0888716139906d969a93dfc0f0aed64');
-      const index = client.initIndex('SubtitlesDevIndex');
+      const client = algoliasearch('', '');
+      const index = client.initIndex('');
 
       // Perform the search
       index.search('super mario', {
@@ -52,6 +52,7 @@ async function fetchDataFromAlgolia() {
         console.log("Error making query: ", error);
         resolve({ "error": error });
       });
+      */
     } catch (error) {
       console.log("fetchDataFromAlgolia() Error: ", error);
       resolve({ "error": error });
@@ -59,10 +60,18 @@ async function fetchDataFromAlgolia() {
   });
 }
 
-app.get('/dbtest', async (req, res) => {
-  console.log("Making test query");
+app.get('/fetchSubtitles', async (req, res) => {
   let queryResults = await fetchDataFromAlgolia();
   res.send(queryResults);
+});
+
+app.get('/dbtest', async (req, res) => {
+  res.send('dbTest route working');
+});
+
+app.get('/secretTest', async (req, res) => {
+  let awsSecret = await retrieveSecretsFromAWS()
+  res.send({'awsSecret': awsSecret});
 });
 
 app.listen(port, () => {
