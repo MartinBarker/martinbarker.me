@@ -12,7 +12,7 @@
 - Open a shell session in the running container `docker exec -it id /bin/sh`
 - Navigate to logs folder and print: `cd /var/log && cat node_server.log`
 
-# How to clena up docker:
+# How to clean up docker:
 - Stop container: `docker stop 123abc456def`
 - Remove all stopped containers: `docker container prune`
     - Or remove container by id: `docker rm 123abc456def`
