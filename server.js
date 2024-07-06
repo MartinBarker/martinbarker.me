@@ -7,29 +7,6 @@ const port = 3030;
 // Enable CORS for all routes
 app.use(cors());
 
-// Retrieve secrets from AWS
-async function retrieveSecretsFromAWS() {
-  return new Promise(async function (resolve, reject) {
-    let response = "init rsp val";
-    try {
-      const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
-      const secret_name = "algoliaDbIndex_Secret_Name";
-      const client = new SecretsManagerClient({
-        region: process.env.AWS_REGION || "us-west-2",
-      });
-      response = await client.send(
-        new GetSecretValueCommand({
-          SecretId: secret_name,
-          VersionStage: "AWSCURRENT"
-        })
-      );
-    } catch (error) {
-      response = `Error getting aws secret: ${error}`
-    }
-    resolve(response); //response.SecretString;
-  })
-}
-
 // Fetch data from Algolia database
 async function fetchDataFromAlgolia() {
   return new Promise(async function (resolve, reject) {
@@ -66,6 +43,27 @@ app.get('/fetchSubtitles', async (req, res) => {
 app.get('/dbtest', async (req, res) => {
   res.send('dbTest route working');
 });
+
+// Retrieve secrets from AWS
+async function retrieveSecretsFromAWS() {
+  return new Promise(async function (resolve, reject) {
+    let secretVal = "default";
+    try {
+        const {GetSecretValueCommand, SecretsManagerClient,} = require("@aws-sdk/client-secrets-manager");
+        const client = new SecretsManagerClient();
+        const response = await client.send(
+          new GetSecretValueCommand({
+            SecretId: "algoliaDbIndex_Secret_Name",
+          }),
+        );
+        secretVal = response;
+    
+    } catch (error) {
+      secretVal = `Error getting aws secret: ${error}`
+    }
+    resolve(secretVal); 
+  })
+}
 
 app.get('/secretTest', async (req, res) => {
   let awsSecret = await retrieveSecretsFromAWS()
