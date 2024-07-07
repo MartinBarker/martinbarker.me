@@ -52,7 +52,7 @@ async function retrieveSecretsFromAWS() {
     let secretVal = "default";
     try {
         const {GetSecretValueCommand, SecretsManagerClient,} = require("@aws-sdk/client-secrets-manager");
-        const client = new SecretsManagerClient();
+        const client = new SecretsManagerClient({ region: "us-west-2" });
         const response = await client.send(
           new GetSecretValueCommand({
             SecretId: "algoliaDbIndex_Secret_Name",
