@@ -4,6 +4,8 @@ const cors = require('cors');
 const app = express();
 const port = 3030;
 
+console.log("begin server.js run")
+
 // Enable CORS for all routes
 app.use(cors());
 
@@ -72,8 +74,4 @@ app.get('/secretTest', async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
-  // Debugging environment variables
-  console.log('AWS_ACCESS_KEY_ID:', process.env.AWS_ACCESS_KEY_ID);
-  console.log('AWS_SECRET_ACCESS_KEY:', process.env.AWS_SECRET_ACCESS_KEY);
-  console.log('AWS_REGION:', process.env.AWS_REGION);
 });
