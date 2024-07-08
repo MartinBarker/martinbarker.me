@@ -5,31 +5,11 @@ import logo from './logo.svg';
 import JermaSearch from "./JermaSearch/JermaSearch.js"
 
 function App() {
-  const [data, setData] = useState('');
-  const [error, setError] = useState('');
-
-  const fetchData = async () => {
-    try {
-      const response = await fetch('http://jermasearch.com:3030/dbtest'); // Change to your server's endpoint if different
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const result = await response.text(); // Adjust this if your server responds with JSON or another format
-      setData(result);
-      setError(''); // Clear any previous errors
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setError(error.message);
-    }
-  };
-
+  
   return (
     <div>
-      {/*  */}
       <JermaSearch />
-      
-
-      {/* */}
+      {/* 
         <div className="App">
           <header className="App-header">
             <img src={logo} className="App-logo" alt="logo" />
@@ -51,8 +31,7 @@ function App() {
             </div>
           </header>
         </div>
-        
-
+        */}
     </div>
   );
 }
