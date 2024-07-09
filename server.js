@@ -89,7 +89,12 @@ async function fetchDataFromAlgolia(searchTerm, pageNum=0) {
       var numberPages = response.nbPages
 
       console.log(`Received ${hits.length} hits out of ${numberHits} total from page ${currentPage}/${numberPages}`);
-      resolve(hits)
+      resolve({
+        hits:hits,
+        numberHits:numberHits,
+        currentPage:currentPage,
+        numberPages:numberPages
+      })
 
     } catch (error) {
       console.log("fetchDataFromAlgolia() Error: ", error);
