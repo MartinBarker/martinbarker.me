@@ -22,7 +22,8 @@ const JermaSearch = () => {
         e.preventDefault(); // Prevent default form submission behavior
         try {
             console.log(`handleSearch ${searchTerm}`);
-            const response = await fetch(`${apiUrl}/algolia/search/${searchTerm}`)
+            var searchPage = 0
+            const response = await fetch(`${apiUrl}/algolia/search/${searchPage}/${searchTerm}`)
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             } else {

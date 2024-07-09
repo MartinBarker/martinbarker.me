@@ -67,40 +67,47 @@ async function getAwsSecret(secretName) {
   }
 }
 
-
 // Fetch data from Algolia database
-async function fetchDataFromAlgolia(searchTerm) {
+async function fetchDataFromAlgolia(searchTerm, pageNum=0) {
   return new Promise(async function (resolve, reject) {
     console.log(`fetchDataFromAlgolia(${searchTerm})`)
     try {
-
       // Setup Algolia DB connection creds
       const client = algoliasearch(algoliaApplicationId, algoliaApiKey);
       const index = client.initIndex(algoliaIndex);
 
       // Perform the search
-      const { hits } = await index.search(`${searchTerm}`, {
-        hitsPerPage: 1000,
+      const response = await index.search(`${searchTerm}`, {
+        hitsPerPage: 100,
+        page: pageNum
       });
-      console.log(`Found ${hits.length} hits.`);
+
+      // Fetch results and pagination info
+      var hits = response.hits 
+      var numberHits = response.nbHits
+      var currentPage = response.page+1
+      var numberPages = response.nbPages
+
+      console.log(`Received ${hits.length} hits out of ${numberHits} total from page ${currentPage}/${numberPages}`);
       resolve(hits)
 
     } catch (error) {
       console.log("fetchDataFromAlgolia() Error: ", error);
       reject(error)
-
     }
   })
 }
 
 // Handle get request to algolia search route
-app.get('/algolia/search/*', async (req, res) => {
+app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
   try {
-    let searchTerm = req.path.split('/search/')[1];
-    console.log('/algolia/search searchTerm = ', searchTerm);
-    let searchResults = await fetchDataFromAlgolia(searchTerm)
+    const { searchPage, searchTerm } = req.params;
+    const decodedSearchTerm = decodeURIComponent(searchTerm);
+    console.log('/algolia/search searchPage = ', searchPage);
+    console.log('/algolia/search searchTerm = ', decodedSearchTerm);
+    let searchResults = await fetchDataFromAlgolia(decodedSearchTerm, parseInt(searchPage, 10));
     res.send(searchResults);
   } catch (error) {
-    res.reject(error)
+    res.status(500).send({ error: error.message });
   }
 });
