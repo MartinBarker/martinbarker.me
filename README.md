@@ -1,5 +1,7 @@
 # Local Dev Setup:
 - Run `npm i`
+- Create `.env` file based off `.env-template` and fill out env vars.
+- Run `npm start` and `node server.js` simultaneously.
 
 # How to test docker setup:
 - Build docker image and run container:
