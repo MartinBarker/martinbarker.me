@@ -1,38 +1,31 @@
-import React, { useState } from 'react';
-import logo from './logo.svg';
-//import './App.css';
+import React from 'react';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Link
+} from "react-router-dom";
+// import MainSidebar from "./Home/MainSidebar.js"
+import JermaSearch from "./JermaSearch/JermaSearch.js";
 
-import JermaSearch from "./JermaSearch/JermaSearch.js"
-
-function App() {
-  
+function Home() {
   return (
     <div>
-      <JermaSearch />
-      {/* 
-        <div className="App">
-          <header className="App-header">
-            <img src={logo} className="App-logo" alt="logo" />
-            <p>
-              Jerma Search v1.0
-            </p>
-            <a
-              className="App-link"
-              href="https://reactjs.org"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learn React
-            </a>
-            <button onClick={fetchData}>Fetch Data</button>
-            <div>
-              {data && <p>Server Response: {data}</p>}
-              {error && <p style={{ color: 'red' }}>Error: {error}</p>}
-            </div>
-          </header>
-        </div>
-        */}
+      <h1>Home Page</h1>
+      <p>Welcome to the home page!</p>
+      <Link to="/jermasearch">Go to JermaSearch</Link>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        {/* <Route path="/" element={<MainSidebar />} /> */}
+        <Route path="/" element={<JermaSearch />} />
+      </Routes>
+    </Router>
   );
 }
 
