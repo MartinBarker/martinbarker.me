@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import './JermaSearch.css';  // Assuming you have a CSS file for styles
 
 const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3030' : 'http://jermasearch.com/internal-api';
-// Set api url to "localhost:3030" if project is running locally, else set to "jermasearch.com"
 
 const JermaSearch = () => {
     const [results, setResults] = useState([]);
@@ -12,6 +11,7 @@ const JermaSearch = () => {
     const [error, setError] = useState(""); 
     const [searchPage, setSearchPage] = useState(0); // State to track the current search page
     const [sortOrder, setSortOrder] = useState("mostRecent"); // State to track the sorting order
+    const [searchPerformed, setSearchPerformed] = useState(false); // State to track if a search has been performed
 
     const handleToggle = (index) => {
         setExpanded(prevState => ({
@@ -20,7 +20,6 @@ const JermaSearch = () => {
         }));
     };
 
-    // Function to sort results based on upload date
     const sortResults = (results, order) => {
         return results.sort((a, b) => {
             const dateA = new Date(a.upload_date.slice(0, 4), a.upload_date.slice(4, 6) - 1, a.upload_date.slice(6, 8));
@@ -29,56 +28,70 @@ const JermaSearch = () => {
         });
     };
 
-    // Get search results from backend-node server
     const handleSearch = async (e, page = 0) => {
-        if (e) e.preventDefault(); // Prevent default form submission behavior if event exists
+        if (e) e.preventDefault();
+        if (!searchTerm.trim()) {
+            setError("Search term cannot be empty");
+            return;
+        }
+        setSearchPerformed(true);
+        setError(""); // Clear any previous error
         try {
-            console.log(`handleSearch ${searchTerm} page ${page}`);
             const response = await fetch(`${apiUrl}/algolia/search/${page}/${searchTerm}`)
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             } else {
                 const result = await response.json(); 
-                console.log('result=', result)
                 
-                var hits = result.hits
-                var numberHits = result.numberHits
-                var currentPage = result.currentPage
-                var numberPages = result.numberPages
-                setTotalResults(numberHits)
+                var hits = result.hits;
+                var numberHits = result.numberHits;
+                var currentPage = result.currentPage;
+                var numberPages = result.numberPages;
+                setTotalResults(numberHits);
 
                 const sortedResults = sortResults(page === 0 ? hits : [...results, ...hits], sortOrder);
                 setResults(sortedResults);
                 setError('');
             }
         } catch (error) {
-            setError(error.message); // Set only the error message
-            if (page === 0) setResults([]); // Ensure results is an empty array on error for the initial search
+            setError(error.message);
+            if (page === 0) setResults([]);
         }
-    }
+    };
 
-    // Handler for "Show More" button
     const handleShowMore = () => {
         const nextPage = searchPage + 1;
         setSearchPage(nextPage);
         handleSearch(null, nextPage);
-    }
+    };
 
-    // Handler for changing the sort order
     const handleSortChange = (e) => {
         setSortOrder(e.target.value);
         const sortedResults = sortResults(results, e.target.value);
         setResults(sortedResults);
     };
 
-    // Function to format date
+    const handleClear = () => {
+        setResults([]);
+        setTotalResults("");
+        setSearchTerm("");
+        setExpanded({});
+        setError("");
+        setSearchPerformed(false);
+    };
+
     const formatDate = (dateString) => {
         const date = new Date(dateString.slice(0, 4), dateString.slice(4, 6) - 1, dateString.slice(6, 8));
         return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    }
+    };
 
     return (
-        <section className="todo-container">
+        <section className="todo-container error-con">
+            <nav className="top-links">
+                <a href="#search">Search</a>
+                <a href="#about">About</a>
+                <a href="#feedback">Feedback</a>
+            </nav>
             <div className="todo">
                 <h1 className="header">
                     Jerma985 Search
@@ -87,14 +100,19 @@ const JermaSearch = () => {
                 {error && <h1 className="error">{error}</h1>}
 
                 <form onSubmit={(e) => { setSearchPage(0); handleSearch(e, 0); }}>
-                    <div>
+                    <div className="form-controls">
                         <input
                             type="text"
                             placeholder="Search quote:"
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)} // Update searchTerm state
+                            onChange={(e) => setSearchTerm(e.target.value)}
                         />
                         <button type="submit">Submit</button>
+                        {searchPerformed && (
+                            <button type="button" onClick={handleClear} className="clear-button">
+                                Clear
+                            </button>
+                        )}
                     </div>
                 </form>
 
@@ -134,7 +152,7 @@ const JermaSearch = () => {
                                             <div className="video-embed">
                                                 <iframe
                                                     width="560"
-                                                    height="315"
+                                                    height="350" // Updated height
                                                     src={embedUrl}
                                                     title="YouTube video player"
                                                     frameBorder="0"
@@ -148,13 +166,13 @@ const JermaSearch = () => {
                             );
                         })
                     ) : (
-                        <div>No results found</div>
+                        searchPerformed && <div>No results found</div>
                     )}
                 </div>
 
-                {Array.isArray(results) && results.length > 0 && (
+                {Array.isArray(results) && results.length > 0 && totalResults >= 100 && (
                     <div className="pagination">
-                        <button onClick={handleShowMore}>Show More</button>
+                        <button onClick={handleShowMore}>Load More Results</button>
                     </div>
                 )}
             </div>
