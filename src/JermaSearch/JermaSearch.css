@@ -1,5 +1,3 @@
-/* JermaSearch.css */
-
 /* Base styles */
 html, body {
     margin: 0;
@@ -9,9 +7,9 @@ html, body {
     overflow-x: hidden; /* Prevents horizontal scrolling */
     background: linear-gradient(45deg, #87CEEB, #00BFFF, #20B2AA, #008B8B);
     background-size: 400% 400%;
-    -webkit-animation: gradientShift 30s ease infinite;
-    -moz-animation: gradientShift 30s ease infinite;
-    animation: gradientShift 30s ease infinite;
+    -webkit-animation: gradientShift 23s ease infinite;
+    -moz-animation: gradientShift 23s ease infinite;
+    animation: gradientShift 23s ease infinite;
     display: flex;
     flex-direction: column;
 }
@@ -59,22 +57,32 @@ body {
 
 .top-links {
     display: flex;
-    justify-content: space-between;
-    padding: 10px 20px;
-    background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
-    border-radius: 16px;
-    /* margin: 10px 10px 0 10px; */ /* Add equal margins to the left and right */
-    box-sizing: border-box; /* Ensures padding and border are included in the element's total width and height */
-    overflow-x: hidden; /* Prevents horizontal scrolling */
+    justify-content: center;
+    gap: 10px; /* Adds space between the buttons */
+    padding: 10px;
 }
 
-.top-links a {
+.top-links button:hover{
+    cursor:pointer;
+    background: rgba(255, 255, 255, 0.555); 
+}
+
+.top-links button {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
     color: black;
     text-decoration: none;
     font-weight: bold;
+    cursor: pointer;
+    padding: 20px 20px;
+    border-radius: 40px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    transition: background-color 0.3s ease;
 }
 
-.todo-container {
+.search-container {
     width: 100%;
     padding: 20px;
     flex: 1;
@@ -82,8 +90,8 @@ body {
     margin-top: 20px; /* Add space between the top bar and main content */
 }
 
-.todo {
-    /* max-width: 800px; */
+.search-content, .about-content, .feedback-content {
+    max-width: 800px;
     margin: 20px auto;
     background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
     border-radius: 16px; /* Glassmorphism border radius */
@@ -91,7 +99,7 @@ body {
     backdrop-filter: blur(5px); /* Glassmorphism blur */
     -webkit-backdrop-filter: blur(5px); /* Glassmorphism blur for Safari */
     border: 1px solid rgba(255, 255, 255, 0.3); /* Glassmorphism border */
-    padding: 0px 20px;
+    padding: 20px;
 }
 
 .header {
@@ -112,18 +120,68 @@ body {
     gap: 10px;
 }
 
+.form-controls button{
+    background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
+    border: none;
+    color: black;
+    text-decoration: none;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 10px 20px;
+    border-radius: 16px; /* Rounded corners */
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); /* Glassmorphism shadow */
+    backdrop-filter: blur(5px); /* Glassmorphism blur */
+    -webkit-backdrop-filter: blur(5px); /* Glassmorphism blur for Safari */
+    transition: background-color 0.3s ease; 
+}
+
+.form-controls button:hover{
+    background: rgba(255, 255, 255, 0.555); 
+}
+
 form input {
+    border-width: 0px;
     flex: 1;
     padding: 10px;
     font-size: 16px;
     min-width: 0; /* Allows input to shrink */
     box-sizing: border-box; /* Ensures padding and border are included in the element's total width and height */
+    border-radius: 16px; /* Rounded corners for the input */
 }
 
 form button, .clear-button {
+    border: 1px solid transparent;
     padding: 10px 20px;
     font-size: 16px;
     box-sizing: border-box;
+    border-radius: 16px; /* Rounded corners for the buttons */
+    background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); /* Glassmorphism shadow */
+    backdrop-filter: blur(5px); /* Glassmorphism blur */
+    -webkit-backdrop-filter: blur(5px); /* Glassmorphism blur for Safari */
+    transition: background-color 0.3s ease; 
+}
+
+form button:hover, .clear-button:hover {
+    background: rgba(255, 255, 255, 0.555);
+}
+
+select {
+    border: 0px;
+}
+
+.sort-options select{
+    border-radius: 16px;
+    padding: 5px;
+    text-align: center;
+}
+
+.sort-options select:hover{
+    cursor:pointer
+}
+
+textarea:focus, input:focus{
+    outline: none;
 }
 
 .results-count, .sort-options {
@@ -132,7 +190,7 @@ form button, .clear-button {
     color: black;
 }
 
-.todo-content {
+.search-results {
     margin-top: 20px;
     color: black;
 }
@@ -185,11 +243,11 @@ form button, .clear-button {
 
 /* Mobile styles */
 @media (max-width: 600px) {
-    .todo-container {
+    .search-container {
         padding: 10px;
     }
 
-    .todo {
+    .search-content, .about-content, .feedback-content {
         padding: 10px;
         margin-top: 20px;
     }

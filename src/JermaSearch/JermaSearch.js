@@ -12,6 +12,7 @@ const JermaSearch = () => {
     const [searchPage, setSearchPage] = useState(0); // State to track the current search page
     const [sortOrder, setSortOrder] = useState("mostRecent"); // State to track the sorting order
     const [searchPerformed, setSearchPerformed] = useState(false); // State to track if a search has been performed
+    const [activeSection, setActiveSection] = useState("search"); // State to track the active section
 
     const handleToggle = (index) => {
         setExpanded(prevState => ({
@@ -86,96 +87,118 @@ const JermaSearch = () => {
     };
 
     return (
-        <section className="todo-container error-con">
+        <section className="search-container error-con">
             <nav className="top-links">
-                <a href="#search">Search</a>
-                <a href="#about">About</a>
-                <a href="#feedback">Feedback</a>
+                <button onClick={() => setActiveSection("search")}>Search</button>
+                <button onClick={() => setActiveSection("about")}>About</button>
+                <button onClick={() => setActiveSection("feedback")}>Feedback</button>
             </nav>
-            <div className="todo">
-                <h1 className="header">
-                    Jerma985 Search
-                </h1>
+            {activeSection === "search" && (
+                <div className="search-content">
+                    <h1 className="header">
+                        Jerma985 Search
+                    </h1>
 
-                {error && <h1 className="error">{error}</h1>}
+                    {error && <h1 className="error">{error}</h1>}
 
-                <form onSubmit={(e) => { setSearchPage(0); handleSearch(e, 0); }}>
-                    <div className="form-controls">
-                        <input
-                            type="text"
-                            placeholder="Search quote:"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                        <button type="submit">Submit</button>
-                        {searchPerformed && (
-                            <button type="button" onClick={handleClear} className="clear-button">
-                                Clear
-                            </button>
+                    <form onSubmit={(e) => { setSearchPage(0); handleSearch(e, 0); }}>
+                        <div className="form-controls">
+                            <input
+                                id="searchQuote"
+                                type="text"
+                                placeholder="Search quote:"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                            <button type="submit">Submit</button>
+                            {searchPerformed && (
+                                <button type="button" onClick={handleClear} className="clear-button">
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+                    </form>
+
+                    <div className="results-count">
+                        {totalResults != 0 ? `Found ${totalResults} results:` : ""}
+                    </div>
+
+                    <div className="sort-options">
+                        <label>Sort by: </label>
+                        <select value={sortOrder} onChange={handleSortChange}>
+                            <option value="mostRecent">Most Recent</option>
+                            <option value="furthestAway">Furthest Away</option>
+                        </select>
+                    </div>
+
+                    <div className="search-results">
+                        {Array.isArray(results) && results.length > 0 ? (
+                            results.map((todoItem, index) => {
+                                const youtubeUrl = `https://www.youtube.com/watch?v=${todoItem.video_id}&t=${todoItem.start}s`;
+                                const embedUrl = `https://www.youtube.com/embed/${todoItem.video_id}?start=${todoItem.start}`;
+                                const thumbnailUrl = `https://img.youtube.com/vi/${todoItem.video_id}/0.jpg`;
+
+                                return (
+                                    <div key={index} className="result-item">
+                                        <div className="thumbnail">
+                                            <img src={thumbnailUrl} alt="video thumbnail" />
+                                        </div>
+                                        <div className="quote-info">
+                                            <p><strong>Quote:</strong> {todoItem.quote}</p>
+                                            <p><strong>Start:</strong> {new Date(todoItem.start * 1000).toISOString().substr(11, 8)}</p>
+                                            <p><strong>Upload Date:</strong> {formatDate(todoItem.upload_date)}</p>
+                                            <p><strong>Video:</strong> <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">{todoItem.video_title}</a></p>
+                                            <button onClick={() => handleToggle(index)}>
+                                                {expanded[index] ? '▼ Hide quote in video' : '▶ View quote in video'}
+                                            </button>
+                                            {expanded[index] && (
+                                                <div className="video-embed">
+                                                    <iframe
+                                                        width="560"
+                                                        height="350" // Updated height
+                                                        src={embedUrl}
+                                                        title="YouTube video player"
+                                                        frameBorder="0"
+                                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                        allowFullScreen
+                                                    ></iframe>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            searchPerformed && <div>No results found</div>
                         )}
                     </div>
-                </form>
 
-                <div className="results-count">
-                    {totalResults != 0 ? `Found ${totalResults} results:` : ""}
-                </div>
-
-                <div className="sort-options">
-                    <label>Sort by: </label>
-                    <select value={sortOrder} onChange={handleSortChange}>
-                        <option value="mostRecent">Most Recent</option>
-                        <option value="furthestAway">Furthest Away</option>
-                    </select>
-                </div>
-
-                <div className="todo-content">
-                    {Array.isArray(results) && results.length > 0 ? (
-                        results.map((todoItem, index) => {
-                            const youtubeUrl = `https://www.youtube.com/watch?v=${todoItem.video_id}&t=${todoItem.start}s`;
-                            const embedUrl = `https://www.youtube.com/embed/${todoItem.video_id}?start=${todoItem.start}`;
-                            const thumbnailUrl = `https://img.youtube.com/vi/${todoItem.video_id}/0.jpg`;
-
-                            return (
-                                <div key={index} className="result-item">
-                                    <div className="thumbnail">
-                                        <img src={thumbnailUrl} alt="video thumbnail" />
-                                    </div>
-                                    <div className="quote-info">
-                                        <p><strong>Quote:</strong> {todoItem.quote}</p>
-                                        <p><strong>Start:</strong> {new Date(todoItem.start * 1000).toISOString().substr(11, 8)}</p>
-                                        <p><strong>Upload Date:</strong> {formatDate(todoItem.upload_date)}</p>
-                                        <p><strong>Video:</strong> <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">{todoItem.video_title}</a></p>
-                                        <button onClick={() => handleToggle(index)}>
-                                            {expanded[index] ? '▼ Hide quote in video' : '▶ View quote in video'}
-                                        </button>
-                                        {expanded[index] && (
-                                            <div className="video-embed">
-                                                <iframe
-                                                    width="560"
-                                                    height="350" // Updated height
-                                                    src={embedUrl}
-                                                    title="YouTube video player"
-                                                    frameBorder="0"
-                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                                    allowFullScreen
-                                                ></iframe>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })
-                    ) : (
-                        searchPerformed && <div>No results found</div>
+                    {Array.isArray(results) && results.length > 0 && totalResults >= 100 && (
+                        <div className="pagination">
+                            <button onClick={handleShowMore}>Load More Results</button>
+                        </div>
                     )}
                 </div>
-
-                {Array.isArray(results) && results.length > 0 && totalResults >= 100 && (
-                    <div className="pagination">
-                        <button onClick={handleShowMore}>Load More Results</button>
-                    </div>
-                )}
-            </div>
+            )}
+            {activeSection === "about" && (
+                <div className="about-content">
+                    <h1>About</h1>
+                    <p>This website allows the user to search through every known livestream from entertainer <a href="https://www.youtube.com/channel/UCL7DDQWP6x7wy0O6L5ZIgxg">Jerma985</a>. 
+                    <br/><br/>
+                    Every livestream from 2012 to present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>. 
+                    <br/><br/>
+                    The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app allowing the user to search through Jerma's iconic streams and find whatver quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>. 
+                    <br/><br/>
+                    Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words such as "Jerma" get autocorrected by the ai to be "Germa" for example. If you find any wrong quotes, please send them to me on the "Feedback" tab at the top of this page. <br/><br/>
+                    Thanks! - Martin</p>
+                </div>
+            )}
+            {activeSection === "feedback" && (
+                <div className="feedback-content">
+                    <h1>Feedback</h1>
+                    <p>If you have any feedback on this website, or would like to report an inaccurately transcribed quote, please <a href="mailto:martinbarker99@gmail.com">send me an email</a> or use the form below : )</p>
+                </div>
+            )}
         </section>
     );
 }
