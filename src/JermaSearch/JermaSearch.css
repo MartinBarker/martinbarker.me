@@ -63,7 +63,7 @@ body {
     padding: 10px 20px;
     background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
     border-radius: 16px;
-    margin: 10px 10px 0 10px; /* Add equal margins to the left and right */
+    /* margin: 10px 10px 0 10px; */ /* Add equal margins to the left and right */
     box-sizing: border-box; /* Ensures padding and border are included in the element's total width and height */
     overflow-x: hidden; /* Prevents horizontal scrolling */
 }
@@ -83,7 +83,7 @@ body {
 }
 
 .todo {
-    max-width: 800px;
+    /* max-width: 800px; */
     margin: 20px auto;
     background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
     border-radius: 16px; /* Glassmorphism border radius */
@@ -91,7 +91,7 @@ body {
     backdrop-filter: blur(5px); /* Glassmorphism blur */
     -webkit-backdrop-filter: blur(5px); /* Glassmorphism blur for Safari */
     border: 1px solid rgba(255, 255, 255, 0.3); /* Glassmorphism border */
-    padding: 20px;
+    padding: 0px 20px;
 }
 
 .header {
