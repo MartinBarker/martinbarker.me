@@ -182,15 +182,16 @@ const JermaSearch = () => {
             )}
             {activeSection === "about" && (
                 <div className="about-content">
-                    <h1>About</h1>
-                    <p>This website allows the user to search through every known livestream from entertainer <a href="https://www.youtube.com/channel/UCL7DDQWP6x7wy0O6L5ZIgxg">Jerma985</a>. 
-                    <br/><br/>
-                    Every livestream from 2012 to present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>. 
-                    <br/><br/>
-                    The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app allowing the user to search through Jerma's iconic streams and find whatver quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>. 
-                    <br/><br/>
-                    Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words such as "Jerma" get autocorrected by the ai to be "Germa" for example. If you find any wrong quotes, please send them to me on the "Feedback" tab at the top of this page. <br/><br/>
-                    Thanks! - Martin</p>
+                <h1>About</h1>
+                <p>This website allows users to search through every known livestream from entertainer <a href="https://www.youtube.com/channel/UCL7DDQWP6x7wy0O6L5ZIgxg">Jerma985</a>.
+                <br/><br/>
+                Every livestream from 2012 to the present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>.
+                <br/><br/>
+                The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app, allowing users to search through thousands of Jerma's iconic streams and find whatever quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>.
+                <br/><br/>
+                Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words, such as "Jerma," get autocorrected by the AI to be "Germa," for example. If you find any incorrect quotes, please send them to me via the "Feedback" tab at the top of this page. 
+                <br/><br/>
+                Thanks! - Martin</p>
                 </div>
             )}
             {activeSection === "feedback" && (
