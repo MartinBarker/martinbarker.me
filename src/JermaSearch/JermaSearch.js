@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './JermaSearch.css';  // Assuming you have a CSS file for styles
 
-const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3030' : 'http://jermasearch.com/internal-api';
+const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3030' : 'https://jermasearch.com/internal-api';
 
 const JermaSearch = () => {
     const [results, setResults] = useState([]);
