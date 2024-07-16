@@ -120,7 +120,7 @@ app.post('/emailContactFormSubmission', async (req, res) => {
 
     const client = new SMTPClient({
       user: 'lknsdmartinsxdcn@gmail.com',
-      password: 'kwgt dpff mvpc thcv', // Replace with your app password
+      password: 'abcd abcd abcd abcd', // Replace with your app password
       host: 'smtp.gmail.com',
       ssl: true,
     });
