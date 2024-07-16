@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import './JermaSearch.css';  // Assuming you have a CSS file for styles
+import AlgoliaLogo from '../svg/Algolia-mark-white.svg'; 
 
 const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3030' : 'https://jermasearch.com/internal-api';
 
@@ -13,6 +14,8 @@ const JermaSearch = () => {
     const [sortOrder, setSortOrder] = useState("mostRecent"); // State to track the sorting order
     const [searchPerformed, setSearchPerformed] = useState(false); // State to track if a search has been performed
     const [activeSection, setActiveSection] = useState("search"); // State to track the active section
+    const [body, setBody] = useState("");  // State to track the body of the feedback
+    const [email, setEmail] = useState("");  // State to track the email of the feedback
 
     const handleToggle = (index) => {
         setExpanded(prevState => ({
@@ -43,8 +46,11 @@ const JermaSearch = () => {
                 throw new Error(`HTTP error! status: ${response.status}`);
             } else {
                 const result = await response.json(); 
+                console.log('backend response: ', response)
+                console.log('raw: ', result.rawResponse)
                 
                 var hits = result.hits;
+                console.log('hits: ', hits)
                 var numberHits = result.numberHits;
                 var currentPage = result.currentPage;
                 var numberPages = result.numberPages;
@@ -81,6 +87,26 @@ const JermaSearch = () => {
         setSearchPerformed(false);
     };
 
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await fetch(`${apiUrl}/emailContactFormSubmission`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ body, email }),
+            });
+            if (response.ok) {
+                console.log("Feedback submitted successfully");
+            } else {
+                console.error("Error submitting feedback");
+            }
+        } catch (error) {
+            console.error("Error submitting feedback: ", error);
+        }
+    };
+
     const formatDate = (dateString) => {
         const date = new Date(dateString.slice(0, 4), dateString.slice(4, 6) - 1, dateString.slice(6, 8));
         return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -98,7 +124,10 @@ const JermaSearch = () => {
                     <h1 className="header">
                         Jerma985 Search
                     </h1>
-
+                    <div className="algolia-powered">
+                        <span>Search powered by Algolia</span>
+                        <img src={AlgoliaLogo} alt="Algolia" className="algolia-logo" />
+                    </div>
                     {error && <h1 className="error">{error}</h1>}
 
                     <form onSubmit={(e) => { setSearchPage(0); handleSearch(e, 0); }}>
@@ -182,22 +211,44 @@ const JermaSearch = () => {
             )}
             {activeSection === "about" && (
                 <div className="about-content">
-                <h1>About</h1>
-                <p>This website allows users to search through every known livestream from entertainer <a href="https://www.youtube.com/channel/UCL7DDQWP6x7wy0O6L5ZIgxg">Jerma985</a>.
-                <br/><br/>
-                Every livestream from 2012 to the present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>.
-                <br/><br/>
-                The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app, allowing users to search through thousands of Jerma's iconic streams and find whatever quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>.
-                <br/><br/>
-                Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words, such as "Jerma," get autocorrected by the AI to be "Germa," for example. If you find any incorrect quotes, please send them to me via the "Feedback" tab at the top of this page. 
-                <br/><br/>
-                Thanks! - Martin</p>
+                    <h1>About</h1>
+                    <p>This website allows users to search through every known livestream from entertainer <a href="https://www.youtube.com/channel/UCL7DDQWP6x7wy0O6L5ZIgxg">Jerma985</a>.
+                    <br/><br/>
+                    Every livestream from 2012 to the present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>.
+                    <br/><br/>
+                    The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app, allowing users to search through thousands of Jerma's iconic streams and find whatever quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>.
+                    <br/><br/>
+                    Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words, such as "Jerma," get autocorrected by the AI to be "Germa," for example. If you find any incorrect quotes, please send them to me via the "Feedback" tab at the top of this page. 
+                    <br/><br/>
+                    Thanks! - Martin</p>
                 </div>
             )}
             {activeSection === "feedback" && (
                 <div className="feedback-content">
                     <h1>Feedback</h1>
                     <p>If you have any feedback on this website, or would like to report an inaccurately transcribed quote, please <a href="mailto:martinbarker99@gmail.com">send me an email</a> or use the form below : )</p>
+                    <form className="contact-form" onSubmit={handleSubmit}>
+                        <label>
+                            Body:
+                            <textarea
+                                value={body}
+                                onChange={(e) => setBody(e.target.value)}
+                                required
+                                className="body-textarea"
+                            />
+                        </label>
+                        <label>
+                            Email:
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                                className="email-input"
+                            />
+                        </label>
+                        <button type="submit">Submit</button>
+                    </form>
                 </div>
             )}
         </section>

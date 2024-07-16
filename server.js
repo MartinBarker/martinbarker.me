@@ -1,15 +1,12 @@
 require('dotenv').config();
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
-const algoliasearch = require("algoliasearch");
 const express = require('express');
 const cors = require('cors');
 const app = express();
 const port = 3030;
 
-console.log("begin server.js run");
-
-// Enable CORS for all routes
 app.use(cors());
+app.use(express.json()); // To parse JSON bodies
 
 var algoliaApplicationId = null;
 var algoliaApiKey = "";
@@ -25,19 +22,16 @@ app.listen(port, async () => {
   }
 });
 
-// Retrieve secrets from AWS or .env file
 async function setSecrets() {
   console.log('setSecrets()')
   try {
     const isLocal = process.env.HOSTNAME === 'localhost';
     console.log('isLocal=', isLocal)
     if (isLocal) {
-      // Set secrets using local .env file
       algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID;
       algoliaApiKey = process.env.ALGOLIA_API_KEY;
       algoliaIndex = process.env.ALGOLIA_INDEX;
     } else {
-      // Set secrets using aws connection (only from inside EC2 instance)
       const secrets = await getAwsSecret("algoliaDbDetails");
       const secretsJson = JSON.parse(secrets);
       algoliaApplicationId = secretsJson.ALGOLIA_APPLICATION_ID;
@@ -47,11 +41,10 @@ async function setSecrets() {
     console.log("Secrets set successfully");
   } catch (error) {
     console.error("Error setting secrets:", error);
-    throw error; // Rethrow to handle it in the caller
+    throw error;
   }
 }
 
-// Fetch secret from AWS secret storage
 async function getAwsSecret(secretName) {
   try {
     const awsClient = new SecretsManagerClient({ region: "us-west-2" });
@@ -63,37 +56,37 @@ async function getAwsSecret(secretName) {
     return response.SecretString;
   } catch (error) {
     console.error(`Error getting aws secret: ${error}`);
-    throw error; // Rethrow to handle it in the caller
+    throw error;
   }
 }
 
-// Fetch data from Algolia database
-async function fetchDataFromAlgolia(searchTerm, pageNum=0) {
+async function fetchDataFromAlgolia(searchTerm, pageNum = 0) {
   return new Promise(async function (resolve, reject) {
     console.log(`fetchDataFromAlgolia(${searchTerm})`)
     try {
-      // Setup Algolia DB connection creds
-      const client = algoliasearch(algoliaApplicationId, algoliaApiKey);
+      const algoliasearch = await import('algoliasearch');
+      const client = algoliasearch.default(algoliaApplicationId, algoliaApiKey);
       const index = client.initIndex(algoliaIndex);
 
-      // Perform the search
       const response = await index.search(`${searchTerm}`, {
         hitsPerPage: 100,
         page: pageNum
       });
 
-      // Fetch results and pagination info
-      var hits = response.hits 
+      var hits = response.hits
       var numberHits = response.nbHits
-      var currentPage = response.page+1
+      var currentPage = response.page + 1
       var numberPages = response.nbPages
 
-      console.log(`Received ${hits.length} hits out of ${numberHits} total from page ${currentPage}/${numberPages}`);
+      console.log(`\nReceived ${hits.length} hits out of ${numberHits} total from page ${currentPage}/${numberPages}`);
+
       resolve({
-        hits:hits,
-        numberHits:numberHits,
-        currentPage:currentPage,
-        numberPages:numberPages
+        hits: hits,
+        numberHits: numberHits,
+        currentPage: currentPage,
+        numberPages: numberPages,
+
+        rawResponse: response
       })
 
     } catch (error) {
@@ -103,7 +96,6 @@ async function fetchDataFromAlgolia(searchTerm, pageNum=0) {
   })
 }
 
-// Handle get request to algolia search route
 app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
   try {
     const { searchPage, searchTerm } = req.params;
@@ -114,5 +106,37 @@ app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
     res.send(searchResults);
   } catch (error) {
     res.status(500).send({ error: error.message });
+  }
+});
+
+app.post('/emailContactFormSubmission', async (req, res) => {
+  const { body, email } = req.body;
+  console.log('Contact form submission received:');
+  console.log('Body:', body);
+  console.log('Email:', email);
+
+  try {
+    const { SMTPClient } = await import("emailjs");
+
+    const client = new SMTPClient({
+      user: 'lknsdmartinsxdcn@gmail.com',
+      password: 'kwgt dpff mvpc thcv', // Replace with your app password
+      host: 'smtp.gmail.com',
+      ssl: true,
+    });
+
+    const message = await client.sendAsync({
+      text: `Body: ${body}\nEmail: ${email}`,
+      from: 'lknsdmartinsxdcn@gmail.com',
+      to: 'lknsdmartinsxdcn@gmail.com',
+      subject: 'Contact Form Submission',
+    });
+
+    //console.log('message = ', message);
+    res.sendStatus(200);
+
+  } catch (err) {
+    //console.error('send email err: ', err);
+    res.sendStatus(400);
   }
 });
