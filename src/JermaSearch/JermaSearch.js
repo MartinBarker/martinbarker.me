@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { Helmet } from "react-helmet";
 import './JermaSearch.css';  // Assuming you have a CSS file for styles
-import AlgoliaLogo from '../svg/Algolia-mark-white.svg'; 
+import AlgoliaLogo from '../svg/Algolia-mark-white.svg';
 
 const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3030' : 'https://jermasearch.com/internal-api';
 
@@ -9,7 +10,7 @@ const JermaSearch = () => {
     const [totalResults, setTotalResults] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
     const [expanded, setExpanded] = useState({});
-    const [error, setError] = useState(""); 
+    const [error, setError] = useState("");
     const [searchPage, setSearchPage] = useState(0); // State to track the current search page
     const [sortOrder, setSortOrder] = useState("mostRecent"); // State to track the sorting order
     const [searchPerformed, setSearchPerformed] = useState(false); // State to track if a search has been performed
@@ -45,10 +46,10 @@ const JermaSearch = () => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             } else {
-                const result = await response.json(); 
+                const result = await response.json();
                 console.log('backend response: ', response)
                 console.log('raw: ', result.rawResponse)
-                
+
                 var hits = result.hits;
                 console.log('hits: ', hits)
                 var numberHits = result.numberHits;
@@ -112,7 +113,18 @@ const JermaSearch = () => {
         return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     };
 
-    return (
+    return (<>
+        <Helmet>
+            <meta charSet="utf-8" />
+            <title>JermaSearch</title>
+            <link rel="canonical" href="http://jermasearch.com/" />    
+            <meta
+                name="description"
+                content="Search quotes from every Jerma985 Twitch stream."
+            />
+            <link rel="icon" href="jermasearch.ico" />
+        </Helmet>
+
         <section className="search-container error-con">
             <nav className="top-links">
                 <button onClick={() => setActiveSection("search")}>Search</button>
@@ -213,14 +225,14 @@ const JermaSearch = () => {
                 <div className="about-content">
                     <h1>About</h1>
                     <p>This website allows users to search through every known livestream from entertainer <a href="https://www.youtube.com/channel/UCL7DDQWP6x7wy0O6L5ZIgxg">Jerma985</a>.
-                    <br/><br/>
-                    Every livestream from 2012 to the present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>.
-                    <br/><br/>
-                    The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app, allowing users to search through thousands of Jerma's iconic streams and find whatever quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>.
-                    <br/><br/>
-                    Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words, such as "Jerma," get autocorrected by the AI to be "Germa," for example. If you find any incorrect quotes, please send them to me via the "Feedback" tab at the top of this page. 
-                    <br/><br/>
-                    Thanks! - Martin</p>
+                        <br /><br />
+                        Every livestream from 2012 to the present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>.
+                        <br /><br />
+                        The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app, allowing users to search through thousands of Jerma's iconic streams and find whatever quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>.
+                        <br /><br />
+                        Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words, such as "Jerma," get autocorrected by the AI to be "Germa," for example. If you find any incorrect quotes, please send them to me via the "Feedback" tab at the top of this page.
+                        <br /><br />
+                        Thanks! - Martin</p>
                 </div>
             )}
             {activeSection === "feedback" && (
@@ -252,7 +264,7 @@ const JermaSearch = () => {
                 </div>
             )}
         </section>
-    );
+    </>);
 }
 
 export default JermaSearch;
