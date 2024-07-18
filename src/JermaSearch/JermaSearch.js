@@ -116,14 +116,34 @@ const JermaSearch = () => {
     return (<>
         <Helmet>
             <meta charSet="utf-8" />
-            <title>JermaSearch</title>
-            <link rel="canonical" href="http://jermasearch.com/" />    
-            <meta
-                name="description"
-                content="Search quotes from every Jerma985 Twitch stream."
-            />
+            <title>Jerma Search</title>
+            <link rel="canonical" href="http://jermasearch.com/" />
+            <meta name="description" content="Search through text of every Jerma985 stream." />
+            <meta name="keywords" content="Jerma, Jerma985, Jerma search, Jerma stream searhc, search, logs, stream logs, transcript, subtitles" />
+            <meta property="og:title" content="Jerma Search" />
+            <meta property="og:description" content="A log of what Jerma has said in chat." />
+            <meta property="og:type" content="website" />
+            <meta property="og:url" content="http://jermasearch.com/" />
             <link rel="icon" href="jermasearch.ico" />
+            <meta property="og:image" content="jermasearch.ico" />
+            <script type="application/ld+json">
+                {`
+            {
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              "url": "http://jermasearch.com/",
+              "name": "Jerma Search",
+              "description": "Search through text of every Jerma985 stream.",
+              "potentialAction": {
+                "@type": "SearchAction",
+                "target": "https://logs.jerma.io/search?query={search_term_string}",
+                "query-input": "required name=search_term_string"
+              }
+            }
+          `}
+            </script>
         </Helmet>
+
 
         <section className="search-container error-con">
             <nav className="top-links">
