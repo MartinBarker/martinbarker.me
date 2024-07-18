@@ -2,8 +2,7 @@ import React from 'react';
 import {
   BrowserRouter as Router,
   Routes,
-  Route,
-  Link
+  Route
 } from "react-router-dom";
 
 import Sidebar from "./Sidebar/Sidebar.js"
@@ -15,6 +14,8 @@ function App() {
     <Router>
       <Routes>
         <Route path="/home" element={ <Sidebar> <Home/> </Sidebar> } /> 
+        <Route path="/search" element={<JermaSearch />} />
+        <Route path="/jermasearch/search" element={<JermaSearch />} />
         <Route path="/" element={<JermaSearch />} />
       </Routes>
     </Router>

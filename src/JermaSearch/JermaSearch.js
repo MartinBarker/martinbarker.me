@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Helmet } from "react-helmet";
+import { useLocation } from 'react-router-dom';
 import './JermaSearch.css';  // Assuming you have a CSS file for styles
 import AlgoliaLogo from '../svg/Algolia-mark-white.svg';
 
@@ -18,6 +19,17 @@ const JermaSearch = () => {
     const [body, setBody] = useState("");  // State to track the body of the feedback
     const [email, setEmail] = useState("");  // State to track the email of the feedback
 
+    const location = useLocation();
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const query = params.get('query');
+        if (query) {
+            setSearchTerm(query);
+            handleSearch(null, 0, query);
+        }
+    }, [location]);
+
     const handleToggle = (index) => {
         setExpanded(prevState => ({
             ...prevState,
@@ -33,16 +45,16 @@ const JermaSearch = () => {
         });
     };
 
-    const handleSearch = async (e, page = 0) => {
+    const handleSearch = async (e, page = 0, term = searchTerm) => {
         if (e) e.preventDefault();
-        if (!searchTerm.trim()) {
+        if (!term.trim()) {
             setError("Search term cannot be empty");
             return;
         }
         setSearchPerformed(true);
         setError(""); // Clear any previous error
         try {
-            const response = await fetch(`${apiUrl}/algolia/search/${page}/${searchTerm}`)
+            const response = await fetch(`${apiUrl}/algolia/search/${page}/${term}`)
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             } else {
@@ -136,14 +148,13 @@ const JermaSearch = () => {
               "description": "Search through text of every Jerma985 stream.",
               "potentialAction": {
                 "@type": "SearchAction",
-                "target": "https://logs.jerma.io/search?query={search_term_string}",
+                "target": "http://jermasearch.com/jermasearch/search?query=mario",
                 "query-input": "required name=search_term_string"
               }
             }
           `}
             </script>
         </Helmet>
-
 
         <section className="search-container error-con">
             <nav className="top-links">
