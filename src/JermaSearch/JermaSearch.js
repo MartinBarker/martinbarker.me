@@ -129,13 +129,13 @@ const JermaSearch = () => {
         <Helmet>
             <meta charSet="utf-8" />
             <title>Jerma Search</title>
-            <link rel="canonical" href="http://jermasearch.com/" />
+            <link rel="canonical" href="https://jermasearch.com/" />
             <meta name="description" content="Search through text of every Jerma985 stream." />
-            <meta name="keywords" content="Jerma, Jerma985, Jerma search, Jerma stream searhc, search, logs, stream logs, transcript, subtitles" />
+            <meta name="keywords" content="Jerma, Jerma985, Jerma search, Jerma stream search, search, logs, stream logs, transcript, subtitles" />
             <meta property="og:title" content="Jerma Search" />
             <meta property="og:description" content="A log of what Jerma has said in chat." />
             <meta property="og:type" content="website" />
-            <meta property="og:url" content="http://jermasearch.com/" />
+            <meta property="og:url" content="https://jermasearch.com/" />
             <link rel="icon" href="jermasearch.ico" />
             <meta property="og:image" content="jermasearch.ico" />
             <script type="application/ld+json">
@@ -143,12 +143,15 @@ const JermaSearch = () => {
             {
               "@context": "https://schema.org",
               "@type": "WebSite",
-              "url": "http://jermasearch.com/",
+              "url": "https://jermasearch.com/",
               "name": "Jerma Search",
               "description": "Search through text of every Jerma985 stream.",
               "potentialAction": {
                 "@type": "SearchAction",
-                "target": "http://jermasearch.com/jermasearch/search?query=mario",
+                "target": {
+                  "@type": "EntryPoint",
+                  "urlTemplate": "https://jermasearch.com/jermasearch/search?query={search_term_string}"
+                },
                 "query-input": "required name=search_term_string"
               }
             }
