@@ -18,6 +18,7 @@ const JermaSearch = () => {
     const [activeSection, setActiveSection] = useState("search"); // State to track the active section
     const [body, setBody] = useState("");  // State to track the body of the feedback
     const [email, setEmail] = useState("");  // State to track the email of the feedback
+    const [feedbackResponse, setFeedbackResponse] = useState(""); // State to track feedback response
 
     const location = useLocation();
 
@@ -40,7 +41,7 @@ const JermaSearch = () => {
     const sortResults = (results, order) => {
         return results.sort((a, b) => {
             const dateA = new Date(a.upload_date.slice(0, 4), a.upload_date.slice(4, 6) - 1, a.upload_date.slice(6, 8));
-            const dateB = new Date(b.upload_date.slice(0, 4), b.upload_date.slice(4, 6) - 1, b.upload_date.slice(6, 8));
+            const dateB = new Date(b.upload_date.slice(0, 4), a.upload_date.slice(4, 6) - 1, a.upload_date.slice(6, 8));
             return order === "mostRecent" ? dateB - dateA : dateA - dateB;
         });
     };
@@ -111,12 +112,14 @@ const JermaSearch = () => {
                 body: JSON.stringify({ body, email }),
             });
             if (response.ok) {
-                console.log("Feedback submitted successfully");
+                setFeedbackResponse("Feedback submitted successfully");
+                setBody("");
+                setEmail("");
             } else {
-                console.error("Error submitting feedback");
+                setFeedbackResponse("Error submitting feedback");
             }
         } catch (error) {
-            console.error("Error submitting feedback: ", error);
+            setFeedbackResponse("Error submitting feedback: " + error.message);
         }
     };
 
@@ -295,6 +298,7 @@ const JermaSearch = () => {
                         </label>
                         <button type="submit">Submit</button>
                     </form>
+                    {feedbackResponse && <p>{feedbackResponse}</p>}
                 </div>
             )}
         </section>
