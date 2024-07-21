@@ -11,6 +11,7 @@ app.use(express.json()); // To parse JSON bodies
 var algoliaApplicationId = null;
 var algoliaApiKey = "";
 var algoliaIndex = "";
+var gmailAppPassword = "";
 
 // Start server and set secrets
 app.listen(port, async () => {
@@ -31,12 +32,14 @@ async function setSecrets() {
       algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID;
       algoliaApiKey = process.env.ALGOLIA_API_KEY;
       algoliaIndex = process.env.ALGOLIA_INDEX;
+      gmailAppPassword = process.env.GMAIl_APP_PASSWORD;
     } else {
       const secrets = await getAwsSecret("algoliaDbDetails");
       const secretsJson = JSON.parse(secrets);
       algoliaApplicationId = secretsJson.ALGOLIA_APPLICATION_ID;
       algoliaApiKey = secretsJson.ALGOLIA_API_KEY;
       algoliaIndex = secretsJson.ALGOLIA_INDEX;
+      gmailAppPassword = secretsJson.GMAIl_APP_PASSWORD;
     }
     console.log("Secrets set successfully");
   } catch (error) {
@@ -120,7 +123,7 @@ app.post('/emailContactFormSubmission', async (req, res) => {
 
     const client = new SMTPClient({
       user: 'lknsdmartinsxdcn@gmail.com',
-      password: 'abcd abcd abcd abcd', // Replace with your app password
+      password: `${gmailAppPassword}`, // Replace with your app password
       host: 'smtp.gmail.com',
       ssl: true,
     });
