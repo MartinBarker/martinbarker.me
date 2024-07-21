@@ -131,6 +131,7 @@ const JermaSearch = () => {
     return (<>
         <Helmet>
             <meta charSet="utf-8" />
+            <meta name="google-site-verification" content="8pFA2UWTUXgl_iMCwStnmG332el6U4vIeyyMEGcmG_g" />
             <title>Jerma Search</title>
             <link rel="canonical" href="https://jermasearch.com/" />
             <meta name="description" content="Search through text of every Jerma985 stream." />
