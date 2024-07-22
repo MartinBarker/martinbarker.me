@@ -130,7 +130,6 @@ const JermaSearch = () => {
 
     return (<>
         <Helmet>
-            <head>
                 <meta name="google-site-verification" content="8pFA2UWTUXgl_iMCwStnmG332el6U4vIeyyMEGcmG_g" />
                 <meta charSet="utf-8" />
                 <title>Jerma Search</title>
@@ -163,7 +162,7 @@ const JermaSearch = () => {
           `}
                 </script>
 
-            </head>
+         
         </Helmet>
 
         <section className="search-container error-con">
