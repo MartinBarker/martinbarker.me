@@ -134,7 +134,7 @@ const JermaSearch = () => {
                 <meta charSet="utf-8" />
                 <title>Jerma Search</title>
                 <link rel="canonical" href="https://jermasearch.com/" />
-                <meta name="description" content="Search through text of every Jerma985 stream." />
+                <meta name="description" content="Search through every Jerma985 stream." />
                 <meta name="keywords" content="Jerma, Jerma985, Jerma search, Jerma stream search, search, logs, stream logs, transcript, subtitles" />
                 <meta property="og:title" content="Jerma Search" />
                 <meta property="og:description" content="A log of what Jerma has said in chat." />
