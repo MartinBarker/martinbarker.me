@@ -130,39 +130,87 @@ const JermaSearch = () => {
 
     return (<>
         <Helmet>
-                <meta name="google-site-verification" content="8pFA2UWTUXgl_iMCwStnmG332el6U4vIeyyMEGcmG_g" />
-                <meta charSet="utf-8" />
-                <title>Jerma Search</title>
-                <link rel="canonical" href="https://jermasearch.com/" />
-                <meta name="description" content="Search through every Jerma985 stream." />
-                <meta name="keywords" content="Jerma, Jerma985, Jerma search, Jerma stream search, search, logs, stream logs, transcript, subtitles" />
-                <meta property="og:title" content="Jerma Search" />
-                <meta property="og:description" content="A log of what Jerma has said in chat." />
-                <meta property="og:type" content="website" />
-                <meta property="og:url" content="https://jermasearch.com/" />
-                <link rel="icon" href="jermasearch.ico" />
-                <meta property="og:image" content="jermasearch.ico" />
-                <script type="application/ld+json">
-                    {`
-            {
-              "@context": "https://schema.org",
-              "@type": "WebSite",
-              "url": "https://jermasearch.com/",
-              "name": "Jerma Search",
-              "description": "Search through text of every Jerma985 stream.",
-              "potentialAction": {
+            <meta name="google-site-verification" content="8pFA2UWTUXgl_iMCwStnmG332el6U4vIeyyMEGcmG_g" />
+            <meta charSet="utf-8" />
+            <title>Jerma Search</title>
+            <link rel="canonical" href="https://jermasearch.com/" />
+            <meta name="description" content="Search through every Jerma985 stream." />
+            <meta name="keywords" content="Jerma, Jerma985, Jerma search, Jerma stream search, search, logs, stream logs, transcript, subtitles" />
+            <meta property="og:title" content="Jerma Search" />
+            <meta property="og:description" content="A log of what Jerma has said in chat." />
+            <meta property="og:type" content="website" />
+            <meta property="og:url" content="https://jermasearch.com/" />
+            <link rel="icon" href="/path/to/jermasearch.ico" />
+            <meta property="og:image" content="/path/to/jermasearch.ico" />
+            <script type="application/ld+json">
+                {`
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "url": "https://jermasearch.com/",
+            "name": "Jerma Search",
+            "description": "Search through text of every Jerma985 stream.",
+            "potentialAction": {
                 "@type": "SearchAction",
                 "target": {
-                  "@type": "EntryPoint",
-                  "urlTemplate": "https://jermasearch.com/jermasearch/search?query={search_term_string}"
+                    "@type": "EntryPoint",
+                    "urlTemplate": "https://jermasearch.com/jermasearch/search?query={search_term_string}"
                 },
                 "query-input": "required name=search_term_string"
-              }
             }
-          `}
-                </script>
-
-         
+        }
+        `}
+            </script>
+            <script type="application/ld+json">
+                {`
+        {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "position": 1,
+                    "name": "Home",
+                    "item": "https://jermasearch.com/"
+                },
+                {
+                    "@type": "ListItem",
+                    "position": 2,
+                    "name": "Search",
+                    "item": "https://jermasearch.com/search"
+                }
+            ]
+        }
+        `}
+            </script>
+            <script type="application/ld+json">
+                {`
+        {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            "url": "https://jermasearch.com/",
+            "name": "Jerma Search",
+            "description": "Search through text of every Jerma985 stream.",
+            "breadcrumb": {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": 1,
+                        "name": "Home",
+                        "item": "https://jermasearch.com/"
+                    },
+                    {
+                        "@type": "ListItem",
+                        "position": 2,
+                        "name": "Search",
+                        "item": "https://jermasearch.com/search"
+                    }
+                ]
+            }
+        }
+        `}
+            </script>
         </Helmet>
 
         <section className="search-container error-con">
