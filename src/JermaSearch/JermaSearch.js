@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from "react-helmet";
 import { useLocation } from 'react-router-dom';
-import './JermaSearch.css';  // Assuming you have a CSS file for styles
-import AlgoliaLogo from '../svg/Algolia-mark-white.svg';
+import './JermaSearch.css';
+
 
 const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3030' : 'https://jermasearch.com/internal-api';
 
@@ -140,76 +140,76 @@ const JermaSearch = () => {
             <meta property="og:description" content="A log of what Jerma has said in chat." />
             <meta property="og:type" content="website" />
             <meta property="og:url" content="https://jermasearch.com/" />
-            <link rel="icon" href="/path/to/jermasearch.ico" />
-            <meta property="og:image" content="/path/to/jermasearch.ico" />
+            <link rel="icon" href="../ico/jermasearch.ico" />
+            <meta property="og:image" content="../ico/jermasearch.ico" />
             <script type="application/ld+json">
                 {`
-        {
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            "url": "https://jermasearch.com/",
-            "name": "Jerma Search",
-            "description": "Search through text of every Jerma985 stream.",
-            "potentialAction": {
-                "@type": "SearchAction",
-                "target": {
-                    "@type": "EntryPoint",
-                    "urlTemplate": "https://jermasearch.com/jermasearch/search?query={search_term_string}"
-                },
-                "query-input": "required name=search_term_string"
-            }
-        }
-        `}
-            </script>
-            <script type="application/ld+json">
-                {`
-        {
-            "@context": "https://schema.org",
-            "@type": "BreadcrumbList",
-            "itemListElement": [
-                {
-                    "@type": "ListItem",
-                    "position": 1,
-                    "name": "Home",
-                    "item": "https://jermasearch.com/"
-                },
-                {
-                    "@type": "ListItem",
-                    "position": 2,
-                    "name": "Search",
-                    "item": "https://jermasearch.com/search"
-                }
-            ]
-        }
-        `}
-            </script>
-            <script type="application/ld+json">
-                {`
-        {
-            "@context": "https://schema.org",
-            "@type": "WebPage",
-            "url": "https://jermasearch.com/",
-            "name": "Jerma Search",
-            "description": "Search through text of every Jerma985 stream.",
-            "breadcrumb": {
-                "@type": "BreadcrumbList",
-                "itemListElement": [
                     {
-                        "@type": "ListItem",
-                        "position": 1,
-                        "name": "Home",
-                        "item": "https://jermasearch.com/"
-                    },
-                    {
-                        "@type": "ListItem",
-                        "position": 2,
-                        "name": "Search",
-                        "item": "https://jermasearch.com/search"
+                        "@context": "https://schema.org",
+                        "@type": "WebSite",
+                        "url": "https://jermasearch.com/",
+                        "name": "Jerma Search",
+                        "description": "Search through text of every Jerma985 stream.",
+                        "potentialAction": {
+                            "@type": "SearchAction",
+                            "target": {
+                                "@type": "EntryPoint",
+                                "urlTemplate": "https://jermasearch.com/jermasearch/search?query={search_term_string}"
+                            },
+                            "query-input": "required name=search_term_string"
+                        }
                     }
-                ]
-            }
-        }
-        `}
+                `}
+            </script>
+            <script type="application/ld+json">
+                {`
+                    {
+                        "@context": "https://schema.org",
+                        "@type": "BreadcrumbList",
+                        "itemListElement": [
+                            {
+                                "@type": "ListItem",
+                                "position": 1,
+                                "name": "Home",
+                                "item": "https://jermasearch.com/"
+                            },
+                            {
+                                "@type": "ListItem",
+                                "position": 2,
+                                "name": "Search",
+                                "item": "https://jermasearch.com/jermasearch/search?query=otto"
+                            }
+                        ]
+                    }
+                `}
+            </script>
+            <script type="application/ld+json">
+                {`
+                    {
+                        "@context": "https://schema.org",
+                        "@type": "WebPage",
+                        "url": "https://jermasearch.com/",
+                        "name": "Jerma Search",
+                        "description": "Search through text of every Jerma985 stream.",
+                        "breadcrumb": {
+                            "@type": "BreadcrumbList",
+                            "itemListElement": [
+                                {
+                                    "@type": "ListItem",
+                                    "position": 1,
+                                    "name": "Home",
+                                    "item": "https://jermasearch.com/"
+                                },
+                                {
+                                    "@type": "ListItem",
+                                    "position": 2,
+                                    "name": "Search",
+                                    "item": "https://jermasearch.com/jermasearch/search?query=jerma"
+                                }
+                            ]
+                        }
+                    }
+                `}
             </script>
         </Helmet>
 
@@ -224,10 +224,6 @@ const JermaSearch = () => {
                     <h1 className="header">
                         Jerma985 Search
                     </h1>
-                    <div className="algolia-powered">
-                        <span>Search powered by Algolia</span>
-                        <img src={AlgoliaLogo} alt="Algolia" className="algolia-logo" />
-                    </div>
                     {error && <h1 className="error">{error}</h1>}
 
                     <form onSubmit={(e) => { setSearchPage(0); handleSearch(e, 0); }}>
@@ -316,7 +312,7 @@ const JermaSearch = () => {
                         <br /><br />
                         Every livestream from 2012 to the present in <a href="https://www.youtube.com/playlist?list=PLd4kmFVnghOiWHL8EStIzMXwySWm-7K1f">this playlist</a> of Jerma's streams was downloaded and converted to an audio file using <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>. That audio file was converted to a timestamped subtitle file (.srt) using <a href="https://github.com/openai/whisper">Whisper transcription with Python by OpenAI</a>.
                         <br /><br />
-                        The subtitle files are then uploaded to an Algolia database for each quote. The Algolia database is connected to this React web app, allowing users to search through thousands of Jerma's iconic streams and find whatever quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>.
+                        The subtitle files are then uploaded to an database for each quote. The database is connected to this React web app, allowing users to search through thousands of Jerma's iconic streams and find whatever quote they're looking for. All code for this project is open-source and available on <a href="https://github.com/MartinBarker/aws-react-docker-ghactions">GitHub</a>.
                         <br /><br />
                         Note: Since the audio from these streams is transcribed using AI, it's possible that some quotes are not 100% accurate. Some words, such as "Jerma," get autocorrected by the AI to be "Germa," for example. If you find any incorrect quotes, please send them to me via the "Feedback" tab at the top of this page.
                         <br /><br />
