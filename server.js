@@ -63,23 +63,40 @@ async function getAwsSecret(secretName) {
   }
 }
 
-async function fetchDataFromAlgolia(searchTerm, pageNum = 0) {
+async function fetchQuoteData(searchTerm, pageNum = 0) {
   return new Promise(async function (resolve, reject) {
-    console.log(`fetchDataFromAlgolia(${searchTerm})`)
+    console.log(`fetchDataFromElasticsearch(${searchTerm})`)
     try {
-      const algoliasearch = await import('algoliasearch');
-      const client = algoliasearch.default(algoliaApplicationId, algoliaApiKey);
-      const index = client.initIndex(algoliaIndex);
+      const ec2Url = 'http://54.176.113.237:9200/quotes/_search?pretty'; // Replace <your-ec2-public-ip> with your actual EC2 instance public IP
 
-      const response = await index.search(`${searchTerm}`, {
-        hitsPerPage: 100,
-        page: pageNum
+      const requestBody = {
+        query: {
+          query_string: {
+            default_field: "quote",
+            query: `"${searchTerm}"`
+          }
+        },
+        from: pageNum * 100, // for pagination
+        size: 100
+      };
+
+      const response = await fetch(ec2Url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
       });
 
-      var hits = response.hits
-      var numberHits = response.nbHits
-      var currentPage = response.page + 1
-      var numberPages = response.nbPages
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const hits = data.hits.hits;
+      const numberHits = data.hits.total.value;
+      const currentPage = pageNum + 1;
+      const numberPages = Math.ceil(numberHits / 100);
 
       console.log(`\nReceived ${hits.length} hits out of ${numberHits} total from page ${currentPage}/${numberPages}`);
 
@@ -88,15 +105,14 @@ async function fetchDataFromAlgolia(searchTerm, pageNum = 0) {
         numberHits: numberHits,
         currentPage: currentPage,
         numberPages: numberPages,
-
-        rawResponse: response
-      })
+        rawResponse: data
+      });
 
     } catch (error) {
-      console.log("fetchDataFromAlgolia() Error: ", error);
-      reject(error)
+      console.log("fetchDataFromElasticsearch() Error: ", error);
+      reject(error);
     }
-  })
+  });
 }
 
 app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
@@ -105,7 +121,7 @@ app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
     const decodedSearchTerm = decodeURIComponent(searchTerm);
     console.log('/algolia/search searchPage = ', searchPage);
     console.log('/algolia/search searchTerm = ', decodedSearchTerm);
-    let searchResults = await fetchDataFromAlgolia(decodedSearchTerm, parseInt(searchPage, 10));
+    let searchResults = await fetchQuoteData(decodedSearchTerm, parseInt(searchPage, 10));
     res.send(searchResults);
   } catch (error) {
     res.status(500).send({ error: error.message });

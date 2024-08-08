@@ -3,7 +3,6 @@ import { Helmet } from "react-helmet";
 import { useLocation } from 'react-router-dom';
 import './JermaSearch.css';
 
-
 const apiUrl = window.location.hostname === 'localhost' ? 'http://localhost:3030' : 'https://jermasearch.com/internal-api';
 
 const JermaSearch = () => {
@@ -40,8 +39,8 @@ const JermaSearch = () => {
 
     const sortResults = (results, order) => {
         return results.sort((a, b) => {
-            const dateA = new Date(a.upload_date.slice(0, 4), a.upload_date.slice(4, 6) - 1, a.upload_date.slice(6, 8));
-            const dateB = new Date(b.upload_date.slice(0, 4), a.upload_date.slice(4, 6) - 1, a.upload_date.slice(6, 8));
+            const dateA = new Date(a._source.upload_date.slice(0, 4), a._source.upload_date.slice(4, 6) - 1, a._source.upload_date.slice(6, 8));
+            const dateB = new Date(b._source.upload_date.slice(0, 4), b._source.upload_date.slice(4, 6) - 1, b._source.upload_date.slice(6, 8));
             return order === "mostRecent" ? dateB - dateA : dateA - dateB;
         });
     };
@@ -55,22 +54,32 @@ const JermaSearch = () => {
         setSearchPerformed(true);
         setError(""); // Clear any previous error
         try {
-            const response = await fetch(`${apiUrl}/algolia/search/${page}/${term}`)
+            const response = await fetch(`${apiUrl}/algolia/search/${page}/${term}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             } else {
                 const result = await response.json();
-                console.log('backend response: ', response)
-                console.log('raw: ', result.rawResponse)
-
+                console.log('backend response: ', response);
+                console.log('raw: ', result.rawResponse);
+    
                 var hits = result.hits;
-                console.log('hits: ', hits)
+                console.log('hits: ', hits);
                 var numberHits = result.numberHits;
                 var currentPage = result.currentPage;
                 var numberPages = result.numberPages;
                 setTotalResults(numberHits);
-
-                const sortedResults = sortResults(page === 0 ? hits : [...results, ...hits], sortOrder);
+    
+                // Ensure the data has upload_date
+                const validatedHits = hits.map(hit => {
+                    console.log("hit = ", hit)
+                    if (!hit._source.upload_date) {
+                        console.error("Missing upload_date:", hit);
+                        hit._source.upload_date = "Invalid Date";
+                    }
+                    return hit;
+                });
+    
+                const sortedResults = sortResults(page === 0 ? validatedHits : [...results, ...validatedHits], sortOrder);
                 setResults(sortedResults);
                 setError('');
             }
@@ -124,8 +133,22 @@ const JermaSearch = () => {
     };
 
     const formatDate = (dateString) => {
+        console.log(`formatDate(${dateString})`)
+        if (!dateString || dateString.length !== 8) {
+            console.error("Invalid dateString:", dateString);
+            return "Invalid Date";
+        }
         const date = new Date(dateString.slice(0, 4), dateString.slice(4, 6) - 1, dateString.slice(6, 8));
         return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    };
+
+    const formatStartTime = (start) => {
+        if (isNaN(start) || start === null || start === undefined) {
+            console.error("Invalid start time:", start);
+            return "Invalid Time";
+        }
+        const date = new Date(start * 1000);
+        return date.toISOString().substr(11, 8);
     };
 
     return (<>
@@ -245,7 +268,7 @@ const JermaSearch = () => {
                     </form>
 
                     <div className="results-count">
-                        {totalResults != 0 ? `Found ${totalResults} results:` : ""}
+                        {totalResults !== 0 ? `Found ${totalResults} results:` : ""}
                     </div>
 
                     <div className="sort-options">
@@ -259,9 +282,9 @@ const JermaSearch = () => {
                     <div className="search-results">
                         {Array.isArray(results) && results.length > 0 ? (
                             results.map((todoItem, index) => {
-                                const youtubeUrl = `https://www.youtube.com/watch?v=${todoItem.video_id}&t=${todoItem.start}s`;
-                                const embedUrl = `https://www.youtube.com/embed/${todoItem.video_id}?start=${todoItem.start}`;
-                                const thumbnailUrl = `https://img.youtube.com/vi/${todoItem.video_id}/0.jpg`;
+                                const youtubeUrl = `https://www.youtube.com/watch?v=${todoItem._source.video_id}&t=${todoItem._source.start}s`;
+                                const embedUrl = `https://www.youtube.com/embed/${todoItem._source.video_id}?start=${todoItem._source.start}`;
+                                const thumbnailUrl = `https://img.youtube.com/vi/${todoItem._source.video_id}/0.jpg`;
 
                                 return (
                                     <div key={index} className="result-item">
@@ -269,10 +292,10 @@ const JermaSearch = () => {
                                             <img src={thumbnailUrl} alt="video thumbnail" />
                                         </div>
                                         <div className="quote-info">
-                                            <p><strong>Quote:</strong> {todoItem.quote}</p>
-                                            <p><strong>Start:</strong> {new Date(todoItem.start * 1000).toISOString().substr(11, 8)}</p>
-                                            <p><strong>Upload Date:</strong> {formatDate(todoItem.upload_date)}</p>
-                                            <p><strong>Video:</strong> <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">{todoItem.video_title}</a></p>
+                                            <p><strong>Quote:</strong> {todoItem._source.quote}</p>
+                                            <p><strong>Start:</strong> {formatStartTime(todoItem._source.start)}</p>
+                                            <p><strong>Upload Date:</strong> {formatDate(todoItem._source.upload_date)}</p>
+                                            <p><strong>Video:</strong> <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">{todoItem._source.video_title}</a></p>
                                             <button onClick={() => handleToggle(index)}>
                                                 {expanded[index] ? '▼ Hide quote in video' : '▶ View quote in video'}
                                             </button>
