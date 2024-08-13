@@ -1,4 +1,5 @@
 require('dotenv').config();
+const isLocal = process.env.HOSTNAME === 'localhost';
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 const OAuth = require('oauth').OAuth;
 const Discogs = require('disconnect').Client;
@@ -31,13 +32,17 @@ app.listen(port, async () => {
 });
 
 function initializeDiscogsOAuth() {
+  const callbackURL = isLocal
+    ? `http://localhost:${port}/discogsCallback`
+    : `http://jermasearch.com/internal-api/discogsCallback`;
+
   oa = new OAuth(
     'https://api.discogs.com/oauth/request_token',
     'https://api.discogs.com/oauth/access_token',
     discogsConsumerKey,
     discogsConsumerSecret,
     '1.0A',
-    `http://localhost:${port}/discogsCallback`,
+    callbackURL,
     'HMAC-SHA1'
   );
 }
@@ -46,7 +51,6 @@ function initializeDiscogsOAuth() {
 async function setSecrets() {
   console.log('setSecrets()')
   try {
-    const isLocal = process.env.HOSTNAME === 'localhost';
     console.log('isLocal=', isLocal)
 
     if (isLocal) {
@@ -161,7 +165,7 @@ app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
     const decodedSearchTerm = decodeURIComponent(searchTerm);
     console.log('/algolia/search searchPage = ', searchPage);
     console.log('/algolia/search searchTerm = ', decodedSearchTerm);
-    
+
     //let searchResults = await fetchQuoteData(decodedSearchTerm, parseInt(searchPage, 10));
     let searchResults = await fetchDataFromAlgolia(decodedSearchTerm, parseInt(searchPage, 10));
 
