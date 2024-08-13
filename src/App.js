@@ -14,7 +14,8 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={ <Sidebar><Home /></Sidebar> } />
+      {/* <Route path="/" element={ <Sidebar><Home /></Sidebar> } /> */}
+        <Route path="/" element={ <JermaSearch/> } />
         <Route path="/tagger" element={ <Sidebar><Tagger /></Sidebar> } />
         <Route path="/jermasearch/search" element={ <Sidebar><JermaSearch /></Sidebar> } />
         <Route path="/jermasearch" element={ <Sidebar><JermaSearch /></Sidebar> } />

@@ -24,13 +24,13 @@ app.listen(port, async () => {
     console.log(`Server is running on port ${port}`);
 
     // Initialize OAuth only after secrets are set
-    initializeOAuth();
+    initializeDiscogsOAuth();
   } catch (error) {
     console.error("Failed to start server:", error);
   }
 });
 
-function initializeOAuth() {
+function initializeDiscogsOAuth() {
   oa = new OAuth(
     'https://api.discogs.com/oauth/request_token',
     'https://api.discogs.com/oauth/access_token',
@@ -66,10 +66,7 @@ async function setSecrets() {
       discogsConsumerKey = algoliaSecretsJson.DISCOGS_CONSUMER_KEY;
       discogsConsumerSecret = algoliaSecretsJson.DISCOGS_CONSUMER_SECRET;
     }
-
     console.log("Secrets set successfully");
-    console.log('discogsConsumerKey = ', discogsConsumerKey);
-    console.log('discogsConsumerSecret = ', discogsConsumerSecret);
   } catch (error) {
     console.error("Error setting secrets:", error);
     throw error;
@@ -164,7 +161,10 @@ app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
     const decodedSearchTerm = decodeURIComponent(searchTerm);
     console.log('/algolia/search searchPage = ', searchPage);
     console.log('/algolia/search searchTerm = ', decodedSearchTerm);
-    let searchResults = await fetchQuoteData(decodedSearchTerm, parseInt(searchPage, 10));
+    
+    //let searchResults = await fetchQuoteData(decodedSearchTerm, parseInt(searchPage, 10));
+    let searchResults = await fetchDataFromAlgolia(decodedSearchTerm, parseInt(searchPage, 10));
+
     res.send(searchResults);
   } catch (error) {
     res.status(500).send({ error: error.message });
@@ -200,6 +200,42 @@ app.post('/emailContactFormSubmission', async (req, res) => {
     res.sendStatus(400);
   }
 });
+
+async function fetchDataFromAlgolia(searchTerm, pageNum = 0) {
+  return new Promise(async function (resolve, reject) {
+    console.log(`fetchDataFromAlgolia(${searchTerm})`)
+    try {
+      const algoliasearch = await import('algoliasearch');
+      const client = algoliasearch.default(algoliaApplicationId, algoliaApiKey);
+      const index = client.initIndex(algoliaIndex);
+
+      const response = await index.search(`${searchTerm}`, {
+        hitsPerPage: 100,
+        page: pageNum
+      });
+
+      var hits = response.hits
+      var numberHits = response.nbHits
+      var currentPage = response.page + 1
+      var numberPages = response.nbPages
+
+      console.log(`\nReceived ${hits.length} hits out of ${numberHits} total from page ${currentPage}/${numberPages}`);
+
+      resolve({
+        hits: hits,
+        numberHits: numberHits,
+        currentPage: currentPage,
+        numberPages: numberPages,
+
+        rawResponse: response
+      })
+
+    } catch (error) {
+      console.log("fetchDataFromAlgolia() Error: ", error);
+      reject(error)
+    }
+  })
+}
 
 // Function to fetch quote data from Elasticsearch (Example Function)
 async function fetchQuoteData(searchTerm, pageNum = 0) {
