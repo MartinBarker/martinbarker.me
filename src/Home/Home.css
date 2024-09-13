@@ -1,7 +1,11 @@
+/* General styling */
 .home-content {
     padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
 }
 
+/* Headings */
 h1 {
     font-size: 2.5rem;
     color: #7D3F98;
@@ -9,35 +13,95 @@ h1 {
 }
 
 h2 {
-    font-size: 1.8rem;
+    font-size: 2rem;
     margin-top: 30px;
-    margin-bottom: 10px;
+    margin-bottom: 15px;
+    color: #333;
 }
 
 h3 {
     font-size: 1.5rem;
     margin-bottom: 5px;
+    color: #555;
 }
 
+/* Paragraphs */
 p {
     font-size: 1rem;
-    margin-bottom: 20px;
-    line-height: 1.5;
+    margin-bottom: 15px;
+    line-height: 1.6;
 }
 
+/* Sections */
 .details, .education, .career {
     margin-top: 30px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.job {
+    margin-bottom: 25px;
+}
+
+/* Strong element */
 strong {
     font-weight: bold;
 }
 
-ul {
-    list-style-type: none;
-    padding-left: 0;
+/* Responsive styles */
+@media (max-width: 768px) {
+    h1 {
+        font-size: 2rem;
+    }
+
+    h2 {
+        font-size: 1.6rem;
+    }
+
+    h3 {
+        font-size: 1.3rem;
+    }
+
+    .home-content {
+        padding: 10px;
+    }
+
+    p {
+        font-size: 0.9rem;
+    }
+
+    .details, .education, .career {
+        padding: 10px;
+        margin-top: 20px;
+    }
+
+    .job {
+        margin-bottom: 20px;
+    }
 }
 
-ul li {
-    margin-bottom: 10px;
+/* Large screen layout */
+@media (min-width: 992px) {
+    .home-content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-gap: 30px;
+    }
+
+    .career {
+        grid-column: span 2;
+    }
+
+    .job {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 20px;
+    }
+
+    .job p {
+        margin-bottom: 10px;
+    }
 }

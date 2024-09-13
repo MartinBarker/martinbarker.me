@@ -1,59 +1,156 @@
+/* General container */
 .app-container {
     display: flex;
+    position: relative;
 }
 
+/* Sidebar */
 .sidebar {
     height: 100vh;
     background-color: #4CAF50;
     transition: width 0.3s ease, margin-left 0.3s ease;
-    overflow: hidden;
     position: fixed;
     top: 0;
     left: 0;
     z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    width: 60px; /* Collapsed state width */
 }
 
 .sidebar.open {
-    width: 250px;
+    width: 250px; /* Expanded state width */
 }
 
 .sidebar.collapsed {
     width: 60px;
 }
 
-.sidebar-toggle {
+/* Sidebar header with toggle button and name */
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    padding: 10px;
     background-color: #4CAF50;
     color: white;
-    border: none;
-    cursor: pointer;
-    padding: 15px;
-    text-align: center;
-    width: 100%;
+    font-weight: bold;
+    font-size: 1.2rem;
+    justify-content: start;
 }
 
+/* Sidebar toggle button */
+.sidebar-toggle {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    margin-right: 10px;
+    position: absolute;
+    top: 10px;
+    left: 10px;
+}
+
+/* Name display */
+.name-box {
+    font-size: 1.2rem;
+    color: white;
+    display: flex;
+    align-items: center;
+    margin-left: 40px;
+}
+
+/* Sidebar items (icons and text) */
 .sidebar-content {
+    flex-grow: 1;
     padding: 10px;
 }
 
 .sidebar-content ul {
     list-style-type: none;
     padding: 0;
+    margin: 0;
 }
 
+/* Aligning icons and text in a row */
 .sidebar-content ul li {
-    padding: 10px 0;
+    display: flex;
+    align-items: center; /* Ensure icons and text are on the same line */
+    color: white;
+    cursor: pointer;
+    padding: 10px 15px;
+    min-height: 50px;
+    transition: background-color 0.3s ease;
 }
 
-.sidebar-content ul li ul {
-    padding-left: 15px;
+/* Icon styling: ensures consistent space for icons */
+.icon {
+    font-size: 24px;
+    color: white;
+    min-width: 24px; /* Ensure a fixed width for the icons */
+    margin-right: 10px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
 }
 
+/* Ensure the text is aligned next to the icon */
+.text-container {
+    flex-grow: 1; /* Make sure the text takes up the remaining space */
+    display: inline-block; /* Ensure text stays horizontally aligned */
+    white-space: nowrap; /* Prevent text from wrapping */
+    overflow: hidden;
+    text-overflow: ellipsis; /* If text overflows, it will truncate */
+}
+
+/* Hover effect */
+.sidebar-content ul li:hover {
+    background-color: #5cb85c;
+}
+
+/* Hide text when sidebar is collapsed */
+.sidebar.collapsed ul li span {
+    display: none;
+}
+
+/* Section label */
+.section-label {
+    font-size: 1.2rem;
+    color: white;
+    padding: 15px 15px 5px;
+    background-color: #4CAF50;
+}
+
+.section-label.hidden {
+    display: none;
+}
+
+/* Main content */
 .content-container {
     flex-grow: 1;
-    margin-left: 250px;
+    margin-left: 60px;
     transition: margin-left 0.3s ease;
 }
 
-.sidebar.collapsed ~ .content-container {
-    margin-left: 60px;
+.sidebar.open ~ .content-container {
+    margin-left: 250px;
+}
+
+/* Responsive changes for mobile */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 60px;
+    }
+
+    .content-container {
+        margin-left: 60px;
+    }
+
+    .sidebar.open ~ .content-container {
+        margin-left: 250px;
+    }
 }
