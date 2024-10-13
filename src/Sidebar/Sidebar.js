@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import './Sidebar.css';
-import { FaMusic, FaPaintBrush, FaRecordVinyl, FaSpotify, FaSearch, FaHome, FaEnvelope, FaLinkedin, FaGithub, FaFilePdf } from 'react-icons/fa';
+import { FaMusic, FaPaintBrush, FaRecordVinyl, FaSpotify, FaSearch, FaHome, FaEnvelope, FaLinkedin, FaGithub, FaFilePdf, FaBars } from 'react-icons/fa';
 
 const Sidebar = ({ children }) => {
     const [isOpen, setIsOpen] = useState(window.innerWidth > 768);
@@ -25,8 +25,8 @@ const Sidebar = ({ children }) => {
         <div className="app-container">
             <div className={`sidebar ${isOpen ? 'open' : ''}`}>
                 <div className="sidebar-header">
-                    <button className="sidebar-toggle" onClick={toggleSidebar}>
-                        &#9776;
+                    <button className={`sidebar-toggle ${isOpen ? 'rotated' : ''}`} onClick={toggleSidebar}>
+                        <FaBars />
                     </button>
                     {isOpen && <div className="name-box">martinbarker.me</div>}
                 </div>

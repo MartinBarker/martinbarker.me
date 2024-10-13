@@ -16,23 +16,23 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    width: 50px; /* Reduced collapsed state width */
+    width: 50px;
 }
 
 .sidebar.open {
-    width: 200px; /* Reduced expanded state width */
+    width: 200px;
 }
 
 /* Sidebar header with toggle button and name */
 .sidebar-header {
     display: flex;
     align-items: center;
-    padding: 5px;
+    padding: 10px 0;
     background-color: #4CAF50;
     color: white;
     font-weight: bold;
     font-size: 1rem;
-    height: 40px; /* Reduced fixed height for header */
+    height: 50px;
 }
 
 /* Sidebar toggle button */
@@ -40,21 +40,25 @@
     background: none;
     border: none;
     color: white;
-    font-size: 20px;
     cursor: pointer;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
+    width: 30px;
+    height: 30px;
+    transition: transform 0.3s ease; /* Add transition for smooth rotation */
+}
+
+.sidebar-toggle.rotated {
+    transform: rotate(90deg); /* Rotate when class is applied */
 }
 
 /* Name display */
 .name-box {
-    font-size: 1rem;
+    font-size: 0.9rem;
     color: white;
-    margin-left: 5px;
+    margin-left: 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -78,73 +82,10 @@
     align-items: center;
     color: white;
     cursor: pointer;
-    height: 40px; /* Reduced height */
+    height: 50px;
     transition: background-color 0.3s ease;
-    padding: 10px 0; /* Added top/bottom padding */
-}
-/* Sidebar items */
-.sidebar-content ul li {
-    display: flex;
-    align-items: center;
-    color: white;
-    cursor: pointer;
-    height: 40px; /* Reduced height */
-    transition: background-color 0.3s ease;
-    padding: 10px; /* Adjusted padding to move content to the right */
-}
-.sidebar-content ul li {
-    display: flex;
-    align-items: center;
-    color: white;
-    cursor: pointer;
-    height: 40px; /* Reduced height */
-    transition: background-color 0.3s ease;
-    padding: 5px 0; /* Decreased top/bottom padding */
-}
-
-/* Adjust icon size and alignment */
-.icon {
-    font-size: 16px; /* Smaller size */
-    width: 1px; 
-    height: 1px; 
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-shrink: 0;
-    padding-left: 5px; /* Align with the same left space */
-}
-
-/* Text next to icon */
-.sidebar-content ul li span {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 0.9rem; /* Slightly smaller font size */
-    padding-left: 10px; /* Added padding to the text */
-}
-/* Adjust icon size and alignment */
-.icon {
-    font-size: 16px; /* Smaller size */
-    width: 28px; 
-    height: 28px; 
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-shrink: 0;
-    margin-left: 5px; /* Align with the same left space */
-}
-
-/* Responsive changes for mobile */
-@media (max-width: 768px) {
-    .sidebar .icon {
-        font-size: 20px; /* Same size as the sidebar expand/collapse button */
-        width: 40px; 
-        height: 40px; 
-        margin-left: 5px; /* Align with the same left space */
-    }
-}
-.sidebar:not(.open) .icon {
-    justify-content: center;
+    padding: 0;
+    margin: 5px 0;
 }
 
 /* Link styling */
@@ -157,12 +98,25 @@
     color: white;
 }
 
+/* Adjust icon size and alignment for all icons including the toggle */
+.icon, .sidebar-toggle {
+    font-size: 23px;
+    margin-left:10px;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+}
+
 /* Text next to icon */
 .sidebar-content ul li span {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 0.9rem; /* Slightly smaller font size */
+    font-size: 0.9rem;
+    padding-left: 10px;
 }
 
 /* Hover effect */
@@ -174,9 +128,9 @@
 .section-label {
     font-size: 1rem;
     color: white;
-    padding: 5px 10px; /* Reduced padding */
+    padding: 10px;
     background-color: #4CAF50;
-    margin: 5px 0; /* Added small margin for separation */
+    margin: 10px 0;
 }
 
 .section-label.hidden {
@@ -203,12 +157,24 @@
     .content-container {
         margin-left: 50px;
     }
-    .sidebar .icon {
-        font-size: 16px; 
-        width: 40px; 
-        height: 30px; 
-    }
+
     .sidebar.open ~ .content-container {
         margin-left: 200px;
+    }
+
+    /* Ensure icons remain centered and sized consistently on mobile */
+    .icon, .sidebar-toggle {
+        font-size: 23px;
+        width: 30px;
+        height: 30px;
+        margin-left:10px;
+    }
+
+    .sidebar-content ul li {
+        justify-content: center;
+    }
+
+    .sidebar.open .sidebar-content ul li {
+        justify-content: flex-start;
     }
 }
