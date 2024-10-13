@@ -8,10 +8,6 @@ const Sidebar = ({ children }) => {
 
     const toggleSidebar = () => setIsOpen(!isOpen);
 
-    const handleIconClick = () => {
-        setIsOpen(true);
-    };
-
     useEffect(() => {
         const handleResize = () => {
             if (window.innerWidth <= 768) {
@@ -27,7 +23,7 @@ const Sidebar = ({ children }) => {
 
     return (
         <div className="app-container">
-            <div className={`sidebar ${isOpen ? 'open' : 'collapsed'}`}>
+            <div className={`sidebar ${isOpen ? 'open' : ''}`}>
                 <div className="sidebar-header">
                     <button className="sidebar-toggle" onClick={toggleSidebar}>
                         &#9776;
@@ -36,66 +32,64 @@ const Sidebar = ({ children }) => {
                 </div>
                 <nav className="sidebar-content">
                     <ul>
-                        <li onClick={handleIconClick}>
+                        <li>
                             <Link to="/">
                                 <FaHome className="icon" />
                                 {isOpen && <span>Home</span>}
                             </Link>
                         </li>
-                        <li onClick={handleIconClick}>
+                        <li>
                             <Link to="/tagger">
                                 <FaMusic className="icon" />
                                 {isOpen && <span>tagger.site</span>}
                             </Link>
                         </li>
-                        <li onClick={handleIconClick}>
+                        <li>
                             <Link to="/rendertune">
                                 <FaPaintBrush className="icon" />
                                 {isOpen && <span>RenderTune</span>}
                             </Link>
                         </li>
-                        <li onClick={handleIconClick}>
+                        <li>
                             <Link to="/vinyl2digital">
                                 <FaRecordVinyl className="icon" />
                                 {isOpen && <span>Vinyl2Digital</span>}
                             </Link>
                         </li>
-                        <li onClick={handleIconClick}>
+                        <li>
                             <Link to="/popularify">
                                 <FaSpotify className="icon" />
                                 {isOpen && <span>Popularify</span>}
                             </Link>
                         </li>
-                        <li onClick={handleIconClick}>
+                        <li>
                             <Link to="/jermasearch">
                                 <FaSearch className="icon" />
                                 {isOpen && <span>Jerma Search</span>}
                             </Link>
                         </li>
                     </ul>
-
-                    <h2 className={`section-label ${isOpen ? '' : 'hidden'}`}>Contact</h2>
                     <ul>
-                        <li onClick={handleIconClick}>
+                        <li>
                             <a href="mailto:your-email@example.com">
                                 <FaEnvelope className="icon" />
                                 {isOpen && <span>Email</span>}
                             </a>
                         </li>
-                        <li onClick={handleIconClick}>
-                            <a href="/resume.pdf" target="_blank">
+                        <li>
+                            <a href="/resume.pdf" target="_blank" rel="noopener noreferrer">
                                 <FaFilePdf className="icon" />
                                 {isOpen && <span>Resume</span>}
                             </a>
                         </li>
-                        <li onClick={handleIconClick}>
-                            <a href="https://linkedin.com/in/yourprofile" target="_blank">
+                        <li>
+                            <a href="https://linkedin.com/in/yourprofile" target="_blank" rel="noopener noreferrer">
                                 <FaLinkedin className="icon" />
                                 {isOpen && <span>LinkedIn</span>}
                             </a>
                         </li>
-                        <li onClick={handleIconClick}>
-                            <a href="https://github.com/yourprofile" target="_blank">
+                        <li>
+                            <a href="https://github.com/yourprofile" target="_blank" rel="noopener noreferrer">
                                 <FaGithub className="icon" />
                                 {isOpen && <span>GitHub</span>}
                             </a>
