@@ -118,7 +118,7 @@ app.get('/', async function (req, res) {
     //body content title 
     pageBodyNavTitle: 'martinbarker.me',
     //body content github link
-    pageBodyNavGithub: 'https://github.com/MartinBarker/martinbarker/pull/10',
+    pageBodyNavGithub: 'https://github.com/MartinBarker/martinbarker.me',
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
@@ -236,7 +236,7 @@ app.get('/popularifyOld', async function (req, res) {
     //body content title 
     pageBodyNavTitle: 'Popularify',
     //body content github link
-    pageBodyNavGithub: 'https://github.com/MartinBarker/martinbarker/pull/10',
+    pageBodyNavGithub: 'https://github.com/MartinBarker/martinbarker.me',
     //list to display for navbar 'Blog' options
     posts: displayPosts,
     //color info
