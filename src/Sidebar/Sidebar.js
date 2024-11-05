@@ -1,107 +1,191 @@
+// MainLayout.js
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import './Sidebar.css';
-import { FaMusic, FaPaintBrush, FaRecordVinyl, FaSpotify, FaSearch, FaHome, FaEnvelope, FaLinkedin, FaGithub, FaFilePdf, FaBars } from 'react-icons/fa';
+import styles from './Sidebar.module.css';
+import colorImage from '../images/aesthetic-images/images/large_4f15609cf6b3e30bd781c1e19d377164.jpg';
 
-const Sidebar = ({ children }) => {
-    const [isOpen, setIsOpen] = useState(window.innerWidth > 768);
+const MainLayout = ({ children, pageTitle }) => {
+  const [sidebarActive, setSidebarActive] = useState(false);
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [colors, setColors] = useState({
+    Vibrant: '#f98c59',
+    LightVibrant: '#e9a493',
+    DarkVibrant: '#7f2b04',
+    Muted: '#5d7eb2',
+    LightMuted: '#c2c99e',
+    DarkMuted: '#453a38'
+  });
 
-    const toggleSidebar = () => setIsOpen(!isOpen);
+  const toggleSidebar = () => {
+    setSidebarActive(!sidebarActive);
+  };
 
-    useEffect(() => {
-        const handleResize = () => {
-            if (window.innerWidth <= 768) {
-                setIsOpen(false);
-            } else {
-                setIsOpen(true);
-            }
-        };
+  const refreshColors = async () => {
+    try {
+      const response = await fetch('/getColors', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'varValue' }),
+      });
+      const data = await response.json();
+      setColors(data.colors);
+    } catch (error) {
+      console.error('Error refreshing colors:', error);
+    }
+  };
 
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
-
-    return (
-        <div className="app-container">
-            <div className={`sidebar ${isOpen ? 'open' : ''}`}>
-                <div className="sidebar-header">
-                    <button className={`sidebar-toggle ${isOpen ? 'rotated' : ''}`} onClick={toggleSidebar}>
-                        <FaBars />
-                    </button>
-                    {isOpen && <div className="name-box">martinbarker.me</div>}
-                </div>
-                <nav className="sidebar-content">
-                    <ul>
-                        <li>
-                            <Link to="/">
-                                <FaHome className="icon" />
-                                {isOpen && <span>Home</span>}
-                            </Link>
-                        </li>
-                        <li>
-                            <Link to="/tagger">
-                                <FaMusic className="icon" />
-                                {isOpen && <span>tagger.site</span>}
-                            </Link>
-                        </li>
-                        <li>
-                            <Link to="/rendertune">
-                                <FaPaintBrush className="icon" />
-                                {isOpen && <span>RenderTune</span>}
-                            </Link>
-                        </li>
-                        <li>
-                            <Link to="/vinyl2digital">
-                                <FaRecordVinyl className="icon" />
-                                {isOpen && <span>Vinyl2Digital</span>}
-                            </Link>
-                        </li>
-                        <li>
-                            <Link to="/popularify">
-                                <FaSpotify className="icon" />
-                                {isOpen && <span>Popularify</span>}
-                            </Link>
-                        </li>
-                        <li>
-                            <Link to="/jermasearch">
-                                <FaSearch className="icon" />
-                                {isOpen && <span>Jerma Search</span>}
-                            </Link>
-                        </li>
-                    </ul>
-                    <ul>
-                        <li>
-                            <a href="mailto:your-email@example.com">
-                                <FaEnvelope className="icon" />
-                                {isOpen && <span>Email</span>}
-                            </a>
-                        </li>
-                        <li>
-                            <a href="/resume.pdf" target="_blank" rel="noopener noreferrer">
-                                <FaFilePdf className="icon" />
-                                {isOpen && <span>Resume</span>}
-                            </a>
-                        </li>
-                        <li>
-                            <a href="https://linkedin.com/in/yourprofile" target="_blank" rel="noopener noreferrer">
-                                <FaLinkedin className="icon" />
-                                {isOpen && <span>LinkedIn</span>}
-                            </a>
-                        </li>
-                        <li>
-                            <a href="https://github.com/yourprofile" target="_blank" rel="noopener noreferrer">
-                                <FaGithub className="icon" />
-                                {isOpen && <span>GitHub</span>}
-                            </a>
-                        </li>
-                    </ul>
-                </nav>
-            </div>
-            <div className="content-container">
-                {children}
-            </div>
+  return (
+    <div className={styles.wrapper}>
+      {/* Sidebar */}
+      <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : ''}`}
+           style={{ background: colors.LightVibrant }}>
+        <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
+          <h3 className={styles.sidebarHeaderText}>
+            <strong>Martin Barker</strong>
+          </h3>
+          <button className={styles.sidebarCollapse} onClick={toggleSidebar}>
+            <img src="https://img.icons8.com/ios-filled/24/000000/menu.png" alt="menu" />
+          </button>
         </div>
-    );
+
+        <ul className={styles.sidebarMenu} style={{ background: colors.DarkVibrant }}>
+          <li>
+            <Link to="/" className={styles.navbarItem}>About</Link>
+          </li>
+          <li>
+            <details className={styles.submenu}>
+              <summary>Projects</summary>
+              <ul>
+                <li><Link to="/tagger">tagger.site</Link></li>
+                <li><Link to="/RenderTune">RenderTune</Link></li>
+                <li>
+                  <a href="https://github.com/MartinBarker/vinyl2digital" 
+                     target="_blank" 
+                     rel="noopener noreferrer">
+                    Vinyl2Digital
+                  </a>
+                </li>
+                <li><Link to="/popularify">Popularify</Link></li>
+              </ul>
+            </details>
+          </li>
+          <li>
+            <details className={styles.submenu}>
+              <summary>Blog</summary>
+              <ul>
+                <li><Link to="/posts/1">Sample Post</Link></li>
+              </ul>
+            </details>
+          </li>
+          <li>
+            <details className={styles.submenu}>
+              <summary>Contact</summary>
+              <ul>
+                <li><a href="mailto:martinbarker99@gmail.com">Email</a></li>
+                <li>
+                  <a href="https://github.com/MartinBarker" 
+                     target="_blank" 
+                     rel="noopener noreferrer">
+                    Github
+                  </a>
+                </li>
+                <li>
+                  <a href="https://www.linkedin.com/in/martinbarker99" 
+                     target="_blank" 
+                     rel="noopener noreferrer">
+                    LinkedIn
+                  </a>
+                </li>
+                <li>
+                  <a href="/static/assets/pdf/Martin Barker Resume.pdf" 
+                     target="_blank" 
+                     rel="noopener noreferrer">
+                    Resume
+                  </a>
+                </li>
+              </ul>
+            </details>
+          </li>
+        </ul>
+
+        <div className={styles.sidebarFooter}>
+          <button onClick={refreshColors} className={styles.refreshButton}>
+            Refresh Colors
+          </button>
+          <img
+            src={colorImage}
+            alt="color palette"
+            className={styles.colorImage}
+            onClick={() => setImageModalOpen(true)}
+          />
+          <div className={styles.colorBoxes}>
+            {Object.entries(colors).map(([name, color]) => (
+              <div
+                key={name}
+                className={styles.colorBox}
+                style={{ background: color }}
+                title={`${name}: ${color}`}
+              />
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className={styles.content} style={{ background: colors.LightMuted }}>
+        <div className={styles.contentWrapper}>
+          <div className={styles.titleCard} style={{ background: colors.Muted }}>
+            <h1 className={styles.pageTitle}><strong>{pageTitle}</strong></h1>
+            <div className={styles.links}>
+              <a
+                href="https://github.com/MartinBarker/example-repo"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.hoverUrl}
+              >
+                Github Code
+              </a>
+              <a
+                href="https://github.com/MartinBarker/page-repo"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.hoverUrl}
+              >
+                View code for this page
+              </a>
+            </div>
+          </div>
+          <div className={styles.contentBody}>
+            {children}
+          </div>
+        </div>
+      </main>
+
+      {/* Image Modal */}
+      {imageModalOpen && (
+        <div className={styles.modal} onClick={() => setImageModalOpen(false)}>
+          <span className={styles.closeModal}>&times;</span>
+          <div className={styles.modalContent}>
+            <a
+              href="/static/assets/aesthetic-images/FZya5H7XEAAJmMx.png"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.modalLink}
+            >
+              Source Image
+            </a>
+            <img
+              src="/static/assets/aesthetic-images/FZya5H7XEAAJmMx.png"
+              alt="modal"
+              className={styles.modalImage}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
-export default Sidebar;
+export default MainLayout;

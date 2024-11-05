@@ -1,0 +1,229 @@
+/* MainLayout.module.css */
+@import url('https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700');
+
+.wrapper {
+  display: flex;
+  width: 100%;
+  align-items: stretch;
+  font-family: 'Poppins', sans-serif;
+}
+
+/* Sidebar Styles */
+.sidebar {
+  min-width: 250px;
+  max-width: 250px;
+  color: #000000;
+  transition: all 0.3s;
+}
+
+.sidebar.active {
+  margin-left: -250px;
+}
+
+.sidebarHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  color: #ffffff;
+}
+
+.sidebarHeaderText {
+  margin: 0;
+  font-weight: bold;
+}
+
+.sidebarCollapse {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: white;
+  cursor: pointer;
+  box-shadow: 0px 1px 4px 1px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebarMenu {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebarMenu li {
+  padding: 0;
+}
+
+.sidebarMenu a {
+  display: block;
+  padding: 10px;
+  color: inherit;
+  text-decoration: none;
+  transition: all 0.3s;
+}
+
+.sidebarMenu a:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.submenu > summary {
+  padding: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.submenu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.submenu > summary::after {
+  content: '▼';
+  float: right;
+  transform: rotate(0);
+  transition: 0.4s;
+}
+
+.submenu[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.submenu ul {
+  list-style: none;
+  padding-left: 20px;
+}
+
+/* Sidebar Footer */
+.sidebarFooter {
+  padding: 20px;
+  text-align: center;
+}
+
+.refreshButton {
+  margin-bottom: 10px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.colorImage {
+  width: 90%;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+
+.colorImage:hover {
+  opacity: 0.7;
+}
+
+.colorBoxes {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.colorBox {
+  width: 20px;
+  height: 20px;
+  margin: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+/* Content Styles */
+.content {
+  width: 100%;
+  padding: 20px;
+  min-height: 100vh;
+  transition: all 0.3s;
+}
+
+.contentWrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.titleCard {
+  padding: 20px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  color: #ffffff;
+}
+
+.pageTitle {
+  margin: 0 0 10px 0;
+}
+
+.links {
+  display: flex;
+  gap: 20px;
+}
+
+.hoverUrl {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+.hoverUrl:hover {
+  color: #ffffff;
+}
+
+.contentBody {
+  color: #000000;
+  padding: 20px 0;
+}
+
+/* Modal Styles */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.closeModal {
+  position: absolute;
+  top: 15px;
+  right: 35px;
+  color: #f1f1f1;
+  font-size: 40px;
+  cursor: pointer;
+}
+
+.modalContent {
+  text-align: center;
+}
+
+.modalLink {
+  color: white;
+  text-decoration: none;
+  margin-bottom: 20px;
+  display: block;
+}
+
+.modalImage {
+  max-width: 80%;
+  max-height: 80vh;
+}
+
+/* Media Queries */
+@media (max-width: 768px) {
+  .sidebar {
+    margin-left: -250px;
+  }
+  
+  .sidebar.active {
+    margin-left: 0;
+  }
+}
