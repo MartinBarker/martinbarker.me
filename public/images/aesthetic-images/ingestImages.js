@@ -39,11 +39,8 @@ const processImage = async (filename) => {
       DarkMuted: palette.DarkMuted.hex,
     };
 
-    // Store colors and thumbnail path in colors.json
-    colorsData[filename] = {
-      colors,
-      thumbnail: thumbnailPath
-    };
+    // Store colors in colors.json without the thumbnail path
+    colorsData[filename] = { colors };
     fs.writeFileSync(colorsFilePath, JSON.stringify(colorsData, null, 2), 'utf-8');
 
     // Create a thumbnail using Sharp, resizing to a 4MB limit while preserving dimensions
@@ -64,7 +61,7 @@ const processImage = async (filename) => {
         }
       });
 
-    console.log(`Processed and saved colors and thumbnail for ${filename}`);
+    console.log(`Processed and saved colors for ${filename}`);
   } catch (error) {
     console.error(`Failed to process ${filename}:`, error);
   }
@@ -80,7 +77,7 @@ const ingestColors = () => {
 
     files.forEach((file) => {
       const fileExt = path.extname(file).toLowerCase();
-      const isImage = ['.jpg', '.jpeg', '.png'].includes(fileExt);
+      const isImage = ['.jpg', '.jpeg', '.png', '.jiff', '.jfif'].includes(fileExt); // Add '.jfif' to the list
 
       if (isImage && !colorsData[file]) {
         processImage(file);
