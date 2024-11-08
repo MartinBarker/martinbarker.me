@@ -1,0 +1,347 @@
+/* Base styles */
+html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    width: 100%;
+    overflow-x: hidden; /* Prevents horizontal scrolling */
+    background: linear-gradient(45deg, #87CEEB, #00BFFF, #20B2AA, #008B8B);
+    background-size: 400% 400%;
+    -webkit-animation: gradientShift 23s ease infinite;
+    -moz-animation: gradientShift 23s ease infinite;
+    animation: gradientShift 23s ease infinite;
+    display: flex;
+    flex-direction: column;
+}
+
+@-webkit-keyframes gradientShift {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+@-moz-keyframes gradientShift {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+@keyframes gradientShift {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+body {
+    color: black; /* Default text color */
+    flex: 1;
+}
+
+.top-links {
+    display: flex;
+    justify-content: center;
+    gap: 10px; /* Adds space between the buttons */
+    padding: 10px;
+}
+
+.top-links button:hover{
+    cursor:pointer;
+    background: rgba(255, 255, 255, 0.555); 
+}
+
+.top-links button {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: black;
+    text-decoration: none;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 20px 20px;
+    border-radius: 40px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    transition: background-color 0.3s ease;
+}
+
+.search-container {
+    width: 100%;
+    padding: 20px;
+    flex: 1;
+    box-sizing: border-box; /* Ensures padding and border are included in the element's total width and height */
+    margin-top: 20px; /* Add space between the top bar and main content */
+}
+
+.search-content, .about-content, .feedback-content {
+    max-width: 800px;
+    margin: 20px auto;
+    background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
+    border-radius: 16px; /* Glassmorphism border radius */
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); /* Glassmorphism shadow */
+    backdrop-filter: blur(5px); /* Glassmorphism blur */
+    -webkit-backdrop-filter: blur(5px); /* Glassmorphism blur for Safari */
+    border: 1px solid rgba(255, 255, 255, 0.3); /* Glassmorphism border */
+    padding: 20px;
+}
+
+.header {
+    margin: 1px;
+    text-align: center;
+    color: black;
+}
+
+.error {
+    color: red;
+    text-align: center;
+}
+
+.form-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap; /* Allows elements to wrap when screen size is small */
+    gap: 10px;
+}
+
+.form-controls button{
+    background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
+    border: none;
+    color: black;
+    text-decoration: none;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 10px 20px;
+    border-radius: 16px; /* Rounded corners */
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); /* Glassmorphism shadow */
+    backdrop-filter: blur(5px); /* Glassmorphism blur */
+    -webkit-backdrop-filter: blur(5px); /* Glassmorphism blur for Safari */
+    transition: background-color 0.3s ease; 
+}
+
+.form-controls button:hover{
+    background: rgba(255, 255, 255, 0.555); 
+}
+
+form input {
+    border-width: 0px;
+    flex: 1;
+    padding: 10px;
+    font-size: 16px;
+    min-width: 0; /* Allows input to shrink */
+    box-sizing: border-box; /* Ensures padding and border are included in the element's total width and height */
+    border-radius: 16px; /* Rounded corners for the input */
+}
+
+form button, .clear-button {
+    border: 1px solid transparent;
+    padding: 10px 20px;
+    font-size: 16px;
+    box-sizing: border-box;
+    border-radius: 16px; /* Rounded corners for the buttons */
+    background: rgba(255, 255, 255, 0.2); /* Glassmorphism background */
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); /* Glassmorphism shadow */
+    backdrop-filter: blur(5px); /* Glassmorphism blur */
+    -webkit-backdrop-filter: blur(5px); /* Glassmorphism blur for Safari */
+    transition: background-color 0.3s ease; 
+}
+
+form button:hover, .clear-button:hover {
+    background: rgba(255, 255, 255, 0.555);
+}
+
+select {
+    border: 0px;
+}
+
+.sort-options select{
+    border-radius: 16px;
+    padding: 5px;
+    text-align: center;
+}
+
+.sort-options select:hover{
+    cursor:pointer
+}
+
+textarea:focus, input:focus{
+    outline: none;
+}
+
+.results-count, .sort-options {
+    text-align: center;
+    margin: 10px 0;
+    color: black;
+}
+
+.search-results {
+    margin-top: 20px;
+    color: black;
+}
+
+.result-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd; /* Re-add the bottom border */
+    padding-bottom: 20px;
+    color: black;
+}
+
+.thumbnail {
+    display: flex;
+    justify-content: flex-start; /* Align left by default */
+}
+
+.thumbnail img {
+    height: 200px;
+}
+
+.quote-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    color: black;
+}
+
+.quote-info p {
+    margin: 5px 0; /* Reduced margin to minimize empty space */
+}
+
+.video-embed iframe {
+    width: 100%;
+    height: 350px; /* Maintained the updated height */
+}
+
+.pagination {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.pagination button {
+    padding: 10px 20px;
+    font-size: 16px;
+}
+
+.square-input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.form-controls textarea {
+    height: 100px; /* Adjust height as needed */
+}
+
+.algolia-powered {
+    display: flex;
+    align-items: center;
+    font-size: 0.9em;
+    margin: 1em;
+}
+
+.algolia-logo {
+    margin-left: 0.5em;
+    width: 25px;
+    height: auto;
+}
+
+.contact-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.contact-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.contact-form button {
+    align-self: flex-start;
+    padding: 10px 20px;
+}
+
+.body-textarea {
+    height: 150px; /* Make the body textarea taller */
+}
+
+.email-input {
+    border-radius: 4px; /* Make the email input square */
+}
+
+.algolia-powered {
+    display: flex;
+    justify-content: center; /* Center align the Algolia powered text and logo */
+    align-items: center;
+    font-size: 0.9em;
+    margin-top: 0.5em;
+}
+
+
+/* Mobile styles */
+@media (max-width: 600px) {
+    .search-container {
+        padding: 10px;
+    }
+
+    .search-content, .about-content, .feedback-content {
+        padding: 10px;
+        margin-top: 20px;
+    }
+
+    .form-controls {
+        flex-direction: column;
+        gap: 10px; /* Add some space between the input and button */
+    }
+
+    form input,
+    form button, .clear-button {
+        width: 100%; /* Full width on small screens */
+    }
+
+    .result-item {
+        flex-direction: column;
+        align-items: center; /* Center items on mobile */
+    }
+
+    .thumbnail {
+        justify-content: center; /* Center thumbnail on mobile */
+    }
+
+    .quote-info {
+        text-align: center;
+    }
+
+    .video-embed iframe {
+        height: 200px;
+    }
+
+    .quote-info button {
+        width: 200px; /* Fixed width for the button in mobile view */
+        align-self: center; /* Center align the button */
+    }
+}

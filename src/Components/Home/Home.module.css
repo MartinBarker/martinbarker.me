@@ -1,0 +1,45 @@
+.homeContent {
+    padding: 20px;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.aboutMe {
+    margin-bottom: 20px;
+}
+
+.aboutContainer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.headshot {
+    width: 100%;
+    max-width: 150px;
+    height: auto;
+    border-radius: 50%;
+    margin-bottom: 15px;
+}
+
+.aboutText {
+    max-width: 600px;
+}
+
+@media (min-width: 768px) {
+    .aboutContainer {
+        flex-direction: row;
+        align-items: flex-start;
+        text-align: left;
+    }
+
+    .headshot {
+        margin-right: 20px;
+        margin-bottom: 0;
+    }
+
+    .aboutText {
+        margin-left: 20px;
+    }
+}

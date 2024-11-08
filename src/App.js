@@ -5,10 +5,10 @@ import {
   Route
 } from "react-router-dom";
 
-import Sidebar from "./Sidebar/Sidebar.js"
-import Home from "./Home/Home.js"
-import JermaSearch from "./JermaSearch/JermaSearch.js";
-import Tagger from "./Tagger/Tagger.js";
+import Sidebar from "./Components/Sidebar/Sidebar.js"
+import Home from "./Components/Home/Home.js"
+import JermaSearch from "./Components/JermaSearch/JermaSearch.js";
+import Tagger from "./Components/Tagger/Tagger.js";
 
 function App() {
   return (
