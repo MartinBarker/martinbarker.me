@@ -1,4 +1,3 @@
-/* MainLayout.module.css */
 @import url('https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700');
 
 .wrapper {
@@ -14,28 +13,45 @@
   max-width: 250px;
   color: #000000;
   transition: all 0.3s;
+  position: relative;
 }
 
-.sidebar.active {
-  margin-left: -250px;
+.sidebar.collapsed {
+  min-width: 70px;
+  max-width: 70px;
 }
 
 .sidebarHeader {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   padding: 20px;
+  padding-left: 70px;
   color: #ffffff;
+  position: relative;
+  height: 80px;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .sidebarHeaderText {
   margin: 0;
   font-weight: bold;
+  transition: opacity 0.3s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebarCollapse {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 40px;
   height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border: none;
   border-radius: 50%;
   background: white;
@@ -44,9 +60,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar.collapsed .sidebarHeader {
+  padding-right: 0;
+}
+
+.sidebarCollapse svg {
+  width: 24px;
+  height: 24px;
+  display: block;
 }
 
 .sidebarMenu {
+  flex-grow: 1; /* Allows the menu to expand and push the footer down */
   list-style: none;
   padding: 0;
   margin: 0;
@@ -56,12 +86,24 @@
   padding: 0;
 }
 
+.iconContainer {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 23px;
+}
+
 .sidebarMenu a {
-  display: block;
-  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 10px 0;
   color: inherit;
   text-decoration: none;
-  transition: all 0.3s;
+  transition: background-color 0.3s;
 }
 
 .sidebarMenu a:hover {
@@ -69,9 +111,17 @@
 }
 
 .submenu > summary {
-  padding: 10px;
+  padding: 10px 0;
   cursor: pointer;
   list-style: none;
+  position: relative;
+}
+
+.summaryContent {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding-right: 20px;
 }
 
 .submenu > summary::-webkit-details-marker {
@@ -80,24 +130,87 @@
 
 .submenu > summary::after {
   content: '▼';
-  float: right;
-  transform: rotate(0);
-  transition: 0.4s;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: transform 0.4s;
 }
 
 .submenu[open] > summary::after {
-  transform: rotate(180deg);
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.sidebar.collapsed .submenu > summary::after {
+  right: 5px;
 }
 
 .submenu ul {
   list-style: none;
-  padding-left: 20px;
+  padding: 0;
 }
 
-/* Sidebar Footer */
+.submenu ul li a {
+  padding-left: 0;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.hidden {
+  display: none;
+}
+
+/* Updated contact section styles */
+.contactSection {
+  padding: 10px 0;
+}
+
+.contactRow {
+  display: flex;
+  justify-content: space-evenly;
+  gap: 15px;
+  padding: 10px 20px;
+  margin-top: 5px;
+}
+
+.contactIcon {
+  color: inherit;
+  text-decoration: none;
+  transition: transform 0.3s, opacity 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.contactIcon:hover {
+  transform: translateY(-2px);
+  opacity: 0.8;
+}
+
+.collapsedContactIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 23px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  color: inherit;
+  transition: transform 0.3s;
+}
+
+.collapsedContactIcon:hover {
+  transform: scale(1.1);
+}
+
+/* Update sidebar footer positioning */
 .sidebarFooter {
-  padding: 20px;
+  padding: 10px 20px;
   text-align: center;
+  transition: margin-top 0.3s ease; /* Smooth transition for moving up/down */
 }
 
 .refreshButton {
@@ -113,6 +226,13 @@
   border-radius: 5px;
   cursor: pointer;
   transition: opacity 0.3s;
+}
+
+.sidebar.collapsed .colorImage {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  padding: 5px; /* Adjusted padding for collapsed state */
 }
 
 .colorImage:hover {
@@ -219,11 +339,92 @@
 
 /* Media Queries */
 @media (max-width: 768px) {
-  .sidebar {
-    margin-left: -250px;
-  }
+
   
   .sidebar.active {
     margin-left: 0;
   }
+}
+/* Contact Section Styles */
+.submenu {
+  list-style: none;
+}
+/* Contact Section Styles */
+.contactToggle {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 10px 0;
+  color: inherit;
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 0.3s ease;
+}
+
+.contactToggle:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.arrowIcon {
+  margin-left: auto;
+  margin-right: 15px;
+  transition: transform 0.3s ease;
+}
+
+.arrowIcon.expanded {
+  transform: rotate(180deg);
+}
+
+.contactList {
+  list-style: none;
+  padding: 0; /* Remove padding to align items fully left */
+  max-height: 0;
+  overflow: hidden;
+  opacity: 1;
+  transition: max-height 0.3s ease, clip-path 0.2s ease;
+  clip-path: inset(0 0 100% 0);
+}
+
+/* Apply left padding only to <a> elements within the submenu */
+.contactList a {
+  padding-left: 40px!important;
+}
+
+.contactList a:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.contactList.expanded {
+  max-height: 300px;
+  clip-path: inset(0 0 0 0);
+}
+
+.contactItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+  padding: 5px 20px; /* Full padding to ensure background extends fully on hover */
+  width: 100%;
+  box-sizing: border-box;
+  transition: background-color 0.3s ease;
+}
+
+.contactItem:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.contactIcon {
+  width: 24px;
+  height: 24px;
+  transition: opacity 0.3s;
+}
+
+.contactIconVisible {
+  display: inline-flex;
 }
