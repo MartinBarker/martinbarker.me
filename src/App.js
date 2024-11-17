@@ -14,7 +14,7 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={ <Sidebar pageTitle="Page Title Here"><Home/></Sidebar> } />
+        <Route path="/" element={ <Sidebar pageTitle="Martin Barker"><Home/></Sidebar> } />
         <Route path="/tagger" element={ <Sidebar><Tagger /></Sidebar> } />
         <Route path="/jermasearch/search" element={ <Sidebar><JermaSearch /></Sidebar> } />
         <Route path="/jermasearch" element={ <Sidebar><JermaSearch /></Sidebar> } />

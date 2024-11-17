@@ -1,5 +1,14 @@
 @import url('https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700');
 
+.sidebar,
+.sidebarHeader,
+.sidebarMenu a,
+.contactToggle,
+.contactItem,
+.colorBox {
+  transition: background-color 2.5s ease, color 2.5s ease;
+}
+
 .wrapper {
   display: flex;
   width: 100%;
@@ -35,6 +44,7 @@
 }
 
 .sidebarHeaderText {
+  font-size: 22px;
   margin: 0;
   font-weight: bold;
   transition: opacity 0.3s;
@@ -209,17 +219,22 @@
 /* Update sidebar footer positioning */
 .sidebarFooter {
   text-align: center;
-  transition: margin-top 0.3s ease; /* Smooth transition for moving up/down */
+  transition: margin-top 0.5s ease, transform 0.5s ease;
   border-radius: 13px;
 }
 
 .refreshButton {
   margin-top: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 5px;
   padding: 5px 10px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  transition: background-color 0.3s ease; /* Smooth transition for hover effect */
+}
+.refreshButton:hover {
+  background-color: #d3d3d3; /* Change to a light grey or any color to indicate it's clickable */
+  color: #333; /* Optional: Change text color on hover */
 }
 
 .colorImage {
@@ -227,15 +242,15 @@
   border-radius: 5px;
   cursor: pointer;
   transition: opacity 0.3s;
+  filter: url(#dissolve-filter); /* Apply dissolve filter */
 }
 
 .sidebar.collapsed .colorImage {
-  border-radius: 13px;
-  width: 55px;
-  height: 55px;
+  width: 50px;
+  height: 50px;
+  margin-top: 10px; /* Space below the image */
   object-fit: cover;
-  padding: 5px; /* Adjusted padding for collapsed state */
-  margin-bottom: -10px;
+  border-radius: 8px;
 }
 
 .colorImage:hover {
@@ -246,7 +261,14 @@
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  margin-top: 10px;
+  margin-bottom: 5px; /* Adjust to control space between button and color boxes */
+  transition: margin-top 0.5s ease, transform 0.5s ease;
+}
+
+.sidebar.collapsed .colorBoxes {
+  margin-top: 10px; /* Adjust spacing to control vertical alignment */
+  transform: none; /* Remove any translation to keep the boxes in place */
+  justify-content: center; /* Center align the color boxes */
 }
 
 .colorBox {
@@ -254,6 +276,7 @@
   height: 20px;
   margin: 5px;
   border: 1px solid rgba(0, 0, 0, 0.2);
+  transition: background-color 0.5s ease, transform 0.5s ease;
 }
 
 /* Content Styles */
@@ -270,14 +293,13 @@
 }
 
 .titleCard {
-  padding: 20px;
+  padding: 15px;
   border-radius: 4px;
-  margin-bottom: 20px;
   color: #ffffff;
 }
 
 .pageTitle {
-  margin: 0 0 10px 0;
+  margin: 0px
 }
 
 .links {
@@ -428,6 +450,27 @@
   transition: opacity 0.3s;
 }
 
+.navbarItem:hover{
+  background-color: rgba(255, 255, 255, 0.1)!important;
+}
+
 .contactIconVisible {
   display: inline-flex;
+}
+
+.creditText {
+  font-size: 10px;
+  color: #888;
+  text-align: center;
+  margin-top: 5px;
+}
+
+.creditText a {
+  color: #888;
+  text-decoration: none;
+}
+
+.creditText a:hover {
+  text-decoration: underline;
+  color: #555; /* Optional: slightly darker color on hover */
 }

@@ -1,45 +1,44 @@
 .homeContent {
-    padding: 20px;
-    max-width: 800px;
+    max-width: 1200px;
     margin: 0 auto;
-}
-
-.aboutMe {
-    margin-bottom: 20px;
-}
-
-.aboutContainer {
+    color: #333;
     display: flex;
     flex-direction: column;
     align-items: center;
-    text-align: center;
+}
+
+/* Image Section */
+.imageSection {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 2rem;
 }
 
 .headshot {
+    width: 250px;
+    height: 250px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+/* About and Details Section */
+.aboutDetailsSection {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
     width: 100%;
-    max-width: 150px;
-    height: auto;
-    border-radius: 50%;
-    margin-bottom: 15px;
 }
 
-.aboutText {
-    max-width: 600px;
+.aboutColumn,
+.detailsColumn {
+    padding: 1rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
 }
 
-@media (min-width: 768px) {
-    .aboutContainer {
-        flex-direction: row;
-        align-items: flex-start;
-        text-align: left;
-    }
-
-    .headshot {
-        margin-right: 20px;
-        margin-bottom: 0;
-    }
-
-    .aboutText {
-        margin-left: 20px;
+/* Responsive Design */
+@media (max-width: 768px) {
+    .aboutDetailsSection {
+        grid-template-columns: 1fr;
     }
 }
