@@ -1,4 +1,3 @@
-
 import React from 'react';
 import styles from './Home.module.css';
 import headshot from '../../images/headshot.jpg';
@@ -6,20 +5,19 @@ import headshot from '../../images/headshot.jpg';
 const Home = () => {
     return (
         <div className={styles.homeContent}>
-            {/* Image Section */}
-            <div className={styles.imageSection}>
-                <img src={headshot} alt="Martin Barker headshot" className={styles.headshot} />
-            </div>
-
-            {/* About and Details Section */}
-            <div className={styles.aboutDetailsSection}>
+            {/* Top Section - 3 Column Layout */}
+            <div className={styles.topSection}>
                 {/* About Column */}
                 <div className={styles.aboutColumn}>
                     <h2>About Me</h2>
                     <p>
-                        I am a Seattle software developer who graduated in 2019 with a BS in Applied Computer Science (Cybersecurity) from Oregon State University.
-                        In my spare time, I create free open-source software to help improve the preservation and digitization of music online.
+                        Seattle software developer creating open-source free music applications.
                     </p>
+                </div>
+
+                {/* Image Column */}
+                <div className={styles.imageColumn}>
+                    <img src={headshot} alt="Martin Barker" className={styles.headshot} />
                 </div>
 
                 {/* Details Column */}
@@ -38,8 +36,15 @@ const Home = () => {
                         <span>Seattle, WA</span>
                     </div>
                 </div>
+            </div>
 
-                            {/* Education Section */}
+            {/* Projects Note */}
+            <div className={styles.projectNote}>
+                👉 Check out all my projects in the sidebar! From music digitization tools to web applications, 
+                there's something for everyone interested in software and music preservation.
+            </div>
+
+            {/* Education Section */}
             <section className={styles.section}>
                 <h2>Education</h2>
                 <div className={styles.educationContent}>
@@ -62,24 +67,90 @@ const Home = () => {
             {/* Career Section */}
             <section className={styles.section}>
                 <h2>Careers</h2>
-                <div className={styles.careerItem}>
-                    <div className={styles.careerHeader}>
-                        <h3>Philips Ultrasound</h3>
-                        <span className={styles.date}>February 2022 - May 2024</span>
-                        <div className={styles.location}>Bothell, WA | Philips</div>
+                {[
+                    {
+                        company: "Philips Ultrasound",
+                        date: "February 2022 - May 2024",
+                        location: "Bothell, WA | Philips",
+                        title: "Senior DevOps Engineer",
+                        responsibilities: [
+                            "Developed .NET applications in C# / C++, integrating GitHub API and SQL databases, enhancing functionality and efficiency of Ultrasound developer applications.",
+                            "Wrote a Python script to lead the migration from IBM RTC to Azure DevOps for over 107,000 work items, attachments, parent/child relations, and comments.",
+                            "Managed the NuGet/Artifactory package and release process, integrated into .NET applications.",
+                            "Implemented GitHub Actions for CI/CD pipelines, enhancing deployment automation and reliability.",
+                        ],
+                    },
+                    {
+                        company: "Alaska Airlines",
+                        date: "September 2021 - November 2021",
+                        location: "Seattle, WA | Alaska Airlines",
+                        title: "Software Developer Contractor",
+                        responsibilities: [
+                            "Developed and maintained the E-Commerce suite of web and mobile products.",
+                            "Increased accessibility score for Alaska Airlines web/mobile web products.",
+                        ],
+                    },
+                    {
+                        company: "Bungee Tech",
+                        date: "January 2020 - August 2021",
+                        location: "Seattle, WA | Bungee Tech",
+                        title: "Software Engineer",
+                        responsibilities: [
+                            "Added front-end features to websites displaying millions of rows of data.",
+                            "Handled week-long on-call rotations resolving infrastructure and DevOps issues.",
+                            "Wrote PostgreSQL queries, set up and managed databases for data health monitoring.",
+                            "Responded to client feedback and bug reports.",
+                        ],
+                    },
+                    {
+                        company: "Zume, Inc",
+                        date: "September 2019 - January 2020",
+                        location: "Seattle, WA | Zume, Inc",
+                        title: "DevOps Engineer (Software Engineer I)",
+                        responsibilities: [
+                            "Created Kubernetes clusters in Google Cloud Platform and installed Helm.",
+                            "Wrote Helm charts, Dockerfiles, and automated deployments using Spinnaker pipelines.",
+                            "Set up alert monitoring and handled cluster authorization with a security mindset.",
+                        ],
+                    },
+                    {
+                        company: "MoxiWorks",
+                        date: "June 2018 - August 2019",
+                        location: "Seattle, WA | moxiworks.com",
+                        title: "Quality Assurance Engineer Intern",
+                        responsibilities: [
+                            "Wrote automated testing software in Java covering web products and APIs.",
+                            "Strengthened programming habits for writing scalable, reusable code.",
+                            "Collaborated with a team using agile development practices.",
+                        ],
+                    },
+                    {
+                        company: "KBVR FM / TV",
+                        date: "September 2016 - April 2018",
+                        location: "Corvallis, OR | orangemedianetwork.com",
+                        title: "Student Engineer",
+                        responsibilities: [
+                            "Learned and taught state-of-the-art media software and hardware.",
+                            "Ran audio for on-location OSU football broadcasts.",
+                            "Represented OSU at the National Association of Broadcasters convention.",
+                        ],
+                    },
+                ].map((job, index) => (
+                    <div key={index} className={styles.careerItem}>
+                        <div className={styles.careerHeader}>
+                            <h3>{job.company}</h3>
+                            <span className={styles.date}>{job.date}</span>
+                            <div className={styles.location}>{job.location}</div>
+                        </div>
+                        <h4>{job.title}</h4>
+                        <ul>
+                            {job.responsibilities.map((task, idx) => (
+                                <li key={idx}>{task}</li>
+                            ))}
+                        </ul>
                     </div>
-                    <h4>Senior DevOps Engineer</h4>
-                    <ul>
-                        <li>Developed .NET applications in C# / C++, integrating GitHub API and SQL databases, enhancing functionality and efficiency of Ultrasound developer applications.</li>
-                        <li>Wrote a Python script to lead the migration from IBM RTC to Azure DevOps for over 107,000 work items, attachments, parent/child relations, and comments.</li>
-                        <li>Managed the NuGet/Artifactory package and release process, integrated into .NET applications.</li>
-                        <li>Implemented GitHub Actions for CI/CD pipelines, enhancing deployment automation and reliability.</li>
-                    </ul>
-                </div>
-                {/* Add other career items similarly */}
+                ))}
             </section>
-
-            </div>
         </div>
     );
 };
