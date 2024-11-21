@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import styles from './Sidebar.module.css';
 import {
+  Home,
   Music,
   FileMusicIcon,
   BarChart,
@@ -179,7 +180,6 @@ const MainLayout = ({ children, pageTitle }) => {
     requestAnimationFrame(animateOut);
   };
 
-
   const handleImageClick = () => {
     if (!sidebarActive) {
       setSidebarActive(true);
@@ -189,6 +189,25 @@ const MainLayout = ({ children, pageTitle }) => {
   };
 
   const sidebarTextColor = getReadableTextColor(colors.DarkVibrant); // Get text color based on DarkVibrant
+
+  // Tooltip helper function
+  const ProjectLink = ({ to, icon: Icon, label, iconColor }) => (
+    <li className={styles.tooltipContainer} data-tooltip={label}>
+      <Link
+        to={to}
+        className={styles.navbarItem}
+        style={{
+          color: sidebarTextColor,
+          background: location.pathname === to ? colors.LightMuted : 'transparent'
+        }}
+      >
+        <div className={styles.iconContainer}>
+          <Icon size={20} color={iconColor || sidebarTextColor} />
+        </div>
+        <span className={!sidebarActive ? styles.hidden : ''}>{label}</span>
+      </Link>
+    </li>
+  );
 
   return (
     <>
@@ -210,7 +229,6 @@ const MainLayout = ({ children, pageTitle }) => {
         </defs>
       </svg>
 
-
       <div className={`${styles.wrapper} ${isMobile ? styles.mobile : ''}`}>
         <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
           onClick={() => isMobile && setSidebarActive(false)} />
@@ -226,70 +244,62 @@ const MainLayout = ({ children, pageTitle }) => {
           </div>
           <ul className={styles.sidebarMenu} style={{ background: colors.DarkVibrant }}>
 
-            {/* About */}
-            <li>
-              <Link
-                to="/"
-                className={styles.navbarItem}
-                style={{
-                  color: sidebarTextColor,
-                  background: location.pathname === '/' ? colors.LightMuted : 'transparent'
-                }}
-              >
-                <div className={styles.iconContainer}>
-                  <FileMusicIcon size={20} color={sidebarTextColor} />
-                </div>
-                <span className={!sidebarActive ? styles.hidden : ''}>About</span>
-              </Link>
-            </li>
+            {/* Home */}
+            <ProjectLink
+              to="/"
+              icon={Home}
+              label="Home"
+            />
 
-            {/* tagger.site */}
-            <li>
-              <Link 
-              to="/tagger" 
-              className={styles.navbarItem} 
-              style={{
-                color: sidebarTextColor,
-                background: location.pathname === '/tagger' ? colors.LightMuted : 'transparent'
-              }}>
-                <div className={styles.iconContainer}>
-                  <Music size={20} color={sidebarTextColor} />
-                </div>
-                <span className={!sidebarActive ? styles.hidden : ''}>tagger.site</span>
-              </Link>
-            </li>
+            <ProjectLink
+              to="/tagger"
+              icon={FileMusicIcon}
+              label="tagger.site"
+            />
 
-            {/* RenderTune */}
-            <li>
-              <Link to="/RenderTune" className={styles.navbarItem} style={{ color: sidebarTextColor }}>
-                <div className={styles.iconContainer}>
-                  <Music size={20} color={sidebarTextColor} />
-                </div>
-                <span className={!sidebarActive ? styles.hidden : ''}>RenderTune</span>
-              </Link>
-            </li>
-            {/* Popularify */}
-            <li>
-              <a href="https://github.com/MartinBarker/vinyl2digital"
-                target="_blank"
-                rel="noopener noreferrer"
-                className={styles.navbarItem}
-                style={{ color: sidebarTextColor }}>
-                <div className={styles.iconContainer}>
-                  <FileMusicIcon size={20} color={sidebarTextColor} />
-                </div>
-                <span className={!sidebarActive ? styles.hidden : ''}>Vinyl2Digital</span>
-              </a>
-            </li>
-            {/* Contact */}
-            <li>
-              <Link to="/popularify" className={styles.navbarItem} style={{ color: sidebarTextColor }}>
-                <div className={styles.iconContainer}>
-                  <BarChart size={20} color={sidebarTextColor} />
-                </div>
-                <span className={!sidebarActive ? styles.hidden : ''}>Popularify</span>
-              </Link>
-            </li>
+            <ProjectLink
+              to="/retro-roulette"
+              icon={FileMusicIcon}
+              label="Retro Roulette"
+            />
+
+            <ProjectLink
+              to="/discogs-video-extension"
+              icon={Music}
+              label="Discogs Extension"
+            />
+
+            <ProjectLink
+              to="/rap-genius-producer-exporter"
+              icon={BarChart}
+              label="Rap Genius Exporter"
+            />
+
+            <ProjectLink
+              to="/bandcamp-api"
+              icon={FileMusicIcon}
+              label="Bandcamp API"
+            />
+
+            <ProjectLink
+              to="/jerma-search"
+              icon={FileMusicIcon}
+              label="Jerma985 Search"
+            />
+
+            <ProjectLink
+              to="/ableton-to-cue"
+              icon={FileMusicIcon}
+              label="Ableton .als to .cue"
+            />
+
+            {/* Existing Contact and other sections remain the same */}
+            <ProjectLink
+              to="/popularify"
+              icon={BarChart}
+              label="Popularify"
+            />
+
             {/* Contact Submenu */}
             <li className={`${styles.navbarItem} ${styles.contactSection}`}>
               <button className={styles.contactToggle} onClick={handleContactClick} style={{ color: sidebarTextColor }}>
@@ -399,3 +409,5 @@ const MainLayout = ({ children, pageTitle }) => {
 };
 
 export default MainLayout;
+
+
