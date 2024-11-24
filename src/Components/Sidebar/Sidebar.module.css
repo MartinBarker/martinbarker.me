@@ -293,7 +293,7 @@
 }
 
 .titleCard {
-  padding: 15px;
+  padding: 8px;  
   border-radius: 4px;
   color: #ffffff;
 }
@@ -498,4 +498,12 @@
 
 .sidebar.collapsed .tooltipContainer[data-tooltip]:hover::after {
   opacity: 1;
+}
+
+.pageSubTitle {
+  font-size: 16px;
+  font-weight: 400;
+  color: white; /* Adjust color for visibility */
+  margin-bottom: 10px;
+  margin-top: 0px;
 }

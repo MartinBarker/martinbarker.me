@@ -15,7 +15,7 @@ import {
   FileText as ResumeIcon
 } from 'lucide-react';
 
-const MainLayout = ({ children, pageTitle }) => {
+const MainLayout = ({ children, pageTitle, pageSubTitle }) => {
   const isInitialMobile = window.innerWidth <= 768;
   const [sidebarActive, setSidebarActive] = useState(!isInitialMobile);
   const [contactExpanded, setContactExpanded] = useState(false);
@@ -228,12 +228,11 @@ const MainLayout = ({ children, pageTitle }) => {
           </filter>
         </defs>
       </svg>
-
       <div className={`${styles.wrapper} ${isMobile ? styles.mobile : ''}`}>
         <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
           onClick={() => isMobile && setSidebarActive(false)} />
         <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : styles.collapsed}`}
-          style={{ background: colors.LightVibrant }}>
+          style={{ background: colors.Vibrant }}>
           <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
             <button id="sidebarToggle" className={styles.sidebarCollapse} onClick={toggleSidebar}>
               {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
@@ -279,6 +278,12 @@ const MainLayout = ({ children, pageTitle }) => {
               to="/bandcamp-api"
               icon={FileMusicIcon}
               label="Bandcamp API"
+            />
+
+            <ProjectLink
+              to="/split-by-silence"
+              icon={FileMusicIcon}
+              label="Split By Silence"
             />
 
             <ProjectLink
@@ -382,15 +387,25 @@ const MainLayout = ({ children, pageTitle }) => {
             </p>
           </div>
         </nav>
-        <main className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''}`}
-          style={{ background: colors.LightMuted }}>
+        <main
+          className={`${styles.content} ${
+            sidebarActive && isMobile ? styles.pushed : ''
+          }`}
+          style={{ background: colors.LightMuted }}
+        >
           <div className={styles.contentWrapper}>
-            <div className={styles.titleCard} style={{ background: colors.Muted }}>
-              <h1 className={styles.pageTitle}><strong>{pageTitle}</strong></h1>
+            <div
+              className={styles.titleCard}
+              style={{ background: colors.Muted }}
+            >
+              <h1 className={styles.pageTitle}>
+                <strong>{pageTitle}</strong>
+              </h1>
+              {pageSubTitle && (
+                <p className={styles.pageSubTitle}>{pageSubTitle}</p>
+              )}
             </div>
-            <div className={styles.contentBody}>
-              {children}
-            </div>
+            <div className={styles.contentBody}>{children}</div>
           </div>
         </main>
         {imageModalOpen && (

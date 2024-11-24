@@ -7,6 +7,7 @@ const Home = () => {
         <div className={styles.homeContent}>
             {/* Top Section - 3 Column Layout */}
             <div className={styles.topSection}>
+
                 {/* About Column */}
                 <div className={styles.aboutColumn}>
                     <h2>About Me</h2>
@@ -36,6 +37,7 @@ const Home = () => {
                         <span>Seattle, WA</span>
                     </div>
                 </div>
+                
             </div>
 
             {/* Projects Note */}
