@@ -713,7 +713,9 @@ app.get('/popularify', async function (req, res) {
   var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
   console.log(`/popularify fullUrl=${fullUrl}`)
 
-  res.render('popularifyLayout');
+  res.render('popularifyBody', {
+    layout: 'popularifyLayout',
+  });
 })
 
 //popularify route
