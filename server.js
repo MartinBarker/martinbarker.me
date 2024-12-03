@@ -8,7 +8,6 @@ const http = require('http').Server(app);
 
 //socket.io
 const io = require('socket.io')(http);
-
 //Whenever someone connects this gets executed
 io.on('connection', function (socket) {
     console.log('A user connected');
@@ -72,12 +71,13 @@ mongodbutil.connectToServer(function (err) {
 
     //Sets our app to use the handlebars engine
     app.set('view engine', 'handlebars');
+
     app.use(bodyParser.json())
     app.use(bodyParser.urlencoded({
         extended: true
     }));
 
-    //Sets handlebars configurations
+    //Sets handlebars configurations (we will go through them later on)
     app.engine('handlebars', handlebars({
         layoutsDir: __dirname + '/views/layouts',
         helpers: {
@@ -103,6 +103,8 @@ mongodbutil.connectToServer(function (err) {
     app.use('/static/', express.static(__dirname + '/static/'));
 
     //render and startup server
+    //app.listen(port, () => console.log(`App listening to port ${port}`));
+
     http.listen(port, function () {
         console.log(`App listening to port ${port}`)
     });

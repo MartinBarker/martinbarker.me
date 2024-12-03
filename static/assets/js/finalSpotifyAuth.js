@@ -35,6 +35,9 @@ async function createSpotifyApplications() {
     //}
     //authenticate session
     await newauthSession(spotifyApp, `Popularify-app1`)
+        
+
+    //await authenticateAllSessions2()
 }
 
 //authenticate session for each app
@@ -159,12 +162,20 @@ async function handle429Err(sessionName, debugFunctionName) {
     return new Promise(async function (resolve, reject) {
         try{
             console.log(`handle429Err() ${debugFunctionName} too many requests, need to set this session as "cooldown" for 30 seconds`)
+            //mark this session as in cooldown mode
+            //console.log(`handle429Err() ${debugFunctionName} setting ${sessionName} session to cooldown`)
             sessionsStatus[`${sessionName}`] = 'cooldown';
             //after 30 seconds, mark session as 'active'
             await delay(7000)
+            //changeSessionStatus(sessionName, 'active', 1500)
+            //setTimeout(function () {
+            //    console.log(`handle429Err() ${debugFunctionName} setting ${sessionName} session to active`)
             sessionsStatus[`${sessionName}`] = 'active'
+            //}, 3000);
+            //console.log(`handle429Err() done`)
             resolve()
         }catch(err){
+            //console.log('handle429Err() err=',err)
             reject()
         }
 
@@ -335,6 +346,11 @@ async function searchArtists(searchStr) {
     });
 }
 
+
+
+
+/////////~~~~~~~~~~~~~~~~~~~~~~~~~ old ~~~~~~~~~~~~~~~~~~~
+
 //create redirect url
 async function createRedirectURL() {
     return new Promise(async function (resolve, reject) {
@@ -392,6 +408,16 @@ async function authCallback(error, code, state) {
                     refresh_token: refresh_token
                 });
 
+                /*
+                setInterval(async () => {
+                    const data = await spotifyApi.refreshAccessToken();
+                    const access_token = data.body['access_token'];
+
+                    console.log('The access token has been refreshed!');
+                    console.log('access_token:', access_token);
+                    spotifyApi.setAccessToken(access_token);
+                }, expires_in / 2 * 1000);
+                */
             })
             .catch(error => {
                 console.error('Error getting Tokens:', error);
