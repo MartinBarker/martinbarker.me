@@ -200,57 +200,61 @@ $(document).ready(function () {
     //convert cue file to tagger data
     async function getCueTaggerData(cueStr) {
         return new Promise(async function (resolve, reject) {
-            let splitTracksCue = cueStr.split('TRACK')
+            let splitTracksCue = cueStr.split('TRACK');
 
             let startTime, endTime;
             var startTimeSeconds = 0;
             var endTimeSeconds = 0;
             let taggerData = [];
+            let performer = "";
 
-            //for each track
+            // Parse track details
             var cueFileTrackCount = 0;
             for (var x = 0; x < splitTracksCue.length; x++) {
                 var cueTrackSplitInfo = splitTracksCue[x].split(/\n/);
-                var trackTitle = ""
+                var trackTitle = "";
                 var tempStartTimeSeconds;
                 var tempEndTimeSeconds;
-                //console.log(`cueTrackSplitInfo=`, cueTrackSplitInfo)
                 if (cueTrackSplitInfo[0].toUpperCase().includes('AUDIO')) {
-                    //look through each option to get title and durationSeconds
                     for (var z = 0; z < cueTrackSplitInfo.length; z++) {
                         let optionStr = cueTrackSplitInfo[z].trim();
-                        //title
-                        if (optionStr.substr(0, 5) == 'TITLE') {
-                            trackTitle = optionStr;
-                            trackTitle = trackTitle.substring(7, trackTitle.length - 1)
+
+                        if (optionStr.startsWith('PERFORMER')) {
+                            try {
+                                performer = optionStr.trim().substring(10).replace(/"/g, '').trim();
+                            } catch (err) {
+                                performer = 'Unknown'
+                            }
                         }
-                        //get endTime
-                        if (optionStr.substr(0, 5) == 'INDEX') {  // && !optionStr.includes('INDEX 01 00:00:00')
-                            //get duration (minutes:seconds:milliseconds)
+
+                        if (optionStr.substr(0, 5) == 'TITLE') {
+                            trackTitle = optionStr.substring(7, optionStr.length - 1).replace(/"/g, '').trim();
+                        }
+                        if (optionStr.substr(0, 5) == 'INDEX') {
                             var m_s_ms = optionStr.split(' ')[2];
                             var m_s_ms_split = m_s_ms.split(':');
-                            //convert duration to seconds
-                            tempStartTimeSeconds = (+m_s_ms_split[0] * 3600) + (+m_s_ms_split[1] * 60) + (+m_s_ms_split[1]);
+                            tempStartTimeSeconds = (+m_s_ms_split[0] * 3600) + (+m_s_ms_split[1] * 60) + (+m_s_ms_split[2]);
                         }
                     }
                     var trackData = {
                         title: trackTitle,
                         startTime: convertSecondsToTimestamp(tempStartTimeSeconds),
-                        endTime: convertSecondsToTimestamp(0)
-                    }
+                        endTime: convertSecondsToTimestamp(0),
+                        performer: `${performer}`
+                    };
                     taggerData.push(trackData);
-                    
-                    //if we have already pushed a track to taggerData:
                     if (cueFileTrackCount > 0) {
-                        taggerData[cueFileTrackCount - 1].endTime = taggerData[cueFileTrackCount].startTime
+                        taggerData[cueFileTrackCount - 1].endTime = taggerData[cueFileTrackCount].startTime;
                     }
                     cueFileTrackCount += 1;
                 }
             }
-            taggerData[taggerData.length - 1].endTime = ""
-            resolve(taggerData)
-       })
+            taggerData[taggerData.length - 1].endTime = convertSecondsToTimestamp(endTimeSeconds); // Ensure the last track has an end time
+            resolve(taggerData);
+        });
     }
+
+
 
     //convert files to tagger data
     async function getFileTaggerData(songs) {
@@ -268,18 +272,18 @@ $(document).ready(function () {
                     let songLength = await getLength(songs[i]);
                     //detect if we want to use titles from url
                     var songTitle = ''
-                    if($('#useUrlTitlesCheck').is(':checked')){
-                        try{
+                    if ($('#useUrlTitlesCheck').is(':checked')) {
+                        try {
                             console.log('use titles from url instead of files')
                             songTitle = currentTaggerTrackData[i]['title']
-                        }catch(err){
+                        } catch (err) {
                             songTitle = '!!!not enough titles!!!'
                         }
-                    }else{
+                    } else {
                         //get title from audio file
                         songTitle = await getSongTitle(songs[i], i);
                     }
-                    console.log(`${i} songTitle=`,songTitle)
+                    console.log(`${i} songTitle=`, songTitle)
                     //calculate times
                     var endTimeSeconds = startTimeSeconds + songLength
                     startTime = convertSecondsToTimestamp(startTimeSeconds);
@@ -291,7 +295,7 @@ $(document).ready(function () {
                     var startTimeSeconds = endTimeSeconds
                 }
             }
-            console.log('file taggerData = ',taggerData)
+            console.log('file taggerData = ', taggerData)
             resolve(taggerData)
         })
     }
@@ -362,7 +366,7 @@ async function displayData(input) {
         let startTime = value.startTime
         let endTime = value.endTime
         let title = value.title
-        let trackArtist = value.trackArtist
+        let trackArtist = value.trackArtist || value.performer
 
         let textLine = ``
         //determine option1
@@ -431,58 +435,58 @@ async function getDiscogsTaggerData(tracklistData) {
                     break
                 } else {
                     */
-                    var startTime = 0 
-                    var endTime = 0
-                    var trackTimeSeconds = 0
-                    if (tracklistData[i].duration == "") {
-                        trackTimeSeconds = null;
-                        endTimeSeconds = null;
-                        startTime = null 
-                        endTime = null
+                var startTime = 0
+                var endTime = 0
+                var trackTimeSeconds = 0
+                if (tracklistData[i].duration == "") {
+                    trackTimeSeconds = null;
+                    endTimeSeconds = null;
+                    startTime = null
+                    endTime = null
+                } else {
+                    if ((tracklistData[i].duration.toString(2)).includes(":")) {
+                        trackTimeSeconds = moment.duration(tracklistData[i].duration).asMinutes()
                     } else {
-                        if ((tracklistData[i].duration.toString(2)).includes(":")) {
-                            trackTimeSeconds = moment.duration(tracklistData[i].duration).asMinutes()
-                        } else {
-                            trackTimeSeconds = tracklistData[i].duration
-                        }
-                        endTimeSeconds = parseFloat(endTimeSeconds) + parseFloat(trackTimeSeconds)
-                        startTime = convertSecondsToTimestamp(startTimeSeconds),
+                        trackTimeSeconds = tracklistData[i].duration
+                    }
+                    endTimeSeconds = parseFloat(endTimeSeconds) + parseFloat(trackTimeSeconds)
+                    startTime = convertSecondsToTimestamp(startTimeSeconds),
                         endTime = convertSecondsToTimestamp(endTimeSeconds)
-                    }
-
-
-                    //get track artist(s)
-                    let trackArtistsString = ''
-                    let trackArtistArr = []
-                    if (tracklistData[i].artists) {
-                        for (var z = 0; z < tracklistData[i].artists.length; z++) {
-                            let trackArtist = removeNumberParenthesesAndComma(tracklistData[i].artists[z].name)
-                            trackArtistArr.push(trackArtist) //trackArtistArr
-                        }
-                        trackArtistsString = `${trackArtistsString} - ${trackArtistArr.join(',')}`
-                    } else {
-                        trackArtistsString = ` NA`
-                    }
-
-                    //add data to object
-                    var trackData = {
-                        title: tracklistData[i].title,
-                        trackArtist: trackArtistsString,
-                        startTime: startTime, 
-                        endTime: endTime,
-                    }
-                    taggerData.push(trackData)
-
-                    //end of for loop cleanup
-                    startTimeSeconds = startTimeSeconds + trackTimeSeconds
-
                 }
 
-           // }
+
+                //get track artist(s)
+                let trackArtistsString = ''
+                let trackArtistArr = []
+                if (tracklistData[i].artists) {
+                    for (var z = 0; z < tracklistData[i].artists.length; z++) {
+                        let trackArtist = removeNumberParenthesesAndComma(tracklistData[i].artists[z].name)
+                        trackArtistArr.push(trackArtist) //trackArtistArr
+                    }
+                    trackArtistsString = `${trackArtistsString} - ${trackArtistArr.join(',')}`
+                } else {
+                    trackArtistsString = ` NA`
+                }
+
+                //add data to object
+                var trackData = {
+                    title: tracklistData[i].title,
+                    trackArtist: trackArtistsString,
+                    startTime: startTime,
+                    endTime: endTime,
+                }
+                taggerData.push(trackData)
+
+                //end of for loop cleanup
+                startTimeSeconds = startTimeSeconds + trackTimeSeconds
+
+            }
+
+            // }
 
         }
         //check if taggerData incldues times
-        console.log('taggerData=',taggerData)
+        console.log('taggerData=', taggerData)
         currentTaggerTrackData = taggerData
         resolve(taggerData)
 
@@ -534,7 +538,7 @@ async function submitDiscogsURL(input) {
     document.querySelector('#loading').style.display = "none";
 
     //reveal checkbox to use url song titles with file timestamps 
-    document.querySelector("#checkboxURLTitlesFileTimes").style.display="flex"
+    document.querySelector("#checkboxURLTitlesFileTimes").style.display = "flex"
 
 
 }
@@ -1351,12 +1355,12 @@ function secondsToTimestamp(input) {
 
 function convertSecondsToTimestamp(seconds) {
     var duration = moment.duration(seconds, "seconds");
-    
+
     var totalHours = Math.floor(duration.asHours());
     var minutes = duration.minutes();
     var secs = duration.seconds();
-    
-    if (totalHours > 0) { 
+
+    if (totalHours > 0) {
         return `${totalHours}:${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
     } else {
         return `${minutes < 10 ? '0' : ''}${minutes}:${secs < 10 ? '0' : ''}${secs}`;
