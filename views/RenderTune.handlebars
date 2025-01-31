@@ -9,11 +9,17 @@
     <div style="margin-top:-30px;">
 
         <!-- Header Text -->
-        <h6 class="widgettitle">
-        RenderTune is a free open-source electron app that uses ffmpeg to render videos by combining audio and image files.
-        <br>You can render videos from just a single audio file, or combine multiple audio files into a specific order and concatenate them into a single video. 
-        <br>RenderTune also offers options such as setting the output video resolution, output location, and you can add black/white padding to the image frame if you wish.
-        <br>To see examples of videos rendered with RenderTune, check out my YouTube channel martinradio; where I use RenderTune for all my videos:
+        <h6 class="pageContentBodyText">
+            RenderTune is a free open-source electron app that uses ffmpeg to render videos by combining audio and image files.
+            <br><br>
+            <ul>
+                <li>You can render videos from just a single audio file, or combine multiple audio files into a specific order and concatenate them into a single video.</li>
+                <br>
+                <li>RenderTune offers options such as setting the output video resolution, output location, and you can add black/white padding to the image frame if you wish.</li>
+                <br>
+                <li>To see examples of videos rendered with RenderTune, check out my YouTube channel martinradio; where I use RenderTune for all my videos:</li>
+            </ul>
+        </h6>
         <br>
         <iframe width="560" height="315" src="https://www.youtube.com/embed/g9rPNsw2cL0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
         <br>
@@ -23,19 +29,19 @@
         <hr>
 
         <h3>Stores:</h3>
-        <a target="_blank"  href="https://apps.apple.com/us/app/rendertune/id1552674375"><img src="../static/assets/img/mac-app-store-badge.svg" alt="Mac App Store" height="50"/></a> 
-        <a target="_blank"  href="https://www.microsoft.com/store/apps/9n5710msppf1"><img src="../static/assets/img/ms-store-badge.svg" alt="MS badge" height="50"/></a> 
-        <a target="_blank"  href="https://snapcraft.io/rendertune"><img src="../static/assets/img/snap-store-black.svg" alt="Snapcraft" height="50"/></a>
+        <a target="_blank"  href="https://apps.apple.com/us/app/rendertune/id1552674375"><img class="store-img" src="../static/assets/img/mac-app-store-badge.svg" alt="Mac App Store" height="50"/></a> 
+        <a target="_blank"  href="https://www.microsoft.com/store/apps/9n5710msppf1"><img class="store-img" src="../static/assets/img/ms-store-badge.svg" alt="MS badge" height="50"/></a> 
+        <a target="_blank"  href="https://snapcraft.io/rendertune"><img class="store-img" src="../static/assets/img/snap-store-black.svg" alt="Snapcraft" height="50"/></a>
         <br>
         <hr>
         <h3>Non-Store Downloads:</h3>
-If you want to download RenderTune without using the above stores, you can download RenderTune from the <a id='hoverUrl' target="_blank"  href="https://github.com/martinbarker/rendertune/releases/latest/" >most recent Github Release: <br>https://github.com/martinbarker/rendertune/releases/latest/</a>
-<br>
-<a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Mac OS X Installer (auto-updates): RenderTune-mac.dmg</a> <br>
-<a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Windows Installer (auto-updates): RenderTune-Web-Setup-#.#.#.exe</a> <br>
-<a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Windows Portable: RenderTune-#.#.#.exe</a> <br>
-<a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Linux AppImage: RenderTune-#.#.#.AppImage</a> <br>
-<a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest">More Releases</a> <br>
+        If you want to download RenderTune without using the above stores, you can download RenderTune from the <a id='hoverUrl' target="_blank"  href="https://github.com/martinbarker/rendertune/releases/latest/" >most recent Github Release: <br>https://github.com/martinbarker/rendertune/releases/latest/</a>
+        <br>
+        <a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Mac OS X Installer (auto-updates): RenderTune-mac.dmg</a> <br>
+        <a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Windows Installer (auto-updates): RenderTune-Web-Setup-#.#.#.exe</a> <br>
+        <a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Windows Portable: RenderTune-#.#.#.exe</a> <br>
+        <a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest/">Linux AppImage: RenderTune-#.#.#.AppImage</a> <br>
+        <a id='hoverUrl' target="_blank" href="https://github.com/martinbarker/rendertune/releases/latest">More Releases</a> <br>
         <hr>
 
 
@@ -82,5 +88,40 @@ If you want to download RenderTune without using the above stores, you can downl
         
 
     </div>
+    <style>
+        @media (max-width: 768px) {
+            .widgettitle {
+                font-size: 1.7rem;
+                text-align: center;
+            }
+            h3 {
+                font-size: 0.7rem;
+                text-align: center;
+            }
+            h6 {
+                font-size: 0.9rem;
+                text-align: center;
+            }
+            .subtext {
+                font-size: 0.8rem;
+            }
+            .pageContentBodyText {
+                font-size: 1rem;
+            }
+            .container, .row, .col {
+                padding: 0;
+                margin: 0;
+                text-align: center;
+            }
+            iframe, img {
+                width: 100%;
+                height: auto;
+            }
+            .store-img {
+                width: 190px;
+                height: auto;
+            }
+        }
+    </style>
 </div>
 
