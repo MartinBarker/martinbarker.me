@@ -88,6 +88,18 @@ p {
     #content {
         width: 100%;
     }
+    
+    .widgettitle {
+        font-size: 1.7rem;
+    }
+    
+    .subtext {
+        font-size: 0.8rem;
+    }
+    
+    #sidebar ul li a {
+        font-size: 1rem;
+    }
 }
 
 /* Cards */
