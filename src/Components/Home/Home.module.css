@@ -1,0 +1,144 @@
+.homeContent {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.5rem;
+    color: #333;
+}
+
+/* Top Section - 3 Column Layout */
+.topSection {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+    align-items: start;
+    align-items: stretch; /* Ensures equal height for About Me and Details */
+}
+
+.aboutColumn,
+.detailsColumn {
+    background: rgba(255, 255, 255, 0.8);
+    padding: 1.25rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Enhanced shadow for all boxes */
+}
+
+.imageColumn {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 0 1rem;
+}
+
+.headshot {
+    width: 250px;
+    height: 250px;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Project Note Styling */
+.projectNote {
+    margin: 0 auto 1.5rem auto;
+    padding: 0.75rem 1.25rem;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 6px;
+    border: none; /* Removed the blue line */
+    max-width: 800px;
+    text-align: center;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Drop shadow added */
+}
+
+/* Details Styling */
+.detailItem {
+    margin-bottom: 0.6rem;
+}
+
+.detailLabel {
+    font-weight: 600;
+    margin-right: 0.5rem;
+}
+
+/* Section Styling */
+.section {
+    background: rgba(255, 255, 255, 0.8);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Enhanced shadow for sections */
+}
+
+.section h2 {
+    margin-bottom: 1rem;
+    color: #2c3e50;
+    border-bottom: 2px solid black; /* Changed to black */
+    padding-bottom: 0.4rem;
+}
+
+/* Education Styling */
+.educationHeader,
+.careerHeader {
+    margin-bottom: 0.75rem;
+}
+
+.date {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.location {
+    color: #666;
+    font-size: 0.9rem;
+    margin-top: 0.2rem;
+}
+
+/* Career Styling */
+.careerItem {
+    margin-bottom: 1.5rem;
+}
+
+.careerItem ul {
+    margin-top: 0.75rem;
+}
+
+.careerItem li {
+    margin-bottom: 0.4rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+    .topSection {
+        grid-template-columns: 1fr; /* Single column layout */
+        gap: 1rem; /* Reduce gap for smaller screens */
+    }
+    
+    .imageColumn {
+        grid-column: 1 / -1;
+        grid-row: 1;
+        margin-bottom: 1rem; /* Adjust spacing */
+    }
+    
+    .aboutColumn,
+    .detailsColumn {
+        grid-column: 1 / -1; /* Force full width */
+        grid-row: auto;
+    }
+}
+
+@media (max-width: 768px) {
+    .topSection {
+        grid-template-columns: 1fr;
+    }
+    
+    .imageColumn,
+    .aboutColumn,
+    .detailsColumn {
+        grid-column: 1;
+    }
+    
+    .headshot {
+        width: 200px;
+        height: 200px;
+    }
+}

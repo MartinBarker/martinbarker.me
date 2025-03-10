@@ -1,8 +1,5 @@
 require('dotenv').config();
-const isLocal = process.env.HOSTNAME === 'localhost';
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
-const OAuth = require('oauth').OAuth;
-const Discogs = require('disconnect').Client;
 const express = require('express');
 const cors = require('cors');
 const app = express();
@@ -15,60 +12,34 @@ var algoliaApplicationId = null;
 var algoliaApiKey = "";
 var algoliaIndex = "";
 var gmailAppPassword = "";
-var discogsConsumerKey = "";
-var discogsConsumerSecret = "";
 
 // Start server and set secrets
 app.listen(port, async () => {
   try {
     await setSecrets();
     console.log(`Server is running on port ${port}`);
-
-    // Initialize OAuth only after secrets are set
-    initializeDiscogsOAuth();
   } catch (error) {
     console.error("Failed to start server:", error);
   }
 });
 
-function initializeDiscogsOAuth() {
-  const callbackURL = isLocal
-    ? `http://localhost:${port}/discogsCallback`
-    : `http://jermasearch.com/internal-api/discogsCallback`;
-
-  oa = new OAuth(
-    'https://api.discogs.com/oauth/request_token',
-    'https://api.discogs.com/oauth/access_token',
-    discogsConsumerKey,
-    discogsConsumerSecret,
-    '1.0A',
-    callbackURL,
-    'HMAC-SHA1'
-  );
-}
-
-// Function to set secrets either from .env file or AWS Secret Manager
 async function setSecrets() {
   console.log('setSecrets()')
   try {
+    const isLocal = process.env.HOSTNAME === 'localhost';
     console.log('isLocal=', isLocal)
-
     if (isLocal) {
       algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID;
       algoliaApiKey = process.env.ALGOLIA_API_KEY;
       algoliaIndex = process.env.ALGOLIA_INDEX;
       gmailAppPassword = process.env.GMAIl_APP_PASSWORD;
-      discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY;
-      discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET;
     } else {
-      const algoliaSecrets = await getAwsSecret("algoliaDbDetails");
-      const algoliaSecretsJson = JSON.parse(algoliaSecrets);
-      algoliaApplicationId = algoliaSecretsJson.ALGOLIA_APPLICATION_ID;
-      algoliaApiKey = algoliaSecretsJson.ALGOLIA_API_KEY;
-      algoliaIndex = algoliaSecretsJson.ALGOLIA_INDEX;
-      gmailAppPassword = algoliaSecretsJson.GMAIl_APP_PASSWORD;
-      discogsConsumerKey = algoliaSecretsJson.DISCOGS_CONSUMER_KEY;
-      discogsConsumerSecret = algoliaSecretsJson.DISCOGS_CONSUMER_SECRET;
+      const secrets = await getAwsSecret("algoliaDbDetails");
+      const secretsJson = JSON.parse(secrets);
+      algoliaApplicationId = secretsJson.ALGOLIA_APPLICATION_ID;
+      algoliaApiKey = secretsJson.ALGOLIA_API_KEY;
+      algoliaIndex = secretsJson.ALGOLIA_INDEX;
+      gmailAppPassword = secretsJson.GMAIl_APP_PASSWORD;
     }
     console.log("Secrets set successfully");
   } catch (error) {
@@ -77,7 +48,6 @@ async function setSecrets() {
   }
 }
 
-// Function to get secrets from AWS Secret Manager
 async function getAwsSecret(secretName) {
   try {
     const awsClient = new SecretsManagerClient({ region: "us-west-2" });
@@ -88,160 +58,11 @@ async function getAwsSecret(secretName) {
     );
     return response.SecretString;
   } catch (error) {
-    console.error(`Error getting AWS secret: ${error}`);
+    console.error(`Error getting aws secret: ${error}`);
     throw error;
   }
 }
 
-// Handle Discogs login URL request
-app.get('/discogsLogin', (req, res) => {
-  oa.getOAuthRequestToken((error, oauthToken, oauthTokenSecret, results) => {
-    if (error) {
-      console.error('Error getting OAuth request token:', error);
-      res.send('Error getting OAuth request token.');
-    } else {
-      discogsRequestData = { oauthToken, oauthTokenSecret };
-      const authUrl = `https://discogs.com/oauth/authorize?oauth_token=${oauthToken}`;
-      res.redirect(authUrl);
-    }
-  });
-});
-
-// Handle Discogs OAuth callback
-app.get('/discogsCallback', (req, res) => {
-  const { oauth_token, oauth_verifier } = req.query;
-  const { oauthTokenSecret } = discogsRequestData;
-
-  oa.getOAuthAccessToken(
-    oauth_token,
-    oauthTokenSecret,
-    oauth_verifier,
-    (error, oauthAccessToken, oauthAccessTokenSecret, results) => {
-      if (error) {
-        console.error('Error getting OAuth access token:', error);
-        res.send('Error getting OAuth access token');
-      } else {
-        res.send({
-          'oauthAccessToken': oauthAccessToken,
-          'oauthAccessTokenSecret': oauthAccessTokenSecret
-        });
-        /*
-        // Store the access tokens securely
-        const discogsClient = new Discogs({
-          discogsConsumerKey,
-          discogsConsumerSecret,
-          accessToken: oauthAccessToken,
-          accessSecret: oauthAccessTokenSecret,
-        });
-        
-        // Example API request to get images from a release
-        const releaseId = 176126;  // Replace with the desired release ID
-        const db = discogsClient.database();
-
-        db.getRelease(releaseId, (err, data) => {
-          if (err) {
-            console.error('Error fetching release:', err);
-            res.send('Error fetching release');
-          } else {
-            if (data.images && data.images.length > 0) {
-              const imageUrl = data.images[0].resource_url;
-              res.send(`<h1>Image URL: ${imageUrl}</h1><img src="${imageUrl}" alt="Release Image">`);
-            } else {
-              res.send('<h1>No images found for this release.</h1>');
-            }
-          }
-        });
-        */
-      }
-    }
-  );
-});
-
-// Additional routes and functions below...
-
-app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
-  try {
-    const { searchPage, searchTerm } = req.params;
-    const decodedSearchTerm = decodeURIComponent(searchTerm);
-    console.log('/algolia/search searchPage = ', searchPage);
-    console.log('/algolia/search searchTerm = ', decodedSearchTerm);
-
-    //let searchResults = await fetchQuoteData(decodedSearchTerm, parseInt(searchPage, 10));
-    let searchResults = await fetchDataFromAlgolia(decodedSearchTerm, parseInt(searchPage, 10));
-
-    res.send(searchResults);
-  } catch (error) {
-    res.status(500).send({ error: error.message });
-  }
-});
-
-app.post('/emailContactFormSubmission', async (req, res) => {
-  const { body, email } = req.body;
-  console.log('Contact form submission received:');
-  console.log('Body:', body);
-  console.log('Email:', email);
-
-  try {
-    const { SMTPClient } = await import("emailjs");
-
-    const client = new SMTPClient({
-      user: 'lknsdmartinsxdcn@gmail.com',
-      password: `${gmailAppPassword}`, // Replace with your app password
-      host: 'smtp.gmail.com',
-      ssl: true,
-    });
-
-    const message = await client.sendAsync({
-      text: `Body: ${body}\nEmail: ${email}`,
-      from: 'lknsdmartinsxdcn@gmail.com',
-      to: 'lknsdmartinsxdcn@gmail.com',
-      subject: 'Contact Form Submission',
-    });
-
-    res.sendStatus(200);
-
-  } catch (err) {
-    res.sendStatus(400);
-  }
-});
-
-async function fetchDataFromAlgolia(searchTerm, pageNum = 0) {
-  return new Promise(async function (resolve, reject) {
-    console.log(`fetchDataFromAlgolia(${searchTerm})`)
-    try {
-      const algoliasearch = await import('algoliasearch');
-      const client = algoliasearch.default(algoliaApplicationId, algoliaApiKey);
-      const index = client.initIndex(algoliaIndex);
-
-      const response = await index.search(`${searchTerm}`, {
-        hitsPerPage: 100,
-        page: pageNum
-      });
-
-      var hits = response.hits
-      var numberHits = response.nbHits
-      var currentPage = response.page + 1
-      var numberPages = response.nbPages
-
-      console.log(`\nReceived ${hits.length} hits out of ${numberHits} total from page ${currentPage}/${numberPages}`);
-
-      resolve({
-        hits: hits,
-        numberHits: numberHits,
-        currentPage: currentPage,
-        numberPages: numberPages,
-
-        rawResponse: response
-      })
-
-    } catch (error) {
-      console.log("fetchDataFromAlgolia() Error: ", error);
-      reject(error)
-    }
-  })
-}
-
-// Function to fetch quote data from Elasticsearch (Example Function)
 async function fetchQuoteData(searchTerm, pageNum = 0) {
   return new Promise(async function (resolve, reject) {
     console.log(`fetchDataFromElasticsearch(${searchTerm})`)
@@ -294,3 +115,47 @@ async function fetchQuoteData(searchTerm, pageNum = 0) {
   });
 }
 
+app.get('/algolia/search/:searchPage/:searchTerm', async (req, res) => {
+  try {
+    const { searchPage, searchTerm } = req.params;
+    const decodedSearchTerm = decodeURIComponent(searchTerm);
+    console.log('/algolia/search searchPage = ', searchPage);
+    console.log('/algolia/search searchTerm = ', decodedSearchTerm);
+    let searchResults = await fetchQuoteData(decodedSearchTerm, parseInt(searchPage, 10));
+    res.send(searchResults);
+  } catch (error) {
+    res.status(500).send({ error: error.message });
+  }
+});
+
+app.post('/emailContactFormSubmission', async (req, res) => {
+  const { body, email } = req.body;
+  console.log('Contact form submission received:');
+  console.log('Body:', body);
+  console.log('Email:', email);
+
+  try {
+    const { SMTPClient } = await import("emailjs");
+
+    const client = new SMTPClient({
+      user: 'lknsdmartinsxdcn@gmail.com',
+      password: `${gmailAppPassword}`, // Replace with your app password
+      host: 'smtp.gmail.com',
+      ssl: true,
+    });
+
+    const message = await client.sendAsync({
+      text: `Body: ${body}\nEmail: ${email}`,
+      from: 'lknsdmartinsxdcn@gmail.com',
+      to: 'lknsdmartinsxdcn@gmail.com',
+      subject: 'Contact Form Submission',
+    });
+
+    //console.log('message = ', message);
+    res.sendStatus(200);
+
+  } catch (err) {
+    //console.error('send email err: ', err);
+    res.sendStatus(400);
+  }
+});

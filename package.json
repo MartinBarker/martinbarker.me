@@ -10,13 +10,14 @@
     "@testing-library/user-event": "^13.5.0",
     "algoliasearch": "^4.24.0",
     "cors": "^2.8.5",
-    "disconnect": "^1.2.2",
     "emailjs": "^4.0.3",
     "express": "^4.19.2",
-    "oauth": "^0.10.0",
+    "lucide-react": "^0.454.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-dropzone": "^14.3.5",
     "react-helmet": "^6.1.0",
+    "react-icons": "^5.3.0",
     "react-router-dom": "^6.24.1",
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
@@ -26,7 +27,8 @@
     "dev": "concurrently \"react-scripts start\" \"node src/server/server.js\"",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "ingestImages": "cross-env node public/images/aesthetic-images/ingestImages.js"
   },
   "eslintConfig": {
     "extends": [
@@ -47,6 +49,9 @@
     ]
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "cross-env": "^7.0.3",
+    "node-vibrant": "^3.2.1-alpha.1",
+    "nodemon": "^3.1.4",
+    "sharp": "^0.33.5"
   }
 }

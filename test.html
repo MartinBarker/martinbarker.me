@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link rel="icon" href="https://cdn4.iconfinder.com/data/icons/48-bubbles/48/06.Tags-512.png" type="image/x-icon" />
+    <title>tagger.site</title>
+    <meta property="og:title" content="Timestamped Tracklist Generator" />
+    <meta property="og:url" content="http://www.tagger.site" />
+    <meta property="og:type" content="website" />
+    <meta property="og:description" content="Generate tags using files or a Discogs URL" />
+    <meta property="og:image" content="https://i.imgur.com/f0xepPT.jpg" />
+
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.0/umd/popper.min.js"
+        integrity="sha384-cs/chFZiN24E4KMATLdqdvsezGxaGsi4hLGOzlXwp5UZB1LY//20VyM2taTB4QvJ"
+        crossorigin="anonymous"></script>
+
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/js/bootstrap.min.js"
+        integrity="sha384-uefMccjFJAIv6A+rW+L4AHf99KvxDjWSu1z9VI8SKNVmz4sk7buKt/6v9KI65qnm"
+        crossorigin="anonymous"></script>
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+        integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <meta name="google-site-verification" content="gDJG6R2M9ZdQ8t8SHYpzGW8Pq433BC0D-JlwXkvurxE" />
+</head>
+
+<style>
+    @import "https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700";
+
+
+    body {
+        font-family: 'Poppins', sans-serif;
+    }
+
+    /*
+#sidebar ul li a:hover { background: rgb(6, 255, 193); color: rgb(247, 1, 255); } `;
+*/
+
+    p {
+        font-family: 'Poppins', sans-serif;
+        font-size: 1.1em;
+        font-weight: 300;
+        line-height: 1.7em;
+        color: #999;
+    }
+
+    .btn-info {
+        color: #fff;
+        background-color: #b81717;
+        border-color: #52b817;
+    }
+
+    a,
+    a:hover,
+    a:focus {
+        color: inherit;
+        text-decoration: none;
+        transition: all 0.3s;
+    }
+
+    .navbar {
+        /*
+    padding: 15px 10px;
+    margin-right: 77px;
+    */
+        /* background: rgb(11, 223, 212); */
+        border: none;
+        border-radius: 0;
+        margin-bottom: 40px;
+        box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.1);
+        margin-left: 11px
+    }
+
+    .navbar-btn {
+        box-shadow: none;
+        outline: none !important;
+        border: none;
+    }
+
+    .line {
+        width: 100%;
+        height: 1px;
+        border-bottom: 1px dashed #ddd;
+        margin: 40px 0;
+    }
+
+    /* ---------------------------------------------------
+    SIDEBAR STYLE
+----------------------------------------------------- */
+
+    .wrapper {
+        display: flex;
+        width: 100%;
+        align-items: stretch;
+    }
+
+    #sidebar {
+        min-width: 250px;
+        max-width: 250px;
+        /*  background: #63c23e; NAVBAR BACKGROUND */
+        color: rgb(0, 0, 0);
+        transition: all 0.3s;
+    }
+
+    #sidebar.active {
+        margin-left: -250px;
+    }
+
+    #sidebar .sidebar-header {
+        display: inline-flex;
+        padding: 20px;
+        /* background: #6d7fcc; */
+        position: relative;
+        width: 100%;
+    }
+
+    #sidebar ul.components {
+        /* padding: 20px 0; */
+        /* border-bottom: 1px solid #47748b; */
+    }
+
+    #sidebar ul p {
+        color: #fff;
+        padding: 10px;
+    }
+
+    #sidebar ul li a {
+        padding: 10px;
+        font-size: 1.1em;
+        display: block;
+    }
+
+    a[data-toggle="collapse"] {
+        position: relative;
+    }
+
+    .dropdown-toggle::after {
+        display: block;
+        position: absolute;
+        top: 50%;
+        right: 20px;
+        transform: translateY(-50%);
+    }
+
+    ul ul a {
+        font-size: 0.9em !important;
+        padding-left: 30px !important;
+    }
+
+    ul.CTAs {
+        padding: 20px;
+    }
+
+    ul.CTAs a {
+        text-align: center;
+        font-size: 0.9em !important;
+        display: block;
+        border-radius: 5px;
+        margin-bottom: 5px;
+    }
+
+    /* ---------------------------------------------------
+    CONTENT STYLE
+----------------------------------------------------- */
+
+    #content {
+        width: 100%;
+        padding: 20px;
+        min-height: 100vh;
+        transition: all 0.3s;
+    }
+
+    /* ---------------------------------------------------
+    MEDIAQUERIES
+----------------------------------------------------- */
+
+    @media (max-width: 768px) {
+        #sidebar {
+            margin-left: -250px;
+        }
+
+        #sidebar.active {
+            margin-left: 0;
+        }
+
+        #sidebarCollapse span {
+            color: pink; 
+            display: inline;
+        }
+    }
+
+    #imageModal {
+        z-index: 3;
+    }
+
+    /* Sidebar expand/collapse button */
+    #sidebarCollapse {
+        position: fixed;
+        z-index: 2;
+
+        margin-left: 84%;
+        box-shadow: 0px 1px 4px 1px rgba(0, 0, 0, .3);
+        border: none;
+        height: 40px;
+        width: 40px;
+        border-radius: 50%;
+        cursor: pointer;
+        position: absolute;
+    }
+
+    /* Bottom of sidebar image stuff */
+    .responsive {
+        width: 90%;
+        bottom: 20px;
+        margin-left: 5%;
+        margin-right: 5%;
+    }
+
+    /* image footer color text center */
+    .sidebar-footer {
+        text-align: center;
+        font-size: 1.1rem;
+        /*font-family:'Consolas' */
+    }
+
+    /* image footer color boxes */
+    .colorBox {
+        /*float: left;*/
+        width: 20px;
+        height: 20px;
+        margin: 5px;
+        border: 1px solid rgba(0, 0, 0, .2);
+        vertical-align: middle;
+        display: inline-block;
+    }
+</style>
+
+<div id="imageModal" class="modal">
+
+    <span class="close">×</span>
+
+    <div style="text-align:center; color:white;">
+        <a target="_blank" href></a>
+    </div>
+
+
+    <img class="modal-content" id="img01" src="/static/assets/aesthetic-images/R-5902715-1486593346-3324.jpg">
+</div>
+<style>
+    /* Style the Image Used to Trigger the Modal */
+    #colorImageDisplay {
+        border-radius: 5px;
+        cursor: pointer;
+        transition: 0.3s;
+    }
+
+    #colorImageDisplay:hover {
+        opacity: 0.7;
+    }
+
+    /* The Modal (background) */
+    .modal {
+        display: none;
+        /* Hidden by default */
+        position: fixed;
+        /* Stay in place */
+        z-index: 1;
+        /* Sit on top */
+        padding-top: 100px;
+        /* Location of the box */
+        left: 0;
+        top: 0;
+        width: 100%;
+        /* Full width */
+        height: 100%;
+        /* Full height */
+        overflow: auto;
+        /* Enable scroll if needed */
+        background-color: rgb(0, 0, 0);
+        /* Fallback color */
+        background-color: rgba(0, 0, 0, 0.9);
+        /* Black w/ opacity */
+
+    }
+
+    /* Modal Content (Image) */
+    .modal-content {
+        margin: auto;
+        display: block;
+        width: 80%;
+        max-width: 700px;
+    }
+
+    /* Caption of Modal Image (Image Text) - Same Width as the Image */
+    #caption {
+        margin: auto;
+        display: block;
+        width: 80%;
+        max-width: 700px;
+        text-align: center;
+        color: #ccc;
+        padding: 10px 0;
+        height: 150px;
+    }
+
+    /* Add Animation - Zoom in the Modal */
+    .modal-content,
+    #caption {
+        animation-name: zoom;
+        animation-duration: 0.6s;
+    }
+
+    @keyframes zoom {
+        from {
+            transform: scale(0)
+        }
+
+        to {
+            transform: scale(1)
+        }
+    }
+
+    /* The Close Button */
+    .close {
+        position: absolute;
+        top: 15px;
+        right: 35px;
+        color: #f1f1f1;
+        font-size: 40px;
+        font-weight: bold;
+        transition: 0.3s;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: #bbb;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    /* 100% Image Width on Smaller Screens */
+    @media only screen and (max-width: 700px) {
+        .modal-content {
+            width: 100%;
+        }
+    }
+</style>
+
+<div class="wrapper" class="toggled">
+
+    <nav id="sidebar" class="sidebarStyle" style=" background:#7cefa9; color:#000000;">
+
+        <div id="sidebarTop" class="sidebar-header sidebarHeaderStyle" style=" background:#463a31;">
+
+            <h3 class="sidebarHeaderText" style=" color:#ffffff;" style="font-weight: bold; text-size:12px ">
+                <strong>Martin Barker</strong>
+            </h3>
+
+            <button id="sidebarCollapse">
+                <img src="https://img.icons8.com/ios-filled/24/000000/menu.png" />
+            </button>
+        </div>
+        <style>
+            .dropdown-toggle[aria-expanded="true"]:after {
+                transform: rotate(180deg);
+            }
+
+            /*for animation*/
+            .dropdown-toggle:after {
+                transition: 0.4s;
+            }
+        </style>
+
+        <ul class="list-unstyled components sideBarOption sidebarItemsStyle"
+            style=" background:#20150c; color:#ffffff;">
+
+            <li>
+                <a href="/" class="navbarItem">About
+                </a>
+            </li>
+
+            <li>
+                <a href="#projectsSubmenu" data-toggle="collapse" class="dropdown-toggle"
+                    aria-expanded="true">Projects</a>
+                <ul class="collapse list-unstyled 
+                    show
+                " id="projectsSubmenu">
+
+                    <li>
+                        <a class="sidebarActiveItem" style=" background:#d0c5b2; color:#000000;" href="/tagger"
+                            class="navbarItem">tagger.site</a>
+                    </li>
+
+
+                    <li>
+                        <a href="/RenderTune" class="navbarItem">RenderTune</a>
+                    </li>
+
+
+                    <li>
+                        <a href="https://github.com/MartinBarker/vinyl2digital" class="navbarItem">Vinyl2Digital</a>
+                    </li>
+
+                    <li>
+                        <a href="/popularify" class="navbarItem">Popularify</a>
+                    </li>
+                </ul>
+            </li>
+
+            <li>
+                <a href="#blogSubmenu" data-toggle="collapse" class="dropdown-toggle" aria-expanded="false">Blog
+                </a>
+
+                <ul class="collapse list-unstyled 
+                " id="blogSubmenu">
+                    <a class="navbarItem " href="/posts/RenderTune-Development">RenderTune Development
+                    </a>
+
+                </ul>
+            </li>
+
+            <li>
+                <a href="#contactSubmenu" data-toggle="collapse" aria-expanded="false"
+                    class="dropdown-toggle">Contact</a>
+                <ul class="collapse list-unstyled 
+                " id="contactSubmenu">
+                    <li>
+                        <a
+                            href="/cdn-cgi/l/email-protection#86ebe7f4f2efe8e4e7f4ede3f4bfbfc6e1ebe7efeaa8e5e9eb">Email</a>
+                    </li>
+                    <li>
+                        <a target="_blank" href="https://github.com/MartinBarker">Github</a>
+                    </li>
+                    <li>
+                        <a target="_blank" href="https://www.linkedin.com/in/martinbarker99">LinkedIn</a>
+                    </li>
+                    <li>
+                        <a target="_blank" href="/static/assets/pdf/Martin Barker Resume.pdf">Resume</a>
+                    </li>
+                </ul>
+            </li>
+        </ul>
+        </li>
+        </ul>
+
+        <div id="pageColorsText" class="sidebar-footer">
+            <div class="sidebar-footer imageDetails">
+
+
+                <button style="font-size:14px; cursor:pointer;" id="newRefreshButton"
+                    onclick="refreshColors('newRefreshButton')">Refresh Colors</button>
+
+                <img id="colorImageDisplay" src="/static/assets/aesthetic-images/R-5902715-1486593346-3324.jpg"
+                    style="display: block;" class="responsive" alt="image alt descr">
+
+                <div id="VibrantColor" title="Vibrant: #09f37b" class="colorBox colorBox1" style="background: #09f37b">
+                </div>
+                <div id="LightVibrantColor" title="LightVibrant: #7cefa9" class="colorBox colorBox2"
+                    style="background: #7cefa9"></div>
+                <div id="DarkVibrantColor" title="DarkVibrant: #20150c" class="colorBox colorBox3"
+                    style="background: #20150c"></div>
+                <div id="MutedColor" title="Muted: #978372" class="colorBox colorBox4" style="background: #978372">
+                </div>
+                <div id="LightMutedColor" title="LightMuted: #d0c5b2" class="colorBox colorBox5"
+                    style="background: #d0c5b2"></div>
+                <div id="DarkMutedColor" title="DarkMuted: #463a31" class="colorBox colorBox6"
+                    style="background: #463a31"> </div>
+            </div>
+        </div>
+    </nav>
+
+    <div id="content" class="pageContentStyle" style=" background:#d0c5b2;">
+        <div class="col-sm-12">
+            <div class="col">
+                <div class="row pageContentTitleCardStyle" style=" background:#978372; color:#ffffff;">
+                    <div class="col" style>
+                        <h1 class="widgettitle"><strong>tagger.site</strong></h1>
+                    </div>
+                    <div class="w-100"></div>
+                    <div class="col" style>
+                        <a id="hoverUrl" target="_blank"
+                            href="https://github.com/MartinBarker/martinbarker/blob/master/views/tagger.handlebars">View
+                            code for this page</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col pageContentBodyText" style=" color:#000000;">
+                <br>
+                <br>
+                <div class="row" style=" margin: auto;">
+                    <script data-cfasync="false"
+                        src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
+                    <script type="text/javascript" src="/static/assets/js/tagger.js"></script>
+                    <script src="https://unpkg.com/moment"></script>
+
+                    <script src="https://unpkg.com/mediainfo.js@0.1.4/dist/mediainfo.min.js"></script>
+
+                    <div class="container-fluid" style="color: blue" onload="checkFileAPI();">
+                        <div style="margin-top:-30px;">
+
+                            <h5 class="widgettitle">Use a Discogs URL or local files to generate a timestamped tracklist
+                                and metadata tags.
+                            </h5>
+                            <hr>
+
+                            <div class="container" style="padding-right:0;margin-left:0;margin-right:0;">
+                                <div class="row">
+
+                                    <div class="col" style="min-width: 200px; padding-left:0;padding-right:0;">
+                                        <div id="drop-area">
+                                            <form class="my-form">
+                                                <h7>Upload multiple files with the file dialog or by dragging and
+                                                    dropping files here.</h7>
+                                                <br>
+                                                <input style="cursor: pointer;" type="file" id="file"
+                                                    multiple="multiple" />
+                                            </form>
+                                        </div>
+                                    </div>
+
+                                    <div class="col" style="min-width: 200px; padding-left:0;padding-right:0;">
+                                        <div class="form-group" style="text-align:center;margin-top:5%">
+                                            <div id="taggerErrDisplay"></div>
+                                            <input size="22" type="text" placeholder="Discogs URL" name="url"
+                                                id="urlInput">
+                                            <button style="cursor: pointer;" id="urlInputButton" name="data"
+                                                type="button"
+                                                onclick="submitDiscogsURL(document.getElementById('urlInput').value); ">Submit</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="display: none;" id="loading">
+                                <div class="loader"></div><a>Loading...</a>
+                            </div>
+                            <style>
+                                .loader {
+                                    border: 10px solid #f3f3f3;
+                                    /* Light grey */
+                                    border-top: 10px solid #3498db;
+                                    /* Blue */
+                                    border-radius: 50%;
+                                    width: 50px;
+                                    height: 50px;
+                                    animation: spin 1s linear infinite;
+                                }
+
+                                @keyframes spin {
+                                    0% {
+                                        transform: rotate(0deg);
+                                    }
+
+                                    100% {
+                                        transform: rotate(360deg);
+                                    }
+                                }
+                            </style>
+
+                            <hr>
+                            <h3>Timestamped Tracklist:</h3>
+                            <div class="container" style="padding-right:0;margin-left:0;margin-right:0;">
+                                <div class="row">
+
+                                    <div class="col" style="min-width: 200px; padding-left:0;padding-right:0;">
+                                        <textarea style="resize: none;" class="w-100 h-100 inputbox" id="inputBox"
+                                            rows="7" cols="44" placeholder="Tracklist generated by http://tagger.site: 
+00:00 - 02:36 Metal
+02:36 - 06:06 Nada Mas 
+06:06 - 10:17 El Sombrero De Metal 
+10:17 - 13:52 Plata De Azul
+13:52 - 18:18 Manzanita
+18:18 - 21:03 Imprevu "></textarea>
+                                    </div>
+
+                                    <div class="col" style="min-width: 200px; padding-left:0;padding-right:0;">
+                                        <table class="w-100 h-100" align="left"
+                                            style="white-space:nowrap; table-layout: fixed;" id="adjustments">
+                                            <tbody>
+
+                                                <th style="text-align:center; width: 6%;">
+                                                    <select class="taggerOptions" id="taggerOption1">
+                                                        <option value="startTime" selected>start</option>
+                                                        <option value="blank">(blank)</option>
+                                                    </select>
+                                                    <select class="taggerOptions" id="taggerOption2">
+                                                        <option value="dash" selected><a
+                                                                style="text-align:center;">-</a></option>
+                                                        <option value="blank">(blank)</option>
+                                                    </select>
+                                                    <select class="taggerOptions" id="taggerOption3">
+                                                        <option value="endTime" selected>end</option>
+                                                        <option value="blank">(blank)</option>
+                                                    </select>
+                                                    <select class="taggerOptions" id="taggerOption4">
+                                                        <option value="title">title</option>
+                                                    </select>
+                                                    <select class="taggerOptions" id="taggerOption5">
+                                                        <option value="artist">artist</option>
+                                                        <option value="blank" selected>(blank)</option>
+                                                    </select>
+                                                </th>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <button class="btn default copyButton" style="cursor: pointer; width: 100%;"
+                                        id="tracklistCopy" onclick="copyToClipboard('inputBox')" type="button">Copy 0
+                                        Chars to Clipboard</button>
+                                    <script>
+                                        document.getElementById('inputBox').addEventListener('input', function () {
+                                            $("#tracklistCopy").text(`Copy ${($('#inputBox').val().length)} Chars to Clipboard`);
+                                        });
+
+                                        $('#inputBox').keyup(function () {
+                                            $("#tracklistCopy").text(`Copy ${($(this).val().length)} Chars to Clipboard`);
+                                        });
+
+                                        $("#inputBox").change(function () {
+                                            $("#tracklistCopy").text(`Copy ${($(this).val().length)} Chars to Clipboard`);
+                                        });
+
+                                        $("#inputBox").keyup(function () {
+                                            $("#tracklistCopy").text(`Copy ${($(this).val().length)} Chars to Clipboard`);
+                                        });
+
+                                    </script>
+                                    <div id="checkboxURLTitlesFileTimes" class="container" style="display:none">
+                                        <a>Check box to use URL input song titles with file timestamps:<input
+                                                id="useUrlTitlesCheck" type="checkbox" /></a>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr>
+                            <h3>Comma-Separated Discogs Tags:</h3>
+                            <div class="container" style="padding-right:0;margin-left:0;margin-right:0;">
+                                <div class="row">
+
+                                    <div class="col"
+                                        style="display:inline-block;position:relative;         min-width: 300px; padding-left:0;padding-right:0;">
+                                        <textarea style="resize: none;display:block;" class="w-100 h-100 inputbox"
+                                            id="tagsBox" rows="7" cols="44"
+                                            placeholder="Booker T. Jones,Priscilla Jones,Booker T & The MGs,The Mar-Keys,The Stax Staff,The Packers,The RCO All-Stars,Priscilla Coolidge,Booker T. & Priscilla,1971,France,The Wedding Song,She,The Indian Song,Sea Gull,For Priscilla,The Delta  Song,Why,Mississippi Voodoo,Cool  Black Dream,Sweet Child Youre Not Alone,Booker T. & Priscilla 1971,Booker T. Jones 1971,"></textarea>
+                                    </div>
+
+                                    <div class="col" style="min-width: 300px; padding-left:0;padding-right:0;">
+
+                                        <table class="w-100 h-100" align="left"
+                                            style="white-space:nowrap; table-layout: fixed;" id="adjustments">
+                                            <tbody>
+
+                                                <tr>
+                                                    <th style="text-align:center; width: 6%;"><input type="checkbox"
+                                                            id="selectAll" checked>
+                                                    </th>
+                                                    <th style="text-align:center; width: 14%;">Tags Type</th>
+                                                    <th style="text-align:center; width: 20%;">Tags</th>
+                                                </tr>
+                                                <script>
+                                                    $(document).ready(function () {
+                                                        //release artist
+                                                        var releaseArtistsSlider = document.getElementById("releaseArtistsSlider");
+                                                        var releaseArtistsSliderPercent = document.getElementById("releaseArtistsSliderPercent");
+                                                        releaseArtistsSliderPercent.innerHTML = `${releaseArtistsSlider.value}%`; // Display the default releaseArtistsSlider value
+                                                        // Update the current releaseArtistsSlider value (each time you drag the releaseArtistsSlider handle)
+                                                        releaseArtistsSlider.oninput = function () {
+                                                            releaseArtistsSliderPercent.innerHTML = `${this.value}%`;
+                                                            prepUpdateTagsBox()
+                                                        }
+                                                        //release info
+                                                        var releaseInfoSlider = document.getElementById("releaseInfoSlider");
+                                                        var releaseInfoSliderSliderPercent = document.getElementById("releaseInfoSliderPercent");
+                                                        releaseInfoSliderSliderPercent.innerHTML = `${releaseInfoSlider.value}%`; // Display the default releaseInfoSlider value
+                                                        // Update the current releaseInfoSlider value (each time you drag the releaseInfoSlider handle)
+                                                        releaseInfoSlider.oninput = function () {
+                                                            releaseInfoSliderPercent.innerHTML = `${this.value}%`;
+                                                            prepUpdateTagsBox()
+                                                        }
+                                                        //tracklist
+                                                        var tracklistSlider = document.getElementById("tracklistSlider");
+                                                        var tracklistSliderPercent = document.getElementById("tracklistSliderPercent");
+                                                        tracklistSliderPercent.innerHTML = `${tracklistSlider.value}%`;
+                                                        tracklistSlider.oninput = function () {
+                                                            tracklistSliderPercent.innerHTML = `${this.value}%`;
+                                                            prepUpdateTagsBox()
+                                                        }
+                                                        //combinations
+                                                        var combinationsSlider = document.getElementById("combinationsSlider");
+                                                        var combinationsSliderPercent = document.getElementById("combinationsSliderPercent");
+                                                        combinationsSliderPercent.innerHTML = `${combinationsSlider.value}%`;
+                                                        combinationsSlider.oninput = function () {
+                                                            combinationsSliderPercent.innerHTML = `${this.value}%`;
+                                                            prepUpdateTagsBox()
+                                                        }
+                                                    })
+                                                </script>
+
+                                                <tr>
+                                                    <td style="text-align:center;">
+                                                        <input type="checkbox" class="releaseArtistsCheckbox"
+                                                            id="releaseArtistsCheckbox" checked
+                                                            onchange="prepUpdateTagsBox()">
+                                                    </td>
+                                                    <td style="text-align:center;">Artist(s)</td>
+                                                    <td>
+                                                        <div style="text-align:center;">
+                                                            <input type="range" min="0" max="100" value="100"
+                                                                onchange="prepUpdateTagsBox()"
+                                                                id="releaseArtistsSlider">
+                                                            <span id="releaseArtistsSliderPercent"></span>
+                                                            <div class="row">
+                                                                <div class="col"
+                                                                    style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                    id="releaseArtistsNumber">0 chars</div>
+                                                                <div class="col"
+                                                                    style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                    id="releaseArtistsTagNum">0/0 tags</div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+
+                                                <tr>
+                                                    <td style="text-align:center;">
+                                                        <input type="checkbox" class="releaseInfoCheckbox"
+                                                            id="releaseInfoCheckbox" checked
+                                                            onchange="prepUpdateTagsBox()">
+                                                    </td>
+                                                    <td style="text-align:center;">Album</td>
+                                                    <td style="text-align:center;">
+                                                        <input type="range" min="0" max="100" value="100"
+                                                            onchange="prepUpdateTagsBox()" id="releaseInfoSlider">
+                                                        <span id="releaseInfoSliderPercent"></span>
+                                                        <div class="row">
+                                                            <div class="col"
+                                                                style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                id="releaseInfoNumber">0 chars</div>
+                                                            <div class="col"
+                                                                style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                id="releaseInfoTagNum">0/0 tags</div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+
+                                                <tr>
+                                                    <td style="text-align:center;">
+                                                        <input type="checkbox" class="tracklistCheckbox"
+                                                            id="tracklistCheckbox" checked
+                                                            onchange="prepUpdateTagsBox()">
+                                                    </td>
+                                                    <td style="text-align:center;">Tracklist</td>
+                                                    <td style="text-align:center;">
+                                                        <input type="range" min="0" max="100" value="100"
+                                                            onchange="prepUpdateTagsBox()" id="tracklistSlider">
+                                                        <span id="tracklistSliderPercent"></span>
+                                                        <div class="row">
+                                                            <div class="col"
+                                                                style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                id="tracklistNumber">0 chars</div>
+                                                            <div class="col"
+                                                                style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                id="tracklistTagNum">0/0 tags</div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+
+                                                <tr>
+                                                    <td style="text-align:center;">
+                                                        <input type="checkbox" class="combinationsCheckbox"
+                                                            id="combinationsCheckbox" checked
+                                                            onchange="prepUpdateTagsBox()">
+                                                    </td>
+                                                    <td style="text-align:center;">Combinations</td>
+                                                    <td style="text-align:center;">
+                                                        <input type="range" id="combinationsSlider" min="0" max="100"
+                                                            value="100" onchange="prepUpdateTagsBox()">
+                                                        <span id="combinationsSliderPercent">100%</span>
+                                                        <div class="row">
+                                                            <div class="col"
+                                                                style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                id="combinationsNumber">0 chars</div>
+                                                            <div class="col"
+                                                                style="font-size: 15px;white-space:nowrap;text-align:center"
+                                                                id="combinationsTagNum">0/0 tags</div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <button class="btn default copyButton" style="cursor: pointer; width: 100%;"
+                                        id="copyToClipboarad" onclick="copyToClipboard('tagsBox')" type="button">
+                                        <div id="tagsCharCount">Copy 0 Chars to Clipboard</div>
+                                    </button>
+                                </div>
+                                <script>
+                                    $("#tagsBox").bind('input propertychange', function () {
+                                        $("#tagsCharCount").text(`Copy ${($(this).val().length)} Chars to Clipboard`);
+                                    });
+                                </script>
+                            </div>
+
+                            <hr>
+                            <h3>Changelog:</h3>
+                            <div class="container" style="padding-right:0;margin-left:0;margin-right:0;">
+                                <ul>
+                                    <li>10/25/2022: Added new checkbox 'Check box to use URL input song titles with file
+                                        timestamps' which will appear when a Discogs URL is used as input. If selected,
+                                        the next time you drag/choose files, it will use the song title values from the
+                                        discogs url input, but use the timestamps from your files.</li>
+                                    <li>04/17/2021: Added loading spinner when tags are being generated, changed artist
+                                        tags generation system so that tags for each artist are organized smarter.</li>
+                                    <li>11/18/2020: tagger.site now accepts a Discogs URL as input by appending the
+                                        Discogs URL after tagger.site. So If you visit <a class="hoverURLClassBody"
+                                            href="https://tagger.site/https://www.discogs.com/New-Golden-Wings-Its-Rough-Its-Tough/release/5390422">https://tagger.site/https://www.discogs.com/New-Golden-Wings-Its-Rough-Its-Tough/release/5390422</a>
+                                        it will have the Discogs data already generated when the page loads.</li>
+                                    <li>11/17/2020: .cue files now work for generating a timestamped tracklist, and I
+                                        improved the error handling for <a class="hoverURLClassBody"
+                                            href="https://www.discogs.com/New-Golden-Wings-Its-Rough-Its-Tough/release/5390422">release
+                                            URLs like this</a> which have a broken artist page. </li>
+                                </ul>
+                                <h3>Roadmap:</h3>
+                                <div class="container" style="padding-right:0;margin-left:0;margin-right:0;">
+                                    <ul>
+                                        <li>10/25/2022: Currently working on a react.js rewrite, as well as adding tons
+                                            of new features.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <style>
+                            .copyButton {
+                                border: 2px solid black;
+                            }
+
+                            table,
+                            th,
+                            td {
+                                border: 2px solid black;
+                                background: white;
+                                color: black;
+                                height: 100%;
+                                white-space: normal;
+                                word-wrap: break-word;
+                            }
+
+                            textarea {
+                                font-family: "Lucida Console";
+                                /* font-size: 18px; */
+                            }
+                        </style>
+                        <script type="text/javascript">
+                            $(document).ready(function () {
+                                var discogs_url = ``
+                                if (discogs_url && discogs_url != '') {
+                                    submitDiscogsURL(discogs_url)
+                                }
+                                //call function to set drag and drop colors
+                                setDragAndDropColors()
+                                function setDragAndDropColors() {
+                                    var sheet = document.createElement('style')
+                                    let innerHTMLHoverColorStyle = `
+                #drop-area.highlight {
+                    border-color: #7cefa9;
+                }
+
+                
+                #drop-area {
+                    border: 2px dashed ;
+                    } 
+
+                
+                `;
+                                    sheet.innerHTML = innerHTMLHoverColorStyle
+                                    document.head.appendChild(sheet);
+                                }
+                            })
+                        </script>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="text/javascript">
+        //get initial load css data
+        var colorsObjStr = '{&quot;cssClassElements&quot;:{&quot;sidebarStyle&quot;:[{&quot;attribute&quot;:&quot;background&quot;,&quot;value&quot;:&quot;#7cefa9&quot;},{&quot;attribute&quot;:&quot;color&quot;,&quot;value&quot;:&quot;#000000&quot;}],&quot;sidebarHeaderStyle&quot;:[{&quot;attribute&quot;:&quot;background&quot;,&quot;value&quot;:&quot;#463a31&quot;}],&quot;sidebarHeaderText&quot;:[{&quot;attribute&quot;:&quot;color&quot;,&quot;value&quot;:&quot;#ffffff&quot;}],&quot;sidebarItemsStyle&quot;:[{&quot;attribute&quot;:&quot;background&quot;,&quot;value&quot;:&quot;#20150c&quot;},{&quot;attribute&quot;:&quot;color&quot;,&quot;value&quot;:&quot;#ffffff&quot;}],&quot;sidebarActiveItem&quot;:[{&quot;attribute&quot;:&quot;background&quot;,&quot;value&quot;:&quot;#d0c5b2&quot;},{&quot;attribute&quot;:&quot;color&quot;,&quot;value&quot;:&quot;#000000&quot;}],&quot;pageContentStyle&quot;:[{&quot;attribute&quot;:&quot;background&quot;,&quot;value&quot;:&quot;#d0c5b2&quot;}],&quot;pageContentBodyText&quot;:[{&quot;attribute&quot;:&quot;color&quot;,&quot;value&quot;:&quot;#000000&quot;}],&quot;pageContentTitleCardStyle&quot;:[{&quot;attribute&quot;:&quot;background&quot;,&quot;value&quot;:&quot;#978372&quot;},{&quot;attribute&quot;:&quot;color&quot;,&quot;value&quot;:&quot;#ffffff&quot;}]},&quot;imgPath&quot;:&quot;static/assets/aesthetic-images/R-5902715-1486593346-3324.jpg&quot;,&quot;filename&quot;:&quot;R-5902715-1486593346-3324.jpg&quot;,&quot;hoverColors&quot;:{&quot;hoverUrl1&quot;:&quot;#463a31&quot;,&quot;hoverUrl2&quot;:&quot;#09f37b&quot;,&quot;sidebarHoverColor&quot;:&quot;#09f37b&quot;,&quot;sidebarHoverText&quot;:&quot;#ffffff&quot;},&quot;colors&quot;:{&quot;Vibrant&quot;:&quot;#09f37b&quot;,&quot;LightVibrant&quot;:&quot;#7cefa9&quot;,&quot;DarkVibrant&quot;:&quot;#20150c&quot;,&quot;Muted&quot;:&quot;#978372&quot;,&quot;LightMuted&quot;:&quot;#d0c5b2&quot;,&quot;DarkMuted&quot;:&quot;#463a31&quot;}}';
+        //console.log('colorsObjStr=', colorsObjStr)
+        var colorsObj = JSON.parse(colorsObjStr.replace(/&quot;/g, '"'));
+        //set initial hover Color
+        setHoverColor(colorsObj.hoverColors)
+
+        async function setHoverColor(cssValues) {
+            var sheet = document.createElement('style')
+            //create css style rule for on-hover tab and on hover github url
+            let innerHTMLHoverColorStyle = `
+            /* hoverUrl hover */
+            #hoverUrl:hover{
+                color:${cssValues.hoverUrl1}; 
+            }
+            .hoverURLClass:hover{
+                color:${cssValues.hoverUrl1}; 
+            }
+            .hoverURLClassBody:hover{
+                color:${cssValues.hoverUrl2};      
+            }
+            #sidebar ul li a:hover { 
+                background: ${cssValues.sidebarHoverColor}; 
+                color: ${cssValues.sidebarHoverText};           
+            } `;
+            sheet.innerHTML = innerHTMLHoverColorStyle
+            document.head.appendChild(sheet);
+        }
+
+        async function setColors(colors) {
+            let imgPath = colors.imgPath
+
+            //remove pre-existing colors css
+            if (document.createElement('style')) {
+                //color style already exists so delete it
+                var elem = document.querySelector('#style');
+                elem.parentNode.removeChild(elem);
+            }
+
+            //create new colors css
+            var sheet = document.createElement('style')
+
+            //set text hover color
+            let hoverColor = `#09f37b`;
+            let innerHTMLHoverColorStyle = `#sidebar ul li a:hover { background: ${hoverColor}; } `;
+            sheet.innerHTML = innerHTMLHoverColorStyle
+            document.head.appendChild(sheet);
+
+            let innerHTMLStyle = `
+
+        /* main page body background color solid
+        body { background: red; } */
+
+        /* sidebar_header_background_color 
+        #sidebarTop {background: ${colors.colors['LightMuted']};}   */ 
+
+        /* sidebar_background_color 
+        #sidebar { background: linear-gradient(0deg, ${colors.colors['LightVibrant']}, ${colors.colors['Muted']}); } */
+
+        /* active tab color 
+        #currentPage { background: ${colors.colors['LightVibrant']}; } */
+
+        /* main page body background color gradient 
+        body { background: linear-gradient(2deg, color3_hex, color6_hex);} */ 
+
+        /* ul ul a { expanded tab background color 
+        .sideBarOption { background: ${colors.colors['Muted']}; }  */
+
+        /* sidebar hover color */
+        #sidebar ul li a:hover { background: ${colors.colors['DarkVibrant']}; } `;
+
+            //console.log("innerHTMLStyle = ", innerHTMLStyle)
+            //sheet.innerHTML = innerHTMLStyle 
+            //document.head.appendChild(sheet);
+        }
+
+        function invertColor(hex) {
+            if (hex.indexOf('#') === 0) {
+                hex = hex.slice(1);
+            }
+            // convert 3-digit hex to 6-digits.
+            if (hex.length === 3) {
+                hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+            }
+            if (hex.length !== 6) {
+                throw new Error('Invalid HEX color.');
+            }
+            // invert color components
+            var r = (255 - parseInt(hex.slice(0, 2), 16)).toString(16),
+                g = (255 - parseInt(hex.slice(2, 4), 16)).toString(16),
+                b = (255 - parseInt(hex.slice(4, 6), 16)).toString(16);
+            // pad each with zeros and return
+            return '#' + padZero(r) + padZero(g) + padZero(b);
+        }
+
+        function padZero(str, len) {
+            len = len || 2;
+            var zeros = new Array(len).join('0');
+            return (zeros + str).slice(-len);
+        }
+
+        //rgb to hex 
+        function componentToHex(c) {
+            var hex = c.toString(16);
+            return hex.length == 1 ? "0" + hex : hex;
+        }
+
+        function rgbToHex(color) {
+            //color = string like rgb(a,b,c)
+            //remove string parts
+            color = color.substring(4, color.length - 1);
+            //turn into arr
+            color = color.split(',');
+
+            return "#" + componentToHex(parseInt(color[0])) + componentToHex(parseInt(color[1])) + componentToHex(parseInt(color[2]));
+        }
+
+        //setup image modal popup
+        imageModalSetup()
+
+        async function imageModalSetup() {
+
+            // Get the modal
+            var modal = document.getElementById("imageModal");
+
+            // Get the image and insert it inside the modal - use its "alt" text as a caption
+            var img = document.getElementById("colorImageDisplay");
+
+            //make image visible
+            img.style.display = "block";
+            var modalImg = document.getElementById("img01");
+            var captionText = document.getElementById("caption");
+            img.onclick = function () {
+                modal.style.display = "block";
+                modalImg.src = this.src;
+                //captionText.innerHTML = this.alt;
+            }
+
+
+            // Get the <span> element that closes the modal
+            var span = document.getElementsByClassName("close")[0];
+
+            // When the user clicks on <span> (x), close the modal
+            span.onclick = function () {
+                $('#imageModal').fadeOut(500);
+            }
+        }
+
+        async function waitSeconds(iMilliSeconds) {
+            return new Promise(async function (resolve, reject) {
+                var counter = 0
+                    , start = new Date().getTime()
+                    , end = 0;
+                while (counter < iMilliSeconds) {
+                    end = new Date().getTime();
+                    counter = end - start;
+                }
+                resolve();
+            })
+        }
+
+        async function refreshColors(buttonId) {
+            //disable button
+            document.getElementById(buttonId).disabled = true;
+            //change button text
+            document.getElementById(buttonId).innerText = "Refreshing...";
+
+            //get new colorData and update display
+            let colorData = await refreshPageColors();
+
+            //enable button
+            document.getElementById(buttonId).disabled = false;
+            //change button text
+            document.getElementById(buttonId).innerText = "Refresh Colors";
+        }
+
+        async function refreshPageColors() {
+            return new Promise(async function (resolve, reject) {
+                //get new page color data
+                let colorData = await getColors();
+
+                //for each class to set:
+                for (const [key, value] of Object.entries(colorData.cssClassElements)) {
+                    console.log(`colorData ${key}: value=`, value);
+                    if (String(key) == 'hovers') {
+                        setHoverColor(value)
+                    } else {
+                        //set all elements with class=key to have style=value
+                        let cssValueStr = '';
+                        for (var x = 0; x < value.length; x++) {
+                            $(`.${key}`).css(value[x]['attribute'], value[x]['value']);
+                        }
+                    }
+                }
+                //update image colors
+                for (const [key, value] of Object.entries(colorData.colors)) {
+                    document.querySelector(`#${key}Color`).title = `${key}:${value}`;
+                    $(`#${key}Color`).css('background', value);
+                }
+                //update image display
+                document.querySelector("#colorImageDisplay").src = `/${colorData.imgPath}`;
+
+                //update hover color
+                setHoverColor(colorData.hoverColors)
+
+                resolve();
+            });
+
+        }
+
+        $(document).ready(function () {
+
+            //if refresh colors button 2 is clicked
+            //const refreshButton = document.getElementById('refreshButton2');
+            //refreshButton.addEventListener('click', refreshPage)
+
+            //if clicking outside modal, close modal
+            $(document).click(function (e) {
+                if ($(e.target).is('#imageModal')) {
+                    $('#imageModal').fadeOut(500);
+                }
+            });
+
+            //on escape key click, close modal
+            $(document).keydown(function (event) {
+                if (event.keyCode == 27) {
+                    $('#imageModal').fadeOut(500);
+                }
+            });
+
+            //side bar collapse event
+            $('#sidebarCollapse').on('click', function () {
+                $('#sidebar').toggleClass('active');
+            });
+
+        });
+
+        //make request to colors backend
+        async function getColors() {
+            return new Promise(async function (resolve, reject) {
+                $.ajax({
+                    type: 'POST',
+                    url: '/getColors',
+                    data: {
+                        type: "varValue",
+                    },
+                }).then((data) => {
+                    resolve(data)
+                }).catch((err) => {
+                    reject(err)
+                });
+            })
+        }
+
+    </script>
+
+</html>
