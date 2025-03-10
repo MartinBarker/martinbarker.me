@@ -15,6 +15,8 @@ import {
   FileText as ResumeIcon
 } from 'lucide-react';
 
+import RenderTuneIcon from "../../ico/rendertune.ico";
+
 const MainLayout = ({ children, pageTitle, pageSubTitle }) => {
   const isInitialMobile = window.innerWidth <= 768;
   const [sidebarActive, setSidebarActive] = useState(!isInitialMobile);
@@ -248,6 +250,12 @@ const MainLayout = ({ children, pageTitle, pageSubTitle }) => {
               to="/"
               icon={Home}
               label="Home"
+            />
+
+            <ProjectLink
+              to="/rendertune"
+              icon={FileMusicIcon}
+              label="RenderTune"
             />
 
             <ProjectLink
