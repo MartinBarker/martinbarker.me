@@ -31,11 +31,10 @@ COPY nginx.conf /etc/nginx/nginx.conf
 # Copy the built application from the previous stage
 COPY --from=build /app/build /usr/share/nginx/html
 
-# Copy the source files for the Node server and React app
+# Copy the source files for the Node server
 COPY server.js ./server.js
 COPY package*.json ./
-COPY src/ ./src/
-COPY public/ ./public/
+COPY src/server ./src/server
 
 # Copy node_modules from the build stage
 COPY --from=build /app/node_modules ./node_modules
