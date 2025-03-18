@@ -13,6 +13,7 @@ const Frame = ({ title = "RenderTune", children }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    /*
     // Dynamically add favicon to head
     const link = document.createElement('link');
     link.rel = 'icon';
@@ -21,6 +22,7 @@ const Frame = ({ title = "RenderTune", children }) => {
 
     // Set document title
     document.title = title;
+    */
   }, [title]);
 
   const toggleMenu = () => {
