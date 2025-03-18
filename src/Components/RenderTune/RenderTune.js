@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Route, Routes, Navigate } from 'react-router-dom';
 import Frame from './Frame'; 
 import Home from './Home';
@@ -94,7 +94,24 @@ const HelpPage = () => (
   </Frame>
 );
 
-function RenderTune() {
+const RenderTune = ({ pageTitle, icon }) => {
+  useEffect(() => {
+    if (icon) {
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.href = icon;
+      document.head.appendChild(link);
+
+      return () => {
+        document.head.removeChild(link);
+      };
+    }
+
+    if (pageTitle) {
+      document.title = pageTitle;
+    }
+  }, [icon, pageTitle]);
+
   return (
     <Routes>
       <Route path="/" element={<Frame title="RenderTune"><Home /></Frame>} />

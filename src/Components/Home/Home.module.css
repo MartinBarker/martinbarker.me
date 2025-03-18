@@ -63,7 +63,7 @@
 /* Section Styling */
 .section {
     background: rgba(255, 255, 255, 0.8);
-    padding: 1.5rem;
+    padding: .5rem;
     margin-bottom: 1.5rem;
     border-radius: 8px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Enhanced shadow for sections */
@@ -73,7 +73,6 @@
     margin-bottom: 1rem;
     color: #2c3e50;
     border-bottom: 2px solid black; /* Changed to black */
-    padding-bottom: 0.4rem;
 }
 
 /* Education Styling */

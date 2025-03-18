@@ -163,8 +163,8 @@ const JermaSearch = () => {
             <meta property="og:description" content="A log of what Jerma has said in chat." />
             <meta property="og:type" content="website" />
             <meta property="og:url" content="https://jermasearch.com/" />
-            <link rel="icon" href="../ico/jermasearch.ico" />
-            <meta property="og:image" content="../ico/jermasearch.ico" />
+            <link rel="icon" href="../../ico/jermasearch.ico" />
+            <meta property="og:image" content="../../.ico/jermasearch.ico" />
             <script type="application/ld+json">
                 {`
                     {

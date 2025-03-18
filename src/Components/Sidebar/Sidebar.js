@@ -17,7 +17,7 @@ import {
 
 import RenderTuneIcon from "../../ico/rendertune.ico";
 
-const MainLayout = ({ children, pageTitle, pageSubTitle }) => {
+const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
   const isInitialMobile = window.innerWidth <= 768;
   const [sidebarActive, setSidebarActive] = useState(!isInitialMobile);
   const [contactExpanded, setContactExpanded] = useState(false);
@@ -77,6 +77,19 @@ const MainLayout = ({ children, pageTitle, pageSubTitle }) => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (icon) {
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.href = icon;
+      document.head.appendChild(link);
+
+      return () => {
+        document.head.removeChild(link);
+      };
+    }
+  }, [icon]);
 
   const toggleSidebar = () => {
     if (sidebarActive) {
@@ -295,7 +308,7 @@ const MainLayout = ({ children, pageTitle, pageSubTitle }) => {
             />
 
             <ProjectLink
-              to="/jerma-search"
+              to="/jermasearch"
               icon={FileMusicIcon}
               label="Jerma985 Search"
             />

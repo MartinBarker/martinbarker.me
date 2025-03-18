@@ -71,6 +71,15 @@ const Home = () => {
                 <h2>Careers</h2>
                 {[
                     {
+                        company: "Allen Institute",
+                        date: "November 2024 - Present",
+                        location: "Seattle, WA | Philips",
+                        title: "Software Engineer II",
+                        responsibilities: [
+                            "As a contract worker at the Allen Institute, my role involves working closely with the Office of the CTO to support and advance technology initiatives in the bioscience field. I focus on developing and implementing APIs and cloud-native applications, integrating cutting-edge AI technologies to enhance biological research. My responsibilities include full-stack development, cloud infrastructure management, and ensuring robust, scalable solutions in a collaborative, multi-disciplinary team environment.",
+                        ],
+                    },
+                    {
                         company: "Philips Ultrasound",
                         date: "February 2022 - May 2024",
                         location: "Bothell, WA | Philips",
@@ -136,7 +145,7 @@ const Home = () => {
                             "Ran audio for on-location OSU football broadcasts.",
                             "Represented OSU at the National Association of Broadcasters convention.",
                         ],
-                    },
+                    }
                 ].map((job, index) => (
                     <div key={index} className={styles.careerItem}>
                         <div className={styles.careerHeader}>
