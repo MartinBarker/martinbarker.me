@@ -10,6 +10,7 @@ import Home from "./Components/Home/Home.js"
 import JermaSearch from "./Components/JermaSearch/JermaSearch.js";
 import Tagger from "./Components/Tagger/Tagger.js";
 import RenderTune from "./Components/RenderTune/RenderTune.js";
+import Ffmpegwasm from "./Components/Ffmpegwasm/Ffmpegwasm.js";
 
 function App() {
   const homeIconPath = "./ico/martinbarker.ico";
@@ -23,6 +24,7 @@ function App() {
         <Route path="/jermasearch/search" element={<JermaSearch /> } />
         <Route path="/jermasearch" element={<JermaSearch /> } />
         <Route path="/rendertune/*" element={ <RenderTune pageTitle="RenderTune" icon={renderTuneIconPath} /> } />
+        <Route path="/ffmpegwasm" element={ <Sidebar><Ffmpegwasm/> </Sidebar> } />
       </Routes>
     </Router>
   );

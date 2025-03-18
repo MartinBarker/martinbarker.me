@@ -195,7 +195,6 @@ body {
 @media (max-width: 768px) {
   .heroContent {
     max-width: 100%; /* Ensure full width on mobile */
-    min-width: 100%; /* Ensure full width on mobile */
   }
 }
 

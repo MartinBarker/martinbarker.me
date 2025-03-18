@@ -96,20 +96,18 @@ const HelpPage = () => (
 
 const RenderTune = ({ pageTitle, icon }) => {
   useEffect(() => {
-    if (icon) {
-      const link = document.createElement('link');
-      link.rel = 'icon';
-      link.href = icon;
-      document.head.appendChild(link);
-
-      return () => {
-        document.head.removeChild(link);
-      };
-    }
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.href = icon || './ico/rendertune.ico';
+    document.head.appendChild(link);
 
     if (pageTitle) {
       document.title = pageTitle;
     }
+
+    return () => {
+      document.head.removeChild(link);
+    };
   }, [icon, pageTitle]);
 
   return (

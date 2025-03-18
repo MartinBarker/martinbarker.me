@@ -1,56 +1,58 @@
-/* Base styles */
-html, body {
-    margin: 0;
-    padding: 0;
-    min-height: 100%;
-    width: 100%;
-    overflow-x: hidden; /* Prevents horizontal scrolling */
-    background: linear-gradient(45deg, #87CEEB, #00BFFF, #20B2AA, #008B8B);
-    background-size: 400% 400%;
-    -webkit-animation: gradientShift 23s ease infinite;
-    -moz-animation: gradientShift 23s ease infinite;
-    animation: gradientShift 23s ease infinite;
-    display: flex;
-    flex-direction: column;
+.jermaSearchContainer {
+    /* Base styles */
+    .jermaSearchHtml, .jermaSearchBody {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        width: 100%;
+        overflow-x: hidden; /* Prevents horizontal scrolling */
+        background: linear-gradient(45deg, #87CEEB, #00BFFF, #20B2AA, #008B8B);
+        background-size: 400% 400%;
+        -webkit-animation: gradientShift 23s ease infinite;
+        -moz-animation: gradientShift 23s ease infinite;
+        animation: gradientShift 23s ease infinite;
+        display: flex;
+        flex-direction: column;
+    }
+
+    @-webkit-keyframes gradientShift {
+        0% {
+            background-position: 0% 50%;
+        }
+        50% {
+            background-position: 100% 50%;
+        }
+        100% {
+            background-position: 0% 50%;
+        }
+    }
+
+    @-moz-keyframes gradientShift {
+        0% {
+            background-position: 0% 50%;
+        }
+        50% {
+            background-position: 100% 50%;
+        }
+        100% {
+            background-position: 0% 50%;
+        }
+    }
+
+    @keyframes gradientShift {
+        0% {
+            background-position: 0% 50%;
+        }
+        50% {
+            background-position: 100% 50%;
+        }
+        100% {
+            background-position: 0% 50%;
+        }
+    }
 }
 
-@-webkit-keyframes gradientShift {
-    0% {
-        background-position: 0% 50%;
-    }
-    50% {
-        background-position: 100% 50%;
-    }
-    100% {
-        background-position: 0% 50%;
-    }
-}
-
-@-moz-keyframes gradientShift {
-    0% {
-        background-position: 0% 50%;
-    }
-    50% {
-        background-position: 100% 50%;
-    }
-    100% {
-        background-position: 0% 50%;
-    }
-}
-
-@keyframes gradientShift {
-    0% {
-        background-position: 0% 50%;
-    }
-    50% {
-        background-position: 100% 50%;
-    }
-    100% {
-        background-position: 0% 50%;
-    }
-}
-
-body {
+.jermaSearchBody {
     color: black; /* Default text color */
     flex: 1;
 }
@@ -300,7 +302,6 @@ textarea:focus, input:focus{
     font-size: 0.9em;
     margin-top: 0.5em;
 }
-
 
 /* Mobile styles */
 @media (max-width: 600px) {
