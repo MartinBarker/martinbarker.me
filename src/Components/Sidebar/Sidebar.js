@@ -278,6 +278,12 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
             />
 
             <ProjectLink
+              to="/ffmpegwasm"
+              icon={FileMusicIcon}
+              label="ffmpeg wasm"
+            />
+
+            <ProjectLink
               to="/retro-roulette"
               icon={FileMusicIcon}
               label="Retro Roulette"
@@ -409,9 +415,8 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
           </div>
         </nav>
         <main
-          className={`${styles.content} ${
-            sidebarActive && isMobile ? styles.pushed : ''
-          }`}
+          className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''
+            }`}
           style={{ background: colors.LightMuted }}
         >
           <div className={styles.contentWrapper}>

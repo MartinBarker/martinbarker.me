@@ -1,0 +1,31 @@
+User-agent: *
+Disallow: /private/
+Allow: /
+
+# Sitemap
+Sitemap: https://jermasearch.com/sitemap.xml
+
+# SEO for Martin Barker
+User-agent: *
+Allow: /martin-barker
+Allow: /projects
+
+# SEO for RenderTune
+User-agent: *
+Allow: /rendertune
+Allow: /rendertune/download
+
+# SEO for Tagger.site
+User-agent: *
+Allow: /tagger.site
+
+# Additional SEO for RenderTune download links
+User-agent: *
+Allow: /rendertune/download/windows
+Allow: /rendertune/download/mac
+Allow: /rendertune/download/linux
+
+# SEO for JermaSearch
+User-agent: *
+Allow: /jermasearch
+Allow: /jermasearch/search
