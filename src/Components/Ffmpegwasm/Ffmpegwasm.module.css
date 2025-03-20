@@ -43,3 +43,51 @@
         transform: rotate(360deg);
     }
 }
+
+.dropZone {
+    border: 2px dashed #ccc;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 20px 0;
+    background-color: #f9f9f9;
+    cursor: pointer;
+}
+
+.fileName {
+    text-align: left;
+}
+
+.videoBox {
+    width: 300px;
+    height: 300px;
+    display: block;
+    margin: 0 auto;
+}
+
+.ffmpegCommand {
+    max-width:500px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: #f0f0f0;
+    padding: 10px;
+    border-radius: 5px;
+    text-align: left;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    position: relative;
+}
+
+.ffmpegCommand::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 1));
+    pointer-events: none;
+}

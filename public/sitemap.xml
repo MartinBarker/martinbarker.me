@@ -17,6 +17,38 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://jermasearch.com/rendertune/download</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jermasearch.com/rendertune/features</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jermasearch.com/rendertune/contribute</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jermasearch.com/rendertune/support</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jermasearch.com/rendertune/help</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jermasearch.com/rendertune/download/windows</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jermasearch.com/rendertune/download/mac</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://jermasearch.com/rendertune/download/linux</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://jermasearch.com/tagger.site</loc>
     <priority>0.8</priority>
   </url>

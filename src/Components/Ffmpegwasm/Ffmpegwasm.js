@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 import styles from './Ffmpegwasm.module.css'; // Import the CSS module
+import Table from "../Table/Table.js";
 
 // Polyfill for SharedArrayBuffer
 if (typeof SharedArrayBuffer === 'undefined') {
@@ -12,18 +13,100 @@ function Ffmpegwasm() {
   const [message, setMessage] = useState('Click Load to load ffmpeg');
   const [audioFiles, setAudioFiles] = useState([]);
   const [imageFiles, setImageFiles] = useState([]);
+  const [selectedAudioFiles, setSelectedAudioFiles] = useState([]);
+  const [selectedImageFiles, setSelectedImageFiles] = useState([]);
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
-  const ffmpeg = React.useMemo(() => createFFmpeg({ log: true }), []);
+  const [resolution, setResolution] = useState('1920x1080');
+  const [totalFileSize, setTotalFileSize] = useState(0);
+  const [outputFileSize, setOutputFileSize] = useState(0);
+  const [ffmpegCommand, setFfmpegCommand] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [durations, setDurations] = useState([]);
+  const [allDurationsCalculated, setAllDurationsCalculated] = useState(false);
+  const [renderClicked, setRenderClicked] = useState(false);
+  const ffmpeg = useMemo(() => createFFmpeg({ log: true }), []);
+  const fileInputRef = useRef(null);
 
   const handleFileChange = (event) => {
     const files = Array.from(event.target.files);
+    processFiles(files);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer.files);
+    processFiles(files);
+  };
+
+  const handleClick = () => {
+    fileInputRef.current.click();
+  };
+
+  const handleRowClick = (index, type) => {
+    if (type === 'audio') {
+      const newSelectedAudioFiles = [...selectedAudioFiles];
+      if (newSelectedAudioFiles.includes(index)) {
+        newSelectedAudioFiles.splice(newSelectedAudioFiles.indexOf(index), 1);
+      } else {
+        newSelectedAudioFiles.push(index);
+      }
+      setSelectedAudioFiles(newSelectedAudioFiles);
+    } else if (type === 'image') {
+      const newSelectedImageFiles = [...selectedImageFiles];
+      if (newSelectedImageFiles.includes(index)) {
+        newSelectedImageFiles.splice(newSelectedImageFiles.indexOf(index), 1);
+      } else {
+        newSelectedImageFiles.push(index);
+      }
+      setSelectedImageFiles(newSelectedImageFiles);
+    }
+  };
+
+  const processFiles = async (files) => {
     const audio = files.filter(file => file.type.startsWith('audio/'));
     const images = files.filter(file => file.type.startsWith('image/'));
     setAudioFiles(audio);
     setImageFiles(images);
+    const totalSize = files.reduce((acc, file) => acc + file.size, 0);
+    setTotalFileSize(totalSize);
+    if (totalSize > 4 * 1024 * 1024 * 1024) {
+      setMessage('Warning: Total file size exceeds 4GB limit.');
+    } else {
+      setMessage('Files loaded successfully.');
+    }
+
+    let totalDuration = 0;
+    const fileDurations = [];
+    for (const file of audio) {
+      const audioData = await fetchFile(URL.createObjectURL(file));
+      const audioBlob = new Blob([audioData], { type: file.type });
+      const audioElement = new Audio(URL.createObjectURL(audioBlob));
+      await new Promise((resolve) => {
+        audioElement.addEventListener('loadedmetadata', () => {
+          const fileDuration = audioElement.duration;
+          console.log(`Duration of ${file.name}: ${fileDuration} seconds`);
+          totalDuration += fileDuration;
+          fileDurations.push(fileDuration);
+          setDurations([...fileDurations]);
+          resolve();
+        });
+      });
+    }
+    setDuration(totalDuration);
+    setAllDurationsCalculated(true);
+    console.log(`Total duration: ${totalDuration} seconds`);
   };
 
-  const loadFfmpeg = React.useCallback(async () => {
+  const formatDuration = (seconds) => {
+    if (isNaN(seconds)) return 'NaN';
+    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  };
+
+  const loadFfmpeg = useCallback(async () => {
     if (!ffmpegLoaded) {
         try {
             setMessage('Loading ffmpeg-core.js');
@@ -37,42 +120,82 @@ function Ffmpegwasm() {
     }
 }, [ffmpeg, ffmpegLoaded]);
 
-const renderVideo = React.useCallback(async () => {
+const renderVideo = useCallback(async () => {
   if (!ffmpegLoaded) {
       setMessage('Please load ffmpeg first.');
       return;
   }
 
-  if (audioFiles.length === 0 || imageFiles.length === 0) {
+  if (selectedAudioFiles.length === 0 || selectedImageFiles.length === 0) {
       setMessage('Please select at least one audio and one image file.');
       return;
   }
 
+  setRenderClicked(true);
+
   try {
       setMessage('Start rendering video');
-      const audioFile = audioFiles[0];
-      const imageFile = imageFiles[0];
+      const selectedImages = selectedImageFiles.map(index => imageFiles[index]);
+      const selectedAudios = selectedAudioFiles.map(index => audioFiles[index]);
 
-      ffmpeg.FS('writeFile', 'audio.mp3', await fetchFile(URL.createObjectURL(audioFile)));
-      ffmpeg.FS('writeFile', 'image.jpg', await fetchFile(URL.createObjectURL(imageFile)));
+      const audioInputs = [];
+      const audioFilters = [];
+      for (let index = 0; index < selectedAudios.length; index++) {
+        const file = selectedAudios[index];
+        const audioFileName = `audio${index}.mp3`;
+        audioInputs.push('-ss', '0', '-to', durations[selectedAudioFiles[index]].toFixed(2), '-i', audioFileName);
+        audioFilters.push(`[${index}:a]`);
+        await ffmpeg.FS('writeFile', audioFileName, await fetchFile(URL.createObjectURL(file)));
+      }
 
-      const command = ['-loop', '1', '-framerate', '2', '-i', 'image.jpg', '-i', 'audio.mp3', '-c:v', 'libx264', '-preset', 'slow', '-tune', 'stillimage', '-crf', '18', '-c:a', 'aac', '-b:a', '192k', '-shortest', 'output.mp4'];
+      const imageInputs = [];
+      for (let index = 0; index < selectedImages.length; index++) {
+        const file = selectedImages[index];
+        const imageFileName = `image${index}.jpg`;
+        imageInputs.push('-r', '2', '-i', imageFileName);
+        await ffmpeg.FS('writeFile', imageFileName, await fetchFile(URL.createObjectURL(file)));
+      }
+
+      const filterComplex = `${audioFilters.join('')}concat=n=${selectedAudios.length}:v=0:a=1[a];${selectedImages.map((_, index) => `[${selectedAudios.length + index}:v]scale=w=640:h=640:force_original_aspect_ratio=increase,boxblur=20:20,crop=640:640:(iw-640)/2:(ih-640)/2,setsar=1[bg${index}];[${selectedAudios.length + index}:v]scale=w=640:h=640:force_original_aspect_ratio=decrease,setsar=1,loop=6216:6216[fg${index}];[bg${index}][fg${index}]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2:shortest=1,loop=6216:6216[v${index}];`).join('')}${selectedImages.map((_, index) => `[v${index}]`).join('')}concat=n=${selectedImages.length}:v=1:a=0,pad=ceil(iw/2)*2:ceil(ih/2)*2[v]`;
+
+      const command = ['-y', ...audioInputs, ...imageInputs, '-filter_complex', filterComplex, '-map', '[v]', '-map', '[a]', '-c:a', 'aac', '-b:a', '320k', '-c:v', 'h264', '-movflags', '+faststart', '-profile:v', 'high', '-level:v', '4.2', '-bufsize', '3M', '-crf', '18', '-pix_fmt', 'yuv420p', '-tune', 'stillimage', '-t', duration.toFixed(2), 'output.mp4'];
+      setFfmpegCommand(command);
       console.log('Running ffmpeg command:', command.join(' '));
+
+      ffmpeg.setLogger(({ type, message }) => {
+        if (type === 'fferr') {
+          const match = message.match(/time=([\d:.]+)/);
+          if (match) {
+            const elapsed = match[1].split(':').reduce((acc, time) => (60 * acc) + +time, 0);
+            const progress = Math.min((elapsed / duration) * 100, 100);
+            setProgress(Math.round(progress));
+          }
+        }
+      });
 
       await ffmpeg.run(...command);
 
       setMessage('Complete rendering video');
       const data = ffmpeg.FS('readFile', 'output.mp4');
+      setOutputFileSize(data.length);
       setVideoSrc(URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' })));
   } catch (err) {
       setMessage('Error rendering video');
       console.error(err);
   }
-}, [ffmpeg, ffmpegLoaded, audioFiles, imageFiles]);
+}, [ffmpeg, ffmpegLoaded, audioFiles, imageFiles, resolution, duration, durations, selectedAudioFiles, selectedImageFiles]);
 
+const downloadVideo = () => {
+  const link = document.createElement('a');
+  link.href = videoSrc;
+  link.download = 'output.mp4';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
 
   return (
-    <div className={styles.App}> {/* Apply the CSS module styles */}
+    <div className={styles.App} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}> {/* Apply the CSS module styles */}
       <header className={styles.AppHeader}> {/* Apply the CSS module styles */}
         <h1>FFmpeg.wasm Test Page</h1>
         <p>This is a test page for <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer">ffmpeg.wasm</a>.</p>
@@ -80,14 +203,18 @@ const renderVideo = React.useCallback(async () => {
         <p>This site allows you to render videos using audio and image files.</p>
         <p>Created by Martin Barker. This site is a work in progress.</p>
       </header>
-      <input type="file" multiple onChange={handleFileChange} />
+      <input type="file" multiple onChange={handleFileChange} ref={fileInputRef} style={{ display: 'none' }} />
+      <div className={styles.dropZone} onClick={handleClick}>Click to select or drag and drop files here</div>
       <div>
         <h3>Audio Files</h3>
         <table>
           <tbody>
             {audioFiles.map((file, index) => (
-              <tr key={index}>
-                <td>{file.name}</td>
+              <tr key={index} onClick={() => handleRowClick(index, 'audio')}>
+                <td><input type="checkbox" checked={selectedAudioFiles.includes(index)} readOnly /></td>
+                <td className={styles.fileName}>{file.name}</td>
+                <td>{(file.size / (1024 * 1024)).toFixed(2)} MB</td>
+                <td>{formatDuration(durations[index])}</td>
               </tr>
             ))}
           </tbody>
@@ -98,17 +225,44 @@ const renderVideo = React.useCallback(async () => {
         <table>
           <tbody>
             {imageFiles.map((file, index) => (
-              <tr key={index}>
-                <td>{file.name}</td>
+              <tr key={index} onClick={() => handleRowClick(index, 'image')}>
+                <td><input type="checkbox" checked={selectedImageFiles.includes(index)} readOnly /></td>
+                <td className={styles.fileName}>{file.name}</td>
+                <td>{(file.size / (1024 * 1024)).toFixed(2)} MB</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <video src={videoSrc} controls></video><br/>
+      <div>
+        <label htmlFor="resolution">Output Resolution:</label>
+        <input type="text" id="resolution" value={resolution} onChange={(e) => setResolution(e.target.value)} />
+      </div>
+      <div>
+        <p>Total File Size: {(totalFileSize / (1024 * 1024)).toFixed(2)} MB</p>
+      </div>
+      <video src={videoSrc} controls className={styles.videoBox}></video><br/>
+      <div>
+        <p>Output Video File Size: {(outputFileSize / (1024 * 1024)).toFixed(2)} MB</p>
+      </div>
       <button onClick={loadFfmpeg} disabled={ffmpegLoaded}>Load ffmpeg</button>
-      <button onClick={renderVideo}>Render Video</button>
+      <button onClick={renderVideo} disabled={!ffmpegLoaded || !allDurationsCalculated || selectedAudioFiles.length === 0 || selectedImageFiles.length === 0}>
+        {allDurationsCalculated ? 'Render Video' : 'Wait for all audio file lengths to be calculated'}
+      </button>
+      <div style={{ visibility: progress === 0 && !renderClicked ? 'hidden' : 'visible' }}>
+        <h3>Render Progress</h3>
+        <p>{progress}%</p>
+      </div>
+      <button onClick={downloadVideo} disabled={!videoSrc}>Download Video</button>
       <p>{message}</p>
+      <div>
+        <h3>FFmpeg Command</h3>
+        <pre>
+          {ffmpegCommand.map((arg, index) => (
+            <div key={index}>{arg}</div>
+          ))}
+        </pre>
+      </div>
     </div>
   );
 }
