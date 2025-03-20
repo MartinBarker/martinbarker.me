@@ -2,6 +2,9 @@ require('dotenv').config();
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
+const { google } = require('googleapis');
+const OAuth2 = google.auth.OAuth2;
 const app = express();
 const port = 3030;
 
@@ -12,11 +15,13 @@ var algoliaApplicationId = null;
 var algoliaApiKey = "";
 var algoliaIndex = "";
 var gmailAppPassword = "";
+var oauth2Client = null;
 
 // Start server and set secrets
 app.listen(port, async () => {
   try {
     await setSecrets();
+    await initYouTubeOauth2ClientSetup();
     console.log(`Server is running on port ${port}`);
   } catch (error) {
     console.error("Failed to start server:", error);
@@ -159,3 +164,116 @@ app.post('/emailContactFormSubmission', async (req, res) => {
     res.sendStatus(400);
   }
 });
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// YouTube Auth Stuff Begin
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+initYouTubeOauth2ClientSetup();
+
+async function initYouTubeOauth2ClientSetup(){
+  oauth2Client = await createOauth2Client()
+}
+
+//generate youtube api url. ex: http://localhost:8080/getYtUrl?port=3112
+app.get('/getYtUrl', async function (req, res) {
+  try{
+    let callbackPort = req.query.port;
+    //console.log('/getYtUrl callbackPort=',callbackPort)
+    var ytApiUrl = await generateUrl(callbackPort);
+    res.status(200).json({ url: ytApiUrl });
+  }catch(err){
+    res.status(400).json({ error: `${err}` });
+  }
+})
+
+//auth with token, return sanitized oauth2client. ex: http://localhost:8080/getOauth2Client?token=4/0AAAAAA_AAAAA_AAA-AAAA-AAA_BBBB_UQ&scope=https://www.googleapis.com/auth/youtube.upload.
+app.get('/getOauth2Client', async function (req, res) {
+  try{
+    //get token from url http request
+    const authToken = req.originalUrl.substring(req.originalUrl.indexOf('token=') + 'token='.length);
+    console.log('/getOauth2Client authToken=[',authToken,']')  
+    //auth with token
+    var userOauth2client = await addTokenToOauth2client(authToken);
+    console.log('userOauth2client=',userOauth2client)
+    //sanitize
+    userOauth2client._clientId = "NAH"
+    userOauth2client._clientSecret = "NAH"
+    //return 
+    res.status(200).json(userOauth2client);
+    
+  }catch(err){
+    res.status(400).json({ error: `${err}` });
+  }
+})
+
+//authenticate oauth2client with user token
+async function addTokenToOauth2client(authToken){
+  return new Promise(async function (resolve, reject) {
+    try{
+      //oauth2Client.redirectUri = 'http://localhost:3001/ytCode';
+      var clientoauth2Client = oauth2Client;
+      clientoauth2Client.getToken(authToken, function (err, token) {
+        if (err) {
+            console.log('addTokenToOauth2client() Error trying to retrieve access token', err);
+            reject(err);
+        }
+        clientoauth2Client.credentials = token;
+        console.log('\n\n addTokenToOauth2client() done. clientoauth2Client=\n\n',clientoauth2Client,'\n\n')
+        resolve(clientoauth2Client);
+    })
+    }catch(err){
+      console.log('addTokenToOauth2client() err:', err)
+    }
+  })
+}
+
+//create oauth2client using local auth.json file 
+async function createOauth2Client() {
+  return new Promise(async function (resolve, reject) {
+    console.log('createOauth2Client()')
+    try {
+      fs.readFile(`${__dirname}/../static/assets/youtubeAuth/auth.json`, async function processClientSecrets(err, content) {
+        if (err) {
+          console.log('createOauth2Client() Error loading client secret file: ' + err);
+          return;
+        }
+        console.log('createOauth2Client() read auth.json file fine')
+        // Authorize a client with the loaded credentials
+        let credentials = JSON.parse(content)
+        const clientSecret = credentials.installed.client_secret;
+        const clientId = credentials.installed.client_id;
+        const redirect_uris = credentials.installed.redirect_uris;
+        oauth2Client = new OAuth2(clientId, clientSecret, redirect_uris);
+        console.log('createOauth2Client() done')
+        resolve(oauth2Client)
+      });
+    } catch (err) {
+      throw(`Error creating Oauth2 Client: ${err}`)
+    }
+  })
+}
+
+//generate youtube auth login url 
+async function generateUrl(callbackPort) {
+  return new Promise(async function (resolve, reject) {
+    try {
+      console.log('generateUrl()')
+      var redirectUrl = `http://localhost:${callbackPort}/ytCode`
+      const authUrl = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['https://www.googleapis.com/auth/youtube.upload'],
+        redirect_uri: redirectUrl
+      });
+     
+      console.log('generateUrl() Authorize this app by visiting this url: ', authUrl);
+      resolve(authUrl)
+    } catch (err) {
+      throw(`Error generating sign in url: ${err}`)
+    }
+  })
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// YouTube Auth Stuff End
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

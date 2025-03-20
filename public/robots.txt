@@ -14,6 +14,10 @@ Allow: /projects
 User-agent: *
 Allow: /rendertune
 Allow: /rendertune/download
+Allow: /rendertune/features
+Allow: /rendertune/contribute
+Allow: /rendertune/support
+Allow: /rendertune/help
 
 # SEO for Tagger.site
 User-agent: *
