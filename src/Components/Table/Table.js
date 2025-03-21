@@ -39,20 +39,20 @@ function IndeterminateCheckbox({ indeterminate, className = "", ...rest }) {
   );
 }
 
-function DragHandle({ row, rowIndex }) {
-  const { attributes, listeners } = useSortable({ id: row.original.id });
+function DragHandle({ row }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id: row.id,
+  });
 
   return (
-    <div className={styles.dragHandleWrapper}>
-      <button
-        {...attributes}
-        {...listeners}
-        className={styles.dragHandle}
-        title="Drag to reorder"
-      >
-        ☰
-      </button>
-      <span className={styles.rowNumber}>{rowIndex + 1}</span>
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={styles.dragHandle}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+    >
+      ☰
     </div>
   );
 }
@@ -129,8 +129,10 @@ function Row({
 
     const [startHours, startMinutes, startSeconds] = isOverAnHour ? startTime.split(':').map(Number) : [0, ...startTime.split(':').map(Number)];
     const [lengthHours, lengthMinutes, lengthSeconds] = isOverAnHour ? length.split(':').map(Number) : [0, ...length.split(':').map(Number)];
-    const totalStartSeconds = startHours * 3600 + startMinutes * 60 + startSeconds;
-    const totalLengthSeconds = lengthHours * 3600 + lengthMinutes * 60 + lengthSeconds;
+    
+    // Ensure all parsed values are valid numbers
+    const totalStartSeconds = (isNaN(startHours) ? 0 : startHours) * 3600 + (isNaN(startMinutes) ? 0 : startMinutes) * 60 + (isNaN(startSeconds) ? 0 : startSeconds);
+    const totalLengthSeconds = (isNaN(lengthHours) ? 0 : lengthHours) * 3600 + (isNaN(lengthMinutes) ? 0 : lengthMinutes) * 60 + (isNaN(lengthSeconds) ? 0 : lengthSeconds);
     const totalEndSeconds = totalStartSeconds + totalLengthSeconds;
 
     if (isNaN(totalEndSeconds)) return ''; // Return empty string if calculation results in NaN
@@ -521,15 +523,9 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
   };
 
   const clearTable = () => {
-    if (isRenderTable) {
-      setData([]);
-    } else {
-      setData([]);
-      if (isImageTable) {
-        setImageFiles([]);
-      } else {
-        setAudioFiles([]);
-      }
+    setData([]);  // Just clear the data
+    if (rowSelection) {
+      setRowSelection({});  // Clear selection if it exists
     }
   };
 
@@ -637,7 +633,7 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
             >
               ❌
             </button>
-          ),
+          )
         }
       );
     } else {
@@ -655,7 +651,7 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
           >
             ❌
           </button>
-        ),
+        )
       });
     }
 
@@ -811,7 +807,7 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
             <tbody>
               {table.getRowModel().rows.map((row, rowIndex) => (
                 <Row
-                  key={row.original.id}
+                  key={row.id} // Ensure unique key for each row
                   row={row}
                   rowIndex={rowIndex}
                   toggleRowSelected={toggleRowSelected}

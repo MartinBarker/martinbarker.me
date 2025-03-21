@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 import styles from './Ffmpegwasm.module.css'; // Import the CSS module
 import Table from "../Table/Table.js";
@@ -66,7 +66,13 @@ function Ffmpegwasm() {
   const processFiles = async (files) => {
     const audio = files.filter(file => file.type.startsWith('audio/'));
     const images = files.filter(file => file.type.startsWith('image/'));
-    setAudioFiles(audio);
+    const updatedAudioFiles = audio.map(file => ({ 
+      ...file, 
+      size: file.size,
+      name: file.name, // Add the name property
+      id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Add unique ID
+    }));
+    setAudioFiles(updatedAudioFiles);
     setImageFiles(images);
     const totalSize = files.reduce((acc, file) => acc + file.size, 0);
     setTotalFileSize(totalSize);
@@ -78,7 +84,9 @@ function Ffmpegwasm() {
 
     let totalDuration = 0;
     const fileDurations = [];
-    for (const file of audio) {
+    const processedAudioFiles = [...updatedAudioFiles];
+
+    for (const [index, file] of audio.entries()) {
       const audioData = await fetchFile(URL.createObjectURL(file));
       const audioBlob = new Blob([audioData], { type: file.type });
       const audioElement = new Audio(URL.createObjectURL(audioBlob));
@@ -87,12 +95,19 @@ function Ffmpegwasm() {
           const fileDuration = audioElement.duration;
           console.log(`Duration of ${file.name}: ${fileDuration} seconds`);
           totalDuration += fileDuration;
-          fileDurations.push(fileDuration);
-          setDurations([...fileDurations]);
+          fileDurations[index] = fileDuration;
+          processedAudioFiles[index] = { 
+            ...processedAudioFiles[index], // Keep the ID we generated
+            duration: fileDuration,
+            size: file.size 
+          };
           resolve();
         });
       });
     }
+    
+    setAudioFiles(processedAudioFiles);
+    setDurations(fileDurations);
     setDuration(totalDuration);
     setAllDurationsCalculated(true);
     console.log(`Total duration: ${totalDuration} seconds`);
@@ -100,10 +115,10 @@ function Ffmpegwasm() {
 
   const formatDuration = (seconds) => {
     if (isNaN(seconds)) return 'NaN';
-    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
-    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
-    return `${h}:${m}:${s}`;
+    const totalSeconds = parseFloat(seconds); // Ensure the duration is parsed as a float
+    const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+    const s = Math.floor(totalSeconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
   };
 
   const loadFfmpeg = useCallback(async () => {
@@ -194,6 +209,16 @@ const downloadVideo = () => {
   document.body.removeChild(link);
 };
 
+const clearTable = () => {
+  setAudioFiles([]);
+  setImageFiles([]);
+  setSelectedAudioFiles([]);
+  setSelectedImageFiles([]);
+  setDurations([]);  // Also clear durations
+  setDuration(0);    // Reset total duration
+  setAllDurationsCalculated(false);  // Reset duration calculation flag
+};
+
   return (
     <div className={styles.App} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}> {/* Apply the CSS module styles */}
       <header className={styles.AppHeader}> {/* Apply the CSS module styles */}
@@ -207,18 +232,28 @@ const downloadVideo = () => {
       <div className={styles.dropZone} onClick={handleClick}>Click to select or drag and drop files here</div>
       <div>
         <h3>Audio Files</h3>
-        <table>
-          <tbody>
-            {audioFiles.map((file, index) => (
-              <tr key={index} onClick={() => handleRowClick(index, 'audio')}>
-                <td><input type="checkbox" checked={selectedAudioFiles.includes(index)} readOnly /></td>
-                <td className={styles.fileName}>{file.name}</td>
-                <td>{(file.size / (1024 * 1024)).toFixed(2)} MB</td>
-                <td>{formatDuration(durations[index])}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table 
+          data={audioFiles} 
+          setData={setAudioFiles} 
+          columns={[
+            { 
+              accessorKey: 'name', 
+              header: 'File Name',
+              // Add a custom cell renderer to handle File objects
+              cell: info => info.row.original instanceof File ? info.row.original.name : info.getValue()
+            },
+            { accessorKey: 'size', header: 'Size (MB)', cell: info => (info.getValue() / (1024 * 1024)).toFixed(2) },
+            { 
+              accessorKey: 'duration', 
+              header: 'Duration', 
+              cell: info => formatDuration(info.getValue())
+            }
+          ]}
+          rowSelection={selectedAudioFiles}
+          setRowSelection={setSelectedAudioFiles}
+          title="Audio Files"
+          isAudioTable={true}
+        />
       </div>
       <div>
         <h3>Image Files</h3>
@@ -254,6 +289,7 @@ const downloadVideo = () => {
         <p>{progress}%</p>
       </div>
       <button onClick={downloadVideo} disabled={!videoSrc}>Download Video</button>
+      <button onClick={clearTable}>Clear Table</button>
       <p>{message}</p>
       <div>
         <h3>FFmpeg Command</h3>
