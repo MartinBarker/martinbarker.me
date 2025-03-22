@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import RenderTuneIcon from "../../ico/rendertune.ico";
+import ImageModal from '../ImageModal/ImageModal';
 
 const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
   const isInitialMobile = window.innerWidth <= 768;
@@ -228,7 +229,7 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
     <>
       <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
         <defs>
-          <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" color-interpolation-filters="sRGB" overflow="visible">
+          <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" colorInterpolationFilters="sRGB" overflow="visible">
             <feTurbulence type="fractalNoise" baseFrequency="0.004" numOctaves="1" result="bigNoise" />
             <feComponentTransfer in="bigNoise" result="bigNoiseAdjusted">
               <feFuncR type="linear" slope="3" intercept="-1" />
@@ -435,14 +436,10 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
           </div>
         </main>
         {imageModalOpen && (
-          <div className={styles.modal} onClick={() => setImageModalOpen(false)}>
-            <span className={styles.closeModal}>&times;</span>
-            <div className={styles.modalContent}>
-              {randomImage && (
-                <img src={randomImage} alt="Random aesthetic" className={styles.modalImage} />
-              )}
-            </div>
-          </div>
+          <ImageModal 
+            imageUrl={randomImage} 
+            onClose={() => setImageModalOpen(false)} 
+          />
         )}
       </div>
     </>

@@ -18,6 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import styles from "./Table.module.css";
+import { fetchFile } from '@ffmpeg/ffmpeg'; // Import fetchFile
 
 // Indeterminate Checkbox Component
 function IndeterminateCheckbox({ indeterminate, className = "", ...rest }) {
@@ -39,7 +40,7 @@ function IndeterminateCheckbox({ indeterminate, className = "", ...rest }) {
   );
 }
 
-function DragHandle({ row }) {
+function DragHandle({ row, rowIndex }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: row.id,
   });
@@ -49,10 +50,11 @@ function DragHandle({ row }) {
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={styles.dragHandle}
+      className={styles.dragHandleWrapper}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
-      ☰
+      <span className={styles.rowNumber}>{rowIndex + 1}</span>
+      <span className={styles.dragHandle}>☰</span>
     </div>
   );
 }
@@ -129,7 +131,7 @@ function Row({
 
     const [startHours, startMinutes, startSeconds] = isOverAnHour ? startTime.split(':').map(Number) : [0, ...startTime.split(':').map(Number)];
     const [lengthHours, lengthMinutes, lengthSeconds] = isOverAnHour ? length.split(':').map(Number) : [0, ...length.split(':').map(Number)];
-    
+
     // Ensure all parsed values are valid numbers
     const totalStartSeconds = (isNaN(startHours) ? 0 : startHours) * 3600 + (isNaN(startMinutes) ? 0 : startMinutes) * 60 + (isNaN(startSeconds) ? 0 : startSeconds);
     const totalLengthSeconds = (isNaN(lengthHours) ? 0 : lengthHours) * 3600 + (isNaN(lengthMinutes) ? 0 : lengthMinutes) * 60 + (isNaN(lengthSeconds) ? 0 : lengthSeconds);
@@ -162,28 +164,6 @@ function Row({
       const savedPalette = localStorage.getItem(`color-palette-${row.original.filepath}`);
       if (savedPalette) {
         setColorPalette(JSON.parse(savedPalette));
-      } else {
-        //console.log('Requesting color palette for:', row.original.filepath);
-        window.api.send('get-color-palette', row.original.filepath);
-        const responseChannel = `color-palette-response-${row.original.filepath}`;
-        window.api.receive(responseChannel, (colors) => {
-          //console.log('Received color palette:', colors);
-          setColorPalette((prevPalette) => {
-            const newPalette = {
-              Vibrant: colors.Vibrant || prevPalette.Vibrant,
-              DarkVibrant: colors.DarkVibrant || prevPalette.DarkVibrant,
-              LightVibrant: colors.LightVibrant || prevPalette.LightVibrant,
-              Muted: colors.Muted || prevPalette.Muted,
-              DarkMuted: colors.DarkMuted || prevPalette.DarkMuted,
-              LightMuted: colors.LightMuted || prevPalette.LightMuted
-            };
-            localStorage.setItem(`color-palette-${row.original.filepath}`, JSON.stringify(newPalette));
-            return newPalette;
-          });
-        });
-        return () => {
-          window.api.removeAllListeners(responseChannel);
-        };
       }
     }
   }, [row.original.filepath, isImageTable]);
@@ -289,6 +269,53 @@ function Row({
     }
   };
 
+  useEffect(() => {
+    if (isImageTable && row.original) {
+      const embedImage = (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const objectUrl = e.target.result;
+          setImageFiles((prev) =>
+            prev.map((img) =>
+              img.id === row.original.id
+                ? { ...img, thumbnailUrl: objectUrl }
+                : img
+            )
+          );
+        };
+        reader.readAsDataURL(file);
+      };
+
+      // Check if row.original is a File object
+      if (row.original instanceof File) {
+        embedImage(row.original);
+      }
+    }
+  }, [row.original, isImageTable]);
+
+  useEffect(() => {
+    if (isImageTable && row.original) {
+      const generateThumbnail = (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const base64String = e.target.result;
+          setImageFiles((prev) =>
+            prev.map((img) =>
+              img.id === row.original.id
+                ? { ...img, thumbnailUrl: base64String }
+                : img
+            )
+          );
+        };
+        reader.readAsDataURL(file);
+      };
+
+      if (row.original instanceof File) {
+        generateThumbnail(row.original);
+      }
+    }
+  }, [row.original, isImageTable, setImageFiles]);
+
   return (
     <>
       <tr
@@ -315,9 +342,8 @@ function Row({
               {/* Render Expand Icon */}
               {columnHeader === "Expand" && (
                 <span
-                  className={`${styles.expandIcon} ${
-                    isExpanded ? styles.expanded : ""
-                  }`}
+                  className={`${styles.expandIcon} ${isExpanded ? styles.expanded : ""
+                    }`}
                   onClick={(e) => {
                     e.stopPropagation();
                     toggleRowExpanded(row.id);
@@ -342,11 +368,17 @@ function Row({
                 </button>
               )}
 
+              {/* Render Thumbnail */}
+              {columnHeader === "Thumbnail" &&
+                flexRender(cell.column.columnDef.cell, cell.getContext())
+              }
+
               {/* Render other cells */}
               {columnHeader !== "Expand" &&
                 columnHeader !== "Drag" &&
                 columnHeader !== "Remove" &&
                 columnHeader !== "Duration" &&
+                columnHeader !== "Thumbnail" &&
                 flexRender(cell.column.columnDef.cell, cell.getContext())}
 
               {/* Render Duration cell */}
@@ -470,7 +502,29 @@ function Row({
   );
 }
 
-function Table({ data, setData, columns, rowSelection, setRowSelection, isImageTable, isRenderTable, setImageFiles, setAudioFiles, ffmpegCommand, removeRender, globalFilter, setGlobalFilter, title }) {
+function Table({
+  data,
+  setData,
+  columns,
+  rowSelection,
+  setRowSelection,
+  isImageTable,
+  isRenderTable,
+  setImageFiles,
+  setAudioFiles,
+  ffmpegCommand,
+  removeRender,
+  globalFilter,
+  setGlobalFilter,
+  title,
+  // Add these new props
+  setMessage,
+  setTotalFileSize,
+  setDurations,
+  setDuration,
+  setAllDurationsCalculated,
+  emptyTableText // Add this new prop
+}) {
   const [sorting, setSorting] = useState([]);
   const [expandedRows, setExpandedRows] = useState(() => {
     const savedExpandedRows = localStorage.getItem('expandedRows');
@@ -569,16 +623,19 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
             />
           </div>
         ),
+        size: 10, // Set column width to 10px
       },
       {
         id: "expand",
         header: "Expand",
         cell: () => null,
+        size: 10, // Set column width to 10px
       },
       {
         id: "drag",
         header: "Drag",
         cell: () => null,
+        size: 10, // Set column width to 10px
       },
       ...columns.map((column) => ({
         ...column,
@@ -725,64 +782,66 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
     <div>
       <div className={styles.tableControls}>
         <h2 className={styles.tableTitle}>{title}</h2>
-        <div className={styles.controlsWrapper}>
-          <input
-            type="text"
-            value={globalFilter}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            placeholder="Search..."
-            className={styles.search}
-          />
-          <div className={styles.pagination}>
-            <button
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              Previous
-            </button>
-            <span>
-              Page {table.getState().pagination.pageIndex + 1} of{" "}
-              {table.getPageCount()}
-            </span>
-            <button
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              Next
-            </button>
-            <span>
-              | Go to page: 
-              <input
-                type="number"
-                min="1"
-                max={table.getPageCount()}
-                defaultValue={table.getState().pagination.pageIndex + 1}
+        {data.length > 0 && ( // Conditionally render pagination controls
+          <div className={styles.controlsWrapper}>
+            <input
+              type="text"
+              value={globalFilter}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              placeholder="Search..."
+              className={styles.search}
+            />
+            <div className={styles.pagination}>
+              <button
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
+                Previous
+              </button>
+              <span>
+                Page {table.getState().pagination.pageIndex + 1} of{" "}
+                {table.getPageCount()}
+              </span>
+              <button
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+              >
+                Next
+              </button>
+              <span>
+                | Go to page:
+                <input
+                  type="number"
+                  min="1"
+                  max={table.getPageCount()}
+                  defaultValue={table.getState().pagination.pageIndex + 1}
+                  onChange={(e) => {
+                    const page = e.target.value ? Number(e.target.value) - 1 : 0;
+                    table.setPageIndex(page);
+                  }}
+                  className={styles.pageInput}
+                />
+              </span>
+              <select
+                value={table.getState().pagination.pageSize}
                 onChange={(e) => {
-                  const page = e.target.value ? Number(e.target.value) - 1 : 0;
-                  table.setPageIndex(page);
+                  const value = e.target.value;
+                  table.setPageSize(value === 'all' ? data.length : Number(value));
                 }}
-                className={styles.pageInput}
-              />
-            </span>
-            <select
-              value={table.getState().pagination.pageSize}
-              onChange={(e) => {
-                const value = e.target.value;
-                table.setPageSize(value === 'all' ? data.length : Number(value));
-              }}
-            >
-              {[10, 20, 30, 40, 50].map((pageSize) => (
-                <option key={pageSize} value={pageSize}>
-                  Show {pageSize}
-                </option>
-              ))}
-              <option value="all">All</option>
-            </select>
+              >
+                {[10, 20, 30, 40, 50].map((pageSize) => (
+                  <option key={pageSize} value={pageSize}>
+                    Show {pageSize}
+                  </option>
+                ))}
+                <option value="all">All</option>
+              </select>
+            </div>
+            <button onClick={clearTable} className={`${styles.clearButton} ${styles.smallButton}`}>
+              Clear Table
+            </button>
           </div>
-          <button onClick={clearTable} className={`${styles.clearButton} ${styles.smallButton}`}>
-            Clear Table
-          </button>
-        </div>
+        )}
       </div>
       <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext
@@ -805,24 +864,32 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
               ))}
             </thead>
             <tbody>
-              {table.getRowModel().rows.map((row, rowIndex) => (
-                <Row
-                  key={row.id} // Ensure unique key for each row
-                  row={row}
-                  rowIndex={rowIndex}
-                  toggleRowSelected={toggleRowSelected}
-                  toggleRowExpanded={toggleRowExpanded}
-                  isExpanded={!!expandedRows[row.id]}
-                  removeRow={removeRow}
-                  isImageTable={isImageTable}
-                  isRenderTable={isRenderTable}
-                  setImageFiles={setImageFiles}
-                  setAudioFiles={setAudioFiles}
-                  ffmpegCommand={ffmpegCommand}
-                  setErrors={setErrors}
-                  errors={errors}
-                />
-              ))}
+              {table.getRowModel().rows.length > 0 ? (
+                table.getRowModel().rows.map((row, rowIndex) => (
+                  <Row
+                    key={row.id}
+                    row={row}
+                    rowIndex={rowIndex}
+                    toggleRowSelected={toggleRowSelected}
+                    toggleRowExpanded={toggleRowExpanded}
+                    isExpanded={!!expandedRows[row.id]}
+                    removeRow={removeRow}
+                    isImageTable={isImageTable}
+                    isRenderTable={isRenderTable}
+                    setImageFiles={setImageFiles}
+                    setAudioFiles={setAudioFiles}
+                    ffmpegCommand={ffmpegCommand}
+                    setErrors={setErrors}
+                    errors={errors}
+                  />
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={table.getAllColumns().length} className={styles.emptyRow}>
+                    {emptyTableText} {/* Use the new prop here */}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </SortableContext>
@@ -834,7 +901,7 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
       </div>
       {/* 
       {!isImageTable && !isRenderTable && (
-        <div className={styles.footer}>
+        <div className={styles.footer}></div>
           <span>Total selected duration: {totalSelectedDuration}</span>
         </div>
       )}

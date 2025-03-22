@@ -6,6 +6,10 @@
   background-color: #f9f9f9;
   color: #333;
   font-family: Arial, sans-serif;
+  transition: none;
+  table-layout: fixed;  /* Add this to maintain fixed column widths */
+  min-width: 100%;
+  max-width: 100%;
 }
 
 .headerRow {
@@ -23,6 +27,9 @@
   /* For sorting icon alignment */
   user-select: none;
   /* Prevents text selection */
+  max-width: 200px;  /* Match the cell max-width */
+  min-width: 50px;   /* Match the cell min-width */
+  width: auto;       /* Let the header determine its width within min/max */
 }
 
 .row {
@@ -45,6 +52,9 @@
   /* Prevent overflow */
   text-overflow: ellipsis;
   /* Add "..." if truncated */
+  max-width: 200px;  /* Add maximum width for cells */
+  min-width: 50px;   /* Add minimum width for cells */
+  width: auto;       /* Let the cell determine its width within min/max */
 }
 
 .dragHandle {
@@ -87,6 +97,7 @@
 /* Expanded Row Styles */
 .expandedRow {
   background-color: #f1f1f1;
+  transition: none;
 }
 
 .expandedContent {
@@ -102,6 +113,7 @@
   max-height: 200px;
   overflow-y: auto;
   justify-content: flex-start; /* Align items to the left */
+  transition: none;
 }
 
 .expandedContent pre {
@@ -253,8 +265,9 @@
 }
 
 .rowNumber {
-  font-size: 14px;
-  color: #555;
+  font-size: 12px;
+  color: #666;
+  min-width: 20px;
 }
 
 .sortableHeader {
@@ -320,8 +333,8 @@
 }
 
 .thumbnailWrapper {
-  width: 150px;
-  height: 150px;
+  width: 70px;
+  height: 70px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -333,18 +346,16 @@
 }
 
 .thumbnail {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  /* Ensure the full image is always visible */
-  transition: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.3s ease;
 }
 
 .placeholder {
-  width: 100%;
-  height: 100%;
+  width: 100px;
+  height: 100px;
   background-color: #cccccc;
-  /* Grey placeholder */
 }
 
 .colorBox {
@@ -401,6 +412,7 @@
   text-overflow: ellipsis; /* Add ellipsis for overflow text */
   max-width: 100%; /* Ensure it doesn't exceed the container width */
   font-size: 1.5rem; /* Initial font size */
+  color: #333;
   transition: font-size 0.2s ease; /* Smooth transition for font size */
 }
 
@@ -437,6 +449,19 @@
 
 .removeButton:hover {
   color: #c82333;
+}
+
+.emptyRow {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 20px;
+}
+
+.renderOptionsSection {
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;  /* Allow horizontal scroll if needed */
 }
 
 

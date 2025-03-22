@@ -6,6 +6,31 @@
     padding: 20px;
 }
 
+.row {
+    display: flex;
+    gap: 20px;
+}
+
+.ffmpegSection, .outputSection {
+    flex: 1;
+    background: #f8f9fa;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    transition: box-shadow 0.3s ease;
+}
+
+.equalHeight {
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.headerLine {
+    border: none;
+    border-top: 1px solid #dee2e6;
+    margin: 4px 0; /* Reduced margin */
+}
+
 .App-logo {
     height: 40vmin;
     pointer-events: none;
@@ -15,6 +40,22 @@
     .App-logo {
         animation: App-logo-spin infinite 20s linear;
     }
+}
+
+.Project_thumbnailWrapper__rt31Q {
+  width: 100px;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.Project_thumbnail__6Kt9k {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .App-header {
@@ -58,8 +99,8 @@
 }
 
 .videoBox {
-    width: 300px;
-    height: 300px;
+    width: 200px;
+    height: 200px;
     display: block;
     margin: 0 auto;
 }
@@ -90,4 +131,381 @@
     bottom: 0;
     background: linear-gradient(to bottom, rgba(255, 255, 255, 0), rgba(255, 255, 255, 1));
     pointer-events: none;
+}
+
+.getSelectedButton {
+  margin: 10px;
+  padding: 8px 16px;
+  font-size: 14px;
+  border: none;
+  border-radius: 4px;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.getSelectedButton:hover {
+  background-color: #0056b3;
+}
+
+.thumbnailContainer {
+  width: 100px;
+  height: 100px;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f5f5f5;
+  overflow: hidden;
+}
+
+.thumbnailContainer:hover {
+  transform: scale(1.05);
+}
+
+.thumbnailContainer:hover::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.3));
+}
+
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+.modalContent {
+  width: 90vw;
+  height: 90vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  animation: scaleIn 0.3s ease;
+}
+
+.modalImage {
+  max-width: 90%;
+  max-height: 90%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.modalCloseButton {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.modalCloseButton:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.modalInfo {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: center;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.8); }
+  to { transform: scale(1); }
+}
+
+.thumbnailImage {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.loadButton {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  height: 24px;
+  width: 120px;  /* Changed from 140px to 120px */
+  min-width: 120px;  /* Changed from 140px to 120px */
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loadButton:hover {
+  background-color: #0056b3;
+}
+
+.loadButton:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.sectionTitle {
+  font-size: 1.2rem;
+  margin: 0;
+  padding: 0;
+}
+
+.ffmpegHeader {
+  /* ...existing code... */
+}
+
+.ffmpegControls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px; /* Add margin-top to separate from the header */
+}
+
+.viewLogsButton {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  height: 24px;
+  width: 100px;  /* Adjusted width to accommodate new text */
+  min-width: 100px;  /* Adjusted width to accommodate new text */
+  background-color: #ababab!important; /* Changed background color */
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;  /* Prevent text wrapping */
+  overflow: hidden;     /* Hide overflow text */
+  text-overflow: ellipsis; /* Add ellipsis for overflow */
+}
+
+.viewLogsButton:hover {
+  background-color: #d6d6d6;  /* Darker grey on hover */
+}
+
+.ffmpegMessage {
+  margin: 15px 0;
+  padding: 10px;
+  background: #e9ecef;
+  border-radius: 4px;
+  color: #495057;
+  font-family: monospace;
+}
+
+.videoWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border: 1px solid #dee2e6;
+}
+
+.emptyVideo {
+  width: 200px;
+  height: 200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+  border-radius: 4px;
+  color: #666;
+  font-style: italic;
+}
+
+.ffmpegControls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.logsContainer {
+  height: 200px;
+  margin-top: 10px;
+  padding: 10px;
+  background: #1e1e1e;
+  border-radius: 4px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: #fff;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.emptyLogs {
+  color: #888;
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+.logLine {
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.logLine:last-child {
+  border-bottom: none;
+}
+
+.outputSection {
+  text-align: left;
+}
+
+.outputControls {
+  margin-top: 15px;
+  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.buttonGroup {
+  display: flex;
+  gap: 10px;
+}
+
+.buttonGroup button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.buttonGroup button:first-child {
+  background-color: #28a745;
+  color: white;
+}
+
+.buttonGroup button:last-child {
+  background-color: #dc3545;
+  color: white;
+}
+
+.buttonGroup button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.buttonGroup button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 768px) {
+  .ffmpegHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .outputControls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .buttonGroup {
+    width: 100%;
+  }
+
+  .buttonGroup button {
+    flex: 1;
+  }
+}
+
+.loadButton, .viewLogsButton {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  height: 24px;
+  min-width: 90px;  /* Increased from 80px to 90px */
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;  /* Prevent text wrapping */
+  overflow: hidden;     /* Hide overflow text */
+  text-overflow: ellipsis; /* Add ellipsis for overflow */
+}
+
+.ffmpegMessage {
+  margin: 8px 0;
+  padding: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  color: #495057;
+  font-family: monospace;
+  text-align: left;
+  font-size: 0.8rem;
+}
+
+.logsContainer {
+  margin-top: 8px;
+  padding: 8px;
+  background: #1e1e1e;
+  border-radius: 4px;
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #fff;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  text-align: left;
+}
+
+.sectionTitle, 
+.tableTitle, 
+.renderOptionsTitle {
+  font-size: 1.5rem;
+  color: #333;
+  margin-bottom: 10px;
+  text-align: left;
 }
