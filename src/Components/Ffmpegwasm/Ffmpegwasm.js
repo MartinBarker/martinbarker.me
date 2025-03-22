@@ -25,8 +25,68 @@ function Ffmpegwasm() {
   const [durations, setDurations] = useState([]);
   const [allDurationsCalculated, setAllDurationsCalculated] = useState(false);
   const [renderClicked, setRenderClicked] = useState(false);
+  const [imageRowSelection, setImageRowSelection] = useState({});
+  const [globalFilter, setGlobalFilter] = useState('');
   const ffmpeg = useMemo(() => createFFmpeg({ log: true }), []);
   const fileInputRef = useRef(null);
+
+  const audioExtensions = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'aiff', 'wma', 'amr', 'opus', 'alac', 'pcm', 'mid', 'midi', 'aif', 'caf'];
+  const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp', 'heif', 'heic', 'ico', 'svg', 'raw', 'cr2', 'nef', 'orf', 'arw', 'raf', 'dng', 'pef', 'sr2'];
+
+  const Thumbnail = ({ src }) => {
+    const [imageUrl, setImageUrl] = useState('');
+
+    useEffect(() => {
+      if (!(src instanceof File)) {
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImageUrl(e.target.result);
+      };
+      reader.readAsDataURL(src);
+
+      return () => {
+        reader.abort();
+        if (imageUrl) {
+          URL.revokeObjectURL(imageUrl);
+        }
+      };
+    }, [src]);
+
+    if (!imageUrl) {
+      return null;
+    }
+
+    return (
+      <div className={styles.thumbnailContainer}>
+        <img 
+          src={imageUrl}
+          alt="thumbnail"
+          className={styles.thumbnailImage}
+        />
+      </div>
+    );
+  };
+
+  const imageColumns = [
+    {
+      accessorKey: 'thumbnail',
+      header: 'Thumbnail',
+      cell: ({ row }) => <Thumbnail src={row.original} />
+    },
+    { 
+      accessorKey: 'name', 
+      header: 'File Name',
+      cell: ({ row }) => row.original.name 
+    },
+    { 
+      accessorKey: 'size', 
+      header: 'Size (MB)', 
+      cell: ({ row }) => (row.original.size / (1024 * 1024)).toFixed(2)
+    },
+  ];
 
   const handleFileChange = (event) => {
     const files = Array.from(event.target.files);
@@ -64,16 +124,34 @@ function Ffmpegwasm() {
   };
 
   const processFiles = async (files) => {
-    const audio = files.filter(file => file.type.startsWith('audio/'));
-    const images = files.filter(file => file.type.startsWith('image/'));
-    const updatedAudioFiles = audio.map(file => ({ 
-      ...file, 
-      size: file.size,
-      name: file.name, // Add the name property
-      id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // Add unique ID
+    const audio = files.filter(file => {
+      const ext = file.name.split('.').pop().toLowerCase();
+      return audioExtensions.includes(ext);
+    });
+
+    const images = files.filter(file => {
+      const ext = file.name.split('.').pop().toLowerCase();
+      return imageExtensions.includes(ext);
+    });
+
+    if (files.length !== (audio.length + images.length)) {
+      setMessage('Warning: Some files were skipped due to unsupported format.');
+    }
+
+    // Keep the original File objects
+    const updatedImageFiles = images.map(file => ({
+      ...file,
+      id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     }));
+    const updatedAudioFiles = audio.map(file => ({
+      ...file,
+      size: file.size,
+      name: file.name,
+      id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    }));
+
     setAudioFiles(updatedAudioFiles);
-    setImageFiles(images);
+    setImageFiles(updatedImageFiles);
     const totalSize = files.reduce((acc, file) => acc + file.size, 0);
     setTotalFileSize(totalSize);
     if (totalSize > 4 * 1024 * 1024 * 1024) {
@@ -219,19 +297,30 @@ const clearTable = () => {
   setAllDurationsCalculated(false);  // Reset duration calculation flag
 };
 
+const getSelectedAudioRows = () => {
+  const selectedRows = audioFiles.filter(file => selectedAudioFiles[file.id]);
+  console.log('Selected audio rows:', selectedRows);
+};
+
   return (
     <div className={styles.App} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}> {/* Apply the CSS module styles */}
       <header className={styles.AppHeader}> {/* Apply the CSS module styles */}
-        <h1>FFmpeg.wasm Test Page</h1>
-        <p>This is a test page for <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer">ffmpeg.wasm</a>.</p>
-        <p>FFmpeg.wasm is a WebAssembly port of FFmpeg, which allows you to run FFmpeg directly in the browser.</p>
-        <p>This site allows you to render videos using audio and image files.</p>
-        <p>Created by Martin Barker. This site is a work in progress.</p>
+        <p>
+          This is a test page for <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer">ffmpeg.wasm</a>. 
+          FFmpeg.wasm is a WebAssembly port of FFmpeg, which allows you to run FFmpeg directly in the browser. 
+          This site allows you to render videos using audio and image files. 
+          Created by Martin Barker. This site is a work in progress.
+        </p>
       </header>
       <input type="file" multiple onChange={handleFileChange} ref={fileInputRef} style={{ display: 'none' }} />
       <div className={styles.dropZone} onClick={handleClick}>Click to select or drag and drop files here</div>
+      
+      {/* Update the button to use the specific class 
+      <button onClick={getSelectedAudioRows} className={styles.getSelectedButton}>
+        Get Selected Audio Rows
+      </button> */}
+      
       <div>
-        <h3>Audio Files</h3>
         <Table 
           data={audioFiles} 
           setData={setAudioFiles} 
@@ -253,21 +342,34 @@ const clearTable = () => {
           setRowSelection={setSelectedAudioFiles}
           title="Audio Files"
           isAudioTable={true}
+          globalFilter={globalFilter}
+          setGlobalFilter={setGlobalFilter}
+          setMessage={setMessage}
+          setTotalFileSize={setTotalFileSize}
+          setDurations={setDurations}
+          setDuration={setDuration}
+          setAllDurationsCalculated={setAllDurationsCalculated}
         />
       </div>
       <div>
-        <h3>Image Files</h3>
-        <table>
-          <tbody>
-            {imageFiles.map((file, index) => (
-              <tr key={index} onClick={() => handleRowClick(index, 'image')}>
-                <td><input type="checkbox" checked={selectedImageFiles.includes(index)} readOnly /></td>
-                <td className={styles.fileName}>{file.name}</td>
-                <td>{(file.size / (1024 * 1024)).toFixed(2)} MB</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table
+          title="Image Files"
+          data={imageFiles}
+          rowSelection={imageRowSelection}
+          setRowSelection={setImageRowSelection}
+          setData={setImageFiles}
+          columns={imageColumns}
+          isImageTable={true}
+          setImageFiles={setImageFiles}
+          globalFilter={globalFilter}
+          setGlobalFilter={setGlobalFilter}
+          // Add empty function props to avoid undefined errors
+          setMessage={setMessage}
+          setTotalFileSize={setTotalFileSize}
+          setDurations={() => {}}
+          setDuration={() => {}}
+          setAllDurationsCalculated={() => {}}
+        />
       </div>
       <div>
         <label htmlFor="resolution">Output Resolution:</label>
@@ -299,8 +401,59 @@ const clearTable = () => {
           ))}
         </pre>
       </div>
+      
+      {/* Display selected images */}
+      {imageFiles.length > 0 && (
+        <div className={styles.selectedImagesContainer}>
+          <h3>Selected Images</h3>
+          <div className={styles.imageGrid}>
+            {imageFiles.map((file, index) => (
+              <div key={index} className={styles.imageWrapper}>
+                {file instanceof File && (
+                  <FilePreview 
+                    file={file} 
+                    index={index}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// Add this new component inside Ffmpegwasm component
+const FilePreview = ({ file, index }) => {
+  const [previewUrl, setPreviewUrl] = useState('');
+
+  useEffect(() => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setPreviewUrl(e.target.result);
+    };
+    reader.readAsDataURL(file);
+
+    return () => {
+      reader.abort();
+    };
+  }, [file]);
+
+  if (!previewUrl) {
+    return null;
+  }
+
+  return (
+    <>
+      <img
+        src={previewUrl}
+        alt={`Selected ${index + 1}`}
+        className={styles.previewImage}
+      />
+      <p className={styles.imageName}>{file.name}</p>
+    </>
+  );
+};
 
 export default Ffmpegwasm;

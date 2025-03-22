@@ -18,6 +18,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import styles from "./Table.module.css";
+import { fetchFile } from '@ffmpeg/ffmpeg'; // Import fetchFile
 
 // Indeterminate Checkbox Component
 function IndeterminateCheckbox({ indeterminate, className = "", ...rest }) {
@@ -39,7 +40,7 @@ function IndeterminateCheckbox({ indeterminate, className = "", ...rest }) {
   );
 }
 
-function DragHandle({ row }) {
+function DragHandle({ row, rowIndex }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: row.id,
   });
@@ -49,10 +50,11 @@ function DragHandle({ row }) {
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={styles.dragHandle}
+      className={styles.dragHandleWrapper}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
-      ☰
+      <span className={styles.rowNumber}>{rowIndex + 1}</span>
+      <span className={styles.dragHandle}>☰</span>
     </div>
   );
 }
@@ -162,28 +164,6 @@ function Row({
       const savedPalette = localStorage.getItem(`color-palette-${row.original.filepath}`);
       if (savedPalette) {
         setColorPalette(JSON.parse(savedPalette));
-      } else {
-        //console.log('Requesting color palette for:', row.original.filepath);
-        window.api.send('get-color-palette', row.original.filepath);
-        const responseChannel = `color-palette-response-${row.original.filepath}`;
-        window.api.receive(responseChannel, (colors) => {
-          //console.log('Received color palette:', colors);
-          setColorPalette((prevPalette) => {
-            const newPalette = {
-              Vibrant: colors.Vibrant || prevPalette.Vibrant,
-              DarkVibrant: colors.DarkVibrant || prevPalette.DarkVibrant,
-              LightVibrant: colors.LightVibrant || prevPalette.LightVibrant,
-              Muted: colors.Muted || prevPalette.Muted,
-              DarkMuted: colors.DarkMuted || prevPalette.DarkMuted,
-              LightMuted: colors.LightMuted || prevPalette.LightMuted
-            };
-            localStorage.setItem(`color-palette-${row.original.filepath}`, JSON.stringify(newPalette));
-            return newPalette;
-          });
-        });
-        return () => {
-          window.api.removeAllListeners(responseChannel);
-        };
       }
     }
   }, [row.original.filepath, isImageTable]);
@@ -289,6 +269,28 @@ function Row({
     }
   };
 
+  useEffect(() => {
+    if (isImageTable) {
+      const embedImage = (file) => {
+        if (!(file instanceof File)) {
+          console.error('Invalid file input for embedding image');
+          return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        setImageFiles((prev) =>
+          prev.map((img) =>
+            img.id === row.original.id
+              ? { ...img, thumbnailUrl: objectUrl }
+              : img
+          )
+        );
+      };
+
+      embedImage(row.original);
+    }
+  }, [row.original, isImageTable]);
+
   return (
     <>
       <tr
@@ -342,11 +344,17 @@ function Row({
                 </button>
               )}
 
+              {/* Render Thumbnail */}
+              {columnHeader === "Thumbnail" && row.original.thumbnailUrl && (
+                <img src={row.original.thumbnailUrl} alt="thumbnail" className={styles.thumbnail} />
+              )}
+
               {/* Render other cells */}
               {columnHeader !== "Expand" &&
                 columnHeader !== "Drag" &&
                 columnHeader !== "Remove" &&
                 columnHeader !== "Duration" &&
+                columnHeader !== "Thumbnail" &&
                 flexRender(cell.column.columnDef.cell, cell.getContext())}
 
               {/* Render Duration cell */}
@@ -470,7 +478,28 @@ function Row({
   );
 }
 
-function Table({ data, setData, columns, rowSelection, setRowSelection, isImageTable, isRenderTable, setImageFiles, setAudioFiles, ffmpegCommand, removeRender, globalFilter, setGlobalFilter, title }) {
+function Table({ 
+  data, 
+  setData, 
+  columns, 
+  rowSelection, 
+  setRowSelection, 
+  isImageTable, 
+  isRenderTable, 
+  setImageFiles, 
+  setAudioFiles, 
+  ffmpegCommand, 
+  removeRender, 
+  globalFilter, 
+  setGlobalFilter, 
+  title,
+  // Add these new props
+  setMessage,
+  setTotalFileSize,
+  setDurations,
+  setDuration,
+  setAllDurationsCalculated
+}) {
   const [sorting, setSorting] = useState([]);
   const [expandedRows, setExpandedRows] = useState(() => {
     const savedExpandedRows = localStorage.getItem('expandedRows');
@@ -805,24 +834,32 @@ function Table({ data, setData, columns, rowSelection, setRowSelection, isImageT
               ))}
             </thead>
             <tbody>
-              {table.getRowModel().rows.map((row, rowIndex) => (
-                <Row
-                  key={row.id} // Ensure unique key for each row
-                  row={row}
-                  rowIndex={rowIndex}
-                  toggleRowSelected={toggleRowSelected}
-                  toggleRowExpanded={toggleRowExpanded}
-                  isExpanded={!!expandedRows[row.id]}
-                  removeRow={removeRow}
-                  isImageTable={isImageTable}
-                  isRenderTable={isRenderTable}
-                  setImageFiles={setImageFiles}
-                  setAudioFiles={setAudioFiles}
-                  ffmpegCommand={ffmpegCommand}
-                  setErrors={setErrors}
-                  errors={errors}
-                />
-              ))}
+              {table.getRowModel().rows.length > 0 ? (
+                table.getRowModel().rows.map((row, rowIndex) => (
+                  <Row
+                    key={row.id}
+                    row={row}
+                    rowIndex={rowIndex}
+                    toggleRowSelected={toggleRowSelected}
+                    toggleRowExpanded={toggleRowExpanded}
+                    isExpanded={!!expandedRows[row.id]}
+                    removeRow={removeRow}
+                    isImageTable={isImageTable}
+                    isRenderTable={isRenderTable}
+                    setImageFiles={setImageFiles}
+                    setAudioFiles={setAudioFiles}
+                    ffmpegCommand={ffmpegCommand}
+                    setErrors={setErrors}
+                    errors={errors}
+                  />
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={table.getAllColumns().length} className={styles.emptyRow}>
+                    0 rows present
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </SortableContext>

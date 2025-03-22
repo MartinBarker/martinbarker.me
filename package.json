@@ -33,7 +33,7 @@
     "webpack-dev-server": "^5.2.0"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "BROWSER=none react-scripts start",
     "dev": "concurrently \"react-scripts start\" \"node src/server/server.js\"",
     "build": "react-scripts build",
     "test": "react-scripts test",

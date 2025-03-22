@@ -24,7 +24,7 @@ function App() {
         <Route path="/jermasearch/search" element={<JermaSearch /> } />
         <Route path="/jermasearch" element={<JermaSearch /> } />
         <Route path="/rendertune/*" element={ <RenderTune pageTitle="RenderTune" icon={renderTuneIconPath} /> } />
-        <Route path="/ffmpegwasm" element={ <Sidebar><Ffmpegwasm/> </Sidebar> } />
+        <Route path="/ffmpegwasm" element={ <Sidebar pageTitle="FFmpeg WASM" pageSubTitle="In-browser video rendering"><Ffmpegwasm/> </Sidebar> } />
       </Routes>
     </Router>
   );
