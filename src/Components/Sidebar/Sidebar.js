@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import RenderTuneIcon from "../../ico/rendertune.ico";
+import ImageModal from '../ImageModal/ImageModal';
 
 const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
   const isInitialMobile = window.innerWidth <= 768;
@@ -435,14 +436,10 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
           </div>
         </main>
         {imageModalOpen && (
-          <div className={styles.modal} onClick={() => setImageModalOpen(false)}>
-            <span className={styles.closeModal}>&times;</span>
-            <div className={styles.modalContent}>
-              {randomImage && (
-                <img src={randomImage} alt="Random aesthetic" className={styles.modalImage} />
-              )}
-            </div>
-          </div>
+          <ImageModal 
+            imageUrl={randomImage} 
+            onClose={() => setImageModalOpen(false)} 
+          />
         )}
       </div>
     </>

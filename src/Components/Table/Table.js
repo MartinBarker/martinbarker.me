@@ -131,7 +131,7 @@ function Row({
 
     const [startHours, startMinutes, startSeconds] = isOverAnHour ? startTime.split(':').map(Number) : [0, ...startTime.split(':').map(Number)];
     const [lengthHours, lengthMinutes, lengthSeconds] = isOverAnHour ? length.split(':').map(Number) : [0, ...length.split(':').map(Number)];
-    
+
     // Ensure all parsed values are valid numbers
     const totalStartSeconds = (isNaN(startHours) ? 0 : startHours) * 3600 + (isNaN(startMinutes) ? 0 : startMinutes) * 60 + (isNaN(startSeconds) ? 0 : startSeconds);
     const totalLengthSeconds = (isNaN(lengthHours) ? 0 : lengthHours) * 3600 + (isNaN(lengthMinutes) ? 0 : lengthMinutes) * 60 + (isNaN(lengthSeconds) ? 0 : lengthSeconds);
@@ -270,26 +270,51 @@ function Row({
   };
 
   useEffect(() => {
-    if (isImageTable) {
+    if (isImageTable && row.original) {
       const embedImage = (file) => {
-        if (!(file instanceof File)) {
-          console.error('Invalid file input for embedding image');
-          return;
-        }
-
-        const objectUrl = URL.createObjectURL(file);
-        setImageFiles((prev) =>
-          prev.map((img) =>
-            img.id === row.original.id
-              ? { ...img, thumbnailUrl: objectUrl }
-              : img
-          )
-        );
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const objectUrl = e.target.result;
+          setImageFiles((prev) =>
+            prev.map((img) =>
+              img.id === row.original.id
+                ? { ...img, thumbnailUrl: objectUrl }
+                : img
+            )
+          );
+        };
+        reader.readAsDataURL(file);
       };
 
-      embedImage(row.original);
+      // Check if row.original is a File object
+      if (row.original instanceof File) {
+        embedImage(row.original);
+      }
     }
   }, [row.original, isImageTable]);
+
+  useEffect(() => {
+    if (isImageTable && row.original) {
+      const generateThumbnail = (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const base64String = e.target.result;
+          setImageFiles((prev) =>
+            prev.map((img) =>
+              img.id === row.original.id
+                ? { ...img, thumbnailUrl: base64String }
+                : img
+            )
+          );
+        };
+        reader.readAsDataURL(file);
+      };
+
+      if (row.original instanceof File) {
+        generateThumbnail(row.original);
+      }
+    }
+  }, [row.original, isImageTable, setImageFiles]);
 
   return (
     <>
@@ -317,9 +342,8 @@ function Row({
               {/* Render Expand Icon */}
               {columnHeader === "Expand" && (
                 <span
-                  className={`${styles.expandIcon} ${
-                    isExpanded ? styles.expanded : ""
-                  }`}
+                  className={`${styles.expandIcon} ${isExpanded ? styles.expanded : ""
+                    }`}
                   onClick={(e) => {
                     e.stopPropagation();
                     toggleRowExpanded(row.id);
@@ -345,9 +369,9 @@ function Row({
               )}
 
               {/* Render Thumbnail */}
-              {columnHeader === "Thumbnail" && row.original.thumbnailUrl && (
-                <img src={row.original.thumbnailUrl} alt="thumbnail" className={styles.thumbnail} />
-              )}
+              {columnHeader === "Thumbnail" &&
+                flexRender(cell.column.columnDef.cell, cell.getContext())
+              }
 
               {/* Render other cells */}
               {columnHeader !== "Expand" &&
@@ -478,20 +502,20 @@ function Row({
   );
 }
 
-function Table({ 
-  data, 
-  setData, 
-  columns, 
-  rowSelection, 
-  setRowSelection, 
-  isImageTable, 
-  isRenderTable, 
-  setImageFiles, 
-  setAudioFiles, 
-  ffmpegCommand, 
-  removeRender, 
-  globalFilter, 
-  setGlobalFilter, 
+function Table({
+  data,
+  setData,
+  columns,
+  rowSelection,
+  setRowSelection,
+  isImageTable,
+  isRenderTable,
+  setImageFiles,
+  setAudioFiles,
+  ffmpegCommand,
+  removeRender,
+  globalFilter,
+  setGlobalFilter,
   title,
   // Add these new props
   setMessage,
@@ -780,7 +804,7 @@ function Table({
               Next
             </button>
             <span>
-              | Go to page: 
+              | Go to page:
               <input
                 type="number"
                 min="1"
@@ -871,7 +895,7 @@ function Table({
       </div>
       {/* 
       {!isImageTable && !isRenderTable && (
-        <div className={styles.footer}>
+        <div className={styles.footer}></div>
           <span>Total selected duration: {totalSelectedDuration}</span>
         </div>
       )}

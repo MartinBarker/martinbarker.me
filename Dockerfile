@@ -47,7 +47,7 @@ RUN npm install --only=production
 COPY supervisord.conf /etc/supervisord.conf
 
 # Expose ports
-EXPOSE 80 3000 3030
+EXPOSE 80 3001 3030
 
 # Command to run supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
