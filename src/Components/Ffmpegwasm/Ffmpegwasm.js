@@ -3,6 +3,8 @@ import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 import styles from './Ffmpegwasm.module.css'; // Import the CSS module
 import Table from "../Table/Table.js";
 import ImageModal from '../ImageModal/ImageModal';
+import RenderOptions from '../RenderOptions/RenderOptions';
+import TemplateSelector from '../TemplateSelector/TemplateSelector';
 
 // Polyfill for SharedArrayBuffer
 if (typeof SharedArrayBuffer === 'undefined') {
@@ -32,6 +34,9 @@ function Ffmpegwasm() {
   const [imageRowSelection, setImageRowSelection] = useState({});
   const [globalFilter, setGlobalFilter] = useState('');
   const [modalImage, setModalImage] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState('combine');
+  const [showLogs, setShowLogs] = useState(true); // Set to true by default
+  const [ffmpegLogs, setFfmpegLogs] = useState([]);
   const ffmpeg = useMemo(() => createFFmpeg({ log: true }), []);
   const fileInputRef = useRef(null);
 
@@ -291,13 +296,31 @@ function Ffmpegwasm() {
         setMessage('Loading ffmpeg-core.js');
         await ffmpeg.load();
         setFfmpegLoaded(true);
-        setMessage('ffmpeg loaded. Now you can render the video.');
+        setMessage('ffmpeg loaded. Now you can run commands.');
       } catch (err) {
         setMessage('Failed to load ffmpeg');
         console.error(err);
       }
     }
   }, [ffmpeg, ffmpegLoaded]);
+
+  const handleFfmpegLog = useCallback(({ type, message }) => {
+    setFfmpegLogs(prev => [...prev, `[${type}] ${message}`]);
+    if (type === 'fferr') {
+      const match = message.match(/time=([\d:.]+)/);
+      if (match) {
+        const elapsed = match[1].split(':').reduce((acc, time) => (60 * acc) + +time, 0);
+        const progress = Math.min((elapsed / duration) * 100, 100);
+        setProgress(Math.round(progress));
+      }
+    }
+  }, [duration]);
+
+  useEffect(() => {
+    if (ffmpeg) {
+      ffmpeg.setLogger(handleFfmpegLog);
+    }
+  }, [ffmpeg, handleFfmpegLog]);
 
   const renderVideo = useCallback(async () => {
     if (!ffmpegLoaded) {
@@ -388,119 +411,178 @@ function Ffmpegwasm() {
     console.log('Selected audio rows:', selectedRows);
   };
 
+  const handleRenderOptions = (options) => {
+    setResolution(options.resolution);
+    // Implement other option handling as needed
+  };
+
+  // Template-specific layouts
+  const renderTemplateContent = () => {
+    switch (selectedTemplate) {
+      case 'combine':
+        return (
+          <>
+            <input type="file" multiple onChange={handleFileChange} ref={fileInputRef} style={{ display: 'none' }} />
+            <div className={styles.dropZone} onClick={handleClick}>Click to select or drag and drop files here</div>
+            <Table
+              data={audioFiles}
+              setData={setAudioFiles}
+              columns={[
+                {
+                  accessorKey: 'name',
+                  header: 'File Name',
+                  // Add a custom cell renderer to handle File objects
+                  cell: info => info.row.original instanceof File ? info.row.original.name : info.getValue()
+                },
+                { accessorKey: 'size', header: 'Size (MB)', cell: info => (info.getValue() / (1024 * 1024)).toFixed(2) },
+                {
+                  accessorKey: 'duration',
+                  header: 'Duration',
+                  cell: info => formatDuration(info.getValue())
+                }
+              ]}
+              rowSelection={selectedAudioFiles}
+              setRowSelection={setSelectedAudioFiles}
+              title="Audio Files"
+              isAudioTable={true}
+              globalFilter={globalFilter}
+              setGlobalFilter={setGlobalFilter}
+              setMessage={setMessage}
+              setTotalFileSize={setTotalFileSize}
+              setDurations={setDurations}
+              setDuration={setDuration}
+              setAllDurationsCalculated={setAllDurationsCalculated}
+              emptyTableText="0 Audio Files added" // Pass the new prop
+            />
+            <Table
+              title="Image Files"
+              data={imageFiles}
+              rowSelection={imageRowSelection}
+              setRowSelection={setImageRowSelection}
+              setData={setImageFiles}
+              columns={imageColumns}
+              isImageTable={true}
+              setImageFiles={setImageFiles}
+              globalFilter={globalFilter}
+              setGlobalFilter={setGlobalFilter}
+              setMessage={setMessage}
+              setTotalFileSize={setTotalFileSize}
+              setDurations={() => { }}
+              setDuration={() => { }}
+              setAllDurationsCalculated={() => { }}
+              emptyTableText="0 Image Files added" // Pass the new prop
+            />
+            <RenderOptions 
+              imageFiles={imageFiles}
+              audioFiles={audioFiles}
+              audioRowSelection={selectedAudioFiles}
+              imageRowSelection={selectedImageFiles}
+              onRender={handleRenderOptions}
+              resolution={resolution}
+              setResolution={setResolution}
+            />
+            <div>
+              <h3>Render Progress</h3>
+              <p>{progress}%</p>
+            </div>
+            <div>
+              <p>Output Video File Size: {(outputFileSize / (1024 * 1024)).toFixed(2)} MB</p>
+            </div>
+            <button onClick={renderVideo} disabled={!ffmpegLoaded || selectedAudioFiles.length === 0 || selectedImageFiles.length === 0}>
+              {allDurationsCalculated ? 'Render Video' : 'Audio file lengths still calculating in background...'}
+            </button>
+            <button onClick={downloadVideo} disabled={!videoSrc}>Download Video</button>
+            <button onClick={clearTable}>Clear Table</button>
+            <div>
+              <h3>FFmpeg Command</h3>
+              <pre>
+                {ffmpegCommand.map((arg, index) => (
+                  <div key={index}>{arg}</div>
+                ))}
+              </pre>
+            </div>
+          </>
+        );
+
+      case 'splitSilence':
+        return (
+          <div className={styles.templateContent}>
+            <h2>Split By Silence</h2>
+            <p>Template coming soon...</p>
+          </div>
+        );
+
+      case 'custom':
+        return (
+          <div className={styles.templateContent}>
+            <h2>Custom FFmpeg Command</h2>
+            <p>Template coming soon...</p>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div className={styles.App} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}> {/* Apply the CSS module styles */}
-      <header className={styles.AppHeader}> {/* Apply the CSS module styles */}
-        <p>
-          This is a test page for <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer">ffmpeg.wasm</a>.
-          FFmpeg.wasm is a WebAssembly port of FFmpeg, which allows you to run FFmpeg directly in the browser.
-          This site allows you to render videos using audio and image files.
-          Created by Martin Barker. This site is a work in progress.
-        </p>
-      </header>
-      <input type="file" multiple onChange={handleFileChange} ref={fileInputRef} style={{ display: 'none' }} />
-      <div className={styles.dropZone} onClick={handleClick}>Click to select or drag and drop files here</div>
+    <div className={styles.App} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
+      <div className={styles.row}>
+        <div className={`${styles.ffmpegSection} ${styles.equalHeight}`}>
+          <div className={styles.ffmpegHeader}>
+            <h2 className={styles.sectionTitle}>FFmpeg</h2>
+            <hr className={styles.headerLine} />
+          </div>
+          <div className={styles.ffmpegControls}>
+            <button onClick={() => setShowLogs(!showLogs)} className={styles.viewLogsButton}>
+              {showLogs ? 'Hide Logs ▼' : 'View Logs ▶'}
+            </button>
+            <button onClick={loadFfmpeg} disabled={ffmpegLoaded} className={styles.loadButton}>
+              Load FFmpeg
+            </button>
+          </div>
+          <p className={styles.ffmpegMessage}>{message}</p>
+          {showLogs && (
+            <div className={styles.logsContainer}>
+              {ffmpegLogs.length > 0 ? (
+                ffmpegLogs.map((log, index) => (
+                  <div key={index} className={styles.logLine}>{log}</div>
+                ))
+              ) : (
+                <div className={styles.emptyLogs}>Click the 'Load FFmpeg' button</div>
+              )}
+            </div>
+          )}
+        </div>
 
-      <div>
-        <Table
-          data={audioFiles}
-          setData={setAudioFiles}
-          columns={[
-            {
-              accessorKey: 'name',
-              header: 'File Name',
-              // Add a custom cell renderer to handle File objects
-              cell: info => info.row.original instanceof File ? info.row.original.name : info.getValue()
-            },
-            { accessorKey: 'size', header: 'Size (MB)', cell: info => (info.getValue() / (1024 * 1024)).toFixed(2) },
-            {
-              accessorKey: 'duration',
-              header: 'Duration',
-              cell: info => formatDuration(info.getValue())
-            }
-          ]}
-          rowSelection={selectedAudioFiles}
-          setRowSelection={setSelectedAudioFiles}
-          title="Audio Files"
-          isAudioTable={true}
-          globalFilter={globalFilter}
-          setGlobalFilter={setGlobalFilter}
-          setMessage={setMessage}
-          setTotalFileSize={setTotalFileSize}
-          setDurations={setDurations}
-          setDuration={setDuration}
-          setAllDurationsCalculated={setAllDurationsCalculated}
-        />
-      </div>
-      <div>
-        <Table
-          title="Image Files"
-          data={imageFiles}
-          rowSelection={imageRowSelection}
-          setRowSelection={setImageRowSelection}
-          setData={setImageFiles}
-          columns={imageColumns}
-          isImageTable={true}
-          setImageFiles={setImageFiles}
-          globalFilter={globalFilter}
-          setGlobalFilter={setGlobalFilter}
-          setMessage={setMessage}
-          setTotalFileSize={setTotalFileSize}
-          setDurations={() => { }}
-          setDuration={() => { }}
-          setAllDurationsCalculated={() => { }}
-        />
-      </div>
-      <div>
-        <label htmlFor="resolution">Output Resolution:</label>
-        <input type="text" id="resolution" value={resolution} onChange={(e) => setResolution(e.target.value)} />
-      </div>
-      <div>
-        <p>Total File Size: {(totalFileSize / (1024 * 1024)).toFixed(2)} MB</p>
-      </div>
-      <video src={videoSrc} controls className={styles.videoBox}></video><br />
-      <div>
-        <p>Output Video File Size: {(outputFileSize / (1024 * 1024)).toFixed(2)} MB</p>
-      </div>
-      <button onClick={loadFfmpeg} disabled={ffmpegLoaded}>Load ffmpeg</button>
-      <button onClick={renderVideo} disabled={!ffmpegLoaded || !allDurationsCalculated || selectedAudioFiles.length === 0 || selectedImageFiles.length === 0}>
-        {allDurationsCalculated ? 'Render Video' : 'Wait for all audio file lengths to be calculated'}
-      </button>
-      <div style={{ visibility: progress === 0 && !renderClicked ? 'hidden' : 'visible' }}>
-        <h3>Render Progress</h3>
-        <p>{progress}%</p>
-      </div>
-      <button onClick={downloadVideo} disabled={!videoSrc}>Download Video</button>
-      <button onClick={clearTable}>Clear Table</button>
-      <p>{message}</p>
-      <div>
-        <h3>FFmpeg Command</h3>
-        <pre>
-          {ffmpegCommand.map((arg, index) => (
-            <div key={index}>{arg}</div>
-          ))}
-        </pre>
-      </div>
-
-      {/* Display selected images */}
-      {imageFiles.length > 0 && (
-        <div className={styles.selectedImagesContainer}>
-          <h3>Selected Images</h3>
-          <div className={styles.imageGrid}>
-            {imageFiles.map((file, index) => (
-              <div key={index} className={styles.imageWrapper}>
-                {file instanceof File && (
-                  <FilePreview
-                    file={file}
-                    index={index}
-                  />
-                )}
-              </div>
-            ))}
+        <div className={`${styles.outputSection} ${styles.equalHeight}`}>
+          <h2 className={styles.sectionTitle}>Output</h2>
+          <hr className={styles.headerLine} />
+          <div className={styles.videoWrapper}>
+            <video src={videoSrc} controls className={styles.videoBox}></video>
+            <div className={styles.outputControls}>
+              <p>Output Video File Size: {(outputFileSize / (1024 * 1024)).toFixed(2)} MB</p>
+            </div>
           </div>
         </div>
-      )}
-      
+      </div>
+
+      <TemplateSelector 
+        selectedTemplate={selectedTemplate}
+        onTemplateChange={setSelectedTemplate}
+      />
+      {renderTemplateContent()}
+
+      <div className={styles.outputSection}>
+        <h2 className={styles.sectionTitle}>Output:</h2>
+        <div className={styles.videoWrapper}>
+          <div className={styles.buttonGroup}>
+            <button onClick={downloadVideo} disabled={!videoSrc}>Download Video</button>
+            <button onClick={clearTable}>Clear Table</button>
+          </div>
+        </div>
+      </div>
+
       {modalImage && (
         <ImageModal 
           imageUrl={`data:image/jpeg;base64,${modalImage.data}`}
@@ -510,37 +592,5 @@ function Ffmpegwasm() {
     </div>
   );
 }
-
-// Add this new component inside Ffmpegwasm component
-const FilePreview = ({ file, index }) => {
-  const [previewUrl, setPreviewUrl] = useState('');
-
-  useEffect(() => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPreviewUrl(e.target.result);
-    };
-    reader.readAsDataURL(file);
-
-    return () => {
-      reader.abort();
-    };
-  }, [file]);
-
-  if (!previewUrl) {
-    return null;
-  }
-
-  return (
-    <>
-      <img
-        src={previewUrl}
-        alt={`Selected ${index + 1}`}
-        className={styles.previewImage}
-      />
-      <p className={styles.imageName}>{file.name}</p>
-    </>
-  );
-};
 
 export default Ffmpegwasm;
