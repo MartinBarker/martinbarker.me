@@ -85,7 +85,8 @@ function Row({
   setAudioFiles,
   ffmpegCommand,
   setErrors,
-  errors
+  errors,
+  rowSelection // Add this prop
 }) {
   const { setNodeRef, transform, transition } = useSortable({
     id: row.id, // Use row.id for unique key
@@ -321,7 +322,7 @@ function Row({
       <tr
         ref={setNodeRef}
         style={style}
-        className={styles.row}
+        className={`${styles.row} ${rowSelection[row.id] ? styles.selected : ''}`} // Add selected class
         onClick={() => toggleRowSelected(row.id)}
         key={row.id} // Add unique key
       >
@@ -523,7 +524,8 @@ function Table({
   setDurations,
   setDuration,
   setAllDurationsCalculated,
-  emptyTableText // Add this new prop
+  emptyTableText, // Add this new prop
+  setRenderButtonEnabled // Add this new prop
 }) {
   const [sorting, setSorting] = useState([]);
   const [expandedRows, setExpandedRows] = useState(() => {
@@ -538,10 +540,26 @@ function Table({
   };
 
   const toggleRowSelected = (rowId) => {
-    setRowSelection((prev) => ({
-      ...prev,
-      [rowId]: !prev[rowId],
-    }));
+    setRowSelection((prev) => {
+      const newSelection = { ...prev };
+      if (newSelection[rowId]) {
+        delete newSelection[rowId];
+      } else {
+        newSelection[rowId] = true;
+      }
+
+      const selectedAudios = data.filter(file => newSelection[file.id] && file.type === 'audio');
+      const selectedImages = data.filter(file => newSelection[file.id] && file.type === 'image');
+
+      if (selectedAudios.length > 0 && selectedImages.length > 0) {
+        console.log("enable render");
+        setRenderButtonEnabled(true);
+      } else {
+        setRenderButtonEnabled(false);
+      }
+
+      return newSelection;
+    });
   };
 
   const toggleRowExpanded = (rowId) => {
@@ -675,6 +693,7 @@ function Table({
               📋
             </button>
           ),
+          size:2
         },
         {
           id: "remove",
@@ -881,6 +900,7 @@ function Table({
                     ffmpegCommand={ffmpegCommand}
                     setErrors={setErrors}
                     errors={errors}
+                    rowSelection={rowSelection} // Pass rowSelection to Row
                   />
                 ))
               ) : (

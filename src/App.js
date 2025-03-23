@@ -11,6 +11,7 @@ import JermaSearch from "./Components/JermaSearch/JermaSearch.js";
 import Tagger from "./Components/Tagger/Tagger.js";
 import RenderTune from "./Components/RenderTune/RenderTune.js";
 import Ffmpegwasm from "./Components/Ffmpegwasm/Ffmpegwasm.js";
+import NotFound from "./Components/NotFound/NotFound.js";
 
 function App() {
   const homeIconPath = "./ico/martinbarker.ico";
@@ -84,6 +85,19 @@ function App() {
               }
             >
               <Ffmpegwasm />
+            </Sidebar>
+          } 
+        />
+
+        {/* 404 route - must be last */}
+        <Route 
+          path="*" 
+          element={
+            <Sidebar 
+              pageTitle="404 Not Found"
+              icon={homeIconPath}
+            >
+              <NotFound />
             </Sidebar>
           } 
         />

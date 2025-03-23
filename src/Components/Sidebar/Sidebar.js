@@ -283,7 +283,7 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
               icon={FileMusicIcon}
               label="ffmpeg wasm"
             />
-
+{/* 
             <ProjectLink
               to="/retro-roulette"
               icon={FileMusicIcon}
@@ -325,7 +325,7 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
               icon={FileMusicIcon}
               label="Ableton .als to .cue"
             />
-
+*/}
             {/* Existing Contact and other sections remain the same */}
             <ProjectLink
               to="/popularify"
