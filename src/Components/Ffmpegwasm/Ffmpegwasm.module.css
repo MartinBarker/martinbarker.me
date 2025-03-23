@@ -9,10 +9,12 @@
 .row {
     display: flex;
     gap: 20px;
+    flex-wrap: wrap; /* Allow items to wrap on small screens */
 }
 
 .ffmpegSection, .outputSection {
     flex: 1;
+    min-width: 300px; /* Minimum width before wrapping */
     background: #f8f9fa;
     padding: 8px;
     border-radius: 8px;
@@ -396,6 +398,41 @@
 
 .outputSection {
   text-align: left;
+  flex: 1;
+  min-width: 300px;
+}
+
+.outputControls {
+  margin-top: 15px;
+  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.downloadButton {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background-color: #28a745;
+  color: white;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.downloadButton:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.downloadButton:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .outputControls {
@@ -460,6 +497,14 @@
   .buttonGroup button {
     flex: 1;
   }
+
+  .row {
+    flex-direction: column;
+  }
+  
+  .ffmpegSection, .outputSection {
+    width: 100%;
+  }
 }
 
 .loadButton, .viewLogsButton {
@@ -508,4 +553,86 @@
   color: #333;
   margin-bottom: 10px;
   text-align: left;
+}
+
+.progressSection {
+  margin: 10px 0;
+  text-align: center;
+  width: 100%;
+}
+
+.progressText {
+  font-size: 1.2rem;
+  color: #333;
+  margin: 5px 0;
+}
+
+.progressBar {
+  width: 100%;
+  height: 10px;
+  background-color: #f0f0f0;
+  border-radius: 5px;
+  overflow: hidden;
+  margin: 5px 0;
+}
+
+.progressFill {
+  height: 100%;
+  background-color: #28a745;
+  transition: width 0.3s ease;
+}
+
+.selectedRowsSection {
+  margin-top: 20px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+}
+
+.selectedRowsContainer {
+  display: flex;
+  gap: 20px;
+}
+
+.selectedRowsColumn {
+  flex: 1;
+}
+
+.selectedRowsColumn h4 {
+  margin-bottom: 10px;
+}
+
+.selectedRowsColumn ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+.selectedRowsColumn li {
+  background: #e9ecef;
+  padding: 5px;
+  margin-bottom: 5px;
+  border-radius: 4px;
+}
+
+.stopButton {
+  margin: 10px auto;
+  padding: 8px 16px;
+  font-size: 14px;
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  display: block;
+}
+
+.stopButton:hover {
+  background-color: #c82333;
+}
+
+.stopButton:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.3);
 }

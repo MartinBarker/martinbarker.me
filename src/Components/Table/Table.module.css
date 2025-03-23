@@ -41,6 +41,14 @@
   background-color: #e8f4ff;
 }
 
+.row.selected {
+  background-color: #e3f2fd;
+}
+
+.row.selected:hover {
+  background-color: #bbdefb;
+}
+
 .cell {
   padding: 10px 8px;
   text-align: left;

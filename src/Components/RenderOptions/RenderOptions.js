@@ -8,7 +8,8 @@ function RenderOptions({
   imageRowSelection, 
   onRender,
   resolution,
-  setResolution
+  setResolution,
+  renderButtonEnabled // Add this prop
 }) {
   // Add resolution options
   const resolutionOptions = [
@@ -16,7 +17,6 @@ function RenderOptions({
     ['4320x7680', '2160x3840', '1440x2560', '1080x1920', '720x1280', '480x854', '360x640']
   ];
 
-  const [outputFolder, setOutputFolder] = useState('');
   const [outputFilename, setOutputFilename] = useState('');
   const [outputFormat, setOutputFormat] = useState('mp4');
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -25,9 +25,7 @@ function RenderOptions({
   const [videoHeight, setVideoHeight] = useState('1080');
   const [alwaysUniqueFilenames, setAlwaysUniqueFilenames] = useState(false);
 
-  const handleOutputFolderChange = (e) => setOutputFolder(e.target.value);
   const handleOutputFilenameChange = (e) => setOutputFilename(e.target.value);
-  const handleChooseFolder = () => {/* Implement folder selection logic */};
   const handleImageSelectionChange = (e) => setSelectedImageIndex(Number(e.target.value));
   const handleResolutionChange = (e) => {
     setSelectedResolution(e.target.value);
@@ -39,52 +37,21 @@ function RenderOptions({
   const generateOutputFilenameOptions = () => ['output.mp4', 'video.mp4', 'rendered.mp4'];
 
   const handleRender = () => {
-    onRender({
-      outputFolder,
+    const options = {
       outputFilename,
       outputFormat,
       resolution: selectedResolution,
       width: videoWidth,
       height: videoHeight,
       alwaysUniqueFilenames
-    });
+    };
+    onRender(options);
   };
 
   return (
 <div className={styles.renderOptionsSection}>
   <h2 className={styles.renderOptionsTitle}>Render Options</h2>
   <div className={styles.renderOptionsGrid}>
-    {/* Output Folder */}
-    <div className={styles.renderOptionGroup}>
-      <label htmlFor="outputFolder" className={styles.renderOptionLabel}>
-        Output Folder
-      </label>
-      <div className={styles.editableDropdownFolder}>
-        <input
-          type="text"
-          id="outputFolder"
-          value={outputFolder}
-          onChange={handleOutputFolderChange}
-          placeholder="Choose output folder"
-          className={styles.renderOptionInput}
-        />
-        <button
-          onClick={handleChooseFolder}
-          className={styles.folderButton}
-          title="Choose Folder"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className={styles.folderIcon}
-          >
-            <path d="M10 4H2v16h20V6H12l-2-2zM4 8h16v10H4V8z" />
-          </svg>
-        </button>
-      </div>
-    </div>
-
     {/* Output Filename */}
     <div className={styles.renderOptionGroup}>
       <label htmlFor="outputFilename" className={styles.renderOptionLabel}>
@@ -215,11 +182,9 @@ function RenderOptions({
   <button
     className={styles.renderButton}
     onClick={handleRender}
-    disabled={audioFiles.filter((file) => audioRowSelection[file.id]).length === 0 || imageFiles.filter((file) => imageRowSelection[file.id]).length === 0}
+    disabled={!renderButtonEnabled}
   >
-    {audioFiles.filter((file) => audioRowSelection[file.id]).length === 0 || imageFiles.filter((file) => imageRowSelection[file.id]).length === 0
-      ? "Render (please select at least one audio file and one image file)"
-      : "Render"}
+    Render
   </button>
 </div>
   );
