@@ -5,6 +5,7 @@ import Table from "../Table/Table.js";
 import ImageModal from '../ImageModal/ImageModal';
 import RenderOptions from '../RenderOptions/RenderOptions';
 import TemplateSelector from '../TemplateSelector/TemplateSelector';
+import FileUploader from '../FileUploader/FileUploader';
 
 // Polyfill for SharedArrayBuffer
 if (typeof SharedArrayBuffer === 'undefined') {
@@ -39,6 +40,7 @@ function Ffmpegwasm() {
   const [ffmpegLogs, setFfmpegLogs] = useState([]);
   const [renderButtonEnabled, setRenderButtonEnabled] = useState(false);
   const [isRendering, setIsRendering] = useState(false); // Add new state for rendering
+  const [isDragActive, setIsDragActive] = useState(false); // Add new state for drag and drop
   const ffmpeg = useMemo(() => createFFmpeg({ log: true }), []);
   const fileInputRef = useRef(null);
 
@@ -161,17 +163,6 @@ function Ffmpegwasm() {
 
   const handleFileChange = (event) => {
     const files = Array.from(event.target.files);
-    processFiles(files);
-  };
-
-  const handleDrop = (event) => {
-    event.preventDefault();
-    const files = Array.from(event.dataTransfer.files);
-    files.forEach(file => {
-      if (imageExtensions.includes(file.name.split('.').pop().toLowerCase())) {
-        console.log('Dropped image file:', file.name); // Print the filename
-      }
-    });
     processFiles(files);
   };
 
@@ -781,10 +772,77 @@ function Ffmpegwasm() {
     );
   };
 
+  const renderOld = useCallback(async () => {
+    if (!ffmpegLoaded) {
+      setMessage('Please load ffmpeg first.');
+      return;
+    }
+  
+    if (audioFiles.length === 0 || imageFiles.length === 0) {
+      setMessage('Please select at least one audio and one image file.');
+      return;
+    }
+  
+    try {
+      setMessage('Start rendering video');
+      const audioFile = audioFiles[0];
+      const imageFile = imageFiles[0];
+  
+      // Ensure audioFile and imageFile are Blob or File objects
+      const audioObjectUrl = URL.createObjectURL(new Blob([audioFile], { type: audioFile.type }));
+      const imageObjectUrl = URL.createObjectURL(new Blob([imageFile], { type: imageFile.type }));
+  
+      ffmpeg.FS('writeFile', 'audio.mp3', await fetchFile(audioObjectUrl));
+      ffmpeg.FS('writeFile', 'image.jpg', await fetchFile(imageObjectUrl));
+  
+      const command = ['-loop', '1', '-framerate', '2', '-i', 'image.jpg', '-i', 'audio.mp3', '-c:v', 'libx264', '-preset', 'slow', '-tune', 'stillimage', '-crf', '18', '-c:a', 'aac', '-b:a', '192k', '-shortest', 'output.mp4'];
+      console.log('Running ffmpeg command:', command.join(' '));
+  
+      await ffmpeg.run(...command);
+  
+      setMessage('Complete rendering video');
+      const data = ffmpeg.FS('readFile', 'output.mp4');
+      setVideoSrc(URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' })));
+  
+      // Clean up object URLs
+      URL.revokeObjectURL(audioObjectUrl);
+      URL.revokeObjectURL(imageObjectUrl);
+    } catch (err) {
+      setMessage('Error rendering video');
+      console.error(err);
+    }
+  }, [ffmpeg, ffmpegLoaded, audioFiles, imageFiles]);
+
+  const handleFileInput = (files) => {
+    processFiles(files);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragActive(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragActive(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragActive(false);
+    const files = Array.from(e.dataTransfer.files);
+    handleFileInput(files);
+  };
+
   return (
     <div className={styles.App} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
-      <input type="file" multiple onChange={handleFileChange} ref={fileInputRef} style={{ display: 'none' }} />
-      <div className={styles.dropZone} onClick={handleClick}>Click to select or drag and drop files here</div>
+      <FileUploader 
+        onFileInput={handleFileInput}
+        isDragActive={isDragActive}
+        handleDragOver={handleDragOver}
+        handleDragLeave={handleDragLeave}
+        handleDrop={handleDrop}
+      />
       <div className={styles.row}>
         <div className={`${styles.ffmpegSection} ${styles.equalHeight}`}>
           <div className={styles.ffmpegHeader}>
@@ -864,6 +922,38 @@ function Ffmpegwasm() {
         />
       )}
       {renderSelectedRows()}
+      <div className={styles.oldRenderSection}>
+        <h2>Old Render Section</h2>
+        <input type="file" multiple onChange={handleFileChange} />
+        <div>
+          <h3>Audio Files</h3>
+          <table>
+            <tbody>
+              {audioFiles.map((file, index) => (
+                <tr key={index}>
+                  <td>{file.name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h3>Image Files</h3>
+          <table>
+            <tbody>
+              {imageFiles.map((file, index) => (
+                <tr key={index}>
+                  <td>{file.name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <video src={videoSrc} controls></video><br/>
+        <button onClick={loadFfmpeg} disabled={ffmpegLoaded}>Load ffmpeg</button>
+        <button onClick={renderOld}>Render Video</button>
+        <p>{message}</p>
+      </div>
     </div>
   );
 }

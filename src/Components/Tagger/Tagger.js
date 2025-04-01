@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import styles from './Tagger.module.css';
+import FileUploader from '../FileUploader/FileUploader';
 
 const Tagger = () => {
   // Load saved settings from localStorage or use defaults
@@ -24,7 +26,12 @@ const Tagger = () => {
   const [tracklist, setTracklist] = useState('');
   const [tags, setTags] = useState([]);
   const [repetitiveText, setRepetitiveText] = useState(null);
-  const fileInputRef = useRef(null);
+  const [tagOptions, setTagOptions] = useState({
+    artists: 100,
+    title: 100,
+    genre: 100,
+    year: 100
+  });
 
   useEffect(() => {
     try {
@@ -100,124 +107,135 @@ const Tagger = () => {
     handleFileInput(files);
   };
 
+  const handleSliderChange = (category, value) => {
+    setTagOptions({
+      ...tagOptions,
+      [category]: value
+    });
+  };
+
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-8">
+    <div className={styles.container}>
       {/* Tutorial */}
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <p className="text-gray-700">
+      <div className={styles.title}>
+        <p>
           Generate timestamped tracklists and metadata tags from Discogs URLs or local files.
           The tool will automatically detect repetitive text and allows you to customize tag output limits.
         </p>
       </div>
 
       {/* Inputs */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Inputs</h2>
-        
-        {/* File Upload */}
-        <div 
-          className={`mb-4 border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors
-            ${isDragActive ? 'border-gray-600 bg-gray-50' : 'border-gray-300'}`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-        >
-          <input 
-            type="file"
-            ref={fileInputRef}
-            onChange={(e) => handleFileInput(Array.from(e.target.files))}
-            className="hidden"
-            multiple
-            accept="audio/*"
-          />
-          <p>Upload files by clicking or dropping them here</p>
-        </div>
+      <div className={styles.uploadSection}>
+        <FileUploader 
+          onFileInput={handleFileInput}
+          isDragActive={isDragActive}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+        />
 
         {/* URL Input */}
-        <form onSubmit={handleUrlSubmit} className="flex">
+        <form onSubmit={handleUrlSubmit} className={styles.urlInput}>
           <input 
             type="url"
             placeholder="Discogs URL"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            className="flex-1 border rounded-l px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <button 
-            type="submit"
-            className="bg-blue-500 text-white px-4 py-2 rounded-r hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            Submit
-          </button>
+          <button type="submit">Submit</button>
         </form>
       </div>
 
       {/* Settings */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Settings</h2>
-        <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
-          <div>
-            <label htmlFor="maxChars" className="block mb-2">
-              Maximum Tag Characters:
-            </label>
+      <div className={styles.settings}>
+        <h2>Settings</h2>
+        <div>
+          <label htmlFor="maxChars">Maximum Tag Characters:</label>
+          <input
+            id="maxChars"
+            type="number"
+            value={settings.maxTagChars}
+            onChange={(e) => setSettings({
+              ...settings,
+              maxTagChars: Math.max(0, parseInt(e.target.value) || 0)
+            })}
+            min="0"
+          />
+        </div>
+        <div>
+          <label>
             <input
-              id="maxChars"
-              type="number"
-              value={settings.maxTagChars}
+              type="checkbox"
+              checked={settings.repetitiveTextDetection}
               onChange={(e) => setSettings({
                 ...settings,
-                maxTagChars: Math.max(0, parseInt(e.target.value) || 0)
+                repetitiveTextDetection: e.target.checked
               })}
-              className="border rounded px-3 py-2 w-32"
-              min="0"
             />
-          </div>
-          <div>
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={settings.repetitiveTextDetection}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  repetitiveTextDetection: e.target.checked
-                })}
-                className="mr-2"
-              />
-              Enable Repetitive Text Detection
-            </label>
-          </div>
+            Enable Repetitive Text Detection
+          </label>
         </div>
       </div>
 
+      {/* Tag Generation Options */}
+      <div className={styles.tagOptions}>
+        <h2>Tag Generation Options</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Characters</th>
+              <th>Slider</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.keys(tagOptions).map((category) => (
+              <tr key={category}>
+                <td>{category}</td>
+                <td>{tagOptions[category]}</td>
+                <td>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={tagOptions[category]}
+                    onChange={(e) => handleSliderChange(category, e.target.value)}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       {/* Timestamps Output */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Timestamps</h2>
+      <div className={styles.tracklistSection}>
+        <h2>Timestamps</h2>
         {repetitiveText && settings.repetitiveTextDetection && (
-          <div className="bg-yellow-50 border border-yellow-200 p-4 mb-4 rounded-lg">
-            <p className="font-semibold text-yellow-800">Repetitive text detected:</p>
-            <ul className="list-disc ml-4 mt-2 text-yellow-700">
+          <div className={styles.repetitiveText}>
+            <p>Repetitive text detected:</p>
+            <ul>
               {repetitiveText.map((text, i) => (
                 <li key={i}>{text}</li>
               ))}
             </ul>
           </div>
         )}
-        <div className="border rounded-lg p-4 bg-white">
-          <pre className="whitespace-pre-wrap font-mono text-sm">{tracklist}</pre>
+        <div className={styles.tracklistContainer}>
+          <pre>{tracklist}</pre>
         </div>
       </div>
 
       {/* Tags Output */}
-      <div>
-        <h2 className="text-xl font-semibold mb-4">Tags</h2>
-        <div className="border rounded-lg p-4 bg-white">
-          <div className="mb-2 text-sm text-gray-600">
-            Characters: {tags.join(', ').length} / {settings.maxTagChars}
-          </div>
-          <p className="font-mono text-sm">{tags.join(', ')}</p>
+      <div className={styles.tagsSection}>
+        <h2>Tags</h2>
+        <div className={styles.tagsContainer}>
+          <div>Characters: {tags.join(', ').length} / {settings.maxTagChars}</div>
+          <p>{tags.join(', ')}</p>
         </div>
+        <button className={styles.copyBtn} onClick={() => navigator.clipboard.writeText(tags.join(', '))}>
+          Copy Tags to Clipboard
+        </button>
       </div>
     </div>
   );
