@@ -12,6 +12,8 @@ import Tagger from "./Components/Tagger/Tagger.js";
 import RenderTune from "./Components/RenderTune/RenderTune.js";
 import Ffmpegwasm from "./Components/Ffmpegwasm/Ffmpegwasm.js";
 import NotFound from "./Components/NotFound/NotFound.js";
+import YouTube from "./Components/YouTube/YouTube.js";
+import Discogs2Youtube from './Components/Discogs2Youtube/Discogs2Youtube';
 
 function App() {
   const homeIconPath = "./ico/martinbarker.ico";
@@ -85,6 +87,31 @@ function App() {
               }
             >
               <Ffmpegwasm />
+            </Sidebar>
+          } 
+        />
+
+        <Route 
+          path="/youtube" 
+          element={
+            <Sidebar 
+              pageTitle="YouTube OAuth"
+              icon={homeIconPath}
+            >
+              <YouTube />
+            </Sidebar>
+          } 
+        />
+
+        <Route 
+          path="/discogs2youtube" 
+          element={
+            <Sidebar 
+              pageTitle="Discogs2Youtube" 
+              pageSubTitle="Convert Discogs data to YouTube links"
+              icon={homeIconPath}
+            >
+              <Discogs2Youtube />
             </Sidebar>
           } 
         />

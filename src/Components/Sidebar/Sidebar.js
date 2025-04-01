@@ -283,6 +283,12 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
               icon={FileMusicIcon}
               label="ffmpeg wasm"
             />
+
+            <ProjectLink
+              to="/discogs2youtube"
+              icon={FileMusicIcon}
+              label="Discogs2Youtube"
+            />
 {/* 
             <ProjectLink
               to="/retro-roulette"
