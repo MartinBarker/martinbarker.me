@@ -11,7 +11,8 @@ function Discogs2Youtube() {
     const [playlistResponse, setPlaylistResponse] = useState(''); // State for playlist creation response
     const [playlistId, setPlaylistId] = useState(''); // State for playlist ID
     const [videoId, setVideoId] = useState(''); // State for YouTube video ID
-    const [addVideoResponse, setAddVideoResponse] = useState(''); // State for add video response
+    const [addVideoResponse, setAddVideoResponse] = useState({ message: '', isError: false }); // Update state to include error flag
+    const [urlError, setUrlError] = useState(''); // State for URL fetch error
 
     useEffect(() => {
         // Fetch the sign-in URL on component mount
@@ -22,9 +23,7 @@ function Discogs2Youtube() {
                 setGeneratedURL(response.data.url);
             } catch (error) {
                 console.error('Error during generateURL request:', error);
-                if (error.response) {
-                    console.log('Error Response:', error.response.data);
-                }
+                setUrlError(`Error generating URL: ${error.response?.status || 'Unknown'} - ${error.response?.data?.error || error.message}`);
             }
         };
 
@@ -78,14 +77,13 @@ function Discogs2Youtube() {
                 videoId,
             });
             console.log('Add Video Response:', response.data);
-            setAddVideoResponse(`Success: ${JSON.stringify(response.data, null, 2)}`);
+            setAddVideoResponse({ message: 'Success: Video added to playlist!', isError: false }); // Success message
         } catch (error) {
             console.error('Error adding video to playlist:', error);
-            if (error.response) {
-                setAddVideoResponse(`Error: ${JSON.stringify(error.response.data, null, 2)}`);
-            } else {
-                setAddVideoResponse('An unknown error occurred.');
-            }
+            const errorMessage = error.response
+                ? `Error: ${JSON.stringify(error.response.data, null, 2)}`
+                : 'An unknown error occurred.';
+            setAddVideoResponse({ message: errorMessage, isError: true }); // Error message
         }
     };
 
@@ -111,10 +109,14 @@ function Discogs2Youtube() {
                 ) : (
                     <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
                 )}
-                {generatedURL && (
-                    <p className={styles.generatedURL}>
-                        Sign-In URL: <a href={generatedURL}>{generatedURL}</a>
-                    </p>
+                {urlError ? (
+                    <p className={styles.error}>{urlError}</p> // Display error in red
+                ) : (
+                    generatedURL && (
+                        <p className={styles.generatedURL}>
+                            Sign-In URL: <a href={generatedURL}>{generatedURL}</a>
+                        </p>
+                    )
                 )}
                 {authStatus && (
                     <div>
@@ -136,8 +138,14 @@ function Discogs2Youtube() {
                         <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
                             Add Video to Playlist
                         </button>
-                        {addVideoResponse && (
-                            <pre className={styles.response}>{addVideoResponse}</pre> // Display response in plaintext
+                        {addVideoResponse.message && (
+                            <p
+                                className={
+                                    addVideoResponse.isError ? styles.error : styles.success
+                                }
+                            >
+                                {addVideoResponse.message}
+                            </p>
                         )}
                     </div>
                 )}

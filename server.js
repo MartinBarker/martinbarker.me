@@ -34,7 +34,7 @@ function getRedirectUrl() {
   if (process.env.NODE_ENV === 'production') {
     return 'https://jermasearch.com/discogs2youtube';
   }
-  return 'http://localhost:3000/discogs2youtube'; // Redirect to local /discogs2youtube route
+  return 'http://localhost:3001/discogs2youtube'; // Redirect to local /discogs2youtube route
 }
 
 // Centralized function to initialize the OAuth2 client
@@ -315,29 +315,41 @@ async function setSecrets() {
 
     if (isLocalEnvFile) {
       require('dotenv').config({ path: envFilePath });
-      algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID;
-      algoliaApiKey = process.env.ALGOLIA_API_KEY;
-      algoliaIndex = process.env.ALGOLIA_INDEX;
-      gmailAppPassword = process.env.GMAIl_APP_PASSWORD;
-      gcpClientId = process.env.GCP_CLIENT_ID; // Add GCP_CLIENT_ID for local
-      gcpClientSecret = process.env.GCP_CLIENT_SECRET; // Add GCP_CLIENT_SECRET for local
+      algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID || '';
+      algoliaApiKey = process.env.ALGOLIA_API_KEY || '';
+      algoliaIndex = process.env.ALGOLIA_INDEX || '';
+      gmailAppPassword = process.env.GMAIl_APP_PASSWORD || '';
+      gcpClientId = process.env.GCP_CLIENT_ID || '';
+      gcpClientSecret = process.env.GCP_CLIENT_SECRET || '';
+      console.log('Local environment variables loaded.');
     } else {
-      const algoliaSecrets = await getAwsSecret("algoliaDbDetails");
-      const algoliaSecretsJson = JSON.parse(algoliaSecrets);
-      algoliaApplicationId = algoliaSecretsJson.ALGOLIA_APPLICATION_ID;
-      algoliaApiKey = algoliaSecretsJson.ALGOLIA_API_KEY;
-      algoliaIndex = algoliaSecretsJson.ALGOLIA_INDEX;
-      gmailAppPassword = algoliaSecretsJson.GMAIl_APP_PASSWORD;
+      try {
+        const algoliaSecrets = await getAwsSecret("algoliaDbDetails");
+        const algoliaSecretsJson = JSON.parse(algoliaSecrets);
+        algoliaApplicationId = algoliaSecretsJson.ALGOLIA_APPLICATION_ID || '';
+        algoliaApiKey = algoliaSecretsJson.ALGOLIA_API_KEY || '';
+        algoliaIndex = algoliaSecretsJson.ALGOLIA_INDEX || '';
+        gmailAppPassword = algoliaSecretsJson.GMAIl_APP_PASSWORD || '';
 
-      const youtubeSecrets = await getAwsSecret("youtubeAuth"); // Fetch youtubeAuth secrets
-      const youtubeSecretsJson = JSON.parse(youtubeSecrets);
-      gcpClientId = youtubeSecretsJson.GCP_CLIENT_ID; // Set GCP_CLIENT_ID for prod
-      gcpClientSecret = youtubeSecretsJson.GCP_CLIENT_SECRET; // Set GCP_CLIENT_SECRET for prod
+        const youtubeSecrets = await getAwsSecret("youtubeAuth");
+        const youtubeSecretsJson = JSON.parse(youtubeSecrets);
+        gcpClientId = youtubeSecretsJson.GCP_CLIENT_ID || '';
+        gcpClientSecret = youtubeSecretsJson.GCP_CLIENT_SECRET || '';
+        console.log('AWS secrets loaded.');
+      } catch (awsError) {
+        console.warn('Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
+        algoliaApplicationId = '';
+        algoliaApiKey = '';
+        algoliaIndex = '';
+        gmailAppPassword = '';
+        gcpClientId = '';
+        gcpClientSecret = '';
+      }
     }
-    console.log("Secrets set successfully");
+    console.log("Secrets set successfully.");
   } catch (error) {
     console.error("Error setting secrets:", error);
-    throw error;
+    // Do not throw the error to allow the server to start
   }
 }
 
