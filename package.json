@@ -33,7 +33,7 @@
     "web-vitals": "^2.1.4",
     "webpack": "^5.98.0",
     "webpack-dev-server": "^5.2.0"
-  },
+  }, 
   "scripts": {
     "start": "cross-env BROWSER=NONE PORT=3000 FAST_REFRESH=true react-scripts start",
     "dev": "concurrently \"cross-env PORT=3030 react-scripts start\" \"node src/server/server.js\"",

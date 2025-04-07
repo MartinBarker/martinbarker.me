@@ -448,7 +448,7 @@
 }
 
 .tooltipContainer[data-tooltip]:hover::after {
-  content: attr(data-tooltip);
+  content: attr(data-tooltip); 
   position: absolute;
   left: 100%;
   top: 50%;

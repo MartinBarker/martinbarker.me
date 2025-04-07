@@ -136,9 +136,8 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
 
     setRandomSeed(bigNoise);
 
-    const initialDuration = 600;
-    const overlapDuration = 700; // Overlap duration for smoother transition
-    const reverseDuration = 800;
+    const initialDuration = 100; 
+    const reverseDuration = 200;  
     const startTime = performance.now();
 
     // First part: Dissolve out the current image
