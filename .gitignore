@@ -8,7 +8,7 @@ package-lock.json
 yarn.lock
 # testing
 /coverage
-*.log
+
 # production
 /build
 package-lock.json
