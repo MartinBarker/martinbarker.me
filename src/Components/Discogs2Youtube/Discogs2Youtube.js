@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import styles from './Discogs2Youtube.module.css';
 import axios from 'axios';
 
@@ -160,123 +161,134 @@ function Discogs2Youtube() {
     }, []);
 
     return (
-        <div className={styles.container}>
-            {/* General Site Description Section */}
-            <section className={styles.section}>
-                <h1 className={styles.title}>Discogs2Youtube</h1>
-                <p className={styles.description}>
-                    Welcome to Discogs2Youtube! This tool allows you to authenticate with YouTube and Discogs to manage playlists and search for artists, labels, or lists.
-                </p>
-            </section>
-
-            {/* YouTube Auth Section */}
-            <section className={styles.section}>
-                <h2 className={styles.subtitle}>YouTube Authentication</h2>
-                {authStatus ? (
-                    <p className={styles.authStatus}>You are signed in to YouTube!</p>
-                ) : (
-                    <>
-                        <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
-                        <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
-                            Authenticate with YouTube
-                        </button>
-                    </>
-                )}
-                {authStatus && (
-                    <div>
-                        <h3 className={styles.subtitle}>Add Video to Playlist</h3>
-                        <input
-                            type="text"
-                            className={styles.input}
-                            placeholder="Enter Playlist ID"
-                            value={playlistId}
-                            onChange={(e) => setPlaylistId(e.target.value)}
-                        />
-                        <input
-                            type="text"
-                            className={styles.input}
-                            placeholder="Enter YouTube Video ID"
-                            value={videoId}
-                            onChange={(e) => setVideoId(e.target.value)}
-                        />
-                        <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
-                            Add Video to Playlist
-                        </button>
-                        {addVideoResponse.message && (
-                            <p
-                                className={
-                                    addVideoResponse.isError ? styles.error : styles.success
-                                }
-                            >
-                                {addVideoResponse.message}
-                            </p>
-                        )}
-                    </div>
-                )}
-            </section>
-
-            {/* Combined Discogs Authentication & Search Section */}
-            <section className={styles.section}>
-                <h2 className={styles.subtitle}>Discogs Authentication</h2>
-                {discogsAuthStatus ? (
-                    <>
-                        <p className={styles.success}>You are signed in to Discogs!</p>
-                        <p className={styles.description}>
-                            Enter an artist ID, label ID, or list to search Discogs.
-                        </p>
-                        <div className={styles.quickFillContainer}>
-                            <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
-                                labelId
-                            </span>
-                            <span className={styles.quickFill} onClick={() => handleQuickFill('[a290309]')}>
-                                artistId
-                            </span>
-                            <span className={styles.quickFill} onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}>
-                                listId
-                            </span>
-                        </div>
-                        <input
-                            type="text"
-                            className={styles.input}
-                            placeholder="Enter artist ID, label ID, or list"
-                            value={discogsInput}
-                            onChange={(e) => setDiscogsInput(e.target.value)}
-                        />
-                        <button className={styles.searchButton} onClick={handleDiscogsSearch}>
-                            Search
-                        </button>
-                        {discogsResponse && (
-                            <pre className={styles.response}>{discogsResponse}</pre>
-                        )}
-                    </>
-                ) : (
-                    <>
-                        <p className={styles.authStatus}>You are not signed in to Discogs. Please sign in below:</p>
-                        <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
-                            Authenticate with Discogs
-                        </button>
-                    </>
-                )}
-            </section>
-
-            {/* Create Playlist Section */}
-            {authStatus && (
+        <>
+            <Helmet>
+                <title>Discogs2Youtube Preview</title>
+                <meta name="description" content="Convert Discogs data to YouTube links with Discogs2Youtube." />
+                <meta property="og:title" content="Discogs2Youtube" />
+                <meta property="og:description" content="Manage your Discogs and YouTube playlists seamlessly." />
+                <meta property="og:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
+                <meta property="og:url" content="http://localhost:3001/discogs2youtube" />
+                <meta name="twitter:card" content="summary_large_image" />
+            </Helmet>
+            <div className={styles.container}>
+                {/* General Site Description Section */}
                 <section className={styles.section}>
-                    <h2 className={styles.subtitle}>Create Playlist</h2>
-                    <input
-                        type="text"
-                        className={styles.input}
-                        placeholder="Enter playlist name"
-                        value={playlistName}
-                        onChange={(e) => setPlaylistName(e.target.value)}
-                    />
-                    <button className={styles.searchButton} onClick={handleCreatePlaylist}>
-                        Create Playlist
-                    </button>
-                    {playlistResponse && <p className={styles.response}>{playlistResponse}</p>}
+                    <h1 className={styles.title}>Discogs2Youtube</h1>
+                    <p className={styles.description}>
+                        Welcome to Discogs2Youtube! This tool allows you to authenticate with YouTube and Discogs to manage playlists and search for artists, labels, or lists.
+                    </p>
                 </section>
-            )}
-        </div>
+
+                {/* YouTube Auth Section */}
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>YouTube Authentication</h2>
+                    {authStatus ? (
+                        <p className={styles.authStatus}>You are signed in to YouTube!</p>
+                    ) : (
+                        <>
+                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
+                            <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
+                                Authenticate with YouTube
+                            </button>
+                        </>
+                    )}
+                    {authStatus && (
+                        <div>
+                            <h3 className={styles.subtitle}>Add Video to Playlist</h3>
+                            <input
+                                type="text"
+                                className={styles.input}
+                                placeholder="Enter Playlist ID"
+                                value={playlistId}
+                                onChange={(e) => setPlaylistId(e.target.value)}
+                            />
+                            <input
+                                type="text"
+                                className={styles.input}
+                                placeholder="Enter YouTube Video ID"
+                                value={videoId}
+                                onChange={(e) => setVideoId(e.target.value)}
+                            />
+                            <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
+                                Add Video to Playlist
+                            </button>
+                            {addVideoResponse.message && (
+                                <p
+                                    className={
+                                        addVideoResponse.isError ? styles.error : styles.success
+                                    }
+                                >
+                                    {addVideoResponse.message}
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </section>
+
+                {/* Combined Discogs Authentication & Search Section */}
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>Discogs Authentication</h2>
+                    {discogsAuthStatus ? (
+                        <>
+                            <p className={styles.success}>You are signed in to Discogs!</p>
+                            <p className={styles.description}>
+                                Enter an artist ID, label ID, or list to search Discogs.
+                            </p>
+                            <div className={styles.quickFillContainer}>
+                                <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
+                                    labelId
+                                </span>
+                                <span className={styles.quickFill} onClick={() => handleQuickFill('[a290309]')}>
+                                    artistId
+                                </span>
+                                <span className={styles.quickFill} onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}>
+                                    listId
+                                </span>
+                            </div>
+                            <input
+                                type="text"
+                                className={styles.input}
+                                placeholder="Enter artist ID, label ID, or list"
+                                value={discogsInput}
+                                onChange={(e) => setDiscogsInput(e.target.value)}
+                            />
+                            <button className={styles.searchButton} onClick={handleDiscogsSearch}>
+                                Search
+                            </button>
+                            {discogsResponse && (
+                                <pre className={styles.response}>{discogsResponse}</pre>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <p className={styles.authStatus}>You are not signed in to Discogs. Please sign in below:</p>
+                            <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
+                                Authenticate with Discogs
+                            </button>
+                        </>
+                    )}
+                </section>
+
+                {/* Create Playlist Section */}
+                {authStatus && (
+                    <section className={styles.section}>
+                        <h2 className={styles.subtitle}>Create Playlist</h2>
+                        <input
+                            type="text"
+                            className={styles.input}
+                            placeholder="Enter playlist name"
+                            value={playlistName}
+                            onChange={(e) => setPlaylistName(e.target.value)}
+                        />
+                        <button className={styles.searchButton} onClick={handleCreatePlaylist}>
+                            Create Playlist
+                        </button>
+                        {playlistResponse && <p className={styles.response}>{playlistResponse}</p>}
+                    </section>
+                )}
+            </div>
+        </>
     );
 }
 
