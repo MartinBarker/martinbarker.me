@@ -20,7 +20,7 @@ function Discogs2Youtube() {
     const [youtubeAuthError, setYouTubeAuthError] = useState(''); // State for YouTube auth error
     const [discogsAuthError, setDiscogsAuthError] = useState(''); // State for Discogs auth error
 
-    useEffect(() => {
+    useEffect(() => { 
         // Fetch the sign-in URL on component mount
         const fetchSignInURL = async () => {
             try {

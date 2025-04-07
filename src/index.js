@@ -12,4 +12,4 @@ root.render(
   <HelmetProvider>
     <App />
   </HelmetProvider>
-);
+); 

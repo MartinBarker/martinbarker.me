@@ -137,7 +137,7 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
     setRandomSeed(bigNoise);
 
     const initialDuration = 100; 
-    const reverseDuration = 200; 
+    const reverseDuration = 200;  
     const startTime = performance.now();
 
     // First part: Dissolve out the current image
