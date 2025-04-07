@@ -17,6 +17,8 @@ function Discogs2Youtube() {
     const [discogsAuthUrl, setDiscogsAuthUrl] = useState('');
     const [discogsAccessToken, setDiscogsAccessToken] = useState(null);
     const [discogsAuthStatus, setDiscogsAuthStatus] = useState(false);
+    const [youtubeAuthError, setYouTubeAuthError] = useState(''); // State for YouTube auth error
+    const [discogsAuthError, setDiscogsAuthError] = useState(''); // State for Discogs auth error
 
     useEffect(() => {
         // Fetch the sign-in URL on component mount
@@ -129,12 +131,15 @@ function Discogs2Youtube() {
             window.location.href = response.data.url; // Open the URL in the current tab
         } catch (error) {
             console.error('Error fetching YouTube auth URL:', error.message);
+            setYouTubeAuthError('Failed to fetch YouTube authentication URL. Please try again.');
         }
     };
 
     const initiateDiscogsAuth = () => {
         if (discogsAuthUrl) {
             window.location.href = discogsAuthUrl; // Open the URL in the current tab
+        } else {
+            setDiscogsAuthError('Failed to fetch Discogs authentication URL. Please try again.');
         }
     };
 
@@ -191,6 +196,7 @@ function Discogs2Youtube() {
                             <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
                                 Authenticate with YouTube
                             </button>
+                            {youtubeAuthError && <p className={styles.error}>{youtubeAuthError}</p>} {/* Display YouTube error */}
                         </>
                     )}
                     {authStatus && (
@@ -266,6 +272,7 @@ function Discogs2Youtube() {
                             <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
                                 Authenticate with Discogs
                             </button>
+                            {discogsAuthError && <p className={styles.error}>{discogsAuthError}</p>} {/* Display Discogs error */}
                         </>
                     )}
                 </section>
