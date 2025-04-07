@@ -11,7 +11,14 @@ function Discogs2Youtube() {
     const [playlistResponse, setPlaylistResponse] = useState(''); // State for playlist creation response
     const [playlistId, setPlaylistId] = useState(''); // State for playlist ID
     const [videoId, setVideoId] = useState(''); // State for YouTube video ID
-    const [addVideoResponse, setAddVideoResponse] = useState(''); // State for add video response
+    const [addVideoResponse, setAddVideoResponse] = useState({ message: '', isError: false }); // Update state to include error flag
+    const [urlError, setUrlError] = useState(''); // State for URL fetch error
+    const [discogsAuthUrl, setDiscogsAuthUrl] = useState('');
+    const [discogsAccessToken, setDiscogsAccessToken] = useState(null);
+    const [discogsAuthStatus, setDiscogsAuthStatus] = useState(false);
+    const [youtubeAuthError, setYouTubeAuthError] = useState(''); // State for YouTube auth error
+    const [discogsAuthError, setDiscogsAuthError] = useState(''); // State for Discogs auth error
+
 
     useEffect(() => {
         // Fetch the sign-in URL on component mount
@@ -93,6 +100,47 @@ function Discogs2Youtube() {
         setDiscogsInput(value);
     };
 
+    const fetchYouTubeAuthUrl = async () => {
+        try {
+            const response = await axios.get('http://localhost:3030/generateURL');
+            console.log('YouTube Auth URL:', response.data.url);
+            window.location.href = response.data.url; // Open the URL in the current tab
+        } catch (error) {
+            console.error('Error fetching YouTube auth URL:', error.message);
+            setYouTubeAuthError('Failed to fetch YouTube authentication URL. Please try again.');
+        }
+    };
+
+    const initiateDiscogsAuth = () => {
+        if (discogsAuthUrl) {
+            window.location.href = discogsAuthUrl; // Open the URL in the current tab
+        } else {
+            setDiscogsAuthError('Failed to fetch Discogs authentication URL. Please try again.');
+        }
+    };
+
+    const handleDiscogsCallback = async (oauthToken, oauthVerifier) => {
+        try {
+            const response = await axios.get('http://localhost:3030/discogs/callback', {
+                params: { oauth_token: oauthToken, oauth_verifier: oauthVerifier },
+            });
+            console.log('Discogs Access Token:', response.data);
+            setDiscogsAccessToken(response.data);
+        } catch (error) {
+            console.error('Error handling Discogs callback:', error.message);
+        }
+    };
+
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const oauthToken = urlParams.get('oauth_token');
+        const oauthVerifier = urlParams.get('oauth_verifier');
+
+        if (oauthToken && oauthVerifier) {
+            handleDiscogsCallback(oauthToken, oauthVerifier);
+        }
+    }, []);
+  
     return (
         <div className={styles.container}>
             {/* General Site Description Section */}
@@ -115,7 +163,102 @@ function Discogs2Youtube() {
                     <p className={styles.generatedURL}>
                         Sign-In URL: <a href={generatedURL}>{generatedURL}</a>
                     </p>
-                )}
+
+                </section>
+
+                {/* YouTube Auth Section */}
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>YouTube Authentication</h2>
+                    {authStatus ? (
+                        <p className={styles.authStatus}>You are signed in to YouTube!</p>
+                    ) : (
+                        <>
+                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
+                            <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
+                                Authenticate with YouTube
+                            </button>
+                            {youtubeAuthError && <p className={styles.error}>{youtubeAuthError}</p>} {/* Display YouTube error */}
+                        </>
+                    )}
+                    {authStatus && (
+                        <div>
+                            <h3 className={styles.subtitle}>Add Video to Playlist</h3>
+                            <input
+                                type="text"
+                                className={styles.input}
+                                placeholder="Enter Playlist ID"
+                                value={playlistId}
+                                onChange={(e) => setPlaylistId(e.target.value)}
+                            />
+                            <input
+                                type="text"
+                                className={styles.input}
+                                placeholder="Enter YouTube Video ID"
+                                value={videoId}
+                                onChange={(e) => setVideoId(e.target.value)}
+                            />
+                            <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
+                                Add Video to Playlist
+                            </button>
+                            {addVideoResponse.message && (
+                                <p
+                                    className={
+                                        addVideoResponse.isError ? styles.error : styles.success
+                                    }
+                                >
+                                    {addVideoResponse.message}
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </section>
+
+                {/* Combined Discogs Authentication & Search Section */}
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>Discogs Authentication</h2>
+                    {discogsAuthStatus ? (
+                        <>
+                            <p className={styles.success}>You are signed in to Discogs!</p>
+                            <p className={styles.description}>
+                                Enter an artist ID, label ID, or list to search Discogs.
+                            </p>
+                            <div className={styles.quickFillContainer}>
+                                <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
+                                    labelId
+                                </span>
+                                <span className={styles.quickFill} onClick={() => handleQuickFill('[a290309]')}>
+                                    artistId
+                                </span>
+                                <span className={styles.quickFill} onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}>
+                                    listId
+                                </span>
+                            </div>
+                            <input
+                                type="text"
+                                className={styles.input}
+                                placeholder="Enter artist ID, label ID, or list"
+                                value={discogsInput}
+                                onChange={(e) => setDiscogsInput(e.target.value)}
+                            />
+                            <button className={styles.searchButton} onClick={handleDiscogsSearch}>
+                                Search
+                            </button>
+                            {discogsResponse && (
+                                <pre className={styles.response}>{discogsResponse}</pre>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <p className={styles.authStatus}>You are not signed in to Discogs. Please sign in below:</p>
+                            <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
+                                Authenticate with Discogs
+                            </button>
+                            {discogsAuthError && <p className={styles.error}>{discogsAuthError}</p>} {/* Display Discogs error */}
+                        </>
+                    )}
+                </section>
+
+                {/* Create Playlist Section */}
                 {authStatus && (
                     <div>
                         <h3 className={styles.subtitle}>Add Video to Playlist</h3>
