@@ -109,7 +109,7 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
   };
 
   // Thanos Snap refresh colors logic 
-  const maxDisplacementScale = 700;
+  const maxDisplacementScale = 300; // Reduced from 700 for faster transitions
   let isAnimating = false;
 
   const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
@@ -136,9 +136,8 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
 
     setRandomSeed(bigNoise);
 
-    const initialDuration = 600;
-    const overlapDuration = 700; // Overlap duration for smoother transition
-    const reverseDuration = 800;
+    const initialDuration = 300; // Reduced from 600
+    const reverseDuration = 400; // Reduced from 800
     const startTime = performance.now();
 
     // First part: Dissolve out the current image
@@ -152,11 +151,11 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
       displacementMap.setAttribute("scale", displacementScale);
 
       // Scale and fade out
-      displayedImage.style.transform = `scale(${1 + 0.1 * easedProgress})`;
+      displayedImage.style.transform = `scale(${1 + 0.05 * easedProgress})`; // Reduced scale effect
       displayedImage.style.opacity = 1 - progress;
 
       // Start the dissolve-in for the new image when halfway through the dissolve-out
-      if (progress >= 0.5 && displayedImage.style.opacity <= 0.5) {
+      if (progress >= 0.4) { // Start transition earlier
         // Set the new image source and trigger the "reform" animation
         setRandomImage(`/images/aesthetic-images/images/${randomKey}`);
         const startTimeReform = performance.now();
@@ -172,7 +171,7 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
           displacementMap.setAttribute("scale", displacementScale);
 
           // Scale back down to normal
-          displayedImage.style.transform = `scale(${1 + 0.1 * (1 - easedProgress)})`;
+          displayedImage.style.transform = `scale(${1 + 0.05 * (1 - easedProgress)})`; // Reduced scale effect
           displayedImage.style.opacity = easedProgress;
 
           if (progress < 1) {
@@ -230,12 +229,12 @@ const MainLayout = ({ children, pageTitle, pageSubTitle, icon }) => {
       <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
         <defs>
           <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" colorInterpolationFilters="sRGB" overflow="visible">
-            <feTurbulence type="fractalNoise" baseFrequency="0.004" numOctaves="1" result="bigNoise" />
+            <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="1" result="bigNoise" /> {/* Increased baseFrequency for fewer particles */}
             <feComponentTransfer in="bigNoise" result="bigNoiseAdjusted">
-              <feFuncR type="linear" slope="3" intercept="-1" />
-              <feFuncG type="linear" slope="3" intercept="-1" />
+              <feFuncR type="linear" slope="2" intercept="-0.8" /> {/* Adjusted values for less intense effect */}
+              <feFuncG type="linear" slope="2" intercept="-0.8" />
             </feComponentTransfer>
-            <feTurbulence type="fractalNoise" baseFrequency="1" numOctaves="1" result="fineNoise" />
+            <feTurbulence type="fractalNoise" baseFrequency="1.5" numOctaves="1" result="fineNoise" /> {/* Adjusted baseFrequency */}
             <feMerge result="mergedNoise">
               <feMergeNode in="bigNoiseAdjusted" />
               <feMergeNode in="fineNoise" />
