@@ -162,7 +162,7 @@ function Discogs2Youtube() {
                     <p className={styles.generatedURL}>
                         Sign-In URL: <a href={generatedURL}>{generatedURL}</a>
                     </p>
-
+                )}
                 </section>
 
                 {/* YouTube Auth Section */}
