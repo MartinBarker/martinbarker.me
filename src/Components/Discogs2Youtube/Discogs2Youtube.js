@@ -84,13 +84,13 @@ function Discogs2Youtube() {
                 videoId,
             });
             console.log('Add Video Response:', response.data);
-            setAddVideoResponse(`Success: ${JSON.stringify(response.data, null, 2)}`);
+            setAddVideoResponse({ message: `Success: ${JSON.stringify(response.data, null, 2)}`, isError: false });
         } catch (error) {
             console.error('Error adding video to playlist:', error);
             if (error.response) {
-                setAddVideoResponse(`Error: ${JSON.stringify(error.response.data, null, 2)}`);
+                setAddVideoResponse({ message: `Error: ${JSON.stringify(error.response.data, null, 2)}`, isError: true });
             } else {
-                setAddVideoResponse('An unknown error occurred.');
+                setAddVideoResponse({ message: 'An unknown error occurred.', isError: true });
             }
         }
     };
@@ -139,7 +139,7 @@ function Discogs2Youtube() {
             handleDiscogsCallback(oauthToken, oauthVerifier);
         }
     }, []);
-  
+
     return (
         <div className={styles.container}>
             {/* General Site Description Section */}
@@ -150,7 +150,7 @@ function Discogs2Youtube() {
                 </p>
             </section>
 
-            {/* YouTube Auth Section */}
+            {/* YouTube Auth Section (First) */}
             <section className={styles.section}>
                 <h2 className={styles.subtitle}>YouTube Authentication</h2>
                 {authStatus ? (
@@ -163,101 +163,22 @@ function Discogs2Youtube() {
                         Sign-In URL: <a href={generatedURL}>{generatedURL}</a>
                     </p>
                 )}
-                </section>
+            </section>
 
-                {/* YouTube Auth Section */}
-                <section className={styles.section}>
-                    <h2 className={styles.subtitle}>YouTube Authentication</h2>
-                    {authStatus ? (
-                        <p className={styles.authStatus}>You are signed in to YouTube!</p>
-                    ) : (
-                        <>
-                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
-                            <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
-                                Authenticate with YouTube
-                            </button>
-                            {youtubeAuthError && <p className={styles.error}>{youtubeAuthError}</p>} {/* Display YouTube error */}
-                        </>
-                    )}
-                    {authStatus && (
-                        <div>
-                            <h3 className={styles.subtitle}>Add Video to Playlist</h3>
-                            <input
-                                type="text"
-                                className={styles.input}
-                                placeholder="Enter Playlist ID"
-                                value={playlistId}
-                                onChange={(e) => setPlaylistId(e.target.value)}
-                            />
-                            <input
-                                type="text"
-                                className={styles.input}
-                                placeholder="Enter YouTube Video ID"
-                                value={videoId}
-                                onChange={(e) => setVideoId(e.target.value)}
-                            />
-                            <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
-                                Add Video to Playlist
-                            </button>
-                            {addVideoResponse.message && (
-                                <p
-                                    className={
-                                        addVideoResponse.isError ? styles.error : styles.success
-                                    }
-                                >
-                                    {addVideoResponse.message}
-                                </p>
-                            )}
-                        </div>
-                    )}
-                </section>
-
-                {/* Combined Discogs Authentication & Search Section */}
-                <section className={styles.section}>
-                    <h2 className={styles.subtitle}>Discogs Authentication</h2>
-                    {discogsAuthStatus ? (
-                        <>
-                            <p className={styles.success}>You are signed in to Discogs!</p>
-                            <p className={styles.description}>
-                                Enter an artist ID, label ID, or list to search Discogs.
-                            </p>
-                            <div className={styles.quickFillContainer}>
-                                <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
-                                    labelId
-                                </span>
-                                <span className={styles.quickFill} onClick={() => handleQuickFill('[a290309]')}>
-                                    artistId
-                                </span>
-                                <span className={styles.quickFill} onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}>
-                                    listId
-                                </span>
-                            </div>
-                            <input
-                                type="text"
-                                className={styles.input}
-                                placeholder="Enter artist ID, label ID, or list"
-                                value={discogsInput}
-                                onChange={(e) => setDiscogsInput(e.target.value)}
-                            />
-                            <button className={styles.searchButton} onClick={handleDiscogsSearch}>
-                                Search
-                            </button>
-                            {discogsResponse && (
-                                <pre className={styles.response}>{discogsResponse}</pre>
-                            )}
-                        </>
-                    ) : (
-                        <>
-                            <p className={styles.authStatus}>You are not signed in to Discogs. Please sign in below:</p>
-                            <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
-                                Authenticate with Discogs
-                            </button>
-                            {discogsAuthError && <p className={styles.error}>{discogsAuthError}</p>} {/* Display Discogs error */}
-                        </>
-                    )}
-                </section>
-
-                {/* Create Playlist Section */}
+            {/* YouTube Auth Section (Second) */}
+            <section className={styles.section}>
+                <h2 className={styles.subtitle}>YouTube Authentication</h2>
+                {authStatus ? (
+                    <p className={styles.authStatus}>You are signed in to YouTube!</p>
+                ) : (
+                    <>
+                        <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
+                        <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
+                            Authenticate with YouTube
+                        </button>
+                        {youtubeAuthError && <p className={styles.error}>{youtubeAuthError}</p>}
+                    </>
+                )}
                 {authStatus && (
                     <div>
                         <h3 className={styles.subtitle}>Add Video to Playlist</h3>
@@ -278,36 +199,103 @@ function Discogs2Youtube() {
                         <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
                             Add Video to Playlist
                         </button>
-                        {addVideoResponse && (
-                            <pre className={styles.response}>{addVideoResponse}</pre> // Display response in plaintext
+                        {addVideoResponse.message && (
+                            <p className={addVideoResponse.isError ? styles.error : styles.success}>
+                                {addVideoResponse.message}
+                            </p>
                         )}
                     </div>
                 )}
             </section>
 
-            {/* Discogs Auth Section */}
+            {/* Combined Discogs Authentication & Search Section */}
+            <section className={styles.section}>
+                <h2 className={styles.subtitle}>Discogs Authentication</h2>
+                {discogsAuthStatus ? (
+                    <>
+                        <p className={styles.success}>You are signed in to Discogs!</p>
+                        <p className={styles.description}>
+                            Enter an artist ID, label ID, or list to search Discogs.
+                        </p>
+                        <div className={styles.quickFillContainer}>
+                            <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
+                                labelId
+                            </span>
+                            <span className={styles.quickFill} onClick={() => handleQuickFill('[a290309]')}>
+                                artistId
+                            </span>
+                            <span className={styles.quickFill} onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}>
+                                listId
+                            </span>
+                        </div>
+                        <input
+                            type="text"
+                            className={styles.input}
+                            placeholder="Enter artist ID, label ID, or list"
+                            value={discogsInput}
+                            onChange={(e) => setDiscogsInput(e.target.value)}
+                        />
+                        <button className={styles.searchButton} onClick={handleDiscogsSearch}>
+                            Search
+                        </button>
+                        {discogsResponse && (
+                            <pre className={styles.response}>{discogsResponse}</pre>
+                            /* Use <pre> for plaintext formatting */
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <p className={styles.authStatus}>You are not signed in to Discogs. Please sign in below:</p>
+                        <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
+                            Authenticate with Discogs
+                        </button>
+                        {discogsAuthError && <p className={styles.error}>{discogsAuthError}</p>}
+                    </>
+                )}
+            </section>
+
+            {/* Create Playlist Section (Add Video to Playlist) */}
+            {authStatus && (
+                <div>
+                    <h3 className={styles.subtitle}>Add Video to Playlist</h3>
+                    <input
+                        type="text"
+                        className={styles.input}
+                        placeholder="Enter Playlist ID"
+                        value={playlistId}
+                        onChange={(e) => setPlaylistId(e.target.value)}
+                    />
+                    <input
+                        type="text"
+                        className={styles.input}
+                        placeholder="Enter YouTube Video ID"
+                        value={videoId}
+                        onChange={(e) => setVideoId(e.target.value)}
+                    />
+                    <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
+                        Add Video to Playlist
+                    </button>
+                    {addVideoResponse && (
+                        <pre className={styles.response}>{addVideoResponse}</pre>
+                        /* Display response in plaintext */
+                    )}
+                </div>
+            )}
+
+            {/* Discogs Auth Section (Repeated) */}
             <section className={styles.section}>
                 <h2 className={styles.subtitle}>Discogs Authentication</h2>
                 <p className={styles.description}>
                     Enter an artist ID, label ID, or list to search Discogs. You can also click on the following quick-fill options:
                 </p>
                 <div className={styles.quickFillContainer}>
-                    <span
-                        className={styles.quickFill}
-                        onClick={() => handleQuickFill('[l23152]')}
-                    >
+                    <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
                         labelId
                     </span>
-                    <span
-                        className={styles.quickFill}
-                        onClick={() => handleQuickFill('[a290309]')}
-                    >
+                    <span className={styles.quickFill} onClick={() => handleQuickFill('[a290309]')}>
                         artistId
                     </span>
-                    <span
-                        className={styles.quickFill}
-                        onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}
-                    >
+                    <span className={styles.quickFill} onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}>
                         listId
                     </span>
                 </div>
@@ -322,7 +310,8 @@ function Discogs2Youtube() {
                     Search
                 </button>
                 {discogsResponse && (
-                    <pre className={styles.response}>{discogsResponse}</pre> // Use <pre> for plaintext formatting
+                    <pre className={styles.response}>{discogsResponse}</pre>
+                    /* Use <pre> for plaintext formatting */
                 )}
             </section>
 
