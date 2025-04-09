@@ -101,7 +101,7 @@ function App() {
               <YouTube />
             </Sidebar>
           } 
-        /> 
+        />
 
         <Route 
           path="/discogs2youtube" 
