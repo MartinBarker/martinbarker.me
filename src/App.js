@@ -116,20 +116,6 @@ function App() {
           } 
         />
 
-        {/* Add new route for Discogs callback */}
-        <Route 
-          path="/discogs2youtube/callback/discogs" 
-          element={
-            <Sidebar 
-              pageTitle="Discogs2Youtube" 
-              pageSubTitle="Processing authentication..."
-              icon={homeIconPath}
-            >
-              <Discogs2Youtube />
-            </Sidebar>
-          } 
-        />
-
         {/* 404 route - must be last */}
         <Route 
           path="*" 
