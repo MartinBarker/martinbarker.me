@@ -188,7 +188,7 @@ app.post('/discogsAuth', async (req, res) => {
 
   if (!query) {
     return res.status(400).json({ error: 'No query provided.' });
-  } 
+  }
 
   if (query.startsWith('[l') && query.endsWith(']')) {
     // Label ID
