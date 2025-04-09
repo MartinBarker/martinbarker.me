@@ -26,6 +26,9 @@ let signInUrl = null;
 
 const authStatus = { isAuthenticated: false }; // Track authentication status
 
+let discogsConsumerKey = '';
+let discogsConsumerSecret = '';
+
 // Centralized function to generate the redirect URI
 function getRedirectUri() {
   return localCallback;
@@ -75,10 +78,25 @@ async function initializeOAuth() {
     const secretsJson = JSON.parse(secrets);
     clientId = secretsJson.GCP_CLIENT_ID;
     clientSecret = secretsJson.GCP_CLIENT_SECRET;
+
+    const youtubeSecretsJson = await getAwsSecret('youtubeSecrets');
+    const discogsSecretsJson = await getAwsSecret('discogsAuth');
+    
+    process.env.GCP_CLIENT_ID = youtubeSecretsJson.GCP_CLIENT_ID;
+    process.env.GCP_CLIENT_SECRET = youtubeSecretsJson.GCP_CLIENT_SECRET;
+
+    discogsConsumerKey = discogsSecretsJson.DISCOGS_CONSUMER_KEY;
+    discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET;
   } else {
     console.log('\nRunning locally, using GCP credentials from .env file...');
     clientId = process.env.GCP_CLIENT_ID;
     clientSecret = process.env.GCP_CLIENT_SECRET;
+
+    process.env.GCP_CLIENT_ID = process.env.GCP_CLIENT_ID || '';
+    process.env.GCP_CLIENT_SECRET = process.env.GCP_CLIENT_SECRET || '';
+
+    discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY || '';
+    discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET || '';
   }
 
   if (!clientId || !clientSecret) {
@@ -218,8 +236,8 @@ app.post('/discogsAuth', async (req, res) => {
       let headers = { 'User-Agent': USER_AGENT };
       // If user is signed in, include OAuth header
       if (discogsAuth.accessToken) {
-        const oauthSignature = `${process.env.DISCOGS_CONSUMER_SECRET}&${discogsAuth.accessTokenSecret}`;
-        headers['Authorization'] = `OAuth oauth_consumer_key="${process.env.DISCOGS_CONSUMER_KEY}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+        headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
       }
       const response = await axios.get(url, { headers });
       console.log('Discogs API Response:', response.data); // Log full response
@@ -313,7 +331,7 @@ app.get('/discogs/generateURL', async (req, res) => {
     const oauthTimestamp = Math.floor(Date.now() / 1000);
     const callbackUrl = getDiscogsRediurectUrl();
 
-    const authHeader = `OAuth oauth_consumer_key="${process.env.DISCOGS_CONSUMER_KEY}", oauth_nonce="${oauthNonce}", oauth_signature="${process.env.DISCOGS_CONSUMER_SECRET}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
+    const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_signature="${discogsConsumerSecret}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
 
     const response = await axios.get(DISCOGS_REQUEST_TOKEN_URL, {
       headers: {
@@ -368,7 +386,7 @@ app.get('/discogs2youtube/callback/discogs', async (req, res) => {
 
     const oauthNonce = generateNonce();
     const oauthTimestamp = Math.floor(Date.now() / 1000);
-    const authHeader = `OAuth oauth_consumer_key="${process.env.DISCOGS_CONSUMER_KEY}", oauth_nonce="${oauthNonce}", oauth_token="${oauth_token}", oauth_signature="${process.env.DISCOGS_CONSUMER_SECRET}&${storedTokenSecret}", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_verifier="${oauth_verifier}"`;
+    const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_token="${oauth_token}", oauth_signature="${discogsConsumerSecret}&${storedTokenSecret}", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_verifier="${oauth_verifier}"`;
 
     console.log('\nMaking request to Discogs for access token...');
     const DISCOGS_ACCESS_TOKEN_URL = "https://api.discogs.com/oauth/access_token";
@@ -472,6 +490,11 @@ async function setSecrets() {
         const youtubeSecretsJson = JSON.parse(youtubeSecrets);
         gcpClientId = youtubeSecretsJson.GCP_CLIENT_ID || '';
         gcpClientSecret = youtubeSecretsJson.GCP_CLIENT_SECRET || '';
+
+        const discogsSecretsJson = await getAwsSecret('discogsAuth');
+        discogsConsumerKey = discogsSecretsJson.DISCOGS_CONSUMER_KEY;
+        discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET;
+
         console.log('AWS secrets loaded.');
       } catch (awsError) {
         console.warn('Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
@@ -481,6 +504,8 @@ async function setSecrets() {
         gmailAppPassword = '';
         gcpClientId = '';
         gcpClientSecret = '';
+        discogsConsumerKey = '';
+        discogsConsumerSecret = '';
       }
     }
     console.log("Secrets set successfully.");
