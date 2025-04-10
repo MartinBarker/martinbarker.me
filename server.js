@@ -35,16 +35,18 @@ function getRedirectUri() {
   return localCallback;
 }
 
+var envVar = 'production'; //process.env.NODE_ENV;
+
 // Function to determine the redirect URL based on the environment
 function getRedirectUrl() {
-  if (process.env.NODE_ENV === 'production') {
+  if (envVar === 'production') {
     return 'https://jermasearch.com/discogs2youtube';
   }
   return 'http://localhost:3001/discogs2youtube'; // Redirect to local /discogs2youtube route
 }
 
 function getDiscogsRediurectUrl() {
-  if (process.env.NODE_ENV === 'production') {
+  if (envVar === 'production') {
     return 'https://jermasearch.com/discogs2youtube/callback/discogs';
   }
   return 'http://localhost:3030/discogs2youtube/callback/discogs';
@@ -73,9 +75,9 @@ async function initializeOAuth() {
   console.log('\nInitializing OAuth...');
   let clientId, clientSecret;
 
-  if (process.env.NODE_ENV === 'production') {
+  if (envVar === 'production') {
     console.log('\nRunning in production, fetching GCP credentials from AWS Secrets Manager...');
-    const secrets = await getAwsSecret("gcpCredentials");
+    const secrets = await getAwsSecret("youtubeAuth");
     const secretsJson = JSON.parse(secrets);
     clientId = secretsJson.GCP_CLIENT_ID;
     clientSecret = secretsJson.GCP_CLIENT_SECRET;
@@ -156,7 +158,7 @@ app.get('/authStatus', (req, res) => {
 // Route to handle the production callback URL
 app.get('/youtube/callback', (req, res) => {
   console.log("📺 [GET /youtube/callback] Hit:", req.originalUrl);
-  if (process.env.NODE_ENV !== 'production') {
+  if (envVar !== 'production') {
     return res.status(403).send('This route is only available in production.');
   }
 
@@ -416,6 +418,18 @@ app.get('/discogs/authStatus', (req, res) => {
   res.status(200).json({ isAuthenticated });
 });
 
+// Route to fetch petTypes secret
+app.get('/fetchPetTypes', async (req, res) => {
+  console.log("🐾 [GET /fetchPetTypes] Hit");
+  try {
+    const petTypesSecret = await getAwsSecret("petTypes");
+    res.status(200).json({ petTypes: petTypesSecret });
+  } catch (error) {
+    console.error('Error fetching petTypes secret:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server and initialize OAuth
 app.listen(port, async () => {
   try {
@@ -433,16 +447,27 @@ app.listen(port, async () => {
 
 // Fetch AWS secret
 async function getAwsSecret(secretName) {
+  console.log(`\nFetching AWS secret: ${secretName}`);
   try {
     const awsClient = new SecretsManagerClient({ region: "us-west-2" });
-    const response = await awsClient.send(
-      new GetSecretValueCommand({
-        SecretId: secretName,
-      }),
-    );
+    console.log('AWS Secrets Manager client created');
+    
+    const command = new GetSecretValueCommand({
+      SecretId: secretName,
+      VersionStage: "AWSCURRENT", // Explicitly specify the version stage
+    });
+    console.log('GetSecretValueCommand created');
+    
+    const response = await awsClient.send(command);
+    console.log('AWS secret retrieved successfully');
+    
     return response.SecretString;
   } catch (error) {
-    console.error(`Error getting AWS secret: ${error}`);
+    console.error('\nError getting AWS secret:', error.message);
+    // Send the error message to the frontend
+    app.get('/awsSecretError', (req, res) => {
+      res.status(500).json({ error: error.message });
+    });
     throw error;
   }
 }
@@ -451,9 +476,9 @@ async function setSecrets() {
   console.log('setSecrets()');
   try {
     const envFilePath = `${__dirname}/.env`;
-    const isLocalEnvFile = fs.existsSync(envFilePath);
+    var isLocalEnvFile = fs.existsSync(envFilePath);
     console.log('isLocalEnvFile=', isLocalEnvFile);
-
+    isLocalEnvFile = false;
     if (isLocalEnvFile) {
       require('dotenv').config({ path: envFilePath });
       algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID || '';
