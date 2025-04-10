@@ -19,11 +19,14 @@ function Discogs2Youtube() {
     const [discogsAuthStatus, setDiscogsAuthStatus] = useState(false);
     const [petTypes, setPetTypes] = useState(''); // State for petTypes secret
 
+    var apiUrl = "https://www.jermasearch.com/internal-api"
+    // var apiUrl = "http://localhost:3030"
+
     useEffect(() => {
         // Fetch the sign-in URL on component mount
         const fetchSignInURL = async () => {
             try {
-                const response = await axios.get('http://localhost:3030/generateURL'); // Ensure the backend route matches
+                const response = await axios.get(`${apiUrl}/generateURL`); // Ensure the backend route matches
                 //console.log('Generated URL:', response.data.url);
                 setGeneratedURL(response.data.url);
             } catch (error) {
@@ -35,7 +38,7 @@ function Discogs2Youtube() {
         // Fetch the authentication status on component mount
         const fetchYouTubeAuthStatus = async () => {
             try {
-                const response = await axios.get('http://localhost:3030/authStatus');
+                const response = await axios.get(`${apiUrl}/authStatus`);
                 console.log('YouTube Auth Status:', response.data.isAuthenticated);
                 setAuthStatus(response.data.isAuthenticated);
             } catch (error) {
@@ -46,7 +49,7 @@ function Discogs2Youtube() {
         // Fetch Discogs sign-in URL on component mount
         const fetchDiscogsAuthUrl = async () => {
             try {
-                const response = await axios.get('http://localhost:3030/discogs/generateURL');
+                const response = await axios.get(`${apiUrl}/discogs/generateURL`);
                 //console.log('Discogs Auth URL:', response.data.url);
                 setDiscogsAuthUrl(response.data.url);
             } catch (error) {
@@ -63,7 +66,7 @@ function Discogs2Youtube() {
         // Fetch Discogs authentication status
         const fetchDiscogsAuthStatus = async () => {
             try {
-                const response = await axios.get('http://localhost:3030/discogs/authStatus');
+                const response = await axios.get(`${apiUrl}/discogs/authStatus`);
                 console.log('Discogs Auth Status:', response.data.isAuthenticated);
                 setDiscogsAuthStatus(response.data.isAuthenticated);
             } catch (error) {
@@ -77,7 +80,7 @@ function Discogs2Youtube() {
     useEffect(() => {
         const fetchAwsSecretError = async () => {
             try {
-                const response = await axios.get('http://localhost:3030/awsSecretError');
+                const response = await axios.get(`${apiUrl}/awsSecretError`);
                 console.log('AWS Secret Error:', response.data.error);
             } catch (error) {
                 console.error('Error fetching AWS secret error:', error.message);
@@ -89,7 +92,7 @@ function Discogs2Youtube() {
 
     const handleDiscogsSearch = async () => {
         try {
-            const response = await axios.post('http://localhost:3030/discogsAuth', { query: discogsInput });
+            const response = await axios.post(`${apiUrl}/discogsAuth`, { query: discogsInput });
             console.log('Discogs Response:', response.data);
             setDiscogsResponse(
                 `Type: ${response.data.type}, ID: ${response.data.id}\nAPI Response: ${JSON.stringify(response.data.apiResponse, null, 2)}`
@@ -104,7 +107,7 @@ function Discogs2Youtube() {
 
     const handleCreatePlaylist = async () => {
         try {
-            const response = await axios.post('http://localhost:3030/createPlaylist', { name: playlistName });
+            const response = await axios.post(`${apiUrl}/createPlaylist`, { name: playlistName });
             console.log('Playlist Creation Response:', response.data);
             setPlaylistResponse(`Playlist created: ${response.data.title} (ID: ${response.data.id})`);
         } catch (error) {
@@ -117,7 +120,7 @@ function Discogs2Youtube() {
 
     const handleAddVideoToPlaylist = async () => {
         try {
-            const response = await axios.post('http://localhost:3030/addVideoToPlaylist', {
+            const response = await axios.post(`${apiUrl}/addVideoToPlaylist`, {
                 playlistId,
                 videoId,
             });
@@ -138,7 +141,7 @@ function Discogs2Youtube() {
 
     const fetchYouTubeAuthUrl = async () => {
         try {
-            const response = await axios.get('http://localhost:3030/generateURL');
+            const response = await axios.get(`${apiUrl}/generateURL`);
             console.log('YouTube Auth URL:', response.data.url);
             window.location.href = response.data.url; // Open the URL in the current tab
         } catch (error) {
@@ -154,7 +157,7 @@ function Discogs2Youtube() {
 
     const handleDiscogsCallback = async (oauthToken, oauthVerifier) => {
         try {
-            const response = await axios.get('http://localhost:3030/discogs/callback', {
+            const response = await axios.get(`${apiUrl}/discogs/callback`, {
                 params: { oauth_token: oauthToken, oauth_verifier: oauthVerifier },
             });
             console.log('Discogs Access Token:', response.data);
@@ -166,7 +169,7 @@ function Discogs2Youtube() {
 
     const handleFetchPetTypes = async () => {
         try {
-            const response = await axios.get('http://localhost:3030/fetchPetTypes');
+            const response = await axios.get(`${apiUrl}/fetchPetTypes`);
             console.log('Pet Types:', response.data.petTypes);
             setPetTypes(response.data.petTypes);
         } catch (error) {
@@ -193,7 +196,7 @@ function Discogs2Youtube() {
                 <meta property="og:title" content="Discogs2Youtube" />
                 <meta property="og:description" content="Manage your Discogs and YouTube playlists seamlessly." />
                 <meta property="og:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
-                <meta property="og:url" content="http://localhost:3001/discogs2youtube" />
+                <meta property="og:url" content="https://jermasearch.com/discogs2youtube" />
                 <meta name="twitter:card" content="summary_large_image" />
             </Helmet>
             <div className={styles.container}>
