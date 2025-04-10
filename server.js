@@ -19,6 +19,7 @@ app.use(cors());
 app.use(express.json()); // To parse JSON bodies
 
 const localCallback = 'http://localhost:3030/oauth2callback'; // Centralized variable for local callback URI
+const prodCallback = "https://www.jermasearch.com/internal-api/oauth2callback"
 
 // YouTube configuration
 const TOKEN_PATH = 'tokens.json';
@@ -32,7 +33,7 @@ const authStatus = { isAuthenticated: false }; // Track authentication status
 
 // Centralized function to generate the redirect URI
 function getRedirectUri() {
-  return localCallback;
+  return prodCallback;
 }
 
 var envVar = 'production'; //process.env.NODE_ENV;
@@ -54,7 +55,7 @@ function getDiscogsRediurectUrl() {
 
 // Centralized function to initialize the OAuth2 client
 function initializeOAuthClient(clientId, clientSecret) {
-  const redirectUri = localCallback; // Use centralized variable
+  const redirectUri = prodCallback; // Use centralized variable
   console.log('\nClient ID:', clientId);
   console.log('\nClient Secret:', clientSecret);
   console.log('\nRedirect URI:', redirectUri);
@@ -224,8 +225,8 @@ app.post('/discogsAuth', async (req, res) => {
       let headers = { 'User-Agent': USER_AGENT };
       // If user is signed in, include OAuth header
       if (discogsAuth.accessToken) {
-        const oauthSignature = `${process.env.DISCOGS_CONSUMER_SECRET}&${discogsAuth.accessTokenSecret}`;
-        headers['Authorization'] = `OAuth oauth_consumer_key="${process.env.DISCOGS_CONSUMER_KEY}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+        headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
       }
       const response = await axios.get(url, { headers });
       console.log('Discogs API Response:', response.data); // Log full response
@@ -319,7 +320,7 @@ app.get('/discogs/generateURL', async (req, res) => {
     const oauthTimestamp = Math.floor(Date.now() / 1000);
     const callbackUrl = getDiscogsRediurectUrl();
 
-    const authHeader = `OAuth oauth_consumer_key="${process.env.DISCOGS_CONSUMER_KEY}", oauth_nonce="${oauthNonce}", oauth_signature="${process.env.DISCOGS_CONSUMER_SECRET}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
+    const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_signature="${discogsConsumerSecret}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
 
     const response = await axios.get(DISCOGS_REQUEST_TOKEN_URL, {
       headers: {
@@ -374,7 +375,7 @@ app.get('/discogs2youtube/callback/discogs', async (req, res) => {
 
     const oauthNonce = generateNonce();
     const oauthTimestamp = Math.floor(Date.now() / 1000);
-    const authHeader = `OAuth oauth_consumer_key="${process.env.DISCOGS_CONSUMER_KEY}", oauth_nonce="${oauthNonce}", oauth_token="${oauth_token}", oauth_signature="${process.env.DISCOGS_CONSUMER_SECRET}&${storedTokenSecret}", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_verifier="${oauth_verifier}"`;
+    const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_token="${oauth_token}", oauth_signature="${discogsConsumerSecret}&${storedTokenSecret}", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_verifier="${oauth_verifier}"`;
 
     console.log('\nMaking request to Discogs for access token...');
     const DISCOGS_ACCESS_TOKEN_URL = "https://api.discogs.com/oauth/access_token";
@@ -472,6 +473,9 @@ async function getAwsSecret(secretName) {
   }
 }
 
+var discogsConsumerKey = '';
+var discogsConsumerSecret = ''; 
+
 async function setSecrets() {
   console.log('setSecrets()');
   try {
@@ -501,6 +505,12 @@ async function setSecrets() {
         const youtubeSecretsJson = JSON.parse(youtubeSecrets);
         gcpClientId = youtubeSecretsJson.GCP_CLIENT_ID || '';
         gcpClientSecret = youtubeSecretsJson.GCP_CLIENT_SECRET || '';
+        
+        const discogsSecrets = await getAwsSecret("discogsAuth");
+        const discogsSecretsJson = JSON.parse(discogsSecrets);
+        discogsConsumerKey = discogsSecretsJson.DISCOGS_CONSUMER_KEY || '';
+        discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET || '';
+
         console.log('AWS secrets loaded.');
       } catch (awsError) {
         console.warn('Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
@@ -710,7 +720,7 @@ app.get('/getYtUrl', async function (req, res) {
       access_type: 'offline',
       scope: ['https://www.googleapis.com/auth/youtube.force-ssl'],
       prompt: 'consent',
-      redirect_uri: localCallback // Use centralized variable
+      redirect_uri: prodCallback // Use centralized variable
     });
 
     console.log('\nGenerated auth URL:', authUrl);
@@ -773,7 +783,7 @@ async function createOauth2Client() {
       const oauth2Client = new google.auth.OAuth2(
         process.env.GCP_CLIENT_ID,
         process.env.GCP_CLIENT_SECRET,
-        localCallback // Use centralized variable
+        prodCallback // Use centralized variable
       );
 
       console.log('createOauth2Client() done')
@@ -789,7 +799,7 @@ async function generateUrl(callbackPort) {
   return new Promise(async function (resolve, reject) {
     try {
       console.log('generateUrl()')
-      var redirectUrl = localCallback;
+      var redirectUrl = prodCallback;
       const authUrl = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: ['https://www.googleapis.com/auth/youtube.force-ssl'],
