@@ -17,6 +17,7 @@ function Discogs2Youtube() {
     const [discogsAuthUrl, setDiscogsAuthUrl] = useState('');
     const [discogsAccessToken, setDiscogsAccessToken] = useState(null);
     const [discogsAuthStatus, setDiscogsAuthStatus] = useState(false);
+    const [petTypes, setPetTypes] = useState(''); // State for petTypes secret
 
     useEffect(() => {
         // Fetch the sign-in URL on component mount
@@ -72,6 +73,19 @@ function Discogs2Youtube() {
 
         fetchDiscogsAuthStatus();
     }, [discogsAccessToken]);
+
+    useEffect(() => {
+        const fetchAwsSecretError = async () => {
+            try {
+                const response = await axios.get('http://localhost:3030/awsSecretError');
+                console.log('AWS Secret Error:', response.data.error);
+            } catch (error) {
+                console.error('Error fetching AWS secret error:', error.message);
+            }
+        };
+
+        fetchAwsSecretError();
+    }, []);
 
     const handleDiscogsSearch = async () => {
         try {
@@ -147,6 +161,17 @@ function Discogs2Youtube() {
             setDiscogsAccessToken(response.data);
         } catch (error) {
             console.error('Error handling Discogs callback:', error.message);
+        }
+    };
+
+    const handleFetchPetTypes = async () => {
+        try {
+            const response = await axios.get('http://localhost:3030/fetchPetTypes');
+            console.log('Pet Types:', response.data.petTypes);
+            setPetTypes(response.data.petTypes);
+        } catch (error) {
+            console.error('Error fetching petTypes:', error.message);
+            setPetTypes(`Error: ${error.message}`);
         }
     };
 
@@ -287,6 +312,14 @@ function Discogs2Youtube() {
                         {playlistResponse && <p className={styles.response}>{playlistResponse}</p>}
                     </section>
                 )}
+
+                {/* Fetch PetTypes Section */}
+                <section className={styles.section}>
+                    <button className={styles.smallButton} onClick={handleFetchPetTypes}>
+                        Fetch PetTypes
+                    </button>
+                    {petTypes && <pre className={styles.response}>{petTypes}</pre>}
+                </section>
             </div>
         </>
     );
