@@ -47,10 +47,10 @@ function getRedirectUrl() {
 }
 
 function getDiscogsRediurectUrl() {
-  if (envVar === 'production') {
-    return 'https://jermasearch.com/discogs2youtube/callback/discogs';
-  }
-  return 'http://localhost:3030/discogs2youtube/callback/discogs';
+  //if (envVar === 'production') {
+  return 'https://jermasearch.com/discogs2youtube/callback/discogs';
+  //}
+  //return 'http://localhost:3030/discogs2youtube/callback/discogs';
 }
 
 // Centralized function to initialize the OAuth2 client
@@ -410,7 +410,7 @@ app.get('/discogs2youtube/callback/discogs', ensureSecretsInitialized, async (re
     console.log('Authentication successful');
     console.log('================================\n');
 
-    const redirectUrl = 'http://localhost:3001/discogs2youtube';
+    const redirectUrl = 'https://jermasearch.com/discogs2youtube';
     res.redirect(redirectUrl);
   } catch (error) {
     logError('Discogs OAuth Flow', error, details);
