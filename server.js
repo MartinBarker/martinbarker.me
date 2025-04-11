@@ -55,10 +55,7 @@ function getDiscogsRediurectUrl() {
 
 // Centralized function to initialize the OAuth2 client
 function initializeOAuthClient(clientId, clientSecret) {
-  const redirectUri = prodCallback; // Use centralized variable
-  console.log('\nClient ID:', clientId);
-  console.log('\nClient Secret:', clientSecret);
-  console.log('\nRedirect URI:', redirectUri);
+  const redirectUri = prodCallback; 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
@@ -74,32 +71,13 @@ function generateSignInUrl(oauth2Client) {
 // Initialize OAuth2 client and YouTube API
 async function initializeOAuth() {
   console.log('\nInitializing OAuth...');
-  let clientId, clientSecret;
-
-  if (envVar === 'production') {
-    console.log('\nRunning in production, fetching GCP credentials from AWS Secrets Manager...');
-    const secrets = await getAwsSecret("youtubeAuth");
-    const secretsJson = JSON.parse(secrets);
-    clientId = secretsJson.GCP_CLIENT_ID;
-    clientSecret = secretsJson.GCP_CLIENT_SECRET;
-  } else {
-    console.log('\nRunning locally, using GCP credentials from .env file...');
-    clientId = process.env.GCP_CLIENT_ID;
-    clientSecret = process.env.GCP_CLIENT_SECRET;
-  }
-
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing GCP_CLIENT_ID or GCP_CLIENT_SECRET');
-  }
-
-  oauth2Client = initializeOAuthClient(clientId, clientSecret);
+  oauth2Client = initializeOAuthClient(gcpClientId, gcpClientSecret);
   youtube = google.youtube({
     version: 'v3',
     auth: oauth2Client,
   });
 
   signInUrl = generateSignInUrl(oauth2Client);
-  console.log('\nSign-in URL generated:', signInUrl, '\n');
 }
 
 // Load tokens from file
@@ -448,10 +426,23 @@ async function initializeSecrets() {
   console.log('Secrets initialized.');
 }
 
+// Check for local=true argument
+const args = process.argv.slice(2);
+const isLocal = args.includes('local=true');
+
+if (isLocal) {
+  console.log('Running in local mode, loading variables from .env file...');
+  require('dotenv').config();
+  gcpClientId = process.env.GCP_CLIENT_ID || '';
+  gcpClientSecret = process.env.GCP_CLIENT_SECRET || '';
+  discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY || '';
+  discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET || '';
+}
+
 // Start server and initialize secrets
 app.listen(port, async () => {
   try {
-    await initializeSecrets(); // Ensure secrets are initialized before starting
+    await initializeSecrets();
     await initializeOAuth();
     if (loadTokens()) {
       console.log('Using existing tokens for authentication.');
@@ -495,29 +486,29 @@ var discogsConsumerKey = '';
 var discogsConsumerSecret = ''; 
 
 async function setSecrets() {
-  console.log('setSecrets()');
   try {
     const envFilePath = `${__dirname}/.env`;
     var isLocalEnvFile = fs.existsSync(envFilePath);
     console.log('isLocalEnvFile=', isLocalEnvFile);
-    isLocalEnvFile = false;
     if (isLocalEnvFile) {
       require('dotenv').config({ path: envFilePath });
-      algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID || '';
-      algoliaApiKey = process.env.ALGOLIA_API_KEY || '';
-      algoliaIndex = process.env.ALGOLIA_INDEX || '';
-      gmailAppPassword = process.env.GMAIl_APP_PASSWORD || '';
+      //algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID || '';
+      //algoliaApiKey = process.env.ALGOLIA_API_KEY || '';
+      //algoliaIndex = process.env.ALGOLIA_INDEX || '';
+      //gmailAppPassword = process.env.GMAIl_APP_PASSWORD || '';
       gcpClientId = process.env.GCP_CLIENT_ID || '';
       gcpClientSecret = process.env.GCP_CLIENT_SECRET || '';
-      console.log('Local environment variables loaded.');
+      discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY || '';
+      discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET || '';
+      console.log('setSecrets() Local environment variables loaded.');
     } else {
       try {
-        const algoliaSecrets = await getAwsSecret("algoliaDbDetails");
-        const algoliaSecretsJson = JSON.parse(algoliaSecrets);
-        algoliaApplicationId = algoliaSecretsJson.ALGOLIA_APPLICATION_ID || '';
-        algoliaApiKey = algoliaSecretsJson.ALGOLIA_API_KEY || '';
-        algoliaIndex = algoliaSecretsJson.ALGOLIA_INDEX || '';
-        gmailAppPassword = algoliaSecretsJson.GMAIl_APP_PASSWORD || '';
+        //const algoliaSecrets = await getAwsSecret("algoliaDbDetails");
+        //const algoliaSecretsJson = JSON.parse(algoliaSecrets);
+        //algoliaApplicationId = algoliaSecretsJson.ALGOLIA_APPLICATION_ID || '';
+        //algoliaApiKey = algoliaSecretsJson.ALGOLIA_API_KEY || '';
+        //algoliaIndex = algoliaSecretsJson.ALGOLIA_INDEX || '';
+        //gmailAppPassword = algoliaSecretsJson.GMAIl_APP_PASSWORD || '';
 
         const youtubeSecrets = await getAwsSecret("youtubeAuth");
         const youtubeSecretsJson = JSON.parse(youtubeSecrets);
@@ -529,9 +520,9 @@ async function setSecrets() {
         discogsConsumerKey = discogsSecretsJson.DISCOGS_CONSUMER_KEY || '';
         discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET || '';
 
-        console.log('AWS secrets loaded.');
+        console.log('setSecrets() AWS secrets loaded.');
       } catch (awsError) {
-        console.warn('Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
+        console.warn('setSecrets() Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
         algoliaApplicationId = '';
         algoliaApiKey = '';
         algoliaIndex = '';
@@ -540,10 +531,8 @@ async function setSecrets() {
         gcpClientSecret = '';
       }
     }
-    console.log("Secrets set successfully.");
   } catch (error) {
-    console.error("Error setting secrets:", error);
-    // Do not throw the error to allow the server to start
+    console.error("setSecrets() Error setting secrets:", error);
   }
 }
 
