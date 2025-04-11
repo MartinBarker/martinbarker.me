@@ -312,8 +312,16 @@ function generateNonce() {
 // Global variable to store mapping between oauth_token and oauth_token_secret
 let discogsRequestTokens = {};
 
+// Middleware to ensure secrets are initialized before handling requests
+function ensureSecretsInitialized(req, res, next) {
+  if (!secretsInitialized) {
+    return res.status(503).json({ error: 'Secrets are not initialized yet. Please try again later.' });
+  }
+  next();
+}
+
 // Generate the Discogs sign-in URL
-app.get('/discogs/generateURL', async (req, res) => {
+app.get('/discogs/generateURL', ensureSecretsInitialized, async (req, res) => {
   console.log("🔐 [GET /discogs/generateURL] Hit");
   try {
     const oauthNonce = generateNonce();
@@ -348,7 +356,7 @@ app.get('/discogs/generateURL', async (req, res) => {
 let discogsAuth = { accessToken: null, accessTokenSecret: null }; // Store Discogs auth tokens
 
 // Handle the Discogs OAuth callback
-app.get('/discogs2youtube/callback/discogs', async (req, res) => {
+app.get('/discogs2youtube/callback/discogs', ensureSecretsInitialized, async (req, res) => {
   console.log("🎸 [GET /discogs2youtube/callback/discogs] Hit", req.originalUrl);
   const details = {
     full_url: req.protocol + '://' + req.get('host') + req.originalUrl,
@@ -431,9 +439,19 @@ app.get('/fetchPetTypes', async (req, res) => {
   }
 });
 
-// Start server and initialize OAuth
+let secretsInitialized = false; // Flag to ensure secrets are initialized
+
+async function initializeSecrets() {
+  console.log('Initializing secrets...');
+  await setSecrets();
+  secretsInitialized = true;
+  console.log('Secrets initialized.');
+}
+
+// Start server and initialize secrets
 app.listen(port, async () => {
   try {
+    await initializeSecrets(); // Ensure secrets are initialized before starting
     await initializeOAuth();
     if (loadTokens()) {
       console.log('Using existing tokens for authentication.');
