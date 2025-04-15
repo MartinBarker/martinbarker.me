@@ -40,25 +40,23 @@ var envVar = 'production'; //process.env.NODE_ENV;
 
 // Function to determine the redirect URL based on the environment
 function getRedirectUrl() {
-  if (envVar === 'production') {
-    return 'https://jermasearch.com/discogs2youtube';
+  if (isLocal) {
+    return 'http://localhost:3030/discogs2youtube/youtube/callback'; // Updated local redirect URL
   }
-  return 'http://localhost:3001/discogs2youtube'; // Redirect to local /discogs2youtube route
+  return 'https://jermasearch.com/discogs2youtube/youtube/callback'; // Updated production redirect URL
 }
 
 function getDiscogsRediurectUrl() {
-  //if (envVar === 'production') {
+  if (isLocal) {
+    return 'http://localhost:3030/discogs2youtube/callback/discogs';
+  }
   return 'https://jermasearch.com/discogs2youtube/callback/discogs';
-  //}
-  //return 'http://localhost:3030/discogs2youtube/callback/discogs';
 }
 
 // Centralized function to initialize the OAuth2 client
 function initializeOAuthClient(clientId, clientSecret) {
-  const redirectUri = prodCallback; // Use centralized variable
-  console.log('\nClient ID:', clientId);
-  console.log('\nClient Secret:', clientSecret);
-  console.log('\nRedirect URI:', redirectUri);
+  const redirectUri = getRedirectUrl(); 
+  console.log('youtube redirectUri = ', redirectUri);
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
@@ -74,32 +72,13 @@ function generateSignInUrl(oauth2Client) {
 // Initialize OAuth2 client and YouTube API
 async function initializeOAuth() {
   console.log('\nInitializing OAuth...');
-  let clientId, clientSecret;
-
-  if (envVar === 'production') {
-    console.log('\nRunning in production, fetching GCP credentials from AWS Secrets Manager...');
-    const secrets = await getAwsSecret("youtubeAuth");
-    const secretsJson = JSON.parse(secrets);
-    clientId = secretsJson.GCP_CLIENT_ID;
-    clientSecret = secretsJson.GCP_CLIENT_SECRET;
-  } else {
-    console.log('\nRunning locally, using GCP credentials from .env file...');
-    clientId = process.env.GCP_CLIENT_ID;
-    clientSecret = process.env.GCP_CLIENT_SECRET;
-  }
-
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing GCP_CLIENT_ID or GCP_CLIENT_SECRET');
-  }
-
-  oauth2Client = initializeOAuthClient(clientId, clientSecret);
+  oauth2Client = initializeOAuthClient(gcpClientId, gcpClientSecret);
   youtube = google.youtube({
     version: 'v3',
     auth: oauth2Client,
   });
 
   signInUrl = generateSignInUrl(oauth2Client);
-  console.log('\nSign-in URL generated:', signInUrl, '\n');
 }
 
 // Load tokens from file
@@ -156,6 +135,33 @@ app.get('/authStatus', (req, res) => {
   res.status(200).json(authStatus);
 });
 
+// Handle YouTube OAuth2 callback
+app.get('/discogs2youtube/youtube/callback', async (req, res) => {
+  console.log("📺 [GET /discogs2youtube/youtube/callback] Hit:", req.originalUrl);
+
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).send('No code found in the request.');
+  }
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    console.log('\nYouTube User authenticated. Tokens:', tokens);
+
+    // Update authentication status
+    authStatus.isAuthenticated = true;
+
+    // Redirect to the frontend route
+    const redirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
+    res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('\nError during YouTube authentication:', error.message);
+    res.status(500).send('Authentication failed.');
+  }
+}); 
+
 // Route to handle the production callback URL
 app.get('/youtube/callback', (req, res) => {
   console.log("📺 [GET /youtube/callback] Hit:", req.originalUrl);
@@ -211,7 +217,7 @@ app.post('/discogsAuth', async (req, res) => {
   if (!query) {
     return res.status(400).json({ error: 'No query provided.' });
   }
-
+ 
   if (query.startsWith('[l') && query.endsWith(']')) {
     // Label ID
     const labelId = query.slice(2, -1);
@@ -286,6 +292,55 @@ async function fetchDiscogsData(type, id) {
   }
 }
 
+// Function to make a Discogs request and handle pagination with exponential backoff
+async function makeDiscogsRequest(url) {
+    console.log(`makeDiscogsRequest: ${url}`);
+    let allData = [];
+    let retryCount = 0;
+
+    try {
+        while (url) {
+            try {
+                const response = await axios.get(url, {
+                    headers: { 'User-Agent': USER_AGENT },
+                });
+                allData = allData.concat(response.data.releases || []);
+                url = response.data.pagination?.urls?.next || null;
+                retryCount = 0; // Reset retry count on success
+            } catch (error) {
+                if (error.response?.status === 429) {
+                    retryCount++;
+                    const waitTime = Math.pow(2, retryCount) * 1000;
+                    console.error(`Rate limit hit. Retrying in ${waitTime / 1000} seconds...`);
+                    await new Promise((resolve) => setTimeout(resolve, waitTime));
+                } else {
+                    throw error;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error making Discogs request:', error.message);
+        throw error;
+    }
+    return allData;
+}
+
+// Function to fetch release IDs for an artist
+async function fetchReleaseIds(artistId) {
+    const url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
+    const releases = await makeDiscogsRequest(url);
+    return releases.map((release) => release.main_release || release.id);
+}
+
+// Function to fetch video IDs for a release
+async function fetchVideoIds(releaseId) {
+    const url = `${DISCOGS_API_URL}/releases/${releaseId}`;
+    const response = await axios.get(url, {
+        headers: { 'User-Agent': USER_AGENT },
+    });
+    return response.data.videos?.map((video) => ({ url: video.uri })) || [];
+}
+
 // Route to handle Discogs API requests
 app.post('/discogsFetch', async (req, res) => {
   console.log("📡 [POST /discogsFetch] Hit", req.body);
@@ -327,6 +382,7 @@ app.get('/discogs/generateURL', ensureSecretsInitialized, async (req, res) => {
     const oauthNonce = generateNonce();
     const oauthTimestamp = Math.floor(Date.now() / 1000);
     const callbackUrl = getDiscogsRediurectUrl();
+    console.log('discogs callback url = ', callbackUrl);
 
     const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_signature="${discogsConsumerSecret}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
 
@@ -410,13 +466,15 @@ app.get('/discogs2youtube/callback/discogs', ensureSecretsInitialized, async (re
     console.log('Authentication successful');
     console.log('================================\n');
 
-    const redirectUrl = 'https://jermasearch.com/discogs2youtube';
+    // Dynamically set the redirect URL based on the environment
+    const redirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
     res.redirect(redirectUrl);
   } catch (error) {
     logError('Discogs OAuth Flow', error, details);
     
     // Redirect to error page or main page with error param
-    res.redirect('http://localhost:3001/discogs2youtube?error=' + encodeURIComponent(error.message));
+    const errorRedirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
+    res.redirect(`${errorRedirectUrl}?error=${encodeURIComponent(error.message)}`);
   }
 });
 
@@ -427,16 +485,17 @@ app.get('/discogs/authStatus', (req, res) => {
   res.status(200).json({ isAuthenticated });
 });
 
-// Route to fetch petTypes secret
-app.get('/fetchPetTypes', async (req, res) => {
-  console.log("🐾 [GET /fetchPetTypes] Hit");
-  try {
-    const petTypesSecret = await getAwsSecret("petTypes");
-    res.status(200).json({ petTypes: petTypesSecret });
-  } catch (error) {
-    console.error('Error fetching petTypes secret:', error.message);
-    res.status(500).json({ error: error.message });
+// Add a /signOut endpoint to reset authentication data
+app.post('/signOut', (req, res) => {
+  console.log("🚪 [POST /signOut] Hit");
+  authStatus.isAuthenticated = false;
+  discogsAuth = { accessToken: null, accessTokenSecret: null };
+  if (oauth2Client) {
+    oauth2Client.setCredentials(null); // Clear YouTube credentials
+    console.log("YouTube credentials cleared.");
   }
+  console.log("Authentication data cleared.");
+  res.status(200).send('Signed out successfully.');
 });
 
 let secretsInitialized = false; // Flag to ensure secrets are initialized
@@ -448,10 +507,23 @@ async function initializeSecrets() {
   console.log('Secrets initialized.');
 }
 
+// Check for local=true argument
+const args = process.argv.slice(2);
+const isLocal = args.includes('local=true');
+
+if (isLocal) {
+  console.log('Running in local mode, loading variables from .env file...');
+  require('dotenv').config();
+  gcpClientId = process.env.GCP_CLIENT_ID || '';
+  gcpClientSecret = process.env.GCP_CLIENT_SECRET || '';
+  discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY || '';
+  discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET || '';
+}
+
 // Start server and initialize secrets
 app.listen(port, async () => {
   try {
-    await initializeSecrets(); // Ensure secrets are initialized before starting
+    await initializeSecrets();
     await initializeOAuth();
     if (loadTokens()) {
       console.log('Using existing tokens for authentication.');
@@ -495,29 +567,29 @@ var discogsConsumerKey = '';
 var discogsConsumerSecret = ''; 
 
 async function setSecrets() {
-  console.log('setSecrets()');
   try {
     const envFilePath = `${__dirname}/.env`;
     var isLocalEnvFile = fs.existsSync(envFilePath);
     console.log('isLocalEnvFile=', isLocalEnvFile);
-    isLocalEnvFile = false;
     if (isLocalEnvFile) {
       require('dotenv').config({ path: envFilePath });
-      algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID || '';
-      algoliaApiKey = process.env.ALGOLIA_API_KEY || '';
-      algoliaIndex = process.env.ALGOLIA_INDEX || '';
-      gmailAppPassword = process.env.GMAIl_APP_PASSWORD || '';
+      //algoliaApplicationId = process.env.ALGOLIA_APPLICATION_ID || '';
+      //algoliaApiKey = process.env.ALGOLIA_API_KEY || '';
+      //algoliaIndex = process.env.ALGOLIA_INDEX || '';
+      //gmailAppPassword = process.env.GMAIl_APP_PASSWORD || '';
       gcpClientId = process.env.GCP_CLIENT_ID || '';
       gcpClientSecret = process.env.GCP_CLIENT_SECRET || '';
-      console.log('Local environment variables loaded.');
+      discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY || '';
+      discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET || '';
+      console.log('setSecrets() Local environment variables loaded.');
     } else {
       try {
-        const algoliaSecrets = await getAwsSecret("algoliaDbDetails");
-        const algoliaSecretsJson = JSON.parse(algoliaSecrets);
-        algoliaApplicationId = algoliaSecretsJson.ALGOLIA_APPLICATION_ID || '';
-        algoliaApiKey = algoliaSecretsJson.ALGOLIA_API_KEY || '';
-        algoliaIndex = algoliaSecretsJson.ALGOLIA_INDEX || '';
-        gmailAppPassword = algoliaSecretsJson.GMAIl_APP_PASSWORD || '';
+        //const algoliaSecrets = await getAwsSecret("algoliaDbDetails");
+        //const algoliaSecretsJson = JSON.parse(algoliaSecrets);
+        //algoliaApplicationId = algoliaSecretsJson.ALGOLIA_APPLICATION_ID || '';
+        //algoliaApiKey = algoliaSecretsJson.ALGOLIA_API_KEY || '';
+        //algoliaIndex = algoliaSecretsJson.ALGOLIA_INDEX || '';
+        //gmailAppPassword = algoliaSecretsJson.GMAIl_APP_PASSWORD || '';
 
         const youtubeSecrets = await getAwsSecret("youtubeAuth");
         const youtubeSecretsJson = JSON.parse(youtubeSecrets);
@@ -529,9 +601,9 @@ async function setSecrets() {
         discogsConsumerKey = discogsSecretsJson.DISCOGS_CONSUMER_KEY || '';
         discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET || '';
 
-        console.log('AWS secrets loaded.');
+        console.log('setSecrets() AWS secrets loaded.');
       } catch (awsError) {
-        console.warn('Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
+        console.warn('setSecrets() Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
         algoliaApplicationId = '';
         algoliaApiKey = '';
         algoliaIndex = '';
@@ -540,10 +612,8 @@ async function setSecrets() {
         gcpClientSecret = '';
       }
     }
-    console.log("Secrets set successfully.");
   } catch (error) {
-    console.error("Error setting secrets:", error);
-    // Do not throw the error to allow the server to start
+    console.error("setSecrets() Error setting secrets:", error);
   }
 }
 
@@ -919,3 +989,95 @@ function logError(location, error, details = {}) {
   console.error('Stack:', error.stack);
   console.error('================\n');
 }
+
+let backgroundJob = {
+    isRunning: false,
+    isPaused: false,
+    progress: { current: 0, total: 0, uniqueLinks: 0 },
+    artistId: null,
+    uniqueLinks: new Set(),
+    waitTime: 0, // Time to wait before resuming requests
+};
+
+app.post('/startBackgroundJob', async (req, res) => {
+    const { artistId } = req.body;
+    if (backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'A job is already running.' });
+    }
+    backgroundJob.isRunning = true;
+    backgroundJob.isPaused = false;
+    backgroundJob.artistId = artistId;
+    backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
+    backgroundJob.uniqueLinks.clear();
+    backgroundJob.waitTime = 0;
+
+    const processReleases = async () => {
+        try {
+            const releaseIds = await fetchReleaseIds(artistId);
+            backgroundJob.progress.total = releaseIds.length;
+
+            for (let i = 0; i < releaseIds.length; i++) {
+                if (!backgroundJob.isRunning) break;
+                while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                    if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
+                }
+
+                const releaseId = releaseIds[i];
+                try {
+                    const videos = await fetchVideoIds(releaseId);
+                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video.url));
+                    backgroundJob.progress.current = i + 1;
+                    backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
+                    backgroundJob.waitTime = 0; // Reset wait time on success
+                } catch (error) {
+                    if (error.response?.status === 429) {
+                        backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
+                        console.error(`Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+
+            backgroundJob.isRunning = false;
+        } catch (error) {
+            console.error('Error processing releases:', error.message);
+            backgroundJob.isRunning = false;
+            backgroundJob.error = error.message;
+        }
+    };
+
+    processReleases();
+    res.status(200).json({ message: 'Background job started.' });
+});
+
+app.post('/pauseBackgroundJob', (req, res) => {
+    if (!backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'No job is currently running.' });
+    }
+    backgroundJob.isPaused = true;
+    res.status(200).json({ message: 'Background job paused.' });
+});
+
+app.post('/stopBackgroundJob', (req, res) => {
+    if (!backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'No job is currently running.' });
+    }
+    backgroundJob.isRunning = false;
+    backgroundJob.isPaused = false;
+    res.status(200).json({ message: 'Background job stopped.' });
+});
+
+app.get('/backgroundJobStatus', (req, res) => {
+    res.status(200).json({
+        progress: backgroundJob.progress,
+        error: backgroundJob.error || null,
+        waitTime: backgroundJob.waitTime,
+    });
+});
+
+// Endpoint to fetch unique YouTube links
+app.get('/backgroundJobLinks', (req, res) => {
+    res.status(200).json({ links: Array.from(backgroundJob.uniqueLinks) });
+});

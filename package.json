@@ -43,7 +43,8 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "ingestImages": "cross-env node public/images/aesthetic-images/ingestImages.js"
+    "ingestImages": "cross-env node public/images/aesthetic-images/ingestImages.js",
+    "serverLocal": "nodemon server.js local=true"
   },
   "eslintConfig": {
     "extends": [
