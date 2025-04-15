@@ -103,6 +103,18 @@
     margin-top: 10px;
 }
 
+.errorDetails {
+    font-size: 14px;
+    color: #d9534f;
+    background-color: #f9d6d5;
+    padding: 10px;
+    border: 1px solid #d9534f;
+    border-radius: 4px;
+    margin-top: 10px;
+    white-space: pre-wrap; /* Preserve formatting for stack traces */
+    overflow-x: auto; /* Allow horizontal scrolling for long lines */
+}
+
 .success {
     font-size: 16px;
     color: green;
@@ -129,4 +141,75 @@
 
 .signOutButton:hover {
     background-color: darkred;
+}
+
+.progressContainer {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+
+.waitTime {
+    font-size: 16px;
+    color: #ff9800;
+    margin-top: 10px;
+}
+
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+ul li {
+    margin-bottom: 5px;
+}
+
+ul li a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+ul li a:hover {
+    text-decoration: underline;
+}
+
+.youtubeContainer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.youtubeEmbed {
+    flex: 1 1 calc(50% - 20px); /* Adjust width for two columns */
+    max-width: 560px; /* Ensure it doesn't exceed iframe width */
+}
+
+.youtubeLink {
+    display: block;
+    margin-bottom: 10px;
+    color: #007bff;
+    text-decoration: none;
+    word-wrap: break-word;
+}
+
+.youtubeLink:hover {
+    text-decoration: underline;
+}
+
+.videoResponsive {
+    overflow: hidden;
+    padding-bottom: 56.25%; /* 16:9 aspect ratio */
+    position: relative;
+    height: 0;
+}
+
+.videoResponsive iframe {
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 100%;
+    position: absolute;
 }

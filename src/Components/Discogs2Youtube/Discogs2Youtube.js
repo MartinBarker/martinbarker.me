@@ -18,6 +18,15 @@ function Discogs2Youtube() {
     const [discogsAccessToken, setDiscogsAccessToken] = useState(null);
     const [discogsAuthStatus, setDiscogsAuthStatus] = useState(false);
     const [petTypes, setPetTypes] = useState(''); // State for petTypes secret
+    const [backgroundJobStatus, setBackgroundJobStatus] = useState({
+        isRunning: false,
+        isPaused: false,
+        progress: { current: 0, total: 0, uniqueLinks: 0 },
+    });
+    const [backgroundJobError, setBackgroundJobError] = useState(null); // State for backend errors
+    const [backgroundJobErrorDetails, setBackgroundJobErrorDetails] = useState(null); // State for detailed backend errors
+    const [waitTime, setWaitTime] = useState(0); // State for wait time countdown
+    const [youtubeLinks, setYoutubeLinks] = useState([]); // State for YouTube links
 
     const isLocal = window.location.hostname === 'localhost';
     const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
@@ -91,16 +100,20 @@ function Discogs2Youtube() {
     }, []);
 
     const handleDiscogsSearch = async () => {
-        try {
-            const response = await axios.post(`${apiUrl}/discogsAuth`, { query: discogsInput });
-            console.log('Discogs Response:', response.data);
-            setDiscogsResponse(
-                `Type: ${response.data.type}, ID: ${response.data.id}\nAPI Response: ${JSON.stringify(response.data.apiResponse, null, 2)}`
-            );
-        } catch (error) {
-            console.error('Error during Discogs search:', error);
-            if (error.response) {
-                setDiscogsResponse(error.response.data.error || 'An error occurred.');
+        if (discogsInput.startsWith('[a')) {
+            await startBackgroundJob(discogsInput.slice(2, -1)); // Extract artist ID
+        } else {
+            try {
+                const response = await axios.post(`${apiUrl}/discogsAuth`, { query: discogsInput });
+                console.log('Discogs Response:', response.data);
+                setDiscogsResponse(
+                    `Type: ${response.data.type}, ID: ${response.data.id}\nAPI Response: ${JSON.stringify(response.data.apiResponse, null, 2)}`
+                );
+            } catch (error) {
+                console.error('Error during Discogs search:', error);
+                if (error.response) {
+                    setDiscogsResponse(error.response.data.error || 'An error occurred.');
+                }
             }
         }
     };
@@ -183,6 +196,60 @@ function Discogs2Youtube() {
             console.error('Error signing out:', error.message);
         }
     };
+
+    const startBackgroundJob = async (artistId) => {
+        try {
+            setBackgroundJobStatus((prev) => ({ ...prev, isRunning: true, isPaused: false }));
+            await axios.post(`${apiUrl}/startBackgroundJob`, { artistId });
+        } catch (error) {
+            console.error('Error starting background job:', error.message);
+        }
+    };
+
+    const pauseBackgroundJob = async () => {
+        try {
+            setBackgroundJobStatus((prev) => ({ ...prev, isPaused: true }));
+            await axios.post(`${apiUrl}/pauseBackgroundJob`);
+        } catch (error) {
+            console.error('Error pausing background job:', error.message);
+        }
+    };
+
+    const stopBackgroundJob = async () => {
+        try {
+            setBackgroundJobStatus({ isRunning: false, isPaused: false, progress: { current: 0, total: 0, uniqueLinks: 0 } });
+            await axios.post(`${apiUrl}/stopBackgroundJob`);
+        } catch (error) {
+            console.error('Error stopping background job:', error.message);
+        }
+    };
+
+    useEffect(() => {
+        let interval;
+        if (backgroundJobStatus.isRunning && !backgroundJobStatus.isPaused) {
+            interval = setInterval(async () => {
+                try {
+                    const response = await axios.get(`${apiUrl}/backgroundJobStatus`);
+                    setBackgroundJobStatus((prev) => ({
+                        ...prev,
+                        progress: response.data.progress,
+                    }));
+                    setBackgroundJobError(response.data.error); // Update error state
+                    setBackgroundJobErrorDetails(response.data.errorDetails || null); // Update detailed error state
+                    setWaitTime(response.data.waitTime || 0); // Update wait time
+
+                    // Fetch YouTube links
+                    const linksResponse = await axios.get(`${apiUrl}/backgroundJobLinks`);
+                    setYoutubeLinks(linksResponse.data.links);
+                } catch (error) {
+                    console.error('Error fetching background job status or links:', error.message);
+                    setBackgroundJobError('Failed to fetch job status.');
+                    setBackgroundJobErrorDetails(error); // Store the full error object
+                }
+            }, 1000); // Poll every second for updates
+        }
+        return () => clearInterval(interval);
+    }, [backgroundJobStatus.isRunning, backgroundJobStatus.isPaused]);
 
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -294,7 +361,7 @@ function Discogs2Youtube() {
                                 Sign Out
                             </button>
                             <p className={styles.description}>
-                                Enter an artist ID, label ID, or list to search Discogs.
+                                Fetch all YouTube links for a Discogs artist/label/list:
                             </p>
                             <div className={styles.quickFillContainer}>
                                 <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
@@ -317,6 +384,58 @@ function Discogs2Youtube() {
                             <button className={styles.searchButton} onClick={handleDiscogsSearch}>
                                 Search
                             </button>
+                            {backgroundJobStatus.isRunning && (
+                                <div className={styles.progressContainer}>
+                                    <p>Processing: {backgroundJobStatus.progress.current} / {backgroundJobStatus.progress.total}</p>
+                                    <p>Unique YouTube Links Found: {backgroundJobStatus.progress.uniqueLinks}</p>
+                                    {waitTime > 0 && (
+                                        <p className={styles.waitTime}>
+                                            Rate limit hit, waiting for {Math.ceil(waitTime / 1000)} seconds before resuming...
+                                        </p>
+                                    )}
+                                    <button className={styles.searchButton} onClick={pauseBackgroundJob}>
+                                        {backgroundJobStatus.isPaused ? 'Resume' : 'Pause'}
+                                    </button>
+                                    <button className={styles.searchButton} onClick={stopBackgroundJob}>
+                                        Stop
+                                    </button>
+                                    <div>
+                                        <h3 className={styles.subtitle}>YouTube Links</h3>
+                                        <div className={styles.youtubeContainer}>
+                                            {youtubeLinks.map((link, index) => {
+                                                const videoId = new URL(link).searchParams.get('v'); // Extract video ID from the URL
+                                                if (!videoId) return null; // Skip if video ID is not found
+                                                return (
+                                                    <div key={index} className={styles.youtubeEmbed}>
+                                                        <a href={link} target="_blank" rel="noopener noreferrer" className={styles.youtubeLink}>
+                                                            {link}
+                                                        </a>
+                                                        <div className={styles.videoResponsive}>
+                                                            <iframe
+                                                                src={`https://www.youtube.com/embed/${videoId}`} // Ensure the embed URL is correct
+                                                                frameBorder="0"
+                                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                                allowFullScreen
+                                                                title={`YouTube video player ${index}`}
+                                                            ></iframe>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {backgroundJobError && (
+                                <div className={styles.error}>
+                                    <p>Error: {backgroundJobError}</p>
+                                    {backgroundJobErrorDetails && (
+                                        <pre className={styles.errorDetails}>
+                                            {JSON.stringify(backgroundJobErrorDetails, null, 2)}
+                                        </pre>
+                                    )}
+                                </div>
+                            )}
                             {discogsResponse && (
                                 <pre className={styles.response}>{discogsResponse}</pre>
                             )}

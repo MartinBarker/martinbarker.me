@@ -292,6 +292,55 @@ async function fetchDiscogsData(type, id) {
   }
 }
 
+// Function to make a Discogs request and handle pagination with exponential backoff
+async function makeDiscogsRequest(url) {
+    console.log(`makeDiscogsRequest: ${url}`);
+    let allData = [];
+    let retryCount = 0;
+
+    try {
+        while (url) {
+            try {
+                const response = await axios.get(url, {
+                    headers: { 'User-Agent': USER_AGENT },
+                });
+                allData = allData.concat(response.data.releases || []);
+                url = response.data.pagination?.urls?.next || null;
+                retryCount = 0; // Reset retry count on success
+            } catch (error) {
+                if (error.response?.status === 429) {
+                    retryCount++;
+                    const waitTime = Math.pow(2, retryCount) * 1000;
+                    console.error(`Rate limit hit. Retrying in ${waitTime / 1000} seconds...`);
+                    await new Promise((resolve) => setTimeout(resolve, waitTime));
+                } else {
+                    throw error;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error making Discogs request:', error.message);
+        throw error;
+    }
+    return allData;
+}
+
+// Function to fetch release IDs for an artist
+async function fetchReleaseIds(artistId) {
+    const url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
+    const releases = await makeDiscogsRequest(url);
+    return releases.map((release) => release.main_release || release.id);
+}
+
+// Function to fetch video IDs for a release
+async function fetchVideoIds(releaseId) {
+    const url = `${DISCOGS_API_URL}/releases/${releaseId}`;
+    const response = await axios.get(url, {
+        headers: { 'User-Agent': USER_AGENT },
+    });
+    return response.data.videos?.map((video) => ({ url: video.uri })) || [];
+}
+
 // Route to handle Discogs API requests
 app.post('/discogsFetch', async (req, res) => {
   console.log("📡 [POST /discogsFetch] Hit", req.body);
@@ -940,3 +989,95 @@ function logError(location, error, details = {}) {
   console.error('Stack:', error.stack);
   console.error('================\n');
 }
+
+let backgroundJob = {
+    isRunning: false,
+    isPaused: false,
+    progress: { current: 0, total: 0, uniqueLinks: 0 },
+    artistId: null,
+    uniqueLinks: new Set(),
+    waitTime: 0, // Time to wait before resuming requests
+};
+
+app.post('/startBackgroundJob', async (req, res) => {
+    const { artistId } = req.body;
+    if (backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'A job is already running.' });
+    }
+    backgroundJob.isRunning = true;
+    backgroundJob.isPaused = false;
+    backgroundJob.artistId = artistId;
+    backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
+    backgroundJob.uniqueLinks.clear();
+    backgroundJob.waitTime = 0;
+
+    const processReleases = async () => {
+        try {
+            const releaseIds = await fetchReleaseIds(artistId);
+            backgroundJob.progress.total = releaseIds.length;
+
+            for (let i = 0; i < releaseIds.length; i++) {
+                if (!backgroundJob.isRunning) break;
+                while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                    if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
+                }
+
+                const releaseId = releaseIds[i];
+                try {
+                    const videos = await fetchVideoIds(releaseId);
+                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video.url));
+                    backgroundJob.progress.current = i + 1;
+                    backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
+                    backgroundJob.waitTime = 0; // Reset wait time on success
+                } catch (error) {
+                    if (error.response?.status === 429) {
+                        backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
+                        console.error(`Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+
+            backgroundJob.isRunning = false;
+        } catch (error) {
+            console.error('Error processing releases:', error.message);
+            backgroundJob.isRunning = false;
+            backgroundJob.error = error.message;
+        }
+    };
+
+    processReleases();
+    res.status(200).json({ message: 'Background job started.' });
+});
+
+app.post('/pauseBackgroundJob', (req, res) => {
+    if (!backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'No job is currently running.' });
+    }
+    backgroundJob.isPaused = true;
+    res.status(200).json({ message: 'Background job paused.' });
+});
+
+app.post('/stopBackgroundJob', (req, res) => {
+    if (!backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'No job is currently running.' });
+    }
+    backgroundJob.isRunning = false;
+    backgroundJob.isPaused = false;
+    res.status(200).json({ message: 'Background job stopped.' });
+});
+
+app.get('/backgroundJobStatus', (req, res) => {
+    res.status(200).json({
+        progress: backgroundJob.progress,
+        error: backgroundJob.error || null,
+        waitTime: backgroundJob.waitTime,
+    });
+});
+
+// Endpoint to fetch unique YouTube links
+app.get('/backgroundJobLinks', (req, res) => {
+    res.status(200).json({ links: Array.from(backgroundJob.uniqueLinks) });
+});
