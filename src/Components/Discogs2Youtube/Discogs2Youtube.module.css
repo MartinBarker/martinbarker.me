@@ -115,3 +115,18 @@
     margin-top: 10px;
     cursor: pointer;
 }
+
+.signOutButton {
+    margin-top: 10px;
+    background-color: red;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.signOutButton:hover {
+    background-color: darkred;
+}

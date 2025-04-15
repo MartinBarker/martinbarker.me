@@ -405,16 +405,17 @@ app.get('/discogs/authStatus', (req, res) => {
   res.status(200).json({ isAuthenticated });
 });
 
-// Route to fetch petTypes secret
-app.get('/fetchPetTypes', async (req, res) => {
-  console.log("🐾 [GET /fetchPetTypes] Hit");
-  try {
-    const petTypesSecret = await getAwsSecret("petTypes");
-    res.status(200).json({ petTypes: petTypesSecret });
-  } catch (error) {
-    console.error('Error fetching petTypes secret:', error.message);
-    res.status(500).json({ error: error.message });
+// Add a /signOut endpoint to reset authentication data
+app.post('/signOut', (req, res) => {
+  console.log("🚪 [POST /signOut] Hit");
+  authStatus.isAuthenticated = false;
+  discogsAuth = { accessToken: null, accessTokenSecret: null };
+  if (oauth2Client) {
+    oauth2Client.setCredentials(null); // Clear YouTube credentials
+    console.log("YouTube credentials cleared.");
   }
+  console.log("Authentication data cleared.");
+  res.status(200).send('Signed out successfully.');
 });
 
 let secretsInitialized = false; // Flag to ensure secrets are initialized

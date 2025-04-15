@@ -167,14 +167,14 @@ function Discogs2Youtube() {
         }
     };
 
-    const handleFetchPetTypes = async () => {
+    const handleSignOut = async () => {
         try {
-            const response = await axios.get(`${apiUrl}/fetchPetTypes`);
-            console.log('Pet Types:', response.data.petTypes);
-            setPetTypes(response.data.petTypes);
+            await axios.post(`${apiUrl}/signOut`);
+            setAuthStatus(false);
+            setDiscogsAuthStatus(false);
+            console.log('Signed out successfully.');
         } catch (error) {
-            console.error('Error fetching petTypes:', error.message);
-            setPetTypes(`Error: ${error.message}`);
+            console.error('Error signing out:', error.message);
         }
     };
 
@@ -212,7 +212,45 @@ function Discogs2Youtube() {
                 <section className={styles.section}>
                     <h2 className={styles.subtitle}>YouTube Authentication</h2>
                     {authStatus ? (
-                        <p className={styles.authStatus}>You are signed in to YouTube!</p>
+                        <>
+                            <p className={styles.authStatus}>You are signed in to YouTube!</p>
+                            <button
+                                className={`${styles.searchButton} ${styles.signOutButton}`}
+                                onClick={handleSignOut}
+                                style={{ backgroundColor: 'red', color: 'white' }}
+                            >
+                                Sign Out
+                            </button>
+                            <div>
+                                <h3 className={styles.subtitle}>Add Video to Playlist</h3>
+                                <input
+                                    type="text"
+                                    className={styles.input}
+                                    placeholder="Enter Playlist ID"
+                                    value={playlistId}
+                                    onChange={(e) => setPlaylistId(e.target.value)}
+                                />
+                                <input
+                                    type="text"
+                                    className={styles.input}
+                                    placeholder="Enter YouTube Video ID"
+                                    value={videoId}
+                                    onChange={(e) => setVideoId(e.target.value)}
+                                />
+                                <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
+                                    Add Video to Playlist
+                                </button>
+                                {addVideoResponse.message && (
+                                    <p
+                                        className={
+                                            addVideoResponse.isError ? styles.error : styles.success
+                                        }
+                                    >
+                                        {addVideoResponse.message}
+                                    </p>
+                                )}
+                            </div>
+                        </>
                     ) : (
                         <>
                             <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
@@ -220,37 +258,6 @@ function Discogs2Youtube() {
                                 Authenticate with YouTube
                             </button>
                         </>
-                    )}
-                    {authStatus && (
-                        <div>
-                            <h3 className={styles.subtitle}>Add Video to Playlist</h3>
-                            <input
-                                type="text"
-                                className={styles.input}
-                                placeholder="Enter Playlist ID"
-                                value={playlistId}
-                                onChange={(e) => setPlaylistId(e.target.value)}
-                            />
-                            <input
-                                type="text"
-                                className={styles.input}
-                                placeholder="Enter YouTube Video ID"
-                                value={videoId}
-                                onChange={(e) => setVideoId(e.target.value)}
-                            />
-                            <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
-                                Add Video to Playlist
-                            </button>
-                            {addVideoResponse.message && (
-                                <p
-                                    className={
-                                        addVideoResponse.isError ? styles.error : styles.success
-                                    }
-                                >
-                                    {addVideoResponse.message}
-                                </p>
-                            )}
-                        </div>
                     )}
                 </section>
 
@@ -260,6 +267,13 @@ function Discogs2Youtube() {
                     {discogsAuthStatus ? (
                         <>
                             <p className={styles.success}>You are signed in to Discogs!</p>
+                            <button
+                                className={`${styles.searchButton} ${styles.signOutButton}`}
+                                onClick={handleSignOut}
+                                style={{ backgroundColor: 'red', color: 'white' }}
+                            >
+                                Sign Out
+                            </button>
                             <p className={styles.description}>
                                 Enter an artist ID, label ID, or list to search Discogs.
                             </p>
@@ -315,14 +329,6 @@ function Discogs2Youtube() {
                         {playlistResponse && <p className={styles.response}>{playlistResponse}</p>}
                     </section>
                 )}
-
-                {/* Fetch PetTypes Section */}
-                <section className={styles.section}>
-                    <button className={styles.smallButton} onClick={handleFetchPetTypes}>
-                        Fetch PetTypes
-                    </button>
-                    {petTypes && <pre className={styles.response}>{petTypes}</pre>}
-                </section>
             </div>
         </>
     );
