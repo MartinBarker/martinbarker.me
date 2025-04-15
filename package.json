@@ -31,12 +31,13 @@
     "react-helmet": "^6.1.0",
     "react-helmet-async": "^2.0.5",
     "react-icons": "^5.3.0",
+    "react-lite-youtube-embed": "^2.4.0",
     "react-router-dom": "^6.24.1",
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4",
     "webpack": "^5.98.0",
     "webpack-dev-server": "^5.2.0"
-  }, 
+  },
   "scripts": {
     "start": "cross-env BROWSER=NONE PORT=3001 FAST_REFRESH=true react-scripts start",
     "dev": "concurrently \"cross-env PORT=3030 react-scripts start\" \"nodemon server.js\"",
