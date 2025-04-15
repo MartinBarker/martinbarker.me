@@ -19,8 +19,8 @@ function Discogs2Youtube() {
     const [discogsAuthStatus, setDiscogsAuthStatus] = useState(false);
     const [petTypes, setPetTypes] = useState(''); // State for petTypes secret
 
-    var apiUrl = "https://www.jermasearch.com/internal-api"
-    // var apiUrl = "http://localhost:3030"
+    const isLocal = window.location.hostname === 'localhost';
+    const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
 
     useEffect(() => {
         // Fetch the sign-in URL on component mount
@@ -169,10 +169,16 @@ function Discogs2Youtube() {
 
     const handleSignOut = async () => {
         try {
-            await axios.post(`${apiUrl}/signOut`);
-            setAuthStatus(false);
-            setDiscogsAuthStatus(false);
-            console.log('Signed out successfully.');
+            const response = await axios.post(`${apiUrl}/signOut`);
+            if (response.status === 200) {
+                setAuthStatus(false); // Update state to reflect sign-out
+                setDiscogsAuthStatus(false); // Clear Discogs auth status
+                setPlaylistId(''); // Clear playlist ID
+                setVideoId(''); // Clear video ID
+                console.log('Signed out successfully.');
+            } else {
+                console.error('Sign-out failed:', response.data);
+            }
         } catch (error) {
             console.error('Error signing out:', error.message);
         }
@@ -185,6 +191,19 @@ function Discogs2Youtube() {
 
         if (oauthToken && oauthVerifier) {
             handleDiscogsCallback(oauthToken, oauthVerifier);
+        } else {
+            // Fetch Discogs authentication status after redirect
+            const fetchDiscogsAuthStatus = async () => {
+                try {
+                    const response = await axios.get(`${apiUrl}/discogs/authStatus`);
+                    console.log('Discogs Auth Status:', response.data.isAuthenticated);
+                    setDiscogsAuthStatus(response.data.isAuthenticated);
+                } catch (error) {
+                    console.error('Error fetching Discogs auth status:', error.message);
+                }
+            };
+
+            fetchDiscogsAuthStatus();
         }
     }, []);
 

@@ -40,22 +40,23 @@ var envVar = 'production'; //process.env.NODE_ENV;
 
 // Function to determine the redirect URL based on the environment
 function getRedirectUrl() {
-  if (envVar === 'production') {
-    return 'https://jermasearch.com/discogs2youtube';
+  if (isLocal) {
+    return 'http://localhost:3030/discogs2youtube/youtube/callback'; // Updated local redirect URL
   }
-  return 'http://localhost:3001/discogs2youtube'; // Redirect to local /discogs2youtube route
+  return 'https://jermasearch.com/discogs2youtube/youtube/callback'; // Updated production redirect URL
 }
 
 function getDiscogsRediurectUrl() {
-  //if (envVar === 'production') {
+  if (isLocal) {
+    return 'http://localhost:3030/discogs2youtube/callback/discogs';
+  }
   return 'https://jermasearch.com/discogs2youtube/callback/discogs';
-  //}
-  //return 'http://localhost:3030/discogs2youtube/callback/discogs';
 }
 
 // Centralized function to initialize the OAuth2 client
 function initializeOAuthClient(clientId, clientSecret) {
-  const redirectUri = prodCallback; 
+  const redirectUri = getRedirectUrl(); 
+  console.log('youtube redirectUri = ', redirectUri);
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
@@ -134,6 +135,33 @@ app.get('/authStatus', (req, res) => {
   res.status(200).json(authStatus);
 });
 
+// Handle YouTube OAuth2 callback
+app.get('/discogs2youtube/youtube/callback', async (req, res) => {
+  console.log("📺 [GET /discogs2youtube/youtube/callback] Hit:", req.originalUrl);
+
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).send('No code found in the request.');
+  }
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    console.log('\nYouTube User authenticated. Tokens:', tokens);
+
+    // Update authentication status
+    authStatus.isAuthenticated = true;
+
+    // Redirect to the frontend route
+    const redirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
+    res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('\nError during YouTube authentication:', error.message);
+    res.status(500).send('Authentication failed.');
+  }
+}); 
+
 // Route to handle the production callback URL
 app.get('/youtube/callback', (req, res) => {
   console.log("📺 [GET /youtube/callback] Hit:", req.originalUrl);
@@ -189,7 +217,7 @@ app.post('/discogsAuth', async (req, res) => {
   if (!query) {
     return res.status(400).json({ error: 'No query provided.' });
   }
-
+ 
   if (query.startsWith('[l') && query.endsWith(']')) {
     // Label ID
     const labelId = query.slice(2, -1);
@@ -305,6 +333,7 @@ app.get('/discogs/generateURL', ensureSecretsInitialized, async (req, res) => {
     const oauthNonce = generateNonce();
     const oauthTimestamp = Math.floor(Date.now() / 1000);
     const callbackUrl = getDiscogsRediurectUrl();
+    console.log('discogs callback url = ', callbackUrl);
 
     const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_signature="${discogsConsumerSecret}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
 
@@ -388,13 +417,15 @@ app.get('/discogs2youtube/callback/discogs', ensureSecretsInitialized, async (re
     console.log('Authentication successful');
     console.log('================================\n');
 
-    const redirectUrl = 'https://jermasearch.com/discogs2youtube';
+    // Dynamically set the redirect URL based on the environment
+    const redirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
     res.redirect(redirectUrl);
   } catch (error) {
     logError('Discogs OAuth Flow', error, details);
     
     // Redirect to error page or main page with error param
-    res.redirect('http://localhost:3001/discogs2youtube?error=' + encodeURIComponent(error.message));
+    const errorRedirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
+    res.redirect(`${errorRedirectUrl}?error=${encodeURIComponent(error.message)}`);
   }
 });
 
