@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
+import LiteYouTubeEmbed from 'react-lite-youtube-embed';
+import 'react-lite-youtube-embed/dist/LiteYouTubeEmbed.css';
 import styles from './Discogs2Youtube.module.css';
 import axios from 'axios';
 
@@ -27,6 +29,7 @@ function Discogs2Youtube() {
     const [backgroundJobErrorDetails, setBackgroundJobErrorDetails] = useState(null); // State for detailed backend errors
     const [waitTime, setWaitTime] = useState(0); // State for wait time countdown
     const [youtubeLinks, setYoutubeLinks] = useState([]); // State for YouTube links
+    const [initialVideoId, setInitialVideoId] = useState('bVbt8qG7Fl8'); // Default video ID for initial embed
 
     const isLocal = window.location.hostname === 'localhost';
     const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
@@ -274,6 +277,20 @@ function Discogs2Youtube() {
         }
     }, []);
 
+    useEffect(() => {
+        // Fetch YouTube links dynamically (if needed)
+        const fetchYouTubeLinks = async () => {
+            try {
+                const response = await axios.get(`${apiUrl}/backgroundJobLinks`);
+                setYoutubeLinks(response.data.links);
+            } catch (error) {
+                console.error('Error fetching YouTube links:', error.message);
+            }
+        };
+
+        fetchYouTubeLinks();
+    }, []);
+
     return (
         <>
             <Helmet>
@@ -292,6 +309,16 @@ function Discogs2Youtube() {
                     <p className={styles.description}>
                         Welcome to Discogs2Youtube! This tool allows you to authenticate with YouTube and Discogs to manage playlists and search for artists, labels, or lists.
                     </p>
+                </section>
+
+                {/* Embed the initial video */}
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>Initial Embedded Video</h2>
+                    
+                    <iframe id="ytplayer" type="text/html" width="640" height="360"
+  src="https://www.youtube.com/embed/M7lc1UVf-VE?autoplay=1&origin=http://example.com"
+  frameborder="0"></iframe>
+
                 </section>
 
                 {/* YouTube Auth Section */}
@@ -410,15 +437,12 @@ function Discogs2Youtube() {
                                                         <a href={link} target="_blank" rel="noopener noreferrer" className={styles.youtubeLink}>
                                                             {link}
                                                         </a>
-                                                        <div className={styles.videoResponsive}>
-                                                            <iframe
-                                                                src={`https://www.youtube.com/embed/${videoId}`} // Ensure the embed URL is correct
-                                                                frameBorder="0"
-                                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                                                allowFullScreen
-                                                                title={`YouTube video player ${index}`}
-                                                            ></iframe>
-                                                        </div>
+                                                        <LiteYouTubeEmbed
+                                                            id={videoId}
+                                                            title={`YouTube video ${index + 1}`}
+                                                            poster="hqdefault"
+                                                            webp
+                                                        />
                                                     </div>
                                                 );
                                             })}
