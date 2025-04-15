@@ -43,14 +43,14 @@ function getRedirectUrl() {
   if (isLocal) {
     return 'http://localhost:3030/discogs2youtube/youtube/callback'; // Updated local redirect URL
   }
-  return 'https://jermasearch.com/discogs2youtube/youtube/callback'; // Updated production redirect URL
+  return 'https://jermasearch.com/internal-api/discogs2youtube/youtube/callback'; // Updated production redirect URL
 }
 
 function getDiscogsRediurectUrl() {
   if (isLocal) {
     return 'http://localhost:3030/discogs2youtube/callback/discogs';
   }
-  return 'https://jermasearch.com/discogs2youtube/callback/discogs';
+  return 'https://jermasearch.com/internal-api/discogs2youtube/callback/discogs';
 }
 
 // Centralized function to initialize the OAuth2 client
