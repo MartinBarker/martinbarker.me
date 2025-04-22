@@ -45,7 +45,8 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "ingestImages": "cross-env node public/images/aesthetic-images/ingestImages.js",
-    "serverLocal": "nodemon server.js local=true"
+    "serverLocal": "nodemon server.js local=true",
+    "help": "echo \"Available commands:\" && echo \"npm run start - Start the React app\" && echo \"npm run dev - Start both React app and server\" && echo \"npm run build - Build the React app for production\" && echo \"npm run test - Run tests\" && echo \"npm run eject - Eject the React app configuration\" && echo \"npm run ingestImages - Ingest images for aesthetic-images\" && echo \"npm run serverLocal - Start the server in local mode\""
   },
   "eslintConfig": {
     "extends": [

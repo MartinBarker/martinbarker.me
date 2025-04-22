@@ -12,6 +12,7 @@ const readline = require('readline');
 const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
+const { Server } = require('ws'); // Add WebSocket support
 const app = express();
 const port = 3030;
 
@@ -20,6 +21,24 @@ app.use(express.json()); // To parse JSON bodies
 
 const localCallback = 'http://localhost:3030/oauth2callback'; // Centralized variable for local callback URI
 const prodCallback = "https://www.jermasearch.com/internal-api/oauth2callback"
+
+const wss = new Server({ port: 3031 }); // WebSocket server on port 3031
+
+// Broadcast function to send updates to all connected clients
+function broadcastProgress() {
+    const progressData = {
+        progress: backgroundJob.progress,
+        isRunning: backgroundJob.isRunning,
+        isPaused: backgroundJob.isPaused,
+        waitTime: backgroundJob.waitTime,
+        uniqueLinks: Array.from(backgroundJob.uniqueLinks),
+    };
+    wss.clients.forEach((client) => {
+        if (client.readyState === client.OPEN) {
+            client.send(JSON.stringify(progressData));
+        }
+    });
+}
 
 // YouTube configuration
 const TOKEN_PATH = 'tokens.json';
@@ -215,44 +234,228 @@ app.post('/discogsAuth', async (req, res) => {
   const { query } = req.body;
 
   if (!query) {
+    console.error("❌ No query provided in the request body.");
     return res.status(400).json({ error: 'No query provided.' });
   }
- 
+
+  console.log("🔍 Processing query:", query);
+
   if (query.startsWith('[l') && query.endsWith(']')) {
     // Label ID
     const labelId = query.slice(2, -1);
+    console.log(`✅ Detected Label ID: ${labelId}`);
     res.status(200).json({ type: 'label', id: `label:${labelId}` });
   } else if (query.startsWith('[a') && query.endsWith(']')) {
     // Artist ID
     const artistId = query.slice(2, -1);
+    console.log(`✅ Detected Artist ID: ${artistId}`);
     try {
       const url = `${DISCOGS_API_URL}/artists/${artistId}`;
-      console.log(`Fetching Discogs artist data from URL: ${url}`);
+      console.log(`🌐 Fetching Discogs artist data from URL: ${url}`);
       let headers = { 'User-Agent': USER_AGENT };
+
       // If user is signed in, include OAuth header
       if (discogsAuth.accessToken) {
+        console.log("🔑 User is authenticated. Adding OAuth headers.");
         const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
         headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+      } else {
+        console.log("🔓 User is not authenticated. Proceeding without OAuth headers.");
       }
+
       const response = await axios.get(url, { headers });
-      console.log('Discogs API Response:', response.data); // Log full response
+      console.log("✅ Successfully fetched Discogs artist data:", response.data);
+
       res.status(200).json({
         type: 'artist',
         id: `artist:${artistId}`,
         apiResponse: response.data, // Include API response for UI display
       });
     } catch (error) {
-      console.error('Error fetching Discogs artist data:', error.message);
+      console.error("❌ Error fetching Discogs artist data:", error.message);
       res.status(500).json({ error: 'Failed to fetch artist data from Discogs.' });
     }
   } else if (query.startsWith('https://www.discogs.com/lists/')) {
     // List URL
     const listId = query.split('/').pop();
+    console.log(`✅ Detected List URL. Extracted List ID: ${listId}`);
     res.status(200).json({ type: 'list', id: `list:${listId}` });
   } else {
+    console.error("❌ Invalid query format. Query does not match expected patterns.");
     res.status(400).json({ error: 'Invalid query format.' });
   }
 });
+
+app.post('/discogsSearch', async (req, res) => {
+    console.log("🎶 [POST /discogsSearch] Hit", req.body);
+
+    const { artist, label, list, isDevMode } = req.body;
+    let type, id;
+
+    if (artist) {
+        type = 'artist';
+        id = artist;
+    } else if (label) {
+        type = 'label';
+        id = label;
+    } else if (list) {
+        type = 'list';
+        id = list;
+    } else {
+        return res.status(400).json({ error: 'Invalid query. Please provide an artist, label, or list ID.' });
+    }
+
+    try {
+        if (type === 'artist') {
+            const url = `${DISCOGS_API_URL}/artists/${id}`;
+            console.log(`🌐 Fetching Discogs artist data from URL: ${url}`);
+            const headers = { 'User-Agent': USER_AGENT };
+
+            if (discogsAuth.accessToken) {
+                const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+                headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+            }
+
+            const response = await axios.get(url, { headers });
+            const artistName = response.data.name; // Extract artist name
+            console.log(`✅ Artist name fetched: ${artistName}`);
+
+            res.status(200).json({ message: `Successfully fetched artist data.`, artistName });
+        } else {
+            let url;
+            if (type === 'label') {
+                url = `${DISCOGS_API_URL}/labels/${id}/releases`;
+            } else if (type === 'list') {
+                url = `${DISCOGS_API_URL}/lists/${id}`;
+            }
+
+            console.log(`🌐 Fetching Discogs ${type} data from URL: ${url}`);
+            const headers = { 'User-Agent': USER_AGENT };
+
+            if (discogsAuth.accessToken) {
+                const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+                headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+            }
+
+            await axios.get(url, { headers });
+            console.log(`✅ Successfully fetched Discogs ${type} data.`);
+            res.status(200).json({ message: `Successfully fetched ${type} data.` });
+        }
+    } catch (error) {
+        console.error(`❌ Error fetching Discogs ${type} data:`, error.message);
+        res.status(500).json({ error: `Failed to fetch ${type} data from Discogs.` });
+    }
+});
+
+app.post('/startBackgroundJob', async (req, res) => {
+    const { artistId, isDevMode } = req.body;
+    if (backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'A job is already running.' });
+    }
+    backgroundJob.isRunning = true;
+    backgroundJob.isPaused = false;
+    backgroundJob.artistId = artistId;
+    backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
+    backgroundJob.uniqueLinks.clear();
+    backgroundJob.waitTime = 0;
+
+    const processReleases = async () => {
+        try {
+            const releaseIds = await fetchReleaseIds(artistId, isDevMode);
+            backgroundJob.progress.total = releaseIds.length;
+            console.log(`🎵 Total releases to process: ${releaseIds.length}`);
+            broadcastProgress(); // Notify clients about total releases
+
+            for (let i = 0; i < releaseIds.length; i++) {
+                if (!backgroundJob.isRunning) break;
+                while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                    if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
+                }
+
+                const releaseId = releaseIds[i];
+                console.log(`🎧 Processing release ${i + 1} of ${releaseIds.length}: Release ID ${releaseId}`);
+
+                try {
+                    const videos = await fetchVideoIds(releaseId);
+                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video.url));
+                    backgroundJob.progress.current = i + 1;
+                    backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
+                    console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
+                    backgroundJob.waitTime = 0; // Reset wait time on success
+                } catch (error) {
+                    if (error.response?.status === 429) {
+                        backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
+                        console.error(`⏳ Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
+                    } else {
+                        throw error;
+                    }
+                }
+
+                broadcastProgress(); // Notify clients about progress
+
+                if (isDevMode) {
+                    console.log('🛠 Dev mode enabled: Skipping pagination.');
+                    break; // Skip pagination in Dev Mode
+                }
+            }
+
+            console.log('✅ Background job completed.');
+            backgroundJob.isRunning = false;
+            broadcastProgress(); // Notify clients that the job is complete
+        } catch (error) {
+            console.error('❌ Error processing releases:', error.message);
+            backgroundJob.isRunning = false;
+            backgroundJob.error = error.message;
+            broadcastProgress(); // Notify clients about the error
+        }
+    };
+
+    processReleases();
+    res.status(200).json({ message: 'Background job started.' });
+});
+
+async function fetchReleaseIds(artistId, isDevMode) {
+    const url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
+    const releases = await makeDiscogsRequest(url, isDevMode);
+    return releases.map((release) => release.main_release || release.id);
+}
+
+async function makeDiscogsRequest(url, isDevMode) {
+    console.log(`makeDiscogsRequest: ${url}`);
+    let allData = [];
+    let retryCount = 0;
+
+    try {
+        while (url) {
+            try {
+                const response = await axios.get(url, {
+                    headers: { 'User-Agent': USER_AGENT },
+                });
+                allData = allData.concat(response.data.releases || []);
+                if (isDevMode) {
+                    console.log('Dev mode enabled: Skipping pagination.');
+                    break; // Exit loop after the first request in Dev Mode
+                }
+                url = response.data.pagination?.urls?.next || null;
+                retryCount = 0; // Reset retry count on success
+            } catch (error) {
+                if (error.response?.status === 429) {
+                    retryCount++;
+                    const waitTime = Math.pow(2, retryCount) * 1000;
+                    console.error(`Rate limit hit. Retrying in ${waitTime / 1000} seconds...`);
+                    await new Promise((resolve) => setTimeout(resolve, waitTime));
+                } else {
+                    throw error;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error making Discogs request:', error.message);
+        throw error;
+    }
+    return allData;
+}
 
 const DISCOGS_API_URL = 'https://api.discogs.com';
 const USER_AGENT = 'MyDiscogsClient/1.0 +http://mydiscogsclient.org';
@@ -555,10 +758,6 @@ async function getAwsSecret(secretName) {
     return response.SecretString;
   } catch (error) {
     console.error('\nError getting AWS secret:', error.message);
-    // Send the error message to the frontend
-    app.get('/awsSecretError', (req, res) => {
-      res.status(500).json({ error: error.message });
-    });
     throw error;
   }
 }
@@ -1000,7 +1199,7 @@ let backgroundJob = {
 };
 
 app.post('/startBackgroundJob', async (req, res) => {
-    const { artistId } = req.body;
+    const { artistId, isDevMode } = req.body;
     if (backgroundJob.isRunning) {
         return res.status(400).json({ error: 'A job is already running.' });
     }
@@ -1013,8 +1212,10 @@ app.post('/startBackgroundJob', async (req, res) => {
 
     const processReleases = async () => {
         try {
-            const releaseIds = await fetchReleaseIds(artistId);
+            const releaseIds = await fetchReleaseIds(artistId, isDevMode);
             backgroundJob.progress.total = releaseIds.length;
+            console.log(`🎵 Total releases to process: ${releaseIds.length}`);
+            broadcastProgress(); // Notify clients about total releases
 
             for (let i = 0; i < releaseIds.length; i++) {
                 if (!backgroundJob.isRunning) break;
@@ -1024,27 +1225,40 @@ app.post('/startBackgroundJob', async (req, res) => {
                 }
 
                 const releaseId = releaseIds[i];
+                console.log(`🎧 Processing release ${i + 1} of ${releaseIds.length}: Release ID ${releaseId}`);
+
                 try {
                     const videos = await fetchVideoIds(releaseId);
                     videos.forEach((video) => backgroundJob.uniqueLinks.add(video.url));
                     backgroundJob.progress.current = i + 1;
                     backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
+                    console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
                     backgroundJob.waitTime = 0; // Reset wait time on success
                 } catch (error) {
                     if (error.response?.status === 429) {
                         backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
-                        console.error(`Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
+                        console.error(`⏳ Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
                     } else {
                         throw error;
                     }
                 }
+
+                broadcastProgress(); // Notify clients about progress
+
+                if (isDevMode) {
+                    console.log('🛠 Dev mode enabled: Skipping pagination.');
+                    break; // Skip pagination in Dev Mode
+                }
             }
 
+            console.log('✅ Background job completed.');
             backgroundJob.isRunning = false;
+            broadcastProgress(); // Notify clients that the job is complete
         } catch (error) {
-            console.error('Error processing releases:', error.message);
+            console.error('❌ Error processing releases:', error.message);
             backgroundJob.isRunning = false;
             backgroundJob.error = error.message;
+            broadcastProgress(); // Notify clients about the error
         }
     };
 
