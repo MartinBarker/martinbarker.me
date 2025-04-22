@@ -47,16 +47,3 @@ Following this guide: https://medium.com/@nwosuonyedikachi/deploying-a-react-app
 6. Create GH actions workflow yml
 7. Update the `env:` vars in the workflow.yml to contain the real values.
 8. Update the github repo secrets to include `` and ``.
-
-# Discogs2YouTube example inputs
-- Artist:
-    - artist url: https://www.discogs.com/artist/2465614-MontaBrothers
-    - artist code: [a2465614]
-    - artist id: 2465614
-- Label:
-    - label url: https://www.discogs.com/label/115620-Yamaha-Music-Foundation
-    - label code: [l115620]
-    - label id: 115620
-- List:
-    - list url: https://www.discogs.com/lists/test-list-video-extractor/1601260
-    - lsit id: 1601260
