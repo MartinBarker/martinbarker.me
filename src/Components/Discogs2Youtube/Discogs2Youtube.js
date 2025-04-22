@@ -9,6 +9,7 @@ function Discogs2Youtube() {
     const [authStatus, setAuthStatus] = useState(false); // State for YouTube authentication status
     const [generatedURL, setGeneratedURL] = useState(''); // State for the YouTube sign-in URL
     const [discogsInput, setDiscogsInput] = useState(''); // State for Discogs search input
+    const [extractedId, setExtractedId] = useState(''); // State for the extracted ID
     const [discogsResponse, setDiscogsResponse] = useState(''); // State for Discogs backend response
     const [playlistName, setPlaylistName] = useState(''); // State for playlist name
     const [playlistResponse, setPlaylistResponse] = useState(''); // State for playlist creation response
@@ -30,6 +31,10 @@ function Discogs2Youtube() {
     const [waitTime, setWaitTime] = useState(0); // State for wait time countdown
     const [youtubeLinks, setYoutubeLinks] = useState([]); // State for YouTube links
     const [initialVideoId, setInitialVideoId] = useState('bVbt8qG7Fl8'); // Default video ID for initial embed
+    const [isDevMode, setIsDevMode] = useState(false); // State for Dev Slider
+    const [selectedType, setSelectedType] = useState(null); // State for selected button
+    const [inputError, setInputError] = useState(''); // State for input error message
+    const [searchHistory, setSearchHistory] = useState([]); // State for search history
 
     const isLocal = window.location.hostname === 'localhost';
     const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
@@ -69,6 +74,10 @@ function Discogs2Youtube() {
             }
         };
 
+        // Initialize Dev Mode from localStorage
+        const savedDevMode = localStorage.getItem('isDevMode') === 'true';
+        setIsDevMode(savedDevMode);
+
         fetchSignInURL();
         fetchYouTubeAuthStatus();
         fetchDiscogsAuthUrl();
@@ -90,34 +99,135 @@ function Discogs2Youtube() {
     }, [discogsAccessToken]);
 
     useEffect(() => {
-        const fetchAwsSecretError = async () => {
-            try {
-                const response = await axios.get(`${apiUrl}/awsSecretError`);
-                console.log('AWS Secret Error:', response.data.error);
-            } catch (error) {
-                console.error('Error fetching AWS secret error:', error.message);
-            }
+        let interval;
+        if (backgroundJobStatus.isRunning && !backgroundJobStatus.isPaused) {
+            interval = setInterval(async () => {
+                try {
+                    const response = await axios.get(`${apiUrl}/backgroundJobStatus`);
+                    setBackgroundJobStatus((prev) => ({
+                        ...prev,
+                        progress: response.data.progress,
+                    }));
+                    setBackgroundJobError(response.data.error); // Update error state
+                    setBackgroundJobErrorDetails(response.data.errorDetails || null); // Update detailed error state
+                    setWaitTime(response.data.waitTime || 0); // Update wait time
+
+                    // Fetch YouTube links
+                    const linksResponse = await axios.get(`${apiUrl}/backgroundJobLinks`);
+                    setYoutubeLinks(linksResponse.data.links);
+                } catch (error) {
+                    console.error('Error fetching background job status or links:', error.message);
+                    setBackgroundJobError('Failed to fetch job status.');
+                    setBackgroundJobErrorDetails(error); // Store the full error object
+                }
+            }, 1000); // Poll every second for updates
+        }
+        return () => clearInterval(interval);
+    }, [backgroundJobStatus.isRunning, backgroundJobStatus.isPaused]);
+
+    useEffect(() => {
+        const ws = new WebSocket('ws://localhost:3031'); // Connect to WebSocket server
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            setBackgroundJobStatus((prev) => ({
+                ...prev,
+                progress: data.progress,
+                isRunning: data.isRunning,
+                isPaused: data.isPaused,
+            }));
+            setWaitTime(data.waitTime || 0);
+            setYoutubeLinks(data.uniqueLinks || []);
         };
 
-        fetchAwsSecretError();
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket connection closed.');
+        };
+
+        return () => {
+            ws.close(); // Clean up WebSocket connection on component unmount
+        };
     }, []);
 
     const handleDiscogsSearch = async () => {
-        if (discogsInput.startsWith('[a')) {
-            await startBackgroundJob(discogsInput.slice(2, -1)); // Extract artist ID
-        } else {
-            try {
-                const response = await axios.post(`${apiUrl}/discogsAuth`, { query: discogsInput });
-                console.log('Discogs Response:', response.data);
-                setDiscogsResponse(
-                    `Type: ${response.data.type}, ID: ${response.data.id}\nAPI Response: ${JSON.stringify(response.data.apiResponse, null, 2)}`
-                );
-            } catch (error) {
-                console.error('Error during Discogs search:', error);
-                if (error.response) {
-                    setDiscogsResponse(error.response.data.error || 'An error occurred.');
-                }
+        if (!extractedId.trim() || !selectedType) return;
+
+        // Add the current input to the search history if it's not already present
+        if (!searchHistory.includes(discogsInput)) {
+            setSearchHistory((prevHistory) => [discogsInput, ...prevHistory]);
+        }
+
+        try {
+            const response = await axios.post(`${apiUrl}/discogsSearch`, {
+                [selectedType]: extractedId, // Send query type and ID as key-value pair
+                isDevMode, // Include DevSlider state
+            });
+
+            if (selectedType === 'artist') {
+                const { artistName } = response.data; // Extract artist name
+                setDiscogsResponse(`Artist: ${artistName}`);
+                console.log(`Starting background job for artist: ${artistName}`);
+
+                // Start background job for fetching release IDs and YouTube videos
+                await axios.post(`${apiUrl}/startBackgroundJob`, { artistId: extractedId, isDevMode });
+            } else {
+                setDiscogsResponse(`Successfully fetched ${selectedType} data.`);
             }
+        } catch (error) {
+            console.error('Error during Discogs search:', error);
+            if (error.response) {
+                setDiscogsResponse(error.response.data.error || 'An error occurred.');
+            }
+        }
+    };
+
+    const handleInputChange = (value) => {
+        setDiscogsInput(value);
+        setInputError(''); // Clear error on input change
+
+        // Extract ID invisibly for backend processing
+        if (value.startsWith('https://www.discogs.com/artist/')) {
+            const id = value.split('/').pop().split('-')[0]; // Extract artist ID from URL
+            setExtractedId(id);
+            setSelectedType('artist');
+        } else if (value.startsWith('https://www.discogs.com/label/')) {
+            const id = value.split('/').pop().split('-')[0]; // Extract label ID from URL
+            setExtractedId(id);
+            setSelectedType('label');
+        } else if (value.startsWith('https://www.discogs.com/lists/')) {
+            const id = value.split('/').pop(); // Extract list ID from URL
+            setExtractedId(id);
+            setSelectedType('list');
+        } else if (value.startsWith('[a') && value.endsWith(']')) {
+            const id = value.slice(2, -1); // Extract artist ID from code
+            setExtractedId(id);
+            setSelectedType('artist');
+        } else if (value.startsWith('[l') && value.endsWith(']')) {
+            const id = value.slice(2, -1); // Extract label ID from code
+            setExtractedId(id);
+            setSelectedType('label');
+        } else if (/^\d+$/.test(value)) {
+            // If the input is purely numeric, assume it's an ID
+            setExtractedId(value);
+        } else {
+            setExtractedId(''); // Clear extracted ID if input doesn't match any format
+        }
+    };
+
+    const handleSearchClick = () => {
+        if (!discogsInput.trim() && !selectedType) {
+            setInputError('Please select a type and enter a value.');
+        } else if (!selectedType) {
+            setInputError('Please select a type.');
+        } else if (!discogsInput.trim()) {
+            setInputError('Please enter a value.');
+        } else {
+            setInputError(''); // Clear error
+            handleDiscogsSearch(); // Proceed with the search
         }
     };
 
@@ -227,32 +337,49 @@ function Discogs2Youtube() {
         }
     };
 
-    useEffect(() => {
-        let interval;
-        if (backgroundJobStatus.isRunning && !backgroundJobStatus.isPaused) {
-            interval = setInterval(async () => {
-                try {
-                    const response = await axios.get(`${apiUrl}/backgroundJobStatus`);
-                    setBackgroundJobStatus((prev) => ({
-                        ...prev,
-                        progress: response.data.progress,
-                    }));
-                    setBackgroundJobError(response.data.error); // Update error state
-                    setBackgroundJobErrorDetails(response.data.errorDetails || null); // Update detailed error state
-                    setWaitTime(response.data.waitTime || 0); // Update wait time
+    const handleDevModeToggle = () => {
+        setIsDevMode((prev) => {
+            const newDevMode = !prev;
+            localStorage.setItem('isDevMode', newDevMode); // Save to localStorage
+            return newDevMode;
+        });
+    };
 
-                    // Fetch YouTube links
-                    const linksResponse = await axios.get(`${apiUrl}/backgroundJobLinks`);
-                    setYoutubeLinks(linksResponse.data.links);
+    const makeDiscogsRequest = async (url) => {
+        console.log(`makeDiscogsRequest: ${url}`);
+        let allData = [];
+        let retryCount = 0;
+
+        try {
+            while (url) {
+                try {
+                    const response = await axios.get(url, {
+                        headers: { 'User-Agent': 'MyDiscogsClient/1.0 +http://mydiscogsclient.org' },
+                    });
+                    allData = allData.concat(response.data.releases || []);
+                    if (isDevMode) {
+                        console.log('Dev mode enabled: Skipping pagination.');
+                        break; // Exit loop after the first request in dev mode
+                    }
+                    url = response.data.pagination?.urls?.next || null;
+                    retryCount = 0; // Reset retry count on success
                 } catch (error) {
-                    console.error('Error fetching background job status or links:', error.message);
-                    setBackgroundJobError('Failed to fetch job status.');
-                    setBackgroundJobErrorDetails(error); // Store the full error object
+                    if (error.response?.status === 429) {
+                        retryCount++;
+                        const waitTime = Math.pow(2, retryCount) * 1000;
+                        console.error(`Rate limit hit. Retrying in ${waitTime / 1000} seconds...`);
+                        await new Promise((resolve) => setTimeout(resolve, waitTime));
+                    } else {
+                        throw error;
+                    }
                 }
-            }, 1000); // Poll every second for updates
+            }
+        } catch (error) {
+            console.error('Error making Discogs request:', error.message);
+            throw error;
         }
-        return () => clearInterval(interval);
-    }, [backgroundJobStatus.isRunning, backgroundJobStatus.isPaused]);
+        return allData;
+    };
 
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -291,10 +418,14 @@ function Discogs2Youtube() {
         fetchYouTubeLinks();
     }, []);
 
+    const handleTypeSelection = (type) => {
+        setSelectedType(type);
+    };
+
     return (
         <>
             <Helmet>
-                <title>Discogs2Youtube Preview</title>
+                <title>Discogs2Youtube</title>
                 <meta name="description" content="Convert Discogs data to YouTube links with Discogs2Youtube." />
                 <meta property="og:title" content="Discogs2Youtube" />
                 <meta property="og:description" content="Manage your Discogs and YouTube playlists seamlessly." />
@@ -309,68 +440,18 @@ function Discogs2Youtube() {
                     <p className={styles.description}>
                         Welcome to Discogs2Youtube! This tool allows you to authenticate with YouTube and Discogs to manage playlists and search for artists, labels, or lists.
                     </p>
-                </section>
-
-                {/* Embed the initial video */}
-                <section className={styles.section}>
-                    <h2 className={styles.subtitle}>Initial Embedded Video</h2>
-                    
-                    <iframe id="ytplayer" type="text/html" width="640" height="360"
-  src="https://www.youtube.com/embed/M7lc1UVf-VE?autoplay=1&origin=http://example.com"
-  frameborder="0"></iframe>
-
-                </section>
-
-                {/* YouTube Auth Section */}
-                <section className={styles.section}>
-                    <h2 className={styles.subtitle}>YouTube Authentication</h2>
-                    {authStatus ? (
-                        <>
-                            <p className={styles.authStatus}>You are signed in to YouTube!</p>
-                            <button
-                                className={`${styles.searchButton} ${styles.signOutButton}`}
-                                onClick={handleSignOut}
-                                style={{ backgroundColor: 'red', color: 'white' }}
-                            >
-                                Sign Out
-                            </button>
-                            <div>
-                                <h3 className={styles.subtitle}>Add Video to Playlist</h3>
+                    {isLocal && (
+                        <div className={styles.devSliderContainer}>
+                            <label className={styles.devSliderLabel}>
+                                Dev Slider
                                 <input
-                                    type="text"
-                                    className={styles.input}
-                                    placeholder="Enter Playlist ID"
-                                    value={playlistId}
-                                    onChange={(e) => setPlaylistId(e.target.value)}
+                                    type="checkbox"
+                                    className={styles.devSlider}
+                                    checked={isDevMode}
+                                    onChange={handleDevModeToggle}
                                 />
-                                <input
-                                    type="text"
-                                    className={styles.input}
-                                    placeholder="Enter YouTube Video ID"
-                                    value={videoId}
-                                    onChange={(e) => setVideoId(e.target.value)}
-                                />
-                                <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
-                                    Add Video to Playlist
-                                </button>
-                                {addVideoResponse.message && (
-                                    <p
-                                        className={
-                                            addVideoResponse.isError ? styles.error : styles.success
-                                        }
-                                    >
-                                        {addVideoResponse.message}
-                                    </p>
-                                )}
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
-                            <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
-                                Authenticate with YouTube
-                            </button>
-                        </>
+                            </label>
+                        </div>
                     )}
                 </section>
 
@@ -388,27 +469,46 @@ function Discogs2Youtube() {
                                 Sign Out
                             </button>
                             <p className={styles.description}>
-                                Fetch all YouTube links for a Discogs artist/label/list:
+                                Fetch all YouTube links for a Discogs artist, label, or list:
                             </p>
-                            <div className={styles.quickFillContainer}>
-                                <span className={styles.quickFill} onClick={() => handleQuickFill('[l23152]')}>
-                                    labelId
-                                </span>
-                                <span className={styles.quickFill} onClick={() => handleQuickFill('[a290309]')}>
-                                    artistId
-                                </span>
-                                <span className={styles.quickFill} onClick={() => handleQuickFill('https://www.discogs.com/lists/439152')}>
-                                    listId
-                                </span>
-                            </div>
                             <input
                                 type="text"
-                                className={styles.input}
-                                placeholder="Enter artist ID, label ID, or list"
+                                className={`${styles.input} ${inputError ? styles.inputError : ''}`}
+                                placeholder={inputError || "Enter artist ID, label ID, or list"}
                                 value={discogsInput}
-                                onChange={(e) => setDiscogsInput(e.target.value)}
+                                onChange={(e) => handleInputChange(e.target.value)}
+                                list="search-history" // Attach datalist for search history
                             />
-                            <button className={styles.searchButton} onClick={handleDiscogsSearch}>
+                            <datalist id="search-history">
+                                {searchHistory.map((item, index) => (
+                                    <option key={index} value={item} />
+                                ))}
+                            </datalist>
+                            <div className={styles.quickFillContainer}>
+                                <button
+                                    className={`${styles.quickFill} ${selectedType === 'label' ? styles.selected : ''}`}
+                                    onClick={() => setSelectedType('label')}
+                                >
+                                    Label
+                                </button>
+                                <button
+                                    className={`${styles.quickFill} ${selectedType === 'artist' ? styles.selected : ''}`}
+                                    onClick={() => setSelectedType('artist')}
+                                >
+                                    Artist
+                                </button>
+                                <button
+                                    className={`${styles.quickFill} ${selectedType === 'list' ? styles.selected : ''}`}
+                                    onClick={() => setSelectedType('list')}
+                                >
+                                    List
+                                </button>
+                            </div>
+                            <button
+                                className={styles.searchButton}
+                                onClick={handleSearchClick}
+                                disabled={!discogsInput.trim() || !selectedType} // Disable button if input or type is missing
+                            >
                                 Search
                             </button>
                             {backgroundJobStatus.isRunning && (
@@ -469,6 +569,59 @@ function Discogs2Youtube() {
                             <p className={styles.authStatus}>You are not signed in to Discogs. Please sign in below:</p>
                             <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
                                 Authenticate with Discogs
+                            </button>
+                        </>
+                    )}
+                </section>
+
+                {/* YouTube Auth Section */}
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>YouTube Authentication</h2>
+                    {authStatus ? (
+                        <>
+                            <p className={styles.authStatus}>You are signed in to YouTube!</p>
+                            <button
+                                className={`${styles.searchButton} ${styles.signOutButton}`}
+                                onClick={handleSignOut}
+                                style={{ backgroundColor: 'red', color: 'white' }}
+                            >
+                                Sign Out
+                            </button>
+                            <div>
+                                <h3 className={styles.subtitle}>Add Video to Playlist</h3>
+                                <input
+                                    type="text"
+                                    className={styles.input}
+                                    placeholder="Enter Playlist ID"
+                                    value={playlistId}
+                                    onChange={(e) => setPlaylistId(e.target.value)}
+                                />
+                                <input
+                                    type="text"
+                                    className={styles.input}
+                                    placeholder="Enter YouTube Video ID"
+                                    value={videoId}
+                                    onChange={(e) => setVideoId(e.target.value)}
+                                />
+                                <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
+                                    Add Video to Playlist
+                                </button>
+                                {addVideoResponse.message && (
+                                    <p
+                                        className={
+                                            addVideoResponse.isError ? styles.error : styles.success
+                                        }
+                                    >
+                                        {addVideoResponse.message}
+                                    </p>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
+                            <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
+                                Authenticate with YouTube
                             </button>
                         </>
                     )}
