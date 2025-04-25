@@ -24,14 +24,32 @@ const prodCallback = "https://www.jermasearch.com/internal-api/oauth2callback"
 
 const wss = new Server({ port: 3031 }); // WebSocket server on port 3031
 
+// Helper function to get the current timestamp in hh:mm:ss format
+function getTimestamp() {
+    const now = new Date();
+    return now.toTimeString().split(' ')[0]; // Extract hh:mm:ss
+}
+
+// Override console.log to include timestamps
+const originalLog = console.log;
+console.log = (...args) => {
+    originalLog(`[${getTimestamp()}]`, ...args);
+};
+
 // Broadcast function to send updates to all connected clients
-function broadcastProgress() {
+function broadcastProgress(taskId) {
     const progressData = {
+        taskId,
         progress: backgroundJob.progress,
         isRunning: backgroundJob.isRunning,
         isPaused: backgroundJob.isPaused,
         waitTime: backgroundJob.waitTime,
-        uniqueLinks: Array.from(backgroundJob.uniqueLinks),
+        uniqueLinks: Array.from(backgroundJob.uniqueLinks).map((link) => ({
+            url: link.url,
+            artist: link.artist,
+            releaseName: link.releaseName,
+            releaseId: link.releaseId,
+        })), // Ensure the structure includes all required fields
     };
     wss.clients.forEach((client) => {
         if (client.readyState === client.OPEN) {
@@ -348,13 +366,14 @@ app.post('/discogsSearch', async (req, res) => {
 });
 
 app.post('/startBackgroundJob', async (req, res) => {
-    const { artistId, isDevMode } = req.body;
+    const { artistId, isDevMode, taskId, artistName } = req.body;
     if (backgroundJob.isRunning) {
         return res.status(400).json({ error: 'A job is already running.' });
     }
     backgroundJob.isRunning = true;
     backgroundJob.isPaused = false;
     backgroundJob.artistId = artistId;
+    backgroundJob.artistName = artistName; // Store artist name
     backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
     backgroundJob.uniqueLinks.clear();
     backgroundJob.waitTime = 0;
@@ -364,11 +383,13 @@ app.post('/startBackgroundJob', async (req, res) => {
             const releaseIds = await fetchReleaseIds(artistId, isDevMode);
             backgroundJob.progress.total = releaseIds.length;
             console.log(`🎵 Total releases to process: ${releaseIds.length}`);
-            broadcastProgress(); // Notify clients about total releases
+            broadcastProgress(taskId); // Notify clients about total releases
 
             for (let i = 0; i < releaseIds.length; i++) {
                 if (!backgroundJob.isRunning) break;
                 while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
+                    // Update status when paused or rate-limited
+                    broadcastProgress(taskId);
                     await new Promise((resolve) => setTimeout(resolve, 1000));
                     if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
                 }
@@ -378,7 +399,7 @@ app.post('/startBackgroundJob', async (req, res) => {
 
                 try {
                     const videos = await fetchVideoIds(releaseId);
-                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video.url));
+                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video));
                     backgroundJob.progress.current = i + 1;
                     backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
                     console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
@@ -392,7 +413,7 @@ app.post('/startBackgroundJob', async (req, res) => {
                     }
                 }
 
-                broadcastProgress(); // Notify clients about progress
+                broadcastProgress(taskId); // Notify clients about progress
 
                 if (isDevMode) {
                     console.log('🛠 Dev mode enabled: Skipping pagination.');
@@ -401,13 +422,15 @@ app.post('/startBackgroundJob', async (req, res) => {
             }
 
             console.log('✅ Background job completed.');
+            // Ensure final stats are preserved
+            backgroundJob.progress.current = backgroundJob.progress.total;
             backgroundJob.isRunning = false;
-            broadcastProgress(); // Notify clients that the job is complete
+            broadcastProgress(taskId); // Notify clients that the job is complete
         } catch (error) {
             console.error('❌ Error processing releases:', error.message);
             backgroundJob.isRunning = false;
             backgroundJob.error = error.message;
-            broadcastProgress(); // Notify clients about the error
+            broadcastProgress(taskId); // Notify clients about the error
         }
     };
 
@@ -541,7 +564,13 @@ async function fetchVideoIds(releaseId) {
     const response = await axios.get(url, {
         headers: { 'User-Agent': USER_AGENT },
     });
-    return response.data.videos?.map((video) => ({ url: video.uri })) || [];
+    const videos = response.data.videos?.map((video) => ({
+        url: video.uri,
+        artist: response.data.artists_sort,
+        releaseName: response.data.title,
+        releaseId: releaseId,
+    })) || [];
+    return videos;
 }
 
 // Route to handle Discogs API requests
@@ -1194,77 +1223,10 @@ let backgroundJob = {
     isPaused: false,
     progress: { current: 0, total: 0, uniqueLinks: 0 },
     artistId: null,
+    artistName: null,
     uniqueLinks: new Set(),
     waitTime: 0, // Time to wait before resuming requests
 };
-
-app.post('/startBackgroundJob', async (req, res) => {
-    const { artistId, isDevMode } = req.body;
-    if (backgroundJob.isRunning) {
-        return res.status(400).json({ error: 'A job is already running.' });
-    }
-    backgroundJob.isRunning = true;
-    backgroundJob.isPaused = false;
-    backgroundJob.artistId = artistId;
-    backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
-    backgroundJob.uniqueLinks.clear();
-    backgroundJob.waitTime = 0;
-
-    const processReleases = async () => {
-        try {
-            const releaseIds = await fetchReleaseIds(artistId, isDevMode);
-            backgroundJob.progress.total = releaseIds.length;
-            console.log(`🎵 Total releases to process: ${releaseIds.length}`);
-            broadcastProgress(); // Notify clients about total releases
-
-            for (let i = 0; i < releaseIds.length; i++) {
-                if (!backgroundJob.isRunning) break;
-                while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
-                    if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
-                }
-
-                const releaseId = releaseIds[i];
-                console.log(`🎧 Processing release ${i + 1} of ${releaseIds.length}: Release ID ${releaseId}`);
-
-                try {
-                    const videos = await fetchVideoIds(releaseId);
-                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video.url));
-                    backgroundJob.progress.current = i + 1;
-                    backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
-                    console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
-                    backgroundJob.waitTime = 0; // Reset wait time on success
-                } catch (error) {
-                    if (error.response?.status === 429) {
-                        backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
-                        console.error(`⏳ Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
-                    } else {
-                        throw error;
-                    }
-                }
-
-                broadcastProgress(); // Notify clients about progress
-
-                if (isDevMode) {
-                    console.log('🛠 Dev mode enabled: Skipping pagination.');
-                    break; // Skip pagination in Dev Mode
-                }
-            }
-
-            console.log('✅ Background job completed.');
-            backgroundJob.isRunning = false;
-            broadcastProgress(); // Notify clients that the job is complete
-        } catch (error) {
-            console.error('❌ Error processing releases:', error.message);
-            backgroundJob.isRunning = false;
-            backgroundJob.error = error.message;
-            broadcastProgress(); // Notify clients about the error
-        }
-    };
-
-    processReleases();
-    res.status(200).json({ message: 'Background job started.' });
-});
 
 app.post('/pauseBackgroundJob', (req, res) => {
     if (!backgroundJob.isRunning) {
@@ -1272,6 +1234,14 @@ app.post('/pauseBackgroundJob', (req, res) => {
     }
     backgroundJob.isPaused = true;
     res.status(200).json({ message: 'Background job paused.' });
+});
+
+app.post('/resumeBackgroundJob', (req, res) => {
+    if (!backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'No job is currently running.' });
+    }
+    backgroundJob.isPaused = false;
+    res.status(200).json({ message: 'Background job resumed.' });
 });
 
 app.post('/stopBackgroundJob', (req, res) => {
@@ -1288,10 +1258,75 @@ app.get('/backgroundJobStatus', (req, res) => {
         progress: backgroundJob.progress,
         error: backgroundJob.error || null,
         waitTime: backgroundJob.waitTime,
+        isRunning: backgroundJob.isRunning,
+        isPaused: backgroundJob.isPaused,
+        artistName: backgroundJob.artistName,
+        artistId: backgroundJob.artistId  // Added artistId to the response
     });
 });
 
 // Endpoint to fetch unique YouTube links
 app.get('/backgroundJobLinks', (req, res) => {
     res.status(200).json({ links: Array.from(backgroundJob.uniqueLinks) });
+})
+
+// Enhanced function to return task with complete info even when finished
+app.get('/backgroundTasks', (req, res) => {
+    console.log("📋 [GET /backgroundTasks] Hit");
+    try {
+        let taskStatus = 'completed';
+        if (backgroundJob.isRunning) {
+            taskStatus = 'in-progress';
+            if (backgroundJob.waitTime > 0) {
+                taskStatus = 'rate-limited';
+            } else if (backgroundJob.isPaused) {
+                taskStatus = 'paused';
+            }
+        }
+        
+        const tasks = backgroundJob.artistId
+            ? [
+                  {
+                      id: backgroundJob.artistId,
+                      name: backgroundJob.artistName 
+                        ? `Artist: ${backgroundJob.artistName}` 
+                        : `Task for artist ${backgroundJob.artistId}`,
+                      status: taskStatus,
+                      youtubeLinks: Array.from(backgroundJob.uniqueLinks),
+                      progress: {
+                          current: backgroundJob.progress.current,
+                          total: backgroundJob.progress.total,
+                          uniqueLinks: backgroundJob.progress.uniqueLinks
+                      }
+                  },
+              ]
+            : []; // Return an empty list if no tasks exist
+        
+        // Add flag to indicate if client should continue polling - only poll if task is running
+        const shouldPoll = backgroundJob.isRunning;
+        res.status(200).json({ tasks, shouldPoll });
+    } catch (error) {
+        console.error('Error fetching background tasks:', error.message);
+        res.status(500).json({ error: 'Failed to fetch background tasks.' });
+    }
+});
+
+app.post('/clearBackgroundTasks', (req, res) => {
+    console.log("🧹 [POST /clearBackgroundTasks] Hit");
+    try {
+        // Reset the background job state
+        backgroundJob = {
+            isRunning: false,
+            isPaused: false,
+            progress: { current: 0, total: 0, uniqueLinks: 0 },
+            artistId: null,
+            artistName: null,
+            uniqueLinks: new Set(),
+            waitTime: 0,
+        };
+        res.status(200).json({ message: 'All background tasks cleared.' });
+    } catch (error) {
+        console.error('Error clearing background tasks:', error.message);
+        res.status(500).json({ error: 'Failed to clear background tasks.' });
+    }
 });

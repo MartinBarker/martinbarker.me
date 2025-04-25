@@ -275,3 +275,204 @@ ul li a:hover {
 .devSlider:checked::before {
     transform: translateX(20px);
 }
+
+.taskList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.taskItem {
+    margin-bottom: 10px;
+    cursor: pointer;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+    transition: background-color 0.3s, border-color 0.3s;
+    overflow: hidden;
+}
+
+.taskHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+}
+
+.taskInfo {
+    flex-grow: 1;
+    display: flex;
+    justify-content: space-between;
+}
+
+.taskActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.taskActionButton {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.expandButton {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.expandButton:hover, .taskActionButton:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.taskDetails {
+    padding: 0 10px 10px;
+    border-top: 1px solid #eee;
+    animation: fadeIn 0.3s ease-in-out;
+    color: #333; /* Ensure text is dark inside task details */
+}
+
+.taskDetails p, 
+.taskDetails h3, 
+.taskDetails .artistName, 
+.taskDetails .success, 
+.taskDetails .waitTime {
+    color: #333 !important; /* Force black text for all content in the dropdown */
+}
+
+/* Override text color for specific status indicators */
+.taskDetails .success {
+    color: #28a745 !important; /* Keep success messages green */
+}
+
+.taskDetails .waitTime {
+    color: #ff9800 !important; /* Keep warnings orange */
+}
+
+.taskDetails .youtubeLink {
+    color: #007bff !important; /* Keep links blue */
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; max-height: 0; }
+    to { opacity: 1; max-height: 5000px; }
+}
+
+.pauseButton {
+    color: #007bff;
+}
+
+.resumeButton {
+    color: #28a745;
+}
+
+.selectedTask {
+    border-color: #007bff;
+    box-shadow: 0 0 4px rgba(0, 123, 255, 0.3);
+}
+
+.completedTask {
+    border-color: #aaa;
+    background-color: #f1f1f1;
+}
+
+.completedTask.selectedTask {
+    border-color: #888;
+    box-shadow: 0 0 4px rgba(100, 100, 100, 0.3);
+    background-color: #e8e8e8;
+}
+
+.status-completed {
+    color: #28a745;
+    background-color: rgba(40, 167, 69, 0.1);
+}
+
+.status-paused {
+    color: #ffc107;
+    background-color: rgba(255, 193, 7, 0.1);
+}
+
+.status-in-progress {
+    color: #007bff;
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+.status-rate-limited {
+    color: #fd7e14;
+    background-color: rgba(253, 126, 20, 0.1);
+}
+
+.status-waiting {
+    color: #6c757d;
+    background-color: rgba(108, 117, 125, 0.1);
+}
+
+/* Make sure status text is visible on selected tasks */
+.selectedTask .taskStatus {
+    color: white;
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.status-completed {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.status-in-progress {
+    color: #007bff;
+}
+
+.status-paused {
+    color: #ffc107;
+}
+
+.status-rate-limited {
+    color: #fd7e14;
+}
+
+.selectedTask {
+    background-color: #007bff;
+    color: white;
+}
+
+/* Ensure the task header text remains white when selected */
+.selectedTask .taskHeader {
+    color: white;
+}
+
+.taskStatus {
+    font-weight: bold;
+    text-transform: capitalize;
+    margin-right: 6px;
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.artistName {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #007bff;
+}
+
+.rateLimitedTask {
+    border-color: #fd7e14;
+    background-color: rgba(253, 126, 20, 0.05);
+}
+
+.rateLimitedTask.selectedTask {
+    border-color: #fd7e14;
+    box-shadow: 0 0 4px rgba(253, 126, 20, 0.3);
+    background-color: rgba(253, 126, 20, 0.15);
+}
