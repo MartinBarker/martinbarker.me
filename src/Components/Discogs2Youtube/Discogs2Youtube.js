@@ -1,45 +1,288 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import LiteYouTubeEmbed from 'react-lite-youtube-embed';
 import 'react-lite-youtube-embed/dist/LiteYouTubeEmbed.css';
 import styles from './Discogs2Youtube.module.css';
 import axios from 'axios';
 
+// Create a logging wrapper for axios with full response logging
+const loggedAxios = {
+    get: async (url, config = {}) => {
+        console.log(`🔍 GET Request to: ${url}`, config);
+        try {
+            const response = await axios.get(url, config);
+            console.log(`✅ GET Response from ${url}:`, {
+                status: response.status,
+                statusText: response.statusText,
+                data: response.data
+            });
+            return response;
+        } catch (error) {
+            console.error(`❌ GET Error from ${url}:`, error);
+            throw error;
+        }
+    },
+    post: async (url, data = {}, config = {}) => {
+        console.log(`📮 POST Request to: ${url}`, { data, config });
+        try {
+            const response = await axios.post(url, data, config);
+            console.log(`✅ POST Response from ${url}:`, {
+                status: response.status,
+                statusText: response.statusText,
+                data: response.data
+            });
+            return response;
+        } catch (error) {
+            console.error(`❌ POST Error from ${url}:`, error);
+            throw error;
+        }
+    }
+};
+
 function Discogs2Youtube() {
-    const [authStatus, setAuthStatus] = useState(false); // State for YouTube authentication status
-    const [generatedURL, setGeneratedURL] = useState(''); // State for the YouTube sign-in URL
-    const [discogsInput, setDiscogsInput] = useState(''); // State for Discogs search input
-    const [discogsResponse, setDiscogsResponse] = useState(''); // State for Discogs backend response
-    const [playlistName, setPlaylistName] = useState(''); // State for playlist name
-    const [playlistResponse, setPlaylistResponse] = useState(''); // State for playlist creation response
-    const [playlistId, setPlaylistId] = useState(''); // State for playlist ID
-    const [videoId, setVideoId] = useState(''); // State for YouTube video ID
-    const [addVideoResponse, setAddVideoResponse] = useState({ message: '', isError: false }); // Update state to include error flag
-    const [urlError, setUrlError] = useState(''); // State for URL fetch error
+    const [authStatus, setAuthStatus] = useState(false);
+    const [generatedURL, setGeneratedURL] = useState('');
+    const [discogsInput, setDiscogsInput] = useState('');
+    const [extractedId, setExtractedId] = useState('');
+    const [discogsResponse, setDiscogsResponse] = useState('');
+    const [playlistName, setPlaylistName] = useState('');
+    const [playlistResponse, setPlaylistResponse] = useState('');
+    const [playlistId, setPlaylistId] = useState('');
+    const [videoId, setVideoId] = useState('');
+    const [addVideoResponse, setAddVideoResponse] = useState({ message: '', isError: false });
+    const [urlError, setUrlError] = useState('');
     const [discogsAuthUrl, setDiscogsAuthUrl] = useState('');
     const [discogsAccessToken, setDiscogsAccessToken] = useState(null);
     const [discogsAuthStatus, setDiscogsAuthStatus] = useState(false);
-    const [petTypes, setPetTypes] = useState(''); // State for petTypes secret
+    const [petTypes, setPetTypes] = useState('');
     const [backgroundJobStatus, setBackgroundJobStatus] = useState({
         isRunning: false,
         isPaused: false,
         progress: { current: 0, total: 0, uniqueLinks: 0 },
     });
-    const [backgroundJobError, setBackgroundJobError] = useState(null); // State for backend errors
-    const [backgroundJobErrorDetails, setBackgroundJobErrorDetails] = useState(null); // State for detailed backend errors
-    const [waitTime, setWaitTime] = useState(0); // State for wait time countdown
-    const [youtubeLinks, setYoutubeLinks] = useState([]); // State for YouTube links
-    const [initialVideoId, setInitialVideoId] = useState('bVbt8qG7Fl8'); // Default video ID for initial embed
+    const [backgroundJobError, setBackgroundJobError] = useState(null);
+    const [backgroundJobErrorDetails, setBackgroundJobErrorDetails] = useState(null);
+    const [waitTime, setWaitTime] = useState(0);
+    const [youtubeLinks, setYoutubeLinks] = useState([]);
+    const [initialVideoId, setInitialVideoId] = useState('bVbt8qG7Fl8');
+    const [isDevMode, setIsDevMode] = useState(false);
+    const [selectedType, setSelectedType] = useState(null);
+    const [inputError, setInputError] = useState('');
+    const [searchHistory, setSearchHistory] = useState([]);
+    const [backgroundTasks, setBackgroundTasks] = useState(() => {
+        const savedTasks = localStorage.getItem('backgroundTasks');
+        return savedTasks ? JSON.parse(savedTasks) : [];
+    });
+    const [selectedTaskId, setSelectedTaskId] = useState(null);
+    const [isPollingActive, setIsPollingActive] = useState(false);
+    const pollingIntervalRef = useRef(null);
+    const [taskInfo, setTaskInfo] = useState({
+        artistName: '',
+        taskStatus: 'waiting',
+    });
+    const [taskCompleted, setTaskCompleted] = useState(false);
+    const [finalTaskStats, setFinalTaskStats] = useState({
+        current: 0,
+        total: 0,
+        uniqueLinks: 0
+    });
+    const [expandedTasks, setExpandedTasks] = useState({});
 
     const isLocal = window.location.hostname === 'localhost';
     const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
 
     useEffect(() => {
-        // Fetch the sign-in URL on component mount
+        localStorage.setItem('backgroundTasks', JSON.stringify(backgroundTasks));
+
+        if (backgroundTasks.length > 0 && !selectedTaskId) {
+            setSelectedTaskId(backgroundTasks[0].id);
+            setYoutubeLinks(backgroundTasks[0].youtubeLinks || []);
+        }
+
+        if (isPollingActive && backgroundTasks.length === 0) {
+            console.log('No more tasks, stopping polling');
+            setIsPollingActive(false);
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
+            }
+        }
+    }, [backgroundTasks, selectedTaskId, isPollingActive]);
+
+    useEffect(() => {
+        if (isPollingActive && !pollingIntervalRef.current && !taskCompleted) {
+            console.log('Starting background tasks polling');
+
+            const fetchBackgroundTasks = async () => {
+                try {
+                    const response = await loggedAxios.get(`${apiUrl}/backgroundTasks`);
+                    const updatedTasks = response.data.tasks || [];
+                    
+                    // Check for status updates only if not already completed
+                    if (!taskCompleted) {
+                        const statusResponse = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
+                        
+                        // Check if task is completed but was previously running
+                        if (backgroundJobStatus.isRunning && !statusResponse.data.isRunning) {
+                            // Task just completed - preserve final stats
+                            setTaskCompleted(true);
+                            setFinalTaskStats({
+                                current: statusResponse.data.progress.total,
+                                total: statusResponse.data.progress.total,
+                                uniqueLinks: statusResponse.data.progress.uniqueLinks
+                            });
+                            console.log('⏹️ Task completed, preserving final stats:', {
+                                progress: statusResponse.data.progress
+                            });
+                            
+                            // Get final links one last time
+                            const finalLinksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
+                            if (finalLinksResponse.data.links && finalLinksResponse.data.links.length > 0) {
+                                setYoutubeLinks(finalLinksResponse.data.links);
+                            }
+                            
+                            setIsPollingActive(false);
+                            if (pollingIntervalRef.current) {
+                                clearInterval(pollingIntervalRef.current);
+                                pollingIntervalRef.current = null;
+                            }
+                            return;
+                        }
+                        
+                        // Update the task status based on current job state
+                        const updatedTasksWithStatus = updatedTasks.map(task => {
+                            if (statusResponse.data.artistId && task.id === statusResponse.data.artistId) {
+                                let status = 'completed';
+                                if (statusResponse.data.isRunning) {
+                                    status = 'in-progress';
+                                    if (statusResponse.data.waitTime > 0) {
+                                        status = 'rate-limited';
+                                    } else if (statusResponse.data.isPaused) {
+                                        status = 'paused';
+                                    }
+                                }
+                                return { ...task, status };
+                            }
+                            return task;
+                        });
+                        
+                        setBackgroundTasks(updatedTasksWithStatus);
+                        
+                        if (!taskCompleted) {
+                            setBackgroundJobStatus((prev) => ({
+                                ...prev,
+                                isRunning: statusResponse.data.isRunning,
+                                isPaused: statusResponse.data.isPaused || false,
+                                progress: statusResponse.data.progress,
+                            }));
+                        }
+                        
+                        setBackgroundJobError(statusResponse.data.error); 
+                        setBackgroundJobErrorDetails(statusResponse.data.errorDetails || null);
+                        setWaitTime(statusResponse.data.waitTime || 0);
+                        
+                        if (statusResponse.data.artistName) {
+                            setTaskInfo(prev => ({
+                                ...prev,
+                                artistName: statusResponse.data.artistName,
+                                taskStatus: statusResponse.data.isRunning ? 'in-progress' : 'completed'
+                            }));
+                        }
+                    }
+                    
+                    // Stop polling if completed or if server says to stop
+                    if (taskCompleted || !response.data.shouldPoll) {
+                        console.log(`Stopping polling: ${taskCompleted ? 'Task completed' : 'Server indicated to stop'}`);
+                        setIsPollingActive(false);
+                        if (pollingIntervalRef.current) {
+                            clearInterval(pollingIntervalRef.current);
+                            pollingIntervalRef.current = null;
+                        }
+                        return;
+                    }
+                    
+                    // Only fetch new links if task is still running and not completed
+                    if (!taskCompleted && backgroundJobStatus.isRunning) {
+                        const linksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
+                        if (linksResponse.data.links && linksResponse.data.links.length > 0) {
+                            setYoutubeLinks(linksResponse.data.links);
+                        }
+                    }
+                    
+                    if (selectedTaskId) {
+                        const selectedTask = updatedTasks.find(task => task.id === selectedTaskId);
+                        if (selectedTask && selectedTask.youtubeLinks && selectedTask.youtubeLinks.length > 0) {
+                            // Only update if not completed to avoid losing final data
+                            if (!taskCompleted) {
+                                setYoutubeLinks(selectedTask.youtubeLinks);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error fetching background tasks:', error.message);
+                }
+            };
+            
+            fetchBackgroundTasks();
+            pollingIntervalRef.current = setInterval(fetchBackgroundTasks, 2000);
+        }
+        
+        // If task is completed, make sure polling stops
+        if (taskCompleted && pollingIntervalRef.current) {
+            console.log('Task completed, stopping polling');
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+        }
+        
+        return () => {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+                pollingIntervalRef.current = null;
+            }
+        };
+    }, [isPollingActive, apiUrl, selectedTaskId, backgroundJobStatus.isRunning, taskCompleted]);
+
+    // Reset task completed state when starting a new task
+    useEffect(() => {
+        if (isPollingActive) {
+            setTaskCompleted(false);
+            setFinalTaskStats({
+                current: 0,
+                total: 0,
+                uniqueLinks: 0
+            });
+        }
+    }, [isPollingActive]);
+
+    useEffect(() => {
+        const fetchBackgroundTasks = async () => {
+            try {
+                const response = await loggedAxios.get(`${apiUrl}/backgroundTasks`);
+                const updatedTasks = response.data.tasks || [];
+                setBackgroundTasks(updatedTasks);
+
+                if (updatedTasks.length > 0 && !selectedTaskId) {
+                    setSelectedTaskId(updatedTasks[0].id);
+                    setYoutubeLinks(updatedTasks[0].youtubeLinks || []);
+                }
+            } catch (error) {
+                console.error('Error fetching background tasks:', error.message);
+            }
+        };
+
+        fetchBackgroundTasks();
+
+        return () => {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current);
+            }
+        };
+    }, [apiUrl, selectedTaskId]);
+
+    useEffect(() => {
         const fetchSignInURL = async () => {
             try {
-                const response = await axios.get(`${apiUrl}/generateURL`); // Ensure the backend route matches
-                //console.log('Generated URL:', response.data.url);
+                const response = await loggedAxios.get(`${apiUrl}/generateURL`);
                 setGeneratedURL(response.data.url);
             } catch (error) {
                 console.error('Error during generateURL request:', error);
@@ -47,10 +290,9 @@ function Discogs2Youtube() {
             }
         };
 
-        // Fetch the authentication status on component mount
         const fetchYouTubeAuthStatus = async () => {
             try {
-                const response = await axios.get(`${apiUrl}/authStatus`);
+                const response = await loggedAxios.get(`${apiUrl}/authStatus`);
                 console.log('YouTube Auth Status:', response.data.isAuthenticated);
                 setAuthStatus(response.data.isAuthenticated);
             } catch (error) {
@@ -58,16 +300,17 @@ function Discogs2Youtube() {
             }
         };
 
-        // Fetch Discogs sign-in URL on component mount
         const fetchDiscogsAuthUrl = async () => {
             try {
-                const response = await axios.get(`${apiUrl}/discogs/generateURL`);
-                //console.log('Discogs Auth URL:', response.data.url);
+                const response = await loggedAxios.get(`${apiUrl}/discogs/generateURL`);
                 setDiscogsAuthUrl(response.data.url);
             } catch (error) {
                 console.error('Error fetching Discogs auth URL:', error.message);
             }
         };
+
+        const savedDevMode = localStorage.getItem('isDevMode') === 'true';
+        setIsDevMode(savedDevMode);
 
         fetchSignInURL();
         fetchYouTubeAuthStatus();
@@ -75,10 +318,9 @@ function Discogs2Youtube() {
     }, []);
 
     useEffect(() => {
-        // Fetch Discogs authentication status
         const fetchDiscogsAuthStatus = async () => {
             try {
-                const response = await axios.get(`${apiUrl}/discogs/authStatus`);
+                const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`);
                 console.log('Discogs Auth Status:', response.data.isAuthenticated);
                 setDiscogsAuthStatus(response.data.isAuthenticated);
             } catch (error) {
@@ -90,40 +332,190 @@ function Discogs2Youtube() {
     }, [discogsAccessToken]);
 
     useEffect(() => {
-        const fetchAwsSecretError = async () => {
-            try {
-                const response = await axios.get(`${apiUrl}/awsSecretError`);
-                console.log('AWS Secret Error:', response.data.error);
-            } catch (error) {
-                console.error('Error fetching AWS secret error:', error.message);
+        let interval;
+        if (backgroundJobStatus.isRunning && !backgroundJobStatus.isPaused && !taskCompleted) {
+            interval = setInterval(async () => {
+                try {
+                    const response = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
+                    
+                    // Check if the task is now completed
+                    if (!response.data.isRunning && backgroundJobStatus.isRunning) {
+                        console.log('Task completed, saving final stats and stopping polling');
+                        setTaskCompleted(true);
+                        setFinalTaskStats({
+                            current: response.data.progress.total,
+                            total: response.data.progress.total,
+                            uniqueLinks: response.data.progress.uniqueLinks
+                        });
+                        
+                        // Fetch final links one last time
+                        const finalLinksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
+                        if (finalLinksResponse.data.links && finalLinksResponse.data.links.length > 0) {
+                            setYoutubeLinks(finalLinksResponse.data.links);
+                        }
+                        
+                        // Update background job status
+                        setBackgroundJobStatus(prev => ({
+                            ...prev,
+                            isRunning: false,
+                            progress: response.data.progress
+                        }));
+                        
+                        // Clear interval and stop polling
+                        clearInterval(interval);
+                        return;
+                    }
+                    
+                    // Only update if task is not completed
+                    if (!taskCompleted) {
+                        setBackgroundJobStatus((prev) => ({
+                            ...prev,
+                            progress: response.data.progress,
+                        }));
+                        setBackgroundJobError(response.data.error);
+                        setBackgroundJobErrorDetails(response.data.errorDetails || null);
+                        setWaitTime(response.data.waitTime || 0);
+
+                        // Only fetch links if task is still running
+                        const linksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
+                        setYoutubeLinks(linksResponse.data.links);
+                    }
+                } catch (error) {
+                    console.error('Error fetching background job status or links:', error.message);
+                    setBackgroundJobError('Failed to fetch job status.');
+                    setBackgroundJobErrorDetails(error);
+                }
+            }, 1000);
+        }
+        return () => {
+            if (interval) {
+                clearInterval(interval);
             }
         };
+    }, [backgroundJobStatus.isRunning, backgroundJobStatus.isPaused, taskCompleted, apiUrl]);
 
-        fetchAwsSecretError();
-    }, []);
+    // Make sure newly active tasks are expanded by default
+    useEffect(() => {
+        if (selectedTaskId) {
+            setExpandedTasks(prev => ({
+                ...prev,
+                [selectedTaskId]: true
+            }));
+        }
+    }, [selectedTaskId]);
+
+    // When tasks are initially loaded, expand the selected task
+    useEffect(() => {
+        if (backgroundTasks.length > 0 && selectedTaskId) {
+            setExpandedTasks(prev => ({
+                ...prev,
+                [selectedTaskId]: true
+            }));
+        }
+    }, [backgroundTasks, selectedTaskId]);
 
     const handleDiscogsSearch = async () => {
-        if (discogsInput.startsWith('[a')) {
-            await startBackgroundJob(discogsInput.slice(2, -1)); // Extract artist ID
-        } else {
-            try {
-                const response = await axios.post(`${apiUrl}/discogsAuth`, { query: discogsInput });
-                console.log('Discogs Response:', response.data);
-                setDiscogsResponse(
-                    `Type: ${response.data.type}, ID: ${response.data.id}\nAPI Response: ${JSON.stringify(response.data.apiResponse, null, 2)}`
-                );
-            } catch (error) {
-                console.error('Error during Discogs search:', error);
-                if (error.response) {
-                    setDiscogsResponse(error.response.data.error || 'An error occurred.');
-                }
+        if (!extractedId.trim() || !selectedType) return;
+
+        if (!searchHistory.includes(discogsInput)) {
+            setSearchHistory((prevHistory) => [discogsInput, ...prevHistory]);
+        }
+
+        try {
+            const response = await loggedAxios.post(`${apiUrl}/discogsSearch`, {
+                [selectedType]: extractedId,
+                isDevMode,
+            });
+
+            if (selectedType === 'artist') {
+                const { artistName } = response.data;
+                setDiscogsResponse(`Artist: ${artistName}`);
+                setTaskInfo(prev => ({
+                    ...prev,
+                    artistName: artistName,
+                    taskStatus: 'starting'
+                }));
+                console.log(`Starting background job for artist: ${artistName}`);
+
+                await loggedAxios.post(`${apiUrl}/startBackgroundJob`, { 
+                    artistId: extractedId, 
+                    isDevMode,
+                    artistName: artistName
+                });
+
+                setIsPollingActive(true);
+                
+                const fetchInitialStatus = async () => {
+                    try {
+                        const statusResponse = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
+                        setBackgroundJobStatus((prev) => ({
+                            ...prev,
+                            isRunning: true,
+                            progress: statusResponse.data.progress,
+                        }));
+                    } catch (error) {
+                        console.error('Error fetching initial job status:', error.message);
+                    }
+                };
+                fetchInitialStatus();
+            } else {
+                setDiscogsResponse(`Successfully fetched ${selectedType} data.`);
             }
+        } catch (error) {
+            console.error('Error during Discogs search:', error);
+            if (error.response) {
+                setDiscogsResponse(error.response.data.error || 'An error occurred.');
+            }
+        }
+    };
+
+    const handleInputChange = (value) => {
+        setDiscogsInput(value);
+        setInputError('');
+
+        if (value.startsWith('https://www.discogs.com/artist/')) {
+            const id = value.split('/').pop().split('-')[0];
+            setExtractedId(id);
+            setSelectedType('artist');
+        } else if (value.startsWith('https://www.discogs.com/label/')) {
+            const id = value.split('/').pop().split('-')[0];
+            setExtractedId(id);
+            setSelectedType('label');
+        } else if (value.startsWith('https://www.discogs.com/lists/')) {
+            const id = value.split('/').pop();
+            setExtractedId(id);
+            setSelectedType('list');
+        } else if (value.startsWith('[a') && value.endsWith(']')) {
+            const id = value.slice(2, -1);
+            setExtractedId(id);
+            setSelectedType('artist');
+        } else if (value.startsWith('[l') && value.endsWith(']')) {
+            const id = value.slice(2, -1);
+            setExtractedId(id);
+            setSelectedType('label');
+        } else if (/^\d+$/.test(value)) {
+            setExtractedId(value);
+        } else {
+            setExtractedId('');
+        }
+    };
+
+    const handleSearchClick = () => {
+        if (!discogsInput.trim() && !selectedType) {
+            setInputError('Please select a type and enter a value.');
+        } else if (!selectedType) {
+            setInputError('Please select a type.');
+        } else if (!discogsInput.trim()) {
+            setInputError('Please enter a value.');
+        } else {
+            setInputError('');
+            handleDiscogsSearch();
         }
     };
 
     const handleCreatePlaylist = async () => {
         try {
-            const response = await axios.post(`${apiUrl}/createPlaylist`, { name: playlistName });
+            const response = await loggedAxios.post(`${apiUrl}/createPlaylist`, { name: playlistName });
             console.log('Playlist Creation Response:', response.data);
             setPlaylistResponse(`Playlist created: ${response.data.title} (ID: ${response.data.id})`);
         } catch (error) {
@@ -136,18 +528,18 @@ function Discogs2Youtube() {
 
     const handleAddVideoToPlaylist = async () => {
         try {
-            const response = await axios.post(`${apiUrl}/addVideoToPlaylist`, {
+            const response = await loggedAxios.post(`${apiUrl}/addVideoToPlaylist`, {
                 playlistId,
                 videoId,
             });
             console.log('Add Video Response:', response.data);
-            setAddVideoResponse({ message: 'Success: Video added to playlist!', isError: false }); // Success message
+            setAddVideoResponse({ message: 'Success: Video added to playlist!', isError: false });
         } catch (error) {
             console.error('Error adding video to playlist:', error);
             const errorMessage = error.response
                 ? `Error: ${JSON.stringify(error.response.data, null, 2)}`
                 : 'An unknown error occurred.';
-            setAddVideoResponse({ message: errorMessage, isError: true }); // Error message
+            setAddVideoResponse({ message: errorMessage, isError: true });
         }
     };
 
@@ -157,9 +549,9 @@ function Discogs2Youtube() {
 
     const fetchYouTubeAuthUrl = async () => {
         try {
-            const response = await axios.get(`${apiUrl}/generateURL`);
+            const response = await loggedAxios.get(`${apiUrl}/generateURL`);
             console.log('YouTube Auth URL:', response.data.url);
-            window.location.href = response.data.url; // Open the URL in the current tab
+            window.location.href = response.data.url;
         } catch (error) {
             console.error('Error fetching YouTube auth URL:', error.message);
         }
@@ -167,13 +559,13 @@ function Discogs2Youtube() {
 
     const initiateDiscogsAuth = () => {
         if (discogsAuthUrl) {
-            window.location.href = discogsAuthUrl; // Open the URL in the current tab
+            window.location.href = discogsAuthUrl;
         }
     };
 
     const handleDiscogsCallback = async (oauthToken, oauthVerifier) => {
         try {
-            const response = await axios.get(`${apiUrl}/discogs/callback`, {
+            const response = await loggedAxios.get(`${apiUrl}/discogs/callback`, {
                 params: { oauth_token: oauthToken, oauth_verifier: oauthVerifier },
             });
             console.log('Discogs Access Token:', response.data);
@@ -185,12 +577,12 @@ function Discogs2Youtube() {
 
     const handleSignOut = async () => {
         try {
-            const response = await axios.post(`${apiUrl}/signOut`);
+            const response = await loggedAxios.post(`${apiUrl}/signOut`);
             if (response.status === 200) {
-                setAuthStatus(false); // Update state to reflect sign-out
-                setDiscogsAuthStatus(false); // Clear Discogs auth status
-                setPlaylistId(''); // Clear playlist ID
-                setVideoId(''); // Clear video ID
+                setAuthStatus(false);
+                setDiscogsAuthStatus(false);
+                setPlaylistId('');
+                setVideoId('');
                 console.log('Signed out successfully.');
             } else {
                 console.error('Sign-out failed:', response.data);
@@ -200,19 +592,10 @@ function Discogs2Youtube() {
         }
     };
 
-    const startBackgroundJob = async (artistId) => {
-        try {
-            setBackgroundJobStatus((prev) => ({ ...prev, isRunning: true, isPaused: false }));
-            await axios.post(`${apiUrl}/startBackgroundJob`, { artistId });
-        } catch (error) {
-            console.error('Error starting background job:', error.message);
-        }
-    };
-
     const pauseBackgroundJob = async () => {
         try {
             setBackgroundJobStatus((prev) => ({ ...prev, isPaused: true }));
-            await axios.post(`${apiUrl}/pauseBackgroundJob`);
+            await loggedAxios.post(`${apiUrl}/pauseBackgroundJob`);
         } catch (error) {
             console.error('Error pausing background job:', error.message);
         }
@@ -221,75 +604,102 @@ function Discogs2Youtube() {
     const stopBackgroundJob = async () => {
         try {
             setBackgroundJobStatus({ isRunning: false, isPaused: false, progress: { current: 0, total: 0, uniqueLinks: 0 } });
-            await axios.post(`${apiUrl}/stopBackgroundJob`);
+            await loggedAxios.post(`${apiUrl}/stopBackgroundJob`);
         } catch (error) {
             console.error('Error stopping background job:', error.message);
         }
     };
 
-    useEffect(() => {
-        let interval;
-        if (backgroundJobStatus.isRunning && !backgroundJobStatus.isPaused) {
-            interval = setInterval(async () => {
-                try {
-                    const response = await axios.get(`${apiUrl}/backgroundJobStatus`);
-                    setBackgroundJobStatus((prev) => ({
-                        ...prev,
-                        progress: response.data.progress,
-                    }));
-                    setBackgroundJobError(response.data.error); // Update error state
-                    setBackgroundJobErrorDetails(response.data.errorDetails || null); // Update detailed error state
-                    setWaitTime(response.data.waitTime || 0); // Update wait time
+    const handleDevModeToggle = () => {
+        setIsDevMode((prev) => {
+            const newDevMode = !prev;
+            localStorage.setItem('isDevMode', newDevMode);
+            return newDevMode;
+        });
+    };
 
-                    // Fetch YouTube links
-                    const linksResponse = await axios.get(`${apiUrl}/backgroundJobLinks`);
-                    setYoutubeLinks(linksResponse.data.links);
-                } catch (error) {
-                    console.error('Error fetching background job status or links:', error.message);
-                    setBackgroundJobError('Failed to fetch job status.');
-                    setBackgroundJobErrorDetails(error); // Store the full error object
-                }
-            }, 1000); // Poll every second for updates
+    const clearAllTasks = async () => {
+        try {
+            await loggedAxios.post(`${apiUrl}/clearBackgroundTasks`);
+
+            setBackgroundTasks([]);
+            setSelectedTaskId(null);
+            setYoutubeLinks([]);
+            setBackgroundJobStatus({
+                isRunning: false,
+                isPaused: false,
+                progress: { current: 0, total: 0, uniqueLinks: 0 },
+            });
+
+            localStorage.removeItem('backgroundTasks');
+        } catch (error) {
+            console.error('Error clearing background tasks:', error.message);
         }
-        return () => clearInterval(interval);
-    }, [backgroundJobStatus.isRunning, backgroundJobStatus.isPaused]);
+    };
 
-    useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const oauthToken = urlParams.get('oauth_token');
-        const oauthVerifier = urlParams.get('oauth_verifier');
-
-        if (oauthToken && oauthVerifier) {
-            handleDiscogsCallback(oauthToken, oauthVerifier);
-        } else {
-            // Fetch Discogs authentication status after redirect
-            const fetchDiscogsAuthStatus = async () => {
-                try {
-                    const response = await axios.get(`${apiUrl}/discogs/authStatus`);
-                    console.log('Discogs Auth Status:', response.data.isAuthenticated);
-                    setDiscogsAuthStatus(response.data.isAuthenticated);
-                } catch (error) {
-                    console.error('Error fetching Discogs auth status:', error.message);
+    const handleTaskClick = (taskId) => {
+        const task = backgroundTasks.find((task) => task.id === taskId);
+        if (task) {
+            setSelectedTaskId(taskId);
+            setYoutubeLinks(task.youtubeLinks || []);
+            
+            // Reset task completed flag when switching tasks
+            setTaskCompleted(false);
+            
+            // Check if the selected task is completed
+            if (task.status === 'completed') {
+                setTaskCompleted(true);
+                // If the task has progress info, preserve it
+                if (task.progress) {
+                    setFinalTaskStats({
+                        current: task.progress.total || 0,
+                        total: task.progress.total || 0,
+                        uniqueLinks: task.progress.uniqueLinks || 0
+                    });
                 }
-            };
-
-            fetchDiscogsAuthStatus();
-        }
-    }, []);
-
-    useEffect(() => {
-        // Fetch YouTube links dynamically (if needed)
-        const fetchYouTubeLinks = async () => {
-            try {
-                const response = await axios.get(`${apiUrl}/backgroundJobLinks`);
-                setYoutubeLinks(response.data.links);
-            } catch (error) {
-                console.error('Error fetching YouTube links:', error.message);
             }
-        };
+            
+            // Auto-expand the selected task
+            setExpandedTasks(prev => ({
+                ...prev,
+                [taskId]: true
+            }));
+        }
+    };
 
-        fetchYouTubeLinks();
-    }, []);
+    const handlePauseTask = async (taskId, event) => {
+        event.stopPropagation();
+        try {
+            const task = backgroundTasks.find(task => task.id === taskId);
+            if (task && task.status === 'paused') {
+                await loggedAxios.post(`${apiUrl}/resumeBackgroundJob`);
+                setBackgroundJobStatus(prev => ({ ...prev, isPaused: false }));
+                setBackgroundTasks(prevTasks => 
+                    prevTasks.map(t => 
+                        t.id === taskId ? { ...t, status: 'in-progress' } : t
+                    )
+                );
+            } else {
+                await loggedAxios.post(`${apiUrl}/pauseBackgroundJob`);
+                setBackgroundJobStatus(prev => ({ ...prev, isPaused: true }));
+                setBackgroundTasks(prevTasks => 
+                    prevTasks.map(t => 
+                        t.id === taskId ? { ...t, status: 'paused' } : t
+                    )
+                );
+            }
+        } catch (error) {
+            console.error('Error pausing/resuming task:', error.message);
+        }
+    };
+
+    const toggleTaskExpansion = (taskId, event) => {
+        event.stopPropagation();
+        setExpandedTasks(prev => ({
+            ...prev,
+            [taskId]: !prev[taskId]
+        }));
+    };
 
     return (
         <>
@@ -303,7 +713,6 @@ function Discogs2Youtube() {
                 <meta name="twitter:card" content="summary_large_image" />
             </Helmet>
             <div className={styles.container}>
-                {/* General Site Description Section */}
                 <section className={styles.section}>
                     <h1 className={styles.title}>Discogs2Youtube</h1>
                     <p className={styles.description}>
@@ -374,7 +783,6 @@ function Discogs2Youtube() {
                     )}
                 </section>
 
-                {/* Combined Discogs Authentication & Search Section */}
                 <section className={styles.section}>
                     <h2 className={styles.subtitle}>Discogs Authentication</h2>
                     {discogsAuthStatus ? (
@@ -406,63 +814,41 @@ function Discogs2Youtube() {
                                 className={styles.input}
                                 placeholder="Enter artist ID, label ID, or list"
                                 value={discogsInput}
-                                onChange={(e) => setDiscogsInput(e.target.value)}
+                                onChange={(e) => handleInputChange(e.target.value)}
+                                list="search-history"
                             />
-                            <button className={styles.searchButton} onClick={handleDiscogsSearch}>
+                            <datalist id="search-history">
+                                {searchHistory.map((item, index) => (
+                                    <option key={index} value={item} />
+                                ))}
+                            </datalist>
+                            <div className={styles.quickFillContainer}>
+                                <button
+                                    className={`${styles.quickFill} ${selectedType === 'label' ? styles.selected : ''}`}
+                                    onClick={() => setSelectedType('label')}
+                                >
+                                    Label
+                                </button>
+                                <button
+                                    className={`${styles.quickFill} ${selectedType === 'artist' ? styles.selected : ''}`}
+                                    onClick={() => setSelectedType('artist')}
+                                >
+                                    Artist
+                                </button>
+                                <button
+                                    className={`${styles.quickFill} ${selectedType === 'list' ? styles.selected : ''}`}
+                                    onClick={() => setSelectedType('list')}
+                                >
+                                    List
+                                </button>
+                            </div>
+                            <button
+                                className={styles.searchButton}
+                                onClick={handleSearchClick}
+                                disabled={!discogsInput.trim() || !selectedType}
+                            >
                                 Search
                             </button>
-                            {backgroundJobStatus.isRunning && (
-                                <div className={styles.progressContainer}>
-                                    <p>Processing: {backgroundJobStatus.progress.current} / {backgroundJobStatus.progress.total}</p>
-                                    <p>Unique YouTube Links Found: {backgroundJobStatus.progress.uniqueLinks}</p>
-                                    {waitTime > 0 && (
-                                        <p className={styles.waitTime}>
-                                            Rate limit hit, waiting for {Math.ceil(waitTime / 1000)} seconds before resuming...
-                                        </p>
-                                    )}
-                                    <button className={styles.searchButton} onClick={pauseBackgroundJob}>
-                                        {backgroundJobStatus.isPaused ? 'Resume' : 'Pause'}
-                                    </button>
-                                    <button className={styles.searchButton} onClick={stopBackgroundJob}>
-                                        Stop
-                                    </button>
-                                    <div>
-                                        <h3 className={styles.subtitle}>YouTube Links</h3>
-                                        <div className={styles.youtubeContainer}>
-                                            {youtubeLinks.map((link, index) => {
-                                                const videoId = new URL(link).searchParams.get('v'); // Extract video ID from the URL
-                                                if (!videoId) return null; // Skip if video ID is not found
-                                                return (
-                                                    <div key={index} className={styles.youtubeEmbed}>
-                                                        <a href={link} target="_blank" rel="noopener noreferrer" className={styles.youtubeLink}>
-                                                            {link}
-                                                        </a>
-                                                        <LiteYouTubeEmbed
-                                                            id={videoId}
-                                                            title={`YouTube video ${index + 1}`}
-                                                            poster="hqdefault"
-                                                            webp
-                                                        />
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            {backgroundJobError && (
-                                <div className={styles.error}>
-                                    <p>Error: {backgroundJobError}</p>
-                                    {backgroundJobErrorDetails && (
-                                        <pre className={styles.errorDetails}>
-                                            {JSON.stringify(backgroundJobErrorDetails, null, 2)}
-                                        </pre>
-                                    )}
-                                </div>
-                            )}
-                            {discogsResponse && (
-                                <pre className={styles.response}>{discogsResponse}</pre>
-                            )}
                         </>
                     ) : (
                         <>
@@ -474,7 +860,204 @@ function Discogs2Youtube() {
                     )}
                 </section>
 
-                {/* Create Playlist Section */}
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>Background Tasks</h2>
+                    {backgroundTasks.length > 0 ? (
+                        <>
+                            {/*
+                            <button className={styles.searchButton} onClick={clearAllTasks}>
+                                Clear Tasks
+                            </button> 
+                            */}
+                            <ul className={styles.taskList}>
+                                {backgroundTasks.map((task) => (
+                                    <li
+                                        key={task.id}
+                                        className={`${styles.taskItem} 
+                                            ${selectedTaskId === task.id ? styles.selectedTask : ''}
+                                            ${task.status === 'completed' ? styles.completedTask : ''}
+                                        `}
+                                    >
+                                        <div 
+                                            className={styles.taskHeader}
+                                            onClick={() => handleTaskClick(task.id)}
+                                        >
+                                            <div className={styles.taskInfo}>
+                                                <span>{task.name}</span>
+                                                <span className={`${styles.taskStatus} ${styles[`status-${task.status}`]}`}>
+                                                    {task.status}
+                                                </span>
+                                            </div>
+                                            <div className={styles.taskActions}>
+                                                {task.status !== 'completed' && (
+                                                    <button 
+                                                        className={`${styles.taskActionButton} ${
+                                                            task.status === 'paused' ? styles.resumeButton : styles.pauseButton
+                                                        }`}
+                                                        onClick={(e) => handlePauseTask(task.id, e)}
+                                                        title={task.status === 'paused' ? "Resume task" : "Pause task"}
+                                                    >
+                                                        {task.status === 'paused' ? '▶️' : '⏸️'}
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    className={styles.expandButton}
+                                                    onClick={(e) => toggleTaskExpansion(task.id, e)}
+                                                    title={expandedTasks[task.id] ? "Collapse" : "Expand"}
+                                                >
+                                                    {expandedTasks[task.id] ? '🔼' : '🔽'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* Task Details (expanded state) */}
+                                        {expandedTasks[task.id] && (
+                                            <div className={styles.taskDetails}>
+                                                <div className={styles.progressContainer}>
+                                                    <h3 className={styles.subtitle}>Task Progress</h3>
+                                                    {taskInfo.artistName && task.id === selectedTaskId && (
+                                                        <p className={styles.artistName}>Artist: {taskInfo.artistName}</p>
+                                                    )}
+                                                    
+                                                    {/* Progress counters moved inside the task dropdown */}
+                                                    {task.id === selectedTaskId && (
+                                                        <>
+                                                            <p>
+                                                                Processing: {taskCompleted ? finalTaskStats.current : backgroundJobStatus.progress.current} / {taskCompleted ? finalTaskStats.total : backgroundJobStatus.progress.total}
+                                                                {(taskCompleted ? finalTaskStats.total : backgroundJobStatus.progress.total) > 0 && (
+                                                                    <span> ({Math.round(((taskCompleted ? finalTaskStats.current : backgroundJobStatus.progress.current) / (taskCompleted ? finalTaskStats.total : backgroundJobStatus.progress.total)) * 100)}%)</span>
+                                                                )}
+                                                            </p>
+                                                            <p>Unique YouTube Links Found: {taskCompleted ? finalTaskStats.uniqueLinks : backgroundJobStatus.progress.uniqueLinks}</p>
+                                                            {backgroundJobStatus.isPaused && !taskCompleted && (
+                                                                <p className={styles.waitTime}>Paused</p>
+                                                            )}
+                                                            {waitTime > 0 && !taskCompleted && (
+                                                                <p className={styles.waitTime}>
+                                                                    Rate limit hit, waiting for {Math.ceil(waitTime / 1000)} seconds before resuming...
+                                                                </p>
+                                                            )}
+                                                            {taskCompleted && (
+                                                                <p className={styles.success}>Task Completed</p>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                    
+                                                    {/* Only show YouTube links for the selected task */}
+                                                    {youtubeLinks.length > 0 && task.id === selectedTaskId && (
+                                                        <div className={styles.youtubeContainer}>
+                                                            {youtubeLinks.map((link, index) => {
+                                                                if (!link.url || !link.releaseId || !link.artist || !link.releaseName) {
+                                                                    console.warn(`Skipping invalid link at index ${index}:`, link);
+                                                                    return null;
+                                                                }
+
+                                                                let videoId;
+                                                                try {
+                                                                    videoId = new URL(link.url).searchParams.get('v');
+                                                                } catch (error) {
+                                                                    console.error(`Invalid URL at index ${index}:`, link.url, error);
+                                                                    return null;
+                                                                }
+
+                                                                if (!videoId) {
+                                                                    console.warn(`Skipping link without video ID at index ${index}:`, link.url);
+                                                                    return null;
+                                                                }
+
+                                                                return (
+                                                                    <div key={index} className={styles.youtubeEmbed}>
+                                                                        <a
+                                                                            href={`https://www.discogs.com/release/${link.releaseId}`}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className={styles.youtubeLink}
+                                                                        >
+                                                                            {link.artist} - {link.releaseName} [{link.releaseId}]
+                                                                        </a>
+                                                                        <a
+                                                                            href={link.url}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className={styles.youtubeLink}
+                                                                        >
+                                                                            {link.url}
+                                                                        </a>
+                                                                        <LiteYouTubeEmbed
+                                                                            id={videoId}
+                                                                            title={`YouTube video ${index + 1}`}
+                                                                            poster="hqdefault"
+                                                                            webp
+                                                                        />
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </>
+                    ) : (
+                        <p>No tasks</p>
+                    )}
+                </section>
+
+                <section className={styles.section}>
+                    <h2 className={styles.subtitle}>YouTube Authentication</h2>
+                    {authStatus ? (
+                        <>
+                            <p className={styles.authStatus}>You are signed in to YouTube!</p>
+                            <button
+                                className={`${styles.searchButton} ${styles.signOutButton}`}
+                                onClick={handleSignOut}
+                                style={{ backgroundColor: 'red', color: 'white' }}
+                            >
+                                Sign Out
+                            </button>
+                            <div>
+                                <h3 className={styles.subtitle}>Add Video to Playlist</h3>
+                                <input
+                                    type="text"
+                                    className={styles.input}
+                                    placeholder="Enter Playlist ID"
+                                    value={playlistId}
+                                    onChange={(e) => setPlaylistId(e.target.value)}
+                                />
+                                <input
+                                    type="text"
+                                    className={styles.input}
+                                    placeholder="Enter YouTube Video ID"
+                                    value={videoId}
+                                    onChange={(e) => setVideoId(e.target.value)}
+                                />
+                                <button className={styles.searchButton} onClick={handleAddVideoToPlaylist}>
+                                    Add Video to Playlist
+                                </button>
+                                {addVideoResponse.message && (
+                                    <p
+                                        className={
+                                            addVideoResponse.isError ? styles.error : styles.success
+                                        }
+                                    >
+                                        {addVideoResponse.message}
+                                    </p>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
+                            <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
+                                Authenticate with YouTube
+                            </button>
+                        </>
+                    )}
+                </section>
+
                 {authStatus && (
                     <section className={styles.section}>
                         <h2 className={styles.subtitle}>Create Playlist</h2>
