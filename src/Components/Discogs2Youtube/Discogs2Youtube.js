@@ -714,26 +714,7 @@ function Discogs2Youtube() {
                 <meta name="twitter:card" content="summary_large_image" />
             </Helmet>
             <div className={styles.container}>
-                <h1>Embedd Test1</h1>
-
-
-                <YouTube videoId="6pH4Ot-vFlc"/>
-
-                <div>
-                    <iframe allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture;" allowfullscreen="" frameborder="0" height="315" src="https://www.youtube.com/embed/nqO6cEbXyKM" width="560"></iframe>
-                </div>
-
-
-                <h1>Embedd Test2</h1>
-                <iframe width="420" height="315" src="https://www.youtube.com/embed/fnqO6cEbXyKM"></iframe>
-
-
-                <h1>Embedd Test3</h1>
-                <iframe width="872" height="499" src="https://www.youtube.com/embed/nqO6cEbXyKM" title="Error fixed &quot;www.youtube.com refused to connect&quot; when trying to embed video in blogs or html page" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
-
-                <hr />
-
+                
                 <section className={styles.section}>
                     <h1 className={styles.title}>Discogs2Youtube</h1>
                     <p className={styles.description}>
