@@ -4,6 +4,7 @@ import LiteYouTubeEmbed from 'react-lite-youtube-embed';
 import 'react-lite-youtube-embed/dist/LiteYouTubeEmbed.css';
 import styles from './Discogs2Youtube.module.css';
 import axios from 'axios';
+import YouTube from 'react-youtube';
 
 // Create a logging wrapper for axios with full response logging
 const loggedAxios = {
@@ -117,11 +118,11 @@ function Discogs2Youtube() {
                 try {
                     const response = await loggedAxios.get(`${apiUrl}/backgroundTasks`);
                     const updatedTasks = response.data.tasks || [];
-                    
+
                     // Check for status updates only if not already completed
                     if (!taskCompleted) {
                         const statusResponse = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
-                        
+
                         // Check if task is completed but was previously running
                         if (backgroundJobStatus.isRunning && !statusResponse.data.isRunning) {
                             // Task just completed - preserve final stats
@@ -134,13 +135,13 @@ function Discogs2Youtube() {
                             console.log('⏹️ Task completed, preserving final stats:', {
                                 progress: statusResponse.data.progress
                             });
-                            
+
                             // Get final links one last time
                             const finalLinksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
                             if (finalLinksResponse.data.links && finalLinksResponse.data.links.length > 0) {
                                 setYoutubeLinks(finalLinksResponse.data.links);
                             }
-                            
+
                             setIsPollingActive(false);
                             if (pollingIntervalRef.current) {
                                 clearInterval(pollingIntervalRef.current);
@@ -148,7 +149,7 @@ function Discogs2Youtube() {
                             }
                             return;
                         }
-                        
+
                         // Update the task status based on current job state
                         const updatedTasksWithStatus = updatedTasks.map(task => {
                             if (statusResponse.data.artistId && task.id === statusResponse.data.artistId) {
@@ -165,9 +166,9 @@ function Discogs2Youtube() {
                             }
                             return task;
                         });
-                        
+
                         setBackgroundTasks(updatedTasksWithStatus);
-                        
+
                         if (!taskCompleted) {
                             setBackgroundJobStatus((prev) => ({
                                 ...prev,
@@ -176,11 +177,11 @@ function Discogs2Youtube() {
                                 progress: statusResponse.data.progress,
                             }));
                         }
-                        
-                        setBackgroundJobError(statusResponse.data.error); 
+
+                        setBackgroundJobError(statusResponse.data.error);
                         setBackgroundJobErrorDetails(statusResponse.data.errorDetails || null);
                         setWaitTime(statusResponse.data.waitTime || 0);
-                        
+
                         if (statusResponse.data.artistName) {
                             setTaskInfo(prev => ({
                                 ...prev,
@@ -189,7 +190,7 @@ function Discogs2Youtube() {
                             }));
                         }
                     }
-                    
+
                     // Stop polling if completed or if server says to stop
                     if (taskCompleted || !response.data.shouldPoll) {
                         console.log(`Stopping polling: ${taskCompleted ? 'Task completed' : 'Server indicated to stop'}`);
@@ -200,7 +201,7 @@ function Discogs2Youtube() {
                         }
                         return;
                     }
-                    
+
                     // Only fetch new links if task is still running and not completed
                     if (!taskCompleted && backgroundJobStatus.isRunning) {
                         const linksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
@@ -208,7 +209,7 @@ function Discogs2Youtube() {
                             setYoutubeLinks(linksResponse.data.links);
                         }
                     }
-                    
+
                     if (selectedTaskId) {
                         const selectedTask = updatedTasks.find(task => task.id === selectedTaskId);
                         if (selectedTask && selectedTask.youtubeLinks && selectedTask.youtubeLinks.length > 0) {
@@ -222,18 +223,18 @@ function Discogs2Youtube() {
                     console.error('Error fetching background tasks:', error.message);
                 }
             };
-            
+
             fetchBackgroundTasks();
             pollingIntervalRef.current = setInterval(fetchBackgroundTasks, 2000);
         }
-        
+
         // If task is completed, make sure polling stops
         if (taskCompleted && pollingIntervalRef.current) {
             console.log('Task completed, stopping polling');
             clearInterval(pollingIntervalRef.current);
             pollingIntervalRef.current = null;
         }
-        
+
         return () => {
             if (pollingIntervalRef.current) {
                 clearInterval(pollingIntervalRef.current);
@@ -337,7 +338,7 @@ function Discogs2Youtube() {
             interval = setInterval(async () => {
                 try {
                     const response = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
-                    
+
                     // Check if the task is now completed
                     if (!response.data.isRunning && backgroundJobStatus.isRunning) {
                         console.log('Task completed, saving final stats and stopping polling');
@@ -347,25 +348,25 @@ function Discogs2Youtube() {
                             total: response.data.progress.total,
                             uniqueLinks: response.data.progress.uniqueLinks
                         });
-                        
+
                         // Fetch final links one last time
                         const finalLinksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
                         if (finalLinksResponse.data.links && finalLinksResponse.data.links.length > 0) {
                             setYoutubeLinks(finalLinksResponse.data.links);
                         }
-                        
+
                         // Update background job status
                         setBackgroundJobStatus(prev => ({
                             ...prev,
                             isRunning: false,
                             progress: response.data.progress
                         }));
-                        
+
                         // Clear interval and stop polling
                         clearInterval(interval);
                         return;
                     }
-                    
+
                     // Only update if task is not completed
                     if (!taskCompleted) {
                         setBackgroundJobStatus((prev) => ({
@@ -437,14 +438,14 @@ function Discogs2Youtube() {
                 }));
                 console.log(`Starting background job for artist: ${artistName}`);
 
-                await loggedAxios.post(`${apiUrl}/startBackgroundJob`, { 
-                    artistId: extractedId, 
+                await loggedAxios.post(`${apiUrl}/startBackgroundJob`, {
+                    artistId: extractedId,
                     isDevMode,
                     artistName: artistName
                 });
 
                 setIsPollingActive(true);
-                
+
                 const fetchInitialStatus = async () => {
                     try {
                         const statusResponse = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
@@ -642,10 +643,10 @@ function Discogs2Youtube() {
         if (task) {
             setSelectedTaskId(taskId);
             setYoutubeLinks(task.youtubeLinks || []);
-            
+
             // Reset task completed flag when switching tasks
             setTaskCompleted(false);
-            
+
             // Check if the selected task is completed
             if (task.status === 'completed') {
                 setTaskCompleted(true);
@@ -658,7 +659,7 @@ function Discogs2Youtube() {
                     });
                 }
             }
-            
+
             // Auto-expand the selected task
             setExpandedTasks(prev => ({
                 ...prev,
@@ -674,16 +675,16 @@ function Discogs2Youtube() {
             if (task && task.status === 'paused') {
                 await loggedAxios.post(`${apiUrl}/resumeBackgroundJob`);
                 setBackgroundJobStatus(prev => ({ ...prev, isPaused: false }));
-                setBackgroundTasks(prevTasks => 
-                    prevTasks.map(t => 
+                setBackgroundTasks(prevTasks =>
+                    prevTasks.map(t =>
                         t.id === taskId ? { ...t, status: 'in-progress' } : t
                     )
                 );
             } else {
                 await loggedAxios.post(`${apiUrl}/pauseBackgroundJob`);
                 setBackgroundJobStatus(prev => ({ ...prev, isPaused: true }));
-                setBackgroundTasks(prevTasks => 
-                    prevTasks.map(t => 
+                setBackgroundTasks(prevTasks =>
+                    prevTasks.map(t =>
                         t.id === taskId ? { ...t, status: 'paused' } : t
                     )
                 );
@@ -713,6 +714,26 @@ function Discogs2Youtube() {
                 <meta name="twitter:card" content="summary_large_image" />
             </Helmet>
             <div className={styles.container}>
+                <h1>Embedd Test1</h1>
+
+
+                <YouTube videoId="6pH4Ot-vFlc"/>
+
+                <div>
+                    <iframe allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture;" allowfullscreen="" frameborder="0" height="315" src="https://www.youtube.com/embed/nqO6cEbXyKM" width="560"></iframe>
+                </div>
+
+
+                <h1>Embedd Test2</h1>
+                <iframe width="420" height="315" src="https://www.youtube.com/embed/fnqO6cEbXyKM"></iframe>
+
+
+                <h1>Embedd Test3</h1>
+                <iframe width="872" height="499" src="https://www.youtube.com/embed/nqO6cEbXyKM" title="Error fixed &quot;www.youtube.com refused to connect&quot; when trying to embed video in blogs or html page" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+
+                <hr />
+
                 <section className={styles.section}>
                     <h1 className={styles.title}>Discogs2Youtube</h1>
                     <p className={styles.description}>
@@ -817,7 +838,7 @@ function Discogs2Youtube() {
                                             ${task.status === 'completed' ? styles.completedTask : ''}
                                         `}
                                     >
-                                        <div 
+                                        <div
                                             className={styles.taskHeader}
                                             onClick={() => handleTaskClick(task.id)}
                                         >
@@ -829,17 +850,16 @@ function Discogs2Youtube() {
                                             </div>
                                             <div className={styles.taskActions}>
                                                 {task.status !== 'completed' && (
-                                                    <button 
-                                                        className={`${styles.taskActionButton} ${
-                                                            task.status === 'paused' ? styles.resumeButton : styles.pauseButton
-                                                        }`}
+                                                    <button
+                                                        className={`${styles.taskActionButton} ${task.status === 'paused' ? styles.resumeButton : styles.pauseButton
+                                                            }`}
                                                         onClick={(e) => handlePauseTask(task.id, e)}
                                                         title={task.status === 'paused' ? "Resume task" : "Pause task"}
                                                     >
                                                         {task.status === 'paused' ? '▶️' : '⏸️'}
                                                     </button>
                                                 )}
-                                                <button 
+                                                <button
                                                     className={styles.expandButton}
                                                     onClick={(e) => toggleTaskExpansion(task.id, e)}
                                                     title={expandedTasks[task.id] ? "Collapse" : "Expand"}
@@ -848,7 +868,7 @@ function Discogs2Youtube() {
                                                 </button>
                                             </div>
                                         </div>
-                                        
+
                                         {/* Task Details (expanded state) */}
                                         {expandedTasks[task.id] && (
                                             <div className={styles.taskDetails}>
@@ -857,7 +877,7 @@ function Discogs2Youtube() {
                                                     {taskInfo.artistName && task.id === selectedTaskId && (
                                                         <p className={styles.artistName}>Artist: {taskInfo.artistName}</p>
                                                     )}
-                                                    
+
                                                     {/* Progress counters moved inside the task dropdown */}
                                                     {task.id === selectedTaskId && (
                                                         <>
@@ -881,7 +901,7 @@ function Discogs2Youtube() {
                                                             )}
                                                         </>
                                                     )}
-                                                    
+
                                                     {/* Only show YouTube links for the selected task */}
                                                     {youtubeLinks.length > 0 && task.id === selectedTaskId && (
                                                         <div className={styles.youtubeContainer}>
