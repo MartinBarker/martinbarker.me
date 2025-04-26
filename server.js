@@ -12,7 +12,6 @@ const readline = require('readline');
 const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
-const { Server } = require('ws'); // Add WebSocket support
 const app = express();
 const port = 3030;
 
@@ -21,8 +20,6 @@ app.use(express.json()); // To parse JSON bodies
 
 const localCallback = 'http://localhost:3030/oauth2callback'; // Centralized variable for local callback URI
 const prodCallback = "https://www.jermasearch.com/internal-api/oauth2callback"
-
-const wss = new Server({ port: 3031 }); // WebSocket server on port 3031
 
 // Helper function to get the current timestamp in hh:mm:ss format
 function getTimestamp() {
@@ -35,28 +32,6 @@ const originalLog = console.log;
 console.log = (...args) => {
     originalLog(`[${getTimestamp()}]`, ...args);
 };
-
-// Broadcast function to send updates to all connected clients
-function broadcastProgress(taskId) {
-    const progressData = {
-        taskId,
-        progress: backgroundJob.progress,
-        isRunning: backgroundJob.isRunning,
-        isPaused: backgroundJob.isPaused,
-        waitTime: backgroundJob.waitTime,
-        uniqueLinks: Array.from(backgroundJob.uniqueLinks).map((link) => ({
-            url: link.url,
-            artist: link.artist,
-            releaseName: link.releaseName,
-            releaseId: link.releaseId,
-        })), // Ensure the structure includes all required fields
-    };
-    wss.clients.forEach((client) => {
-        if (client.readyState === client.OPEN) {
-            client.send(JSON.stringify(progressData));
-        }
-    });
-}
 
 // YouTube configuration
 const TOKEN_PATH = 'tokens.json';
@@ -383,13 +358,11 @@ app.post('/startBackgroundJob', async (req, res) => {
             const releaseIds = await fetchReleaseIds(artistId, isDevMode);
             backgroundJob.progress.total = releaseIds.length;
             console.log(`🎵 Total releases to process: ${releaseIds.length}`);
-            broadcastProgress(taskId); // Notify clients about total releases
 
             for (let i = 0; i < releaseIds.length; i++) {
                 if (!backgroundJob.isRunning) break;
                 while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
                     // Update status when paused or rate-limited
-                    broadcastProgress(taskId);
                     await new Promise((resolve) => setTimeout(resolve, 1000));
                     if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
                 }
@@ -413,8 +386,6 @@ app.post('/startBackgroundJob', async (req, res) => {
                     }
                 }
 
-                broadcastProgress(taskId); // Notify clients about progress
-
                 if (isDevMode) {
                     console.log('🛠 Dev mode enabled: Skipping pagination.');
                     break; // Skip pagination in Dev Mode
@@ -425,12 +396,10 @@ app.post('/startBackgroundJob', async (req, res) => {
             // Ensure final stats are preserved
             backgroundJob.progress.current = backgroundJob.progress.total;
             backgroundJob.isRunning = false;
-            broadcastProgress(taskId); // Notify clients that the job is complete
         } catch (error) {
             console.error('❌ Error processing releases:', error.message);
             backgroundJob.isRunning = false;
             backgroundJob.error = error.message;
-            broadcastProgress(taskId); // Notify clients about the error
         }
     };
 
