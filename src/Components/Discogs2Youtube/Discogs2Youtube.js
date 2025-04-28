@@ -1079,7 +1079,7 @@ function Discogs2Youtube() {
                                                                                 >
                                                                                     {link.artist} - {link.releaseName} [{link.releaseId}]
                                                                                 </a>
-                                                                                <p><strong>YouTube Release:</strong></p>
+                                                                                <p><strong>YouTube URL:</strong></p>
                                                                                 <a
                                                                                     href={link.url}
                                                                                     target="_blank"
