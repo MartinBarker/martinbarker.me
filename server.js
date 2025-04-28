@@ -1253,6 +1253,7 @@ app.get('/backgroundTasks', (req, res) => {
             }
         }
         
+        const uniqueLinks = Array.from(backgroundJob.uniqueLinks);
         const tasks = backgroundJob.artistId
             ? [
                   {
@@ -1261,17 +1262,16 @@ app.get('/backgroundTasks', (req, res) => {
                         ? `Artist: ${backgroundJob.artistName}` 
                         : `Task for artist ${backgroundJob.artistId}`,
                       status: taskStatus,
-                      youtubeLinks: Array.from(backgroundJob.uniqueLinks),
+                      youtubeLinks: uniqueLinks,
                       progress: {
                           current: backgroundJob.progress.current,
                           total: backgroundJob.progress.total,
-                          uniqueLinks: backgroundJob.progress.uniqueLinks
+                          uniqueLinks: uniqueLinks.length  // Use actual length of unique links
                       }
                   },
               ]
-            : []; // Return an empty list if no tasks exist
+            : [];
         
-        // Add flag to indicate if client should continue polling - only poll if task is running
         const shouldPoll = backgroundJob.isRunning;
         res.status(200).json({ tasks, shouldPoll });
     } catch (error) {
