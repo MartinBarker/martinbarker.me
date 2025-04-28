@@ -88,6 +88,11 @@ function Discogs2Youtube() {
         uniqueLinks: 0
     });
     const [expandedTasks, setExpandedTasks] = useState({});
+    const [taskData, setTaskData] = useState(() => {
+        const savedTaskData = localStorage.getItem('taskData');
+        return savedTaskData ? JSON.parse(savedTaskData) : {};
+    });
+    const [loadedTasks, setLoadedTasks] = useState(new Set());
 
     const isLocal = window.location.hostname === 'localhost';
     const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
@@ -127,11 +132,12 @@ function Discogs2Youtube() {
                         if (backgroundJobStatus.isRunning && !statusResponse.data.isRunning) {
                             // Task just completed - preserve final stats
                             setTaskCompleted(true);
-                            setFinalTaskStats({
+                            const finalStats = {
                                 current: statusResponse.data.progress.total,
                                 total: statusResponse.data.progress.total,
                                 uniqueLinks: statusResponse.data.progress.uniqueLinks
-                            });
+                            };
+                            setFinalTaskStats(finalStats);
                             console.log('⏹️ Task completed, preserving final stats:', {
                                 progress: statusResponse.data.progress
                             });
@@ -140,6 +146,7 @@ function Discogs2Youtube() {
                             const finalLinksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
                             if (finalLinksResponse.data.links && finalLinksResponse.data.links.length > 0) {
                                 setYoutubeLinks(finalLinksResponse.data.links);
+                                saveTaskData(selectedTaskId, finalStats, finalLinksResponse.data.links);
                             }
 
                             setIsPollingActive(false);
@@ -207,6 +214,7 @@ function Discogs2Youtube() {
                         const linksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
                         if (linksResponse.data.links && linksResponse.data.links.length > 0) {
                             setYoutubeLinks(linksResponse.data.links);
+                            saveTaskData(selectedTaskId, backgroundJobStatus.progress, linksResponse.data.links);
                         }
                     }
 
@@ -216,6 +224,7 @@ function Discogs2Youtube() {
                             // Only update if not completed to avoid losing final data
                             if (!taskCompleted) {
                                 setYoutubeLinks(selectedTask.youtubeLinks);
+                                saveTaskData(selectedTaskId, backgroundJobStatus.progress, selectedTask.youtubeLinks);
                             }
                         }
                     }
@@ -343,16 +352,18 @@ function Discogs2Youtube() {
                     if (!response.data.isRunning && backgroundJobStatus.isRunning) {
                         console.log('Task completed, saving final stats and stopping polling');
                         setTaskCompleted(true);
-                        setFinalTaskStats({
+                        const finalStats = {
                             current: response.data.progress.total,
                             total: response.data.progress.total,
                             uniqueLinks: response.data.progress.uniqueLinks
-                        });
+                        };
+                        setFinalTaskStats(finalStats);
 
                         // Fetch final links one last time
                         const finalLinksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
                         if (finalLinksResponse.data.links && finalLinksResponse.data.links.length > 0) {
                             setYoutubeLinks(finalLinksResponse.data.links);
+                            saveTaskData(selectedTaskId, finalStats, finalLinksResponse.data.links);
                         }
 
                         // Update background job status
@@ -380,6 +391,7 @@ function Discogs2Youtube() {
                         // Only fetch links if task is still running
                         const linksResponse = await loggedAxios.get(`${apiUrl}/backgroundJobLinks`);
                         setYoutubeLinks(linksResponse.data.links);
+                        saveTaskData(selectedTaskId, response.data.progress, linksResponse.data.links);
                     }
                 } catch (error) {
                     console.error('Error fetching background job status or links:', error.message);
@@ -412,8 +424,81 @@ function Discogs2Youtube() {
                 ...prev,
                 [selectedTaskId]: true
             }));
+    
+            // 🛠️ ADD THIS
+            const savedData = taskData[selectedTaskId];
+            if (savedData) {
+                const uniqueLinksCount = savedData.youtubeLinks ? savedData.youtubeLinks.length : 0;
+    
+                const progressData = {
+                    current: savedData.progress?.current || uniqueLinksCount,
+                    total: savedData.progress?.total || uniqueLinksCount,
+                    uniqueLinks: uniqueLinksCount
+                };
+    
+                console.log('🔄 Reloading saved task progress from localStorage:', progressData);
+    
+                setFinalTaskStats(progressData);
+                setBackgroundJobStatus(prev => ({
+                    ...prev,
+                    progress: progressData
+                }));
+    
+                if (savedData.youtubeLinks) {
+                    setYoutubeLinks(savedData.youtubeLinks);
+                }
+            }
         }
-    }, [backgroundTasks, selectedTaskId]);
+    }, [backgroundTasks, selectedTaskId, taskData]);
+    
+
+    useEffect(() => {
+        localStorage.setItem('taskData', JSON.stringify(taskData));
+    }, [taskData]);
+
+    // Add this effect to automatically expand new tasks
+    useEffect(() => {
+        if (backgroundTasks.length > 0) {
+            const newTask = backgroundTasks[0];
+            if (newTask && !expandedTasks[newTask.id]) {
+                setExpandedTasks(prev => ({
+                    ...prev,
+                    [newTask.id]: true
+                }));
+                setLoadedTasks(prev => new Set([...prev, newTask.id]));
+            }
+        }
+    }, [backgroundTasks]);
+
+    const saveTaskData = (taskId, progress, links) => {
+        setTaskData(prev => ({
+            ...prev,
+            [taskId]: {
+                ...prev[taskId],
+                progress: {
+                    current: progress.current,
+                    total: progress.total,
+                    uniqueLinks: progress.uniqueLinks
+                },
+                youtubeLinks: links
+            }
+        }));
+    };
+
+    const saveTaskProgress = (taskId, progress, links) => {
+        setTaskData(prev => ({
+            ...prev,
+            [taskId]: {
+                ...prev[taskId],
+                progress: {
+                    current: progress.current,
+                    total: progress.total,
+                    uniqueLinks: progress.uniqueLinks
+                },
+                youtubeLinks: links
+            }
+        }));
+    };
 
     const handleDiscogsSearch = async () => {
         if (!extractedId.trim() || !selectedType) return;
@@ -642,29 +727,53 @@ function Discogs2Youtube() {
         const task = backgroundTasks.find((task) => task.id === taskId);
         if (task) {
             setSelectedTaskId(taskId);
-            setYoutubeLinks(task.youtubeLinks || []);
 
-            // Reset task completed flag when switching tasks
-            setTaskCompleted(false);
+            // Load saved progress and links from localStorage
+            if (taskData[taskId]) {
+                const savedData = taskData[taskId];
+                const uniqueLinksCount = savedData.youtubeLinks ? savedData.youtubeLinks.length : 0;
+                
+                const progressData = {
+                    current: savedData.progress?.current || uniqueLinksCount,
+                    total: savedData.progress?.total || uniqueLinksCount,
+                    uniqueLinks: uniqueLinksCount
+                };
 
-            // Check if the selected task is completed
-            if (task.status === 'completed') {
-                setTaskCompleted(true);
-                // If the task has progress info, preserve it
-                if (task.progress) {
-                    setFinalTaskStats({
-                        current: task.progress.total || 0,
-                        total: task.progress.total || 0,
-                        uniqueLinks: task.progress.uniqueLinks || 0
-                    });
+                setFinalTaskStats(progressData);
+                // Update background job status with saved progress
+                setBackgroundJobStatus(prev => ({
+                    ...prev,
+                    progress: progressData
+                }));
+
+                if (savedData.youtubeLinks) {
+                    setYoutubeLinks(savedData.youtubeLinks);
                 }
             }
 
-            // Auto-expand the selected task
+            setTaskCompleted(task.status === 'completed');
+            if (task.status === 'completed') {
+                const uniqueLinksCount = task.youtubeLinks ? task.youtubeLinks.length : 
+                                       (taskData[taskId]?.youtubeLinks?.length || 0);
+                
+                const finalStats = {
+                    current: task.progress?.total || uniqueLinksCount,
+                    total: task.progress?.total || uniqueLinksCount,
+                    uniqueLinks: uniqueLinksCount
+                };
+                setFinalTaskStats(finalStats);
+                // Also update the background job status
+                setBackgroundJobStatus(prev => ({
+                    ...prev,
+                    progress: finalStats
+                }));
+            }
+
             setExpandedTasks(prev => ({
                 ...prev,
                 [taskId]: true
             }));
+            setLoadedTasks(prev => new Set([...prev, taskId]));
         }
     };
 
@@ -696,9 +805,48 @@ function Discogs2Youtube() {
 
     const toggleTaskExpansion = (taskId, event) => {
         event.stopPropagation();
-        setExpandedTasks(prev => ({
-            ...prev,
-            [taskId]: !prev[taskId]
+        setExpandedTasks(prev => {
+            const isExpanded = !prev[taskId];
+            if (isExpanded) {
+                // Add to loaded tasks set when expanding
+                setLoadedTasks(prev => new Set([...prev, taskId]));
+                
+                // Load data from localStorage if available
+                if (taskData[taskId]) {
+                    const savedData = taskData[taskId];
+                    const uniqueLinksCount = savedData.youtubeLinks ? savedData.youtubeLinks.length : 0;
+                    
+                    setFinalTaskStats({
+                        current: savedData.progress?.current || uniqueLinksCount,
+                        total: savedData.progress?.total || uniqueLinksCount,
+                        uniqueLinks: uniqueLinksCount
+                    });
+
+                    if (savedData.youtubeLinks) {
+                        setYoutubeLinks(savedData.youtubeLinks);
+                    }
+                }
+            }
+            return {
+                ...prev,
+                [taskId]: isExpanded
+            };
+        });
+    };
+
+    const createPlaylistUrls = (videoIds) => {
+        const chunkSize = 50;
+        const chunks = [];
+        
+        for (let i = 0; i < videoIds.length; i += chunkSize) {
+            chunks.push(videoIds.slice(i, i + chunkSize));
+        }
+        
+        return chunks.map((chunk, index) => ({
+            url: `https://www.youtube.com/watch_videos?video_ids=${chunk.join(',')}`,
+            count: chunk.length,
+            start: index * chunkSize + 1,
+            end: index * chunkSize + chunk.length
         }));
     };
 
@@ -706,7 +854,7 @@ function Discogs2Youtube() {
         <>
             <Helmet>
                 <title>Discogs2Youtube</title>
-                <meta name="description" content="Convert Discogs data to YouTube links with Discogs2Youtube." />
+                <meta name="description" content="Convert Discogs data to YouTube links with Discogs2Youtube." /> 
                 <meta property="og:title" content="Discogs2Youtube" />
                 <meta property="og:description" content="Manage your Discogs and YouTube playlists seamlessly." />
                 <meta property="og:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
@@ -714,25 +862,12 @@ function Discogs2Youtube() {
                 <meta name="twitter:card" content="summary_large_image" />
             </Helmet>
             <div className={styles.container}>
-                
+
                 <section className={styles.section}>
                     <h1 className={styles.title}>Discogs2Youtube</h1>
                     <p className={styles.description}>
                         Welcome to Discogs2Youtube! This tool allows you to authenticate with YouTube and Discogs to manage playlists and search for artists, labels, or lists.
                     </p>
-                    {isLocal && (
-                        <div className={styles.devSliderContainer}>
-                            <label className={styles.devSliderLabel}>
-                                Dev Slider
-                                <input
-                                    type="checkbox"
-                                    className={styles.devSlider}
-                                    checked={isDevMode}
-                                    onChange={handleDevModeToggle}
-                                />
-                            </label>
-                        </div>
-                    )}
                 </section>
 
                 <section className={styles.section}>
@@ -851,8 +986,8 @@ function Discogs2Youtube() {
                                         </div>
 
                                         {/* Task Details (expanded state) */}
-                                        {expandedTasks[task.id] && (
-                                            <div className={styles.taskDetails}>
+                                        {loadedTasks.has(task.id) && (
+                                            <div className={`${styles.taskDetails} ${expandedTasks[task.id] ? styles.visible : ''}`}>
                                                 <div className={styles.progressContainer}>
                                                     <h3 className={styles.subtitle}>Task Progress</h3>
                                                     {taskInfo.artistName && task.id === selectedTaskId && (
@@ -885,53 +1020,82 @@ function Discogs2Youtube() {
 
                                                     {/* Only show YouTube links for the selected task */}
                                                     {youtubeLinks.length > 0 && task.id === selectedTaskId && (
-                                                        <div className={styles.youtubeContainer}>
-                                                            {youtubeLinks.map((link, index) => {
-                                                                if (!link.url || !link.releaseId || !link.artist || !link.releaseName) {
-                                                                    console.warn(`Skipping invalid link at index ${index}:`, link);
-                                                                    return null;
-                                                                }
+                                                        <div className={styles.progressContainer}>
+                                                            <h3>Click for YouTube Playlists</h3>
+                                                            <p className={styles.playlistInfo}>
+                                                                {youtubeLinks.length} videos split into {Math.ceil(youtubeLinks.length / 50)} playlist(s)
+                                                            </p>
+                                                            {createPlaylistUrls(
+                                                                youtubeLinks
+                                                                    .map(link => {
+                                                                        try {
+                                                                            return new URL(link.url).searchParams.get('v');
+                                                                        } catch (error) {
+                                                                            console.error('Invalid URL:', link.url);
+                                                                            return null;
+                                                                        }
+                                                                    })
+                                                                    .filter(Boolean)
+                                                            ).map((playlist, index) => (
+                                                                <a
+                                                                    key={index}
+                                                                    href={playlist.url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className={styles.youtubeLink}
+                                                                >
+                                                                    Click here for playlist {index + 1} (Videos {playlist.start}-{playlist.end})
+                                                                </a>
+                                                            ))}
+                                                            
+                                                            <div className={styles.youtubeContainer}>
+                                                                {youtubeLinks.map((link, index) => {
+                                                                    if (!link.url || !link.releaseId || !link.artist || !link.releaseName) {
+                                                                        console.warn(`Skipping invalid link at index ${index}:`, link);
+                                                                        return null;
+                                                                    }
 
-                                                                let videoId;
-                                                                try {
-                                                                    videoId = new URL(link.url).searchParams.get('v');
-                                                                } catch (error) {
-                                                                    console.error(`Invalid URL at index ${index}:`, link.url, error);
-                                                                    return null;
-                                                                }
+                                                                    let videoId;
+                                                                    try {
+                                                                        videoId = new URL(link.url).searchParams.get('v');
+                                                                    } catch (error) {
+                                                                        console.error(`Invalid URL at index ${index}:`, link.url, error);
+                                                                        return null;
+                                                                    }
 
-                                                                if (!videoId) {
-                                                                    console.warn(`Skipping link without video ID at index ${index}:`, link.url);
-                                                                    return null;
-                                                                }
+                                                                    if (!videoId) {
+                                                                        console.warn(`Skipping link without video ID at index ${index}:`, link.url);
+                                                                        return null;
+                                                                    }
 
-                                                                return (
-                                                                    <div key={index} className={styles.youtubeEmbed}>
-                                                                        <a
-                                                                            href={`https://www.discogs.com/release/${link.releaseId}`}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className={styles.youtubeLink}
-                                                                        >
-                                                                            {link.artist} - {link.releaseName} [{link.releaseId}]
-                                                                        </a>
-                                                                        <a
-                                                                            href={link.url}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            className={styles.youtubeLink}
-                                                                        >
-                                                                            {link.url}
-                                                                        </a>
-                                                                        <LiteYouTubeEmbed
-                                                                            id={videoId}
-                                                                            title={`YouTube video ${index + 1}`}
-                                                                            poster="hqdefault"
-                                                                            webp
-                                                                        />
-                                                                    </div>
-                                                                );
-                                                            })}
+                                                                    return (
+                                                                        <div key={index} className={styles.youtubeEmbed}>
+                                                                            <div className={styles.divider}></div> {/* Divider line */}
+                                                                            <div style={{ marginBottom: '10px', paddingBottom: '10px' }}>
+                                                                                <p><strong>Discogs Release:</strong></p>
+                                                                                <a
+                                                                                    href={`https://www.discogs.com/release/${link.releaseId}`}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className={styles.youtubeLink}
+                                                                                >
+                                                                                    {link.artist} - {link.releaseName} [{link.releaseId}]
+                                                                                </a>
+                                                                                <p><strong>YouTube Release:</strong></p>
+                                                                                <a
+                                                                                    href={link.url}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className={styles.youtubeLink}
+                                                                                >
+                                                                                    {link.url}
+                                                                                </a>
+                                                                            </div>
+                                                                            <YouTube videoId={videoId} opts={{height: '100', width: '200'}}/>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
