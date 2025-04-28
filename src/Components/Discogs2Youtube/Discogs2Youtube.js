@@ -424,33 +424,33 @@ function Discogs2Youtube() {
                 ...prev,
                 [selectedTaskId]: true
             }));
-    
+
             // 🛠️ ADD THIS
             const savedData = taskData[selectedTaskId];
             if (savedData) {
                 const uniqueLinksCount = savedData.youtubeLinks ? savedData.youtubeLinks.length : 0;
-    
+
                 const progressData = {
                     current: savedData.progress?.current || uniqueLinksCount,
                     total: savedData.progress?.total || uniqueLinksCount,
                     uniqueLinks: uniqueLinksCount
                 };
-    
+
                 console.log('🔄 Reloading saved task progress from localStorage:', progressData);
-    
+
                 setFinalTaskStats(progressData);
                 setBackgroundJobStatus(prev => ({
                     ...prev,
                     progress: progressData
                 }));
-    
+
                 if (savedData.youtubeLinks) {
                     setYoutubeLinks(savedData.youtubeLinks);
                 }
             }
         }
     }, [backgroundTasks, selectedTaskId, taskData]);
-    
+
 
     useEffect(() => {
         localStorage.setItem('taskData', JSON.stringify(taskData));
@@ -737,7 +737,7 @@ function Discogs2Youtube() {
             if (taskData[taskId]) {
                 const savedData = taskData[taskId];
                 const uniqueLinksCount = savedData.youtubeLinks ? savedData.youtubeLinks.length : 0;
-                
+
                 const progressData = {
                     current: savedData.progress?.current || uniqueLinksCount,
                     total: savedData.progress?.total || uniqueLinksCount,
@@ -758,9 +758,9 @@ function Discogs2Youtube() {
 
             setTaskCompleted(task.status === 'completed');
             if (task.status === 'completed') {
-                const uniqueLinksCount = task.youtubeLinks ? task.youtubeLinks.length : 
-                                       (taskData[taskId]?.youtubeLinks?.length || 0);
-                
+                const uniqueLinksCount = task.youtubeLinks ? task.youtubeLinks.length :
+                    (taskData[taskId]?.youtubeLinks?.length || 0);
+
                 const finalStats = {
                     current: task.progress?.total || uniqueLinksCount,
                     total: task.progress?.total || uniqueLinksCount,
@@ -815,12 +815,12 @@ function Discogs2Youtube() {
             if (isExpanded) {
                 // Add to loaded tasks set when expanding
                 setLoadedTasks(prev => new Set([...prev, taskId]));
-                
+
                 // Load data from localStorage if available
                 if (taskData[taskId]) {
                     const savedData = taskData[taskId];
                     const uniqueLinksCount = savedData.youtubeLinks ? savedData.youtubeLinks.length : 0;
-                    
+
                     setFinalTaskStats({
                         current: savedData.progress?.current || uniqueLinksCount,
                         total: savedData.progress?.total || uniqueLinksCount,
@@ -842,11 +842,11 @@ function Discogs2Youtube() {
     const createPlaylistUrls = (videoIds) => {
         const chunkSize = 50;
         const chunks = [];
-        
+
         for (let i = 0; i < videoIds.length; i += chunkSize) {
             chunks.push(videoIds.slice(i, i + chunkSize));
         }
-        
+
         return chunks.map((chunk, index) => ({
             url: `https://www.youtube.com/watch_videos?video_ids=${chunk.join(',')}`,
             count: chunk.length,
@@ -857,15 +857,15 @@ function Discogs2Youtube() {
 
     return (
         <>
-            <Helmet>
-                <title>Discogs2Youtube</title>
-                <meta name="description" content="Convert Discogs data to YouTube links with Discogs2Youtube." /> 
-                <meta property="og:title" content="Discogs2Youtube" />
-                <meta property="og:description" content="Manage your Discogs and YouTube playlists seamlessly." />
-                <meta property="og:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
-                <meta property="og:url" content="https://jermasearch.com/discogs2youtube" />
-                <meta name="twitter:card" content="summary_large_image" />
-            </Helmet>
+            <title>Discogs2Youtube - Convert Discogs Data to YouTube Playlists</title>
+            <meta name="description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
+            <meta name="keywords" content="Discogs2Youtube, Discogs, YouTube playlists, music videos, artist, label, list" />
+            <meta property="og:title" content="Discogs2Youtube - Convert Discogs Data to YouTube Playlists" />
+            <meta property="og:description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
+            <meta property="og:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
+            <meta property="og:url" content="https://jermasearch.com/discogs2youtube" />
+            <meta name="twitter:card" content="summary_large_image" />
+
             <div className={styles.container}>
 
                 <section className={styles.section}>
@@ -1045,7 +1045,7 @@ function Discogs2Youtube() {
                                                                     Click here for playlist {index + 1} (Videos {playlist.start}-{playlist.end})
                                                                 </a>
                                                             ))}
-                                                            
+
                                                             <div className={styles.youtubeContainer}>
                                                                 {youtubeLinks.map((link, index) => {
                                                                     if (!link.url || !link.releaseId || !link.artist || !link.releaseName) {

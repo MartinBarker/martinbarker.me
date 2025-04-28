@@ -26,6 +26,15 @@ const Home = () => {
 
   return (
     <>
+      <title>RenderTune - Professional Video Rendering</title>
+      <meta name="description" content="Combine audio and images into professional videos with RenderTune. Download the latest version for Windows, macOS, and Linux." />
+      <meta name="keywords" content="RenderTune, video rendering, audio to video, professional videos, macOS, Windows, Linux" />
+      <meta property="og:title" content="RenderTune - Professional Video Rendering" />
+      <meta property="og:description" content="Combine audio and images into professional videos with RenderTune. Download the latest version for Windows, macOS, and Linux." />
+      <meta property="og:image" content={screenshot} />
+      <meta property="og:url" content="https://jermasearch.com/rendertune" />
+      <meta name="twitter:card" content="summary_large_image" />
+
       <section className={styles.hero}>
         <div className={styles.heroContent}>
           <h2>Combine Audio &amp; Images into Professional Videos</h2>
