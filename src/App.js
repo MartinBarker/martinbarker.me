@@ -108,7 +108,7 @@ function App() {
           element={
             <Sidebar 
               pageTitle="Discogs2Youtube" 
-              pageSubTitle="Convert Discogs data to YouTube links"
+              pageSubTitle="Extract all YouTube videos from a Discogs artist/label/list."
               icon={homeIconPath}
             >
               <Discogs2Youtube />

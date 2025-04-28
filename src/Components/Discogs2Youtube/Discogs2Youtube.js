@@ -513,44 +513,49 @@ function Discogs2Youtube() {
                 isDevMode,
             });
 
-            if (selectedType === 'artist') {
-                const { artistName } = response.data;
-                setDiscogsResponse(`Artist: ${artistName}`);
+            if (selectedType === 'label') {
+                const { labelName } = response.data;
+                setDiscogsResponse(`Label: ${labelName}`);
                 setTaskInfo(prev => ({
                     ...prev,
-                    artistName: artistName,
+                    artistName: labelName,
                     taskStatus: 'starting'
                 }));
-                console.log(`Starting background job for artist: ${artistName}`);
-
-                await loggedAxios.post(`${apiUrl}/startBackgroundJob`, {
-                    artistId: extractedId,
-                    isDevMode,
-                    artistName: artistName
-                });
+                console.log(`Starting background job for label: ${labelName}`);
 
                 setIsPollingActive(true);
 
-                const fetchInitialStatus = async () => {
+                // Fetch updated background tasks immediately after starting the job
+                const fetchUpdatedTasks = async () => {
                     try {
-                        const statusResponse = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
-                        setBackgroundJobStatus((prev) => ({
-                            ...prev,
-                            isRunning: true,
-                            progress: statusResponse.data.progress,
-                        }));
+                        const tasksResponse = await loggedAxios.get(`${apiUrl}/backgroundTasks`);
+                        setBackgroundTasks(tasksResponse.data.tasks || []);
                     } catch (error) {
-                        console.error('Error fetching initial job status:', error.message);
+                        console.error('Error fetching updated background tasks:', error.message);
                     }
                 };
-                fetchInitialStatus();
+                fetchUpdatedTasks();
             } else {
                 setDiscogsResponse(`Successfully fetched ${selectedType} data.`);
             }
         } catch (error) {
             console.error('Error during Discogs search:', error);
+
+            // Fetch background tasks even if the search fails
+            const fetchUpdatedTasks = async () => {
+                try {
+                    const tasksResponse = await loggedAxios.get(`${apiUrl}/backgroundTasks`);
+                    setBackgroundTasks(tasksResponse.data.tasks || []);
+                } catch (fetchError) {
+                    console.error('Error fetching updated background tasks after failure:', fetchError.message);
+                }
+            };
+            fetchUpdatedTasks();
+
             if (error.response) {
                 setDiscogsResponse(error.response.data.error || 'An error occurred.');
+            } else {
+                setDiscogsResponse('An unknown error occurred.');
             }
         }
     };
@@ -864,13 +869,6 @@ function Discogs2Youtube() {
             <div className={styles.container}>
 
                 <section className={styles.section}>
-                    <h1 className={styles.title}>Discogs2Youtube</h1>
-                    <p className={styles.description}>
-                        Welcome to Discogs2Youtube! This tool allows you to authenticate with YouTube and Discogs to manage playlists and search for artists, labels, or lists.
-                    </p>
-                </section>
-
-                <section className={styles.section}>
                     <h2 className={styles.subtitle}>Discogs Authentication</h2>
                     {discogsAuthStatus ? (
                         <>
@@ -888,7 +886,7 @@ function Discogs2Youtube() {
                             <input
                                 type="text"
                                 className={`${styles.input} ${inputError ? styles.inputError : ''}`}
-                                placeholder={inputError || "Enter artist ID, label ID, or list"}
+                                placeholder={inputError || "Enter a discogs artist / label / list ID or URL"}
                                 value={discogsInput}
                                 onChange={(e) => handleInputChange(e.target.value)}
                                 list="search-history"
@@ -928,7 +926,7 @@ function Discogs2Youtube() {
                         </>
                     ) : (
                         <>
-                            <p className={styles.authStatus}>You are not signed in to Discogs. Please sign in below:</p>
+                            <p className={styles.authStatus}>You are not signed in to Discogs, please sign in below to be able to extract videos!</p>
                             <button className={styles.searchButton} onClick={initiateDiscogsAuth}>
                                 Authenticate with Discogs
                             </button>
@@ -1091,7 +1089,15 @@ function Discogs2Youtube() {
                                                                                     {link.url}
                                                                                 </a>
                                                                             </div>
-                                                                            <YouTube videoId={videoId} opts={{height: '100', width: '200'}}/>
+                                                                            <iframe
+                                                                                width="560"
+                                                                                height="315"
+                                                                                src={`https://www.youtube.com/embed/${videoId}`}
+                                                                                title="YouTube video player"
+                                                                                frameBorder="0"
+                                                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                                                                allowFullScreen
+                                                                            ></iframe>
                                                                         </div>
                                                                     );
                                                                 })}
@@ -1154,7 +1160,7 @@ function Discogs2Youtube() {
                         </>
                     ) : (
                         <>
-                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below:</p>
+                            <p className={styles.authStatus}>You are not signed in to YouTube. Please sign in below if you want to add playlists to your account.</p>
                             <button className={styles.searchButton} onClick={fetchYouTubeAuthUrl}>
                                 Authenticate with YouTube
                             </button>

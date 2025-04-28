@@ -313,16 +313,12 @@ app.post('/discogsSearch', async (req, res) => {
             const artistName = response.data.name; // Extract artist name
             console.log(`✅ Artist name fetched: ${artistName}`);
 
+            // Start background job for artist
+            await startBackgroundJob({ artistId: id, isDevMode, artistName });
             res.status(200).json({ message: `Successfully fetched artist data.`, artistName });
-        } else {
-            let url;
-            if (type === 'label') {
-                url = `${DISCOGS_API_URL}/labels/${id}/releases`;
-            } else if (type === 'list') {
-                url = `${DISCOGS_API_URL}/lists/${id}`;
-            }
-
-            console.log(`🌐 Fetching Discogs ${type} data from URL: ${url}`);
+        } else if (type === 'label') {
+            const url = `${DISCOGS_API_URL}/labels/${id}`;
+            console.log(`🌐 Fetching Discogs label data from URL: ${url}`);
             const headers = { 'User-Agent': USER_AGENT };
 
             if (discogsAuth.accessToken) {
@@ -330,32 +326,113 @@ app.post('/discogsSearch', async (req, res) => {
                 headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
             }
 
-            await axios.get(url, { headers });
-            console.log(`✅ Successfully fetched Discogs ${type} data.`);
-            res.status(200).json({ message: `Successfully fetched ${type} data.` });
+            const response = await axios.get(url, { headers });
+            const labelName = response.data.name; // Extract label name
+            console.log(`✅ Label name fetched: ${labelName}`);
+
+            // Start background job for label
+            await startBackgroundJob({ labelId: id, isDevMode, artistName: labelName });
+            res.status(200).json({ message: `Successfully fetched label data.`, labelName });
+        } else {
+            // Handle list type
+            res.status(400).json({ error: 'List type is not yet implemented.' });
         }
     } catch (error) {
-        console.error(`❌ Error fetching Discogs ${type} data:`, error.message);
-        res.status(500).json({ error: `Failed to fetch ${type} data from Discogs.` });
+        console.error(`❌ Error in /discogsSearch for type ${type}:`, error.message);
+        res.status(500).json({ error: `Failed to fetch ${type} data from Discogs.`, details: error.message });
     }
 });
 
-app.post('/startBackgroundJob', async (req, res) => {
-    const { artistId, isDevMode, taskId, artistName } = req.body;
+async function startBackgroundJob({ artistId, labelId, isDevMode, artistName }) {
     if (backgroundJob.isRunning) {
-        return res.status(400).json({ error: 'A job is already running.' });
+        throw new Error('A job is already running.');
     }
+
     backgroundJob.isRunning = true;
     backgroundJob.isPaused = false;
-    backgroundJob.artistId = artistId;
-    backgroundJob.artistName = artistName; // Store artist name
+    backgroundJob.artistId = artistId || null;
+    backgroundJob.labelId = labelId || null;
+    backgroundJob.artistName = artistName || null; // Store artist/label name
     backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
     backgroundJob.uniqueLinks.clear();
     backgroundJob.waitTime = 0;
 
     const processReleases = async () => {
         try {
-            const releaseIds = await fetchReleaseIds(artistId, isDevMode);
+            const releaseIds = artistId
+                ? await fetchReleaseIds(artistId, isDevMode)
+                : await fetchLabelReleaseIds(labelId, isDevMode);
+
+            backgroundJob.progress.total = releaseIds.length;
+            console.log(`🎵 Total releases to process: ${releaseIds.length}`);
+
+            for (let i = 0; i < releaseIds.length; i++) {
+                if (!backgroundJob.isRunning) break;
+                while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
+                    // Update status when paused or rate-limited
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                    if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
+                }
+
+                const releaseId = releaseIds[i];
+                console.log(`🎧 Processing release ${i + 1} of ${releaseIds.length}: Release ID ${releaseId}`);
+
+                try {
+                    const videos = await fetchVideoIds(releaseId);
+                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video));
+                    backgroundJob.progress.current = i + 1;
+                    backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
+                    console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
+                    backgroundJob.waitTime = 0; // Reset wait time on success
+                } catch (error) {
+                    if (error.response?.status === 429) {
+                        backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
+                        console.error(`⏳ Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
+                    } else {
+                        throw error;
+                    }
+                }
+
+                if (isDevMode) {
+                    console.log('🛠 Dev mode enabled: Skipping pagination.');
+                    break; // Skip pagination in Dev Mode
+                }
+            }
+
+            console.log('✅ Background job completed.');
+            // Ensure final stats are preserved
+            backgroundJob.progress.current = backgroundJob.progress.total;
+            backgroundJob.isRunning = false;
+        } catch (error) {
+            console.error('❌ Error processing releases:', error.message);
+            backgroundJob.isRunning = false;
+            backgroundJob.error = error.message;
+        }
+    };
+
+    processReleases();
+}
+
+app.post('/startBackgroundJob', async (req, res) => {
+    const { artistId, labelId, isDevMode, taskId, artistName } = req.body;
+    if (backgroundJob.isRunning) {
+        return res.status(400).json({ error: 'A job is already running.' });
+    }
+    backgroundJob.isRunning = true;
+    backgroundJob.isPaused = false;
+    backgroundJob.artistId = artistId || null;
+    backgroundJob.labelId = labelId || null;
+    backgroundJob.artistName = artistName || null; // Store artist/label name
+    backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
+    backgroundJob.uniqueLinks.clear();
+    backgroundJob.waitTime = 0;
+
+    const processReleases = async () => {
+        try {
+            const releaseIds = artistId
+                ? await fetchReleaseIds(artistId, isDevMode)
+                : await fetchLabelReleaseIds(labelId, isDevMode);
+
             backgroundJob.progress.total = releaseIds.length;
             console.log(`🎵 Total releases to process: ${releaseIds.length}`);
 
@@ -411,6 +488,12 @@ async function fetchReleaseIds(artistId, isDevMode) {
     const url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
     const releases = await makeDiscogsRequest(url, isDevMode);
     return releases.map((release) => release.main_release || release.id);
+}
+
+async function fetchLabelReleaseIds(labelId, isDevMode) {
+    const url = `${DISCOGS_API_URL}/labels/${labelId}/releases`;
+    const releases = await makeDiscogsRequest(url, isDevMode);
+    return releases.map((release) => release.id);
 }
 
 async function makeDiscogsRequest(url, isDevMode) {
@@ -485,46 +568,6 @@ async function fetchDiscogsData(type, id) {
     console.error('Error fetching Discogs data:', error.message);
     throw error;
   }
-}
-
-// Function to make a Discogs request and handle pagination with exponential backoff
-async function makeDiscogsRequest(url) {
-    console.log(`makeDiscogsRequest: ${url}`);
-    let allData = [];
-    let retryCount = 0;
-
-    try {
-        while (url) {
-            try {
-                const response = await axios.get(url, {
-                    headers: { 'User-Agent': USER_AGENT },
-                });
-                allData = allData.concat(response.data.releases || []);
-                url = response.data.pagination?.urls?.next || null;
-                retryCount = 0; // Reset retry count on success
-            } catch (error) {
-                if (error.response?.status === 429) {
-                    retryCount++;
-                    const waitTime = Math.pow(2, retryCount) * 1000;
-                    console.error(`Rate limit hit. Retrying in ${waitTime / 1000} seconds...`);
-                    await new Promise((resolve) => setTimeout(resolve, waitTime));
-                } else {
-                    throw error;
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Error making Discogs request:', error.message);
-        throw error;
-    }
-    return allData;
-}
-
-// Function to fetch release IDs for an artist
-async function fetchReleaseIds(artistId) {
-    const url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
-    const releases = await makeDiscogsRequest(url);
-    return releases.map((release) => release.main_release || release.id);
 }
 
 // Function to fetch video IDs for a release
@@ -1192,6 +1235,7 @@ let backgroundJob = {
     isPaused: false,
     progress: { current: 0, total: 0, uniqueLinks: 0 },
     artistId: null,
+    labelId: null,
     artistName: null,
     uniqueLinks: new Set(),
     waitTime: 0, // Time to wait before resuming requests
@@ -1230,7 +1274,8 @@ app.get('/backgroundJobStatus', (req, res) => {
         isRunning: backgroundJob.isRunning,
         isPaused: backgroundJob.isPaused,
         artistName: backgroundJob.artistName,
-        artistId: backgroundJob.artistId  // Added artistId to the response
+        artistId: backgroundJob.artistId,  // Added artistId to the response
+        labelId: backgroundJob.labelId     // Added labelId to the response
     });
 });
 
@@ -1254,13 +1299,13 @@ app.get('/backgroundTasks', (req, res) => {
         }
         
         const uniqueLinks = Array.from(backgroundJob.uniqueLinks);
-        const tasks = backgroundJob.artistId
+        const tasks = backgroundJob.artistId || backgroundJob.labelId
             ? [
                   {
-                      id: backgroundJob.artistId,
+                      id: backgroundJob.artistId || backgroundJob.labelId,
                       name: backgroundJob.artistName 
-                        ? `Artist: ${backgroundJob.artistName}` 
-                        : `Task for artist ${backgroundJob.artistId}`,
+                        ? `Artist/Label: ${backgroundJob.artistName}` 
+                        : `Task for ${backgroundJob.artistId ? 'artist' : 'label'} ${backgroundJob.artistId || backgroundJob.labelId}`,
                       status: taskStatus,
                       youtubeLinks: uniqueLinks,
                       progress: {
@@ -1289,6 +1334,7 @@ app.post('/clearBackgroundTasks', (req, res) => {
             isPaused: false,
             progress: { current: 0, total: 0, uniqueLinks: 0 },
             artistId: null,
+            labelId: null,
             artistName: null,
             uniqueLinks: new Set(),
             waitTime: 0,
