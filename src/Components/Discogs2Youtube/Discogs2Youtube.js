@@ -857,26 +857,28 @@ function Discogs2Youtube() {
 
     return (
         <>
-            {/* HTML Meta Tags */}
-            <title>Discogs2Youtube - Convert Discogs Data to YouTube Playlists</title>
-            <meta name="description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
+            <Helmet>
+                <title>Discogs2YouTube</title>
+                <meta name="description" content="Extract youtube links from discogs " />
 
-            {/* Facebook Meta Tags */}
-            <meta property="og:url" content="https://jermasearch.com/discogs2youtube" />
-            <meta property="og:type" content="website" />
-            <meta property="og:title" content="Discogs2Youtube - Convert Discogs Data to YouTube Playlists" />
-            <meta property="og:description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
-            <meta property="og:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
+                {/* Google / Search Engine Tags */}
+                <meta itemprop="name" content="Discogs2YouTube" />
+                <meta itemprop="description" content="Extract youtube links from discogs " />
+                <meta itemprop="image" content="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fe/Discogs-logo-billboard-1548-1092x722.jpg/330px-Discogs-logo-billboard-1548-1092x722.jpg" />
 
-            {/* Twitter Meta Tags */}
-            <meta name="twitter:card" content="summary_large_image" />
-            <meta property="twitter:domain" content="jermasearch.com" />
-            <meta property="twitter:url" content="https://jermasearch.com/discogs2youtube" />
-            <meta name="twitter:title" content="Discogs2Youtube - Convert Discogs Data to YouTube Playlists" />
-            <meta name="twitter:description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
-            <meta name="twitter:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
+                {/* Facebook Meta Tags */}
+                <meta property="og:url" content="https://jermasearch.com/discogs2youtube" />
+                <meta property="og:type" content="website" />
+                <meta property="og:title" content="Discogs2YouTube" />
+                <meta property="og:description" content="Extract youtube links from discogs " />
+                <meta property="og:image" content="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fe/Discogs-logo-billboard-1548-1092x722.jpg/330px-Discogs-logo-billboard-1548-1092x722.jpg" />
 
-            {/* Meta Tags Generated via https://www.opengraph.xyz */}
+                {/* Twitter Meta Tags */}
+                <meta name="twitter:card" content="summary_large_image" />
+                <meta name="twitter:title" content="Discogs2YouTube" />
+                <meta name="twitter:description" content="Extract youtube links from discogs " />
+                <meta name="twitter:image" content="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fe/Discogs-logo-billboard-1548-1092x722.jpg/330px-Discogs-logo-billboard-1548-1092x722.jpg" />
+            </Helmet>
             <div className={styles.container}>
 
                 <section className={styles.section}>
