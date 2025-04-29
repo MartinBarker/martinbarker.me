@@ -857,15 +857,26 @@ function Discogs2Youtube() {
 
     return (
         <>
+            {/* HTML Meta Tags */}
             <title>Discogs2Youtube - Convert Discogs Data to YouTube Playlists</title>
             <meta name="description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
-            <meta name="keywords" content="Discogs2Youtube, Discogs, YouTube playlists, music videos, artist, label, list" />
+
+            {/* Facebook Meta Tags */}
+            <meta property="og:url" content="https://jermasearch.com/discogs2youtube" />
+            <meta property="og:type" content="website" />
             <meta property="og:title" content="Discogs2Youtube - Convert Discogs Data to YouTube Playlists" />
             <meta property="og:description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
             <meta property="og:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
-            <meta property="og:url" content="https://jermasearch.com/discogs2youtube" />
-            <meta name="twitter:card" content="summary_large_image" />
 
+            {/* Twitter Meta Tags */}
+            <meta name="twitter:card" content="summary_large_image" />
+            <meta property="twitter:domain" content="jermasearch.com" />
+            <meta property="twitter:url" content="https://jermasearch.com/discogs2youtube" />
+            <meta name="twitter:title" content="Discogs2Youtube - Convert Discogs Data to YouTube Playlists" />
+            <meta name="twitter:description" content="Easily convert Discogs artist, label, or list data into YouTube playlists. Manage your Discogs and YouTube playlists seamlessly." />
+            <meta name="twitter:image" content="https://i.ytimg.com/vi/AF5dSwXQwbo/maxresdefault.jpg" />
+
+            {/* Meta Tags Generated via https://www.opengraph.xyz */}
             <div className={styles.container}>
 
                 <section className={styles.section}>
