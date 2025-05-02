@@ -13,8 +13,10 @@ RUN npm install
 # Copy the rest of the application files
 COPY ./ ./
 
-# Build the React application
+# Build the React application & pre-rendering tool
 RUN npm run build
+
+RUN npm run postbuild
 
 # Use a multi-stage build to keep the final image small
 FROM nginx:alpine
