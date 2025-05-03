@@ -1,0 +1,22 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: var(--font-geist-sans);
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+.title {
+  /* Styles for h1 */
+  font-size: 2rem;
+  color: #333;
+}
+
+.paragraph {
+  /* Styles for p */
+  font-size: 1rem;
+  color: #666;
+}
