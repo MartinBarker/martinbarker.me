@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
+import Head from 'next/head';
 import styles from './rendertune.module.css';
 const screenshot = '/images/RenderTune_Windows.PNG';
 
@@ -10,7 +11,6 @@ const snapStoreBadge = '/svg/snap-store-black.svg';
 const appleIcon = '/svg/apple-icon.svg'; // Import Apple icon
 const linuxIcon = '/svg/linux-icon.svg'; // Import Linux icon
 const windowsIcon = '/svg/windows-icon.svg'; // Import Windows icon
-
 
 export default function RenderTune() {
 
@@ -29,19 +29,16 @@ export default function RenderTune() {
     setShowMacOptions(true);
   };
 
-
   return (
     <>
-      {/*
-    <title>RenderTune - Professional Video Rendering</title>
-    <meta name="description" content="Combine audio and images into professional videos with RenderTune. Download the latest version for Windows, macOS, and Linux." />
-    <meta name="keywords" content="RenderTune, video rendering, audio to video, professional videos, macOS, Windows, Linux" />
-    <meta property="og:title" content="RenderTune - Professional Video Rendering" />
-    <meta property="og:description" content="Combine audio and images into professional videos with RenderTune. Download the latest version for Windows, macOS, and Linux." />
-    <meta property="og:image" content={screenshot} />
-    <meta property="og:url" content="https://jermasearch.com/rendertune" />
-    <meta name="twitter:card" content="summary_large_image" />
-    */}
+      <Head>
+        <title>RenderTune – Video Rendering App</title>
+        <meta property="og:title" content="RenderTune – Professional Video Rendering" />
+        <meta property="og:description" content="Combine audio & images into professional videos with RenderTune." />
+        <meta property="og:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
+        <meta property="og:url" content="https://martinbarker.me/rendertune" />
+        <meta name="twitter:card" content="summary_large_image" />
+      </Head>
 
       <section className={styles.hero}>
         <div className={styles.heroContent}>

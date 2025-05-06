@@ -1,4 +1,5 @@
 /* eslint-disable @next/next/no-img-element */
+import Head from 'next/head';
 import styles from './page.module.css';
 // remove the broken import
 // instead reference the public asset by its URL:
@@ -7,15 +8,15 @@ const headshot = '/images/headshot.jpg';
 export default function Home() {
   return (
     <>
-        <title>Martin Barker - Software Developer Portfolio</title>
-        <meta name="description" content={'Explore Martin Barker\'s portfolio showcasing open-source music applications, software projects, and professional experience.'} />
-        <meta name="keywords" content="Martin Barker, software developer, open-source, music applications, portfolio, Seattle" />
-        <meta property="og:title" content="Martin Barker - Software Developer Portfolio" />
-        <meta property="og:description" content={'Explore Martin Barker\'s portfolio showcasing open-source music applications, software projects, and professional experience.'} />
-        <meta property="og:image" content={headshot} />
-        <meta property="og:url" content="https://jermasearch.com/" />
+      <Head>
+        <title>Martin Barker – Software Developer Portfolio</title>
+        <meta property="og:title" content="Martin Barker – Software Developer Portfolio" />
+        <meta property="og:description" content="Explore Martin Barker’s portfolio showcasing open-source music apps, projects & experience." />
+        <meta property="og:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
+        <meta property="og:url" content="https://martinbarker.me/" />
         <meta name="twitter:card" content="summary_large_image" />
-        <div className={styles.homeContent}>
+      </Head>
+      <div className={styles.homeContent}>
             {/* Top Section - 3 Column Layout */}
             <div className={styles.topSection}>
 
