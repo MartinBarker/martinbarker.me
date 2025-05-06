@@ -1,6 +1,4 @@
-
-  
-  .wrapper {
+.wrapper {
     width: 100%;
     margin: 0;
     padding: 0;
@@ -22,6 +20,8 @@
     display: flex;
     align-items: center;
     cursor: pointer; /* Change cursor to pointer */
+    text-decoration: none; /* Prevent blue underline */
+    color: white; /* Ensure text remains white */
   }
   
   .logoLink {
@@ -42,12 +42,24 @@
   .mainTitle {
     font-size: 24px;
     margin: 0;
+    color: white; /* Ensure text is always white */
+    text-decoration: none; /* Prevent blue underline */
   }
   
   .subTitle {
     font-size: 14px;
     margin: 0;
     color: #aaa;
+    color: white; /* Ensure text is always white */
+    text-decoration: none; /* Prevent blue underline */
+  }
+  
+  .logoContainer:focus .mainTitle,
+  .logoContainer:focus .subTitle,
+  .logoContainer:active .mainTitle,
+  .logoContainer:active .subTitle {
+    color: white; /* Keep text white even when clicked or focused */
+    text-decoration: none; /* Prevent blue underline */
   }
   
   /* Navigation menu */
