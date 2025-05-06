@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link'; // <-- Import Link
 import styles from './rendertune.module.css';
 const logo = '/ico/rendertune.ico';
 const githubIcon = '/svg/icons8-github.svg';
@@ -20,9 +21,11 @@ export default function RenderTuneLayout({ children }) {
     setMenuActive((prev) => !prev);
   };
 
-  const navigateHome = () => {
-    router.push('/rendertune');  
-  };
+  // This function might still be useful if you need programmatic navigation elsewhere,
+  // but for simple links, <Link> is preferred.
+  // const navigateHome = () => {
+  //   router.push('/rendertune');
+  // };
 
 
   return (
@@ -34,15 +37,14 @@ export default function RenderTuneLayout({ children }) {
       <body style={{ margin: '0px', 'background-color': '#1c1c1c' }}>
         <div className={styles.wrapper}>
           <header className={styles.header}>
-            <div className={styles.logoContainer} onClick={navigateHome}>
-              <a href="/" className={styles.logoLink}>
+            {/* Make the entire logo container link to /rendertune */}
+            <Link href="/rendertune" className={styles.logoContainer}>
                 <img src={logo} alt="RenderTune Logo" className={styles.logo} />
-              </a>
               <div className={styles.headerTitle}>
                 <h1 className={styles.mainTitle}>RenderTune</h1>
                 <p className={styles.subTitle}>Video Rendering App</p>
               </div>
-            </div>
+            </Link>
 
             {/* Mobile Menu Toggle */}
             <button className={styles.menuToggle} onClick={toggleMenu}>
@@ -54,6 +56,7 @@ export default function RenderTuneLayout({ children }) {
             {/* Navigation Menu */}
             <nav className={`${styles.nav} ${menuActive ? styles.show : ''}`}>
               <ul className={styles.menu}>
+                {/* External links still use <a> */}
                 <li>
                   <div className={styles.iconContainer}>
                     <a href="https://github.com/MartinBarker/RenderTune" target="_blank" rel="noopener noreferrer">
@@ -70,13 +73,14 @@ export default function RenderTuneLayout({ children }) {
                     <span className={styles.iconText}>Discord Channel</span>
                   </div>
                 </li>
-                <li><a href="/rendertune/">Home</a></li>
-                <li><a href="/rendertune/download">Download</a></li>
-                <li><a href="/rendertune/features">Features</a></li>
-                <li><a href="/rendertune/contribute">Contribute</a></li>
-                <li><a href="/rendertune/support">Support</a></li>
-                <li><a href="/rendertune/help">Help</a></li>
-                <li><a href="/">Return</a></li>
+                {/* Internal links use <Link> */}
+                <li><Link href="/rendertune/">Home</Link></li>
+                <li><Link href="/rendertune/download">Download</Link></li>
+                <li><Link href="/rendertune/features">Features</Link></li>
+                <li><Link href="/rendertune/contribute">Contribute</Link></li>
+                <li><Link href="/rendertune/support">Support</Link></li>
+                <li><Link href="/rendertune/help">Help</Link></li>
+                <li><Link href="/">Return</Link></li> {/* Link back to main site root */}
               </ul>
             </nav>
           </header>
@@ -86,6 +90,7 @@ export default function RenderTuneLayout({ children }) {
           <footer className={styles.footer}>
             <p>© 2025 RenderTune. All rights reserved.</p>
             <div className={styles.footerLinks}>
+              {/* External links remain <a> tags */}
               <a href="https://github.com/MartinBarker/RenderTune/releases" target="_blank" rel="noopener noreferrer">
                 <img src="https://img.shields.io/github/v/release/MartinBarker/RenderTune" alt="GitHub Release Version" />
               </a>
