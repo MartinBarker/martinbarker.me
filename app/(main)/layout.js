@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation'; // <-- add this import
 import { Home, Music, FileMusicIcon, BarChart, Mail, Github, Linkedin, Menu, ChevronRight, Contact, FileText as ResumeIcon } from 'lucide-react';
 import ImageModal from './ImageModal/ImageModal';
 
-export default function RootLayout({ children, pageTitle='tempTitle', pageSubTitle='tempSubtitle', icon=null }) {
+export default function RootLayout({ children }) {
   
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarActive, setSidebarActive] = useState(true);
@@ -25,6 +25,57 @@ export default function RootLayout({ children, pageTitle='tempTitle', pageSubTit
   const [randomImage, setRandomImage] = useState(null);
 
   const pathname = usePathname(); // <-- get current path
+
+  // map specific routes to titles/subtitles and optional icons
+  const routeInfo = {
+    "/": {
+      title: "Martin Barker",
+      subtitle: "Software Developer Portfolio",
+      icon: "/ico/martinbarker.ico"
+    },
+    "/tagger": {
+      title: "tagger.site",
+      subtitle: "Generate timestamped tracklists for audio files",
+      icon: "/ico/martinbarker.ico"
+    },
+    "/discogs2youtube": {
+      title: "Discogs2Youtube",
+      subtitle: "Convert Discogs releases to playlists",
+      icon: "/ico/martinbarker.ico"
+    },
+    "/ffmpegwasm": {
+      title: "FFMPEG WASM",
+      subtitle: "Browser-based audio encoding with FFMPEG WebAssembly",
+      icon: "/ico/martinbarker.ico"
+    },
+    "/popularify": {
+      title: "Popularify",
+      subtitle: "Get a spotify artist's entire discography sorted by popularity",
+      icon: "/ico/martinbarker.ico"
+    }
+  };
+
+  // default fallback
+  const defaultInfo = {
+    title: "",
+    subtitle: "",
+    icon: "/ico/martinbarker.ico"
+  };
+
+  // pick base info
+  let info = routeInfo[pathname] || defaultInfo;
+
+  // override icon for any /rendertune path
+  if (pathname.startsWith("/rendertune")) {
+    info = {
+      ...info,
+      icon: "/ico/rendertune.ico",
+      title: info.title || "RenderTune",
+      subtitle: info.subtitle || "Video Rendering App"
+    };
+  }
+
+  const { title: pageTitle, subtitle: pageSubTitle, icon: pageIcon } = info;
 
   useEffect(() => {
     const handleResize = () => {
@@ -79,19 +130,6 @@ export default function RootLayout({ children, pageTitle='tempTitle', pageSubTit
       window.addEventListener('resize', handleResize);
       return () => window.removeEventListener('resize', handleResize);
     }, []);
-  
-    useEffect(() => {
-      if (icon) {
-        const link = document.createElement('link');
-        link.rel = 'icon';
-        link.href = icon;
-        document.head.appendChild(link);
-  
-        return () => {
-          document.head.removeChild(link);
-        };
-      }
-    }, [icon]);
   
     const toggleSidebar = () => {
       if (sidebarActive) {
@@ -229,6 +267,11 @@ export default function RootLayout({ children, pageTitle='tempTitle', pageSubTit
 
   return (
     <html lang="en">
+      <head>
+        <title>{pageTitle}</title>
+        <link rel="icon" href={pageIcon} />
+        <link rel="shortcut icon" href={pageIcon} />
+      </head>
       <body  style={{ margin: '0px' }}>
       <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
         <defs>
