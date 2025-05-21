@@ -873,7 +873,7 @@ function Discogs2Youtube() {
                 <meta property="og:description" content="Extract youtube links from discogs " />
                 <meta property="og:image" content="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fe/Discogs-logo-billboard-1548-1092x722.jpg/330px-Discogs-logo-billboard-1548-1092x722.jpg" />
 
-                {/* Twitter Meta Tags */}
+                {/* Twitter Meta Tags  */}
                 <meta name="twitter:card" content="summary_large_image" />
                 <meta name="twitter:title" content="Discogs2YouTube" />
                 <meta name="twitter:description" content="Extract youtube links from discogs " />
