@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const Vibrant = require('node-vibrant');
+const { Vibrant } = require('node-vibrant/node');
 const sharp = require('sharp');
 
 // Paths to folders and files

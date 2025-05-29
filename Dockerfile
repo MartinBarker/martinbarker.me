@@ -13,7 +13,7 @@ RUN npm install
 # Copy the rest of the application files
 COPY ./ ./
 
-# Build the React application
+# Build the Next.js application
 RUN npm run build
 
 # Use a multi-stage build to keep the final image small
@@ -28,20 +28,15 @@ WORKDIR /app
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# Copy the built application from the previous stage
-COPY --from=build /app/build /usr/share/nginx/html
+# Copy the built Next.js application from the previous stage
+COPY --from=build /app/.next/static /usr/share/nginx/html/_next/static
+COPY --from=build /app/public /usr/share/nginx/html
 
-# Copy the source files for the Node server and React app
+# Copy the source files for the Node server and Next.js app
 COPY server.js ./server.js
 COPY package*.json ./
-COPY src/ ./src/
-COPY public/ ./public/
-
-# Copy node_modules from the build stage
+COPY --from=build /app/.next ./.next
 COPY --from=build /app/node_modules ./node_modules
-
-# Install production dependencies (this may be optional if all dependencies are already installed in the build stage)
-RUN npm install --only=production
 
 # Copy the supervisord configuration
 COPY supervisord.conf /etc/supervisord.conf

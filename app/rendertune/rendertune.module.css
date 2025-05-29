@@ -1,0 +1,444 @@
+.wrapper {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #0d0d0d;
+    color: #fff;
+    font-family: Arial, sans-serif;
+  }
+  
+  /* Header styles similar to OBS homepage */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px;
+    background-color: #1c1c1c;
+  }
+  
+  .logoContainer {
+    display: flex;
+    align-items: center;
+    cursor: pointer; /* Change cursor to pointer */
+    text-decoration: none; /* Prevent blue underline */
+    color: white; /* Ensure text remains white */
+  }
+  
+  .logoLink {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+  }
+  
+  .logo {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .headerTitle {
+    margin-left: 10px;
+  }
+  
+  .mainTitle {
+    font-size: 24px;
+    margin: 0;
+    color: white; /* Ensure text is always white */
+    text-decoration: none; /* Prevent blue underline */
+  }
+  
+  .subTitle {
+    font-size: 14px;
+    margin: 0;
+    color: #aaa;
+    color: white; /* Ensure text is always white */
+    text-decoration: none; /* Prevent blue underline */
+  }
+  
+  .logoContainer:focus .mainTitle,
+  .logoContainer:focus .subTitle,
+  .logoContainer:active .mainTitle,
+  .logoContainer:active .subTitle {
+    color: white; /* Keep text white even when clicked or focused */
+    text-decoration: none; /* Prevent blue underline */
+  }
+  
+  /* Navigation menu */
+  .nav {
+    display: flex;
+    flex-direction: column;
+    background-color: #1c1c1c;
+    position: absolute;
+    top: 60px;
+    right: 40px;
+    padding: 20px;
+    border-radius: 8px;
+    width: calc(100% - 80px); /* Ensure the navbar fits within the viewport */
+    max-height: 400px; /* Set a limit for height */
+    overflow-y: auto; /* Enable vertical scrolling if necessary */
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.5); /* Add drop shadow */
+    z-index: 100; /* Ensure it's above other elements */
+  }
+  
+  /* Hide navbar when collapsed */
+  .collapse {
+    max-height: 0;
+    overflow: hidden;
+  }
+  
+  /* Show navbar when expanded */
+  .show {
+    max-height: 500px;
+    display: flex;
+    flex-direction: column;
+    overflow: visible; /* Ensure content is visible when expanded */
+  }
+  
+  /* Menu */
+  .menu {
+    display: flex;
+    flex-direction: column; /* Force items to be listed vertically */
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  
+  .menu li a {
+    color: #fff;
+    text-decoration: none;
+    font-size: 16px;
+    transition: transform 0.3s; /* Removed font-size transition */
+  }
+  
+  .menu li a:hover {
+    text-decoration: underline;
+    transform: scale(1.1); /* Ensure consistent scaling */
+  }
+  
+  /* Menu Toggle Button */
+  .menuToggle {
+    display: none;
+    flex-direction: column;
+    cursor: pointer;
+    background: none;
+    border: none;
+    position: absolute;
+    right: 40px;
+    top: 20px;
+  }
+  
+  .menuToggle span {
+    background: #fff;
+    height: 2px;
+    width: 25px;
+    margin: 4px 0;
+  }
+  
+  @media (max-width: 768px) {
+    .menuToggle {
+      display: flex;
+    }
+  
+    .nav {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      background-color: #1c1c1c;
+      position: absolute;
+      top: 60px;
+      right: 40px;
+      padding: 20px;
+      border-radius: 8px;
+      width: calc(100% - 80px); /* Ensure the navbar fits within the viewport */
+    }
+  
+    .show {
+      display: flex;
+    }
+  }
+  
+  @media (min-width: 769px) {
+    .nav {
+      display: flex;
+      flex-direction: row;
+      position: static;
+      background-color: transparent;
+      padding: 0;
+      box-shadow: none;
+      width: auto;
+      max-height: none;
+      overflow: visible;
+    }
+  
+    .menu {
+      flex-direction: row;
+      gap: 20px;
+    }
+  
+    .menuToggle {
+      display: none;
+    }
+  }
+  
+  /* Hero section */
+  .hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(135deg, #2d2d2d 0%, #1c1c1c 100%);
+    flex-wrap: wrap; /* Added to allow wrapping */
+    gap: 10px; /* Added gap to ensure spacing */
+  }
+  
+  .heroContent {
+    margin:30px;
+    max-width: 50%;
+    flex: 1; /* Added to allow flexible width */
+    min-width: 300px; /* Ensure minimum width */
+    text-align: center; /* Center-align text and buttons */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  @media (max-width: 768px) {
+    .heroContent {
+      max-width: 100%; /* Ensure full width on mobile */
+    }
+  }
+  
+  .heroImage {
+    flex: 1; /* Added to allow flexible width */
+    min-width: 300px; /* Ensure minimum width */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  
+  .heroContent h2 {
+    font-size: 32px;
+    margin-bottom: 20px;
+  }
+  
+  .downloadButtons {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    align-items: center;
+  }
+  
+  .downloadBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 400px;
+    padding: 15px 20px;
+    background: linear-gradient(90deg, #7762ca, #4B2DD1); /* Updated color */
+    color: #fff;
+    text-align: center;
+    font-weight: bold;
+    text-decoration: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.2s ease-in-out;
+  }
+  
+  .downloadBtn:hover {
+    background: linear-gradient(90deg, #6652b0, #3A22B0); /* Updated color */
+    transform: scale(1.05);
+  }
+  
+  .osIcon {
+    width: 24px;
+    height: 24px;
+    margin-right: 10px;
+  }
+  
+  .hidden {
+    display: none;
+  }
+  
+  .backButton {
+    background: linear-gradient(90deg, #666, #444);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    max-width: 150px;
+    text-align: center;
+  }
+  
+  
+  .backButton:hover {
+    background: linear-gradient(90deg, #555, #333);
+    transform: scale(1.05);
+  }
+  
+  .heroImage img {
+    max-width: 100%;
+    border-radius: 8px;
+    box-shadow: -8px 15px 8px 2px rgba(0, 0, 0, 0.2);
+    transition: cursor 0.3s; /* Removed transform transition */
+  }
+  
+  .heroImage img:hover {
+    cursor: pointer; /* Retained cursor change */
+  }
+  
+  /* Features section */
+  .features {
+    padding: 5px 40px;
+    background-color: #fff;
+    color: #000;
+  }
+  
+  .features h2 {
+    font-size: 28px;
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  
+  .featuresGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 30px;
+  }
+  
+  .featureItem h3 {
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+  
+  .featureItem p {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  
+  /* Footer styling */
+  .footer {
+    padding: 20px 40px;
+    background-color: #1c1c1c;
+    text-align: center;
+    color: #aaa;
+    font-size: 12px;
+  }
+  
+  .footerLinks {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 10px;
+  }
+  
+  .footerLinks a {
+    color: #aaa;
+    text-decoration: none;
+    transition: color 0.3s;
+  }
+  
+  .footerLinks a:hover {
+    color: #fff;
+  }
+  
+  .icon {
+    width: auto; /* Adjust width to auto */
+    height: 24px;
+    margin-right: 10px;
+    transition: transform 0.3s, text-decoration 0.3s; /* Added transition for smooth effect */
+  }
+  
+  .icon:hover {
+    transform: scale(1.1); /* Slightly increase size */
+    text-decoration: underline; /* Underline text */
+  }
+  
+  .iconContainer {
+    position: relative;
+    display: inline-block;
+  }
+  
+  .iconText {
+    visibility: hidden;
+    opacity: 0;
+    width: 120px;
+    background-color: #555;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px 0;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%; /* Position above the icon */
+    left: 50%;
+    transform: translateX(-50%); /* Center the popup */
+    transition: opacity 0.3s;
+    white-space: nowrap; /* Prevent text wrapping */
+  }
+  
+  .iconText::after {
+    content: "";
+    position: absolute;
+    top: 100%; /* Arrow at the bottom */
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #555 transparent transparent transparent;
+  }
+  
+  .iconContainer:hover .iconText {
+    visibility: visible;
+    opacity: 1;
+  }
+  
+  /* Ensure tooltips are fully visible within the viewport */
+  @media (max-width: 768px) {
+    .iconText {
+      left: auto;
+      right: 0;
+      transform: none;
+    }
+  
+    .iconText::after {
+      left: auto;
+      right: 10px;
+      margin-left: 0;
+    }
+  }
+  
+  /* Store Badge Styling */
+  .storeBadge {
+    width: 150px;
+    margin: 0 5px;
+    transition: transform 0.3s; /* Added transition for smooth effect */
+  }
+  
+  .storeBadge:hover {
+    transform: scale(1.1); /* Slightly increase size */
+  }
+  
+  /* Custom styles for each store badge */
+  .macAppStoreBadge {
+    background-color: #000; /* Example custom style */
+    border-radius: 8px;
+  }
+  
+  .msStoreBadge {
+    background-color: #0078d7; /* Example custom style */
+    border-radius: 8px;
+  }
+  
+  .snapStoreBadge {
+    background-color: #000; /* Example custom style */
+    border-radius: 8px;
+  }
+  
+  .appStoreButtons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    justify-content: space-evenly;
+  }
