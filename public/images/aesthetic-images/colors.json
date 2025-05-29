@@ -9648,5 +9648,285 @@
       "LightMuted": "#b5b09f",
       "DarkMuted": "#252a4c"
     }
+  },
+  "GBHi74IbkAALg28.jpg": {
+    "colors": {
+      "Vibrant": "#349cf4",
+      "LightVibrant": "#83c8fb",
+      "DarkVibrant": "#123469",
+      "Muted": "#6b83a4",
+      "LightMuted": "#b1c89f",
+      "DarkMuted": "#3b4f70"
+    }
+  },
+  "GkZnO0PWgAAogfY.jpg": {
+    "colors": {
+      "Vibrant": "#579ed6",
+      "LightVibrant": "#90ccf2",
+      "DarkVibrant": "#3c2c1c",
+      "Muted": "#728491",
+      "LightMuted": "#9dabb5",
+      "DarkMuted": "#504731"
+    }
+  },
+  "GkZnQm2XoAAbWTQ.jpg": {
+    "colors": {
+      "Vibrant": "#2b7cc3",
+      "LightVibrant": "#72b5ce",
+      "DarkVibrant": "#073876",
+      "Muted": "#99835d",
+      "LightMuted": "#9cb7bd",
+      "DarkMuted": "#4f492b"
+    }
+  },
+  "GkZnSUpXMAMLVru.jpg": {
+    "colors": {
+      "Vibrant": "#4c75aa",
+      "LightVibrant": "#6a92bc",
+      "DarkVibrant": "#5c4c04",
+      "Muted": "#5484ab",
+      "LightMuted": "#6c93b1",
+      "DarkMuted": "#5d4e2e"
+    }
+  },
+  "GkZnUDHXgAAyJ7S.jpg": {
+    "colors": {
+      "Vibrant": "#5984b5",
+      "LightVibrant": "#97b4d7",
+      "DarkVibrant": "#4c3c04",
+      "Muted": "#546c94",
+      "LightMuted": "#94a7c9",
+      "DarkMuted": "#364f53"
+    }
+  },
+  "GljVM95WEAAVeIn.jpg": {
+    "colors": {
+      "Vibrant": "#c33030",
+      "LightVibrant": "#ebe065",
+      "DarkVibrant": "#661d1f",
+      "Muted": "#997767",
+      "LightMuted": "#d2aea7",
+      "DarkMuted": "#3f221f"
+    }
+  },
+  "GljVOGOXoAAIUvo.jpg": {
+    "colors": {
+      "Vibrant": "#edd43e",
+      "LightVibrant": "#e05147",
+      "DarkVibrant": "#642414",
+      "Muted": "#947463",
+      "LightMuted": "#9a92c4",
+      "DarkMuted": "#4b382a"
+    }
+  },
+  "GljVPsvXcAABYX9.jpg": {
+    "colors": {
+      "Vibrant": "#277abf",
+      "LightVibrant": "#84ccdc",
+      "DarkVibrant": "#1c5770",
+      "Muted": "#a6ad5f",
+      "LightMuted": "#a7a996",
+      "DarkMuted": "#487041"
+    }
+  },
+  "Gmq-AjKX0AAIgaL.jpg": {
+    "colors": {
+      "Vibrant": "#837d7b",
+      "LightVibrant": "#bebbba",
+      "DarkVibrant": "#444140",
+      "Muted": "#5a5971",
+      "LightMuted": "#c6c3c2",
+      "DarkMuted": "#404053"
+    }
+  },
+  "GneJdWkXgAAsI9k.jpg": {
+    "colors": {
+      "Vibrant": "#c4945c",
+      "LightVibrant": "#dbbf9d",
+      "DarkVibrant": "#4f5d2c",
+      "Muted": "#99805c",
+      "LightMuted": "#9ababf",
+      "DarkMuted": "#4f392c"
+    }
+  },
+  "GneJdWuWsAAkUvW.jpg": {
+    "colors": {
+      "Vibrant": "#7f643c",
+      "LightVibrant": "#d4c1a4",
+      "DarkVibrant": "#442c1c",
+      "Muted": "#9c755a",
+      "LightMuted": "#c0c2c1",
+      "DarkMuted": "#442c24"
+    }
+  },
+  "GniUunwWcAIQ2QC.jpg": {
+    "colors": {
+      "Vibrant": "#af614f",
+      "LightVibrant": "#d5aca3",
+      "DarkVibrant": "#65382e",
+      "Muted": "#9c7e61",
+      "LightMuted": "#c5b9a9",
+      "DarkMuted": "#401f2e"
+    }
+  },
+  "GniUpKfXsAADC4s.jpg": {
+    "colors": {
+      "Vibrant": "#cd5d68",
+      "LightVibrant": "#f1edce",
+      "DarkVibrant": "#1a4453",
+      "Muted": "#9c8a7c",
+      "LightMuted": "#b2dad3",
+      "DarkMuted": "#274c5a"
+    }
+  },
+  "GniUw5ZWoAEo3K2.jpg": {
+    "colors": {
+      "Vibrant": "#ecb94e",
+      "LightVibrant": "#dfbd8a",
+      "DarkVibrant": "#5e3417",
+      "Muted": "#9d7d49",
+      "LightMuted": "#c1b2cb",
+      "DarkMuted": "#374957"
+    }
+  },
+  "GnOfCrlW4AAf7ws.png": {
+    "colors": {
+      "Vibrant": "#acf22c",
+      "LightVibrant": "#78b5fc",
+      "DarkVibrant": "#3e8e62",
+      "Muted": "#9f876a",
+      "LightMuted": "#d0b5a6",
+      "DarkMuted": "#385e49"
+    }
+  },
+  "Gnl_AHoa8AAXf3B.png": {
+    "colors": {
+      "Vibrant": "#f49404",
+      "LightVibrant": "#f6ce82",
+      "DarkVibrant": "#a83712",
+      "Muted": "#8c8472",
+      "LightMuted": "#ccccc4",
+      "DarkMuted": "#5f4a32"
+    }
+  },
+  "Gnl-vU8aMAAW0Fi.png": {
+    "colors": {
+      "Vibrant": "#ec7634",
+      "LightVibrant": "#7dbef2",
+      "DarkVibrant": "#7f5829",
+      "Muted": "#b07852",
+      "LightMuted": "#e9dcd1",
+      "DarkMuted": "#223b21"
+    }
+  },
+  "Gnl-1NEaMAEffr9.png": {
+    "colors": {
+      "Vibrant": "#fc7c16",
+      "LightVibrant": "#f7b079",
+      "DarkVibrant": "#047c34",
+      "Muted": "#7cbb94",
+      "LightMuted": "#c4dcd4",
+      "DarkMuted": "#04943e"
+    }
+  },
+  "Gnl-svRbkAA-sRE.png": {
+    "colors": {
+      "Vibrant": "#dac153",
+      "LightVibrant": "#f4df94",
+      "DarkVibrant": "#0e5e07",
+      "Muted": "#6c9f5b",
+      "LightMuted": "#b6cca5",
+      "DarkMuted": "#324244"
+    }
+  },
+  "Gnun1LIbYAIKKQO.jpg": {
+    "colors": {
+      "Vibrant": "#4a539e",
+      "LightVibrant": "#a4a9d4",
+      "DarkVibrant": "#242c56",
+      "Muted": "#53649e",
+      "LightMuted": "#7e86c0",
+      "DarkMuted": "#383a56"
+    }
+  },
+  "GjHYKPuXoAAQmh4.jpg": {
+    "colors": {
+      "Vibrant": "#ae4e30",
+      "LightVibrant": "#c8c46a",
+      "DarkVibrant": "#397788",
+      "Muted": "#a88f67",
+      "LightMuted": "#b4c9ab",
+      "DarkMuted": "#334250"
+    }
+  },
+  "R-2473369-1367776161-2440.jpg": {
+    "colors": {
+      "Vibrant": "#d2408f",
+      "LightVibrant": "#fad2ba",
+      "DarkVibrant": "#08669b",
+      "Muted": "#92796d",
+      "LightMuted": "#c792a7",
+      "DarkMuted": "#3c3332"
+    }
+  },
+  "GneJdWlWcAE0r7N.jpg": {
+    "colors": {
+      "Vibrant": "#8c8172",
+      "LightVibrant": "#c3bdb5",
+      "DarkVibrant": "#49433b",
+      "Muted": "#84746b",
+      "LightMuted": "#aea69b",
+      "DarkMuted": "#4c3833"
+    }
+  },
+  "GnuY0MhbYAAxMWV.jpg": {
+    "colors": {
+      "Vibrant": "#c86222",
+      "LightVibrant": "#dcad54",
+      "DarkVibrant": "#0c040a",
+      "Muted": "#5c6ca4",
+      "LightMuted": "#bcbfc0",
+      "DarkMuted": "#315d43"
+    }
+  },
+  "R-860900-1627356790-1932.jpg": {
+    "colors": {
+      "Vibrant": "#fa3434",
+      "LightVibrant": "#fa342c",
+      "DarkVibrant": "#923c3c",
+      "Muted": "#6995ac",
+      "LightMuted": "#d6bfa9",
+      "DarkMuted": "#3a5451"
+    }
+  },
+  "R-860900-1627356801-9081.jpg": {
+    "colors": {
+      "Vibrant": "#f42c3c",
+      "LightVibrant": "#f6ba89",
+      "DarkVibrant": "#87272d",
+      "Muted": "#6094a4",
+      "LightMuted": "#d9ada8",
+      "DarkMuted": "#2f2023"
+    }
+  },
+  "GklbfnoWEAAuOId.png": {
+    "colors": {
+      "Vibrant": "#cb8f49",
+      "LightVibrant": "#fce4d4",
+      "DarkVibrant": "#142039",
+      "Muted": "#70a45e",
+      "LightMuted": "#d5c8a6",
+      "DarkMuted": "#23452a"
+    }
+  },
+  "R-2473369-1501662019-8340.jpg": {
+    "colors": {
+      "Vibrant": "#eeca3e",
+      "LightVibrant": "#93d4e4",
+      "DarkVibrant": "#047494",
+      "Muted": "#ad9a4e",
+      "LightMuted": "#cdc89b",
+      "DarkMuted": "#78704e"
+    }
   }
 }

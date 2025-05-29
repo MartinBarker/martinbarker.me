@@ -1,49 +1,36 @@
-# Local Dev Setup:
-- Run `npm i`
-- Create `.env` file based off `.env-template` and fill out env vars.
-- Run `npm start` and `node server.js` simultaneously.
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
 
-# How to test docker setup:
-- Build docker image and run container:
--  `docker build -t myapp . && docker run -p 80:80 -p 3030:3030 myapp`
-- React app should now be at `http://localhost`
-- Server should accept requests at `/dbtest` route.
+## Getting Started
 
-# How to access docker logs:
-- Find container ID: `docker ps`
-- Open a shell session in the running container `docker exec -it id /bin/sh`
-- Navigate to logs folder and print: `cd /var/log && cat node_server.log`
+First, run the development server:
 
-# How to clean up docker:
-- Stop container: `docker stop 123abc456def`
-- Remove all stopped containers: `docker container prune`
-    - Or remove container by id: `docker rm 123abc456def`
-- Remove all hanging images: `docker image prune`
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
 
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-# How I created the aws deployment for this project:
-Following this guide: https://medium.com/@nwosuonyedikachi/deploying-a-react-app-to-aws-ecs-with-github-actions-5c74c1869800
+You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
 
-1. Create, setup, and run react site using npx create-react-app
-- npm i
-- npm start
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-2. Create private repo on Elastic Container Registry (ECR) in AWS.
-- name: dev-portfolio-react
- 
-3. Go to Elastic Container Service(ECS) and Create a Cluster
-- name: portfolioCluster
+## Learn More
 
-4. Create new task definition
-- name: DevTaskDefPortfolio
-- In 'Container - 1:
-    - Enter name "DevContainerPortfolio"
-    - For image URI put image name from ECR in step 2 (https://922671116400.dkr.ecr.us-west-1.amazonaws.com/dev-portfolio-react)
+To learn more about Next.js, take a look at the following resources:
 
-5. Create an ECS service for the newly created ECS cluster
-- Set name = "DevPortfolioClusterService"
-- Select the task we created in previous step 
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-6. Create GH actions workflow yml
-7. Update the `env:` vars in the workflow.yml to contain the real values.
-8. Update the github repo secrets to include `` and ``.
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
