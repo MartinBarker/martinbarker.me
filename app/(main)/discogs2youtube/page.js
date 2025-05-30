@@ -1069,17 +1069,21 @@ export default function Discogs2Youtube() {
  return (
     <>
       <Head>
-        <title>Discogs2Youtube – Convert Releases to Playlists</title>
+        <title>Discogs2Youtube – Convert Releases to Playlists | Martin Barker</title>
+        <meta name="description" content="Convert Discogs releases, labels, and lists into YouTube playlists automatically. Search Discogs catalog and create matching YouTube playlists with ease." />
+        <meta name="keywords" content="Discogs, YouTube, playlist, music discovery, record collection, vinyl, music catalog, playlist generator" />
+        <meta name="author" content="Martin Barker" />
         <meta property="og:title" content="Discogs2Youtube – Convert Discogs Releases to YouTube Playlists" />
-        <meta property="og:description" content="Easily convert Discogs releases into YouTube playlists." />
-        {/* Choose a relevant image */}
-        <meta property="og:image" content="/og-image.png" />
-        <meta property="og:url" content="https://www.jermasearch.com/discogs2youtube" />{/* Update with actual URL */}
+        <meta property="og:description" content="Easily convert Discogs releases, labels, and lists into YouTube playlists. Perfect for music discovery and collection management." />
+        <meta property="og:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
+        <meta property="og:url" content="https://martinbarker.me/discogs2youtube" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Martin Barker Portfolio" />
         <meta name="twitter:card" content="summary_large_image" />
-        {/* Add favicon links */}
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <meta name="twitter:title" content="Discogs2Youtube – Convert Releases to Playlists" />
+        <meta name="twitter:description" content="Convert Discogs releases into YouTube playlists automatically. Perfect for music discovery." />
+        <meta name="twitter:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
+        <link rel="canonical" href="https://martinbarker.me/discogs2youtube" />
       </Head>
 
       <div className={styles.container}>
