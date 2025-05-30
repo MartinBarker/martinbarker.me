@@ -746,9 +746,15 @@ let secretsInitialized = false; // Flag to ensure secrets are initialized
 
 async function initializeSecrets() {
   console.log('Initializing secrets...');
-  await setSecrets();
-  secretsInitialized = true;
-  console.log('Secrets initialized.');
+  try {
+    await setSecrets();
+    secretsInitialized = true;
+    console.log('Secrets initialized.');
+  } catch (error) {
+    console.error('Error during secrets initialization:', error.message || error);
+    console.warn('Continuing with default/empty secret values.');
+    secretsInitialized = false;
+  }
 }
 
 // Check for local=true argument
@@ -776,7 +782,9 @@ app.listen(port, async () => {
     }
     console.log(`Server is running on port ${port}`);
   } catch (error) {
-    console.error("Failed to start server:", error);
+    console.error("Failed to initialize server components:", error);
+    console.error("Server will continue running with limited functionality.");
+    console.log(`Server is running on port ${port} (with initialization errors)`);
   }
 });
 
@@ -841,15 +849,17 @@ async function setSecrets() {
         discogsConsumerKey = discogsSecretsJson.DISCOGS_CONSUMER_KEY || '';
         discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET || '';
 
-        console.log('setSecrets() AWS secrets loaded.');
-      } catch (awsError) {
+        console.log('setSecrets() AWS secrets loaded.');      } catch (awsError) {
         console.warn('setSecrets() Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
+        console.warn('AWS Error:', awsError.message || awsError);
         algoliaApplicationId = '';
         algoliaApiKey = '';
         algoliaIndex = '';
         gmailAppPassword = '';
         gcpClientId = '';
         gcpClientSecret = '';
+        discogsConsumerKey = '';
+        discogsConsumerSecret = '';
       }
     }
   } catch (error) {
@@ -1213,6 +1223,11 @@ app.post('/addVideoToPlaylist', async (req, res) => {
 app.get('/ping', (req, res) => {
   console.log("🏓 [GET /ping] Hit");
   res.status(200).send({ message: 'pong' });
+});
+
+app.get('/', (req, res) => {
+  console.log("🏠 [GET /] Hit");
+  res.status(200).send('hello world');
 });
 
 // Add this helper function at the top level
