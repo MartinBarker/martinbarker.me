@@ -1,28 +1,35 @@
-import Head from 'next/head';
+export const metadata = {
+  title: 'tagger.site – Timestamped Tracklists Generator | Martin Barker',
+  description: 'Automatically generate timestamped tracklists from audio files with tagger.site. Perfect for DJs, podcasters, and music enthusiasts who need precise track timing.',
+  keywords: 'timestamped tracklist, audio analysis, track detection, DJ tools, podcast timestamps, music tagging, audio processing',
+  openGraph: {
+    title: 'tagger.site – Generate Timestamped Tracklists',
+    description: 'Automatically generate timestamped tracklists from audio files. Perfect for DJs, podcasters, and music enthusiasts.',
+    url: 'https://martinbarker.me/tagger',
+    siteName: 'Martin Barker Portfolio',
+    images: [
+      {
+        url: 'https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg',
+        width: 800,
+        height: 600,
+        alt: 'Martin Barker - tagger.site Project',
+      },
+    ],
+    locale: 'en_US',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'tagger.site – Timestamped Tracklists Generator',
+    description: 'Automatically generate timestamped tracklists from audio files. Perfect for DJs and podcasters.',
+    images: ['https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg'],
+  },
+};
 
 export default function tagger() {
   return (
-    <>
-      <Head>
-        <title>tagger.site – Timestamped Tracklists Generator | Martin Barker</title>
-        <meta name="description" content="Automatically generate timestamped tracklists from audio files with tagger.site. Perfect for DJs, podcasters, and music enthusiasts who need precise track timing." />
-        <meta name="keywords" content="timestamped tracklist, audio analysis, track detection, DJ tools, podcast timestamps, music tagging, audio processing" />
-        <meta name="author" content="Martin Barker" />
-        <meta property="og:title" content="tagger.site – Generate Timestamped Tracklists" />
-        <meta property="og:description" content="Automatically generate timestamped tracklists from audio files. Perfect for DJs, podcasters, and music enthusiasts." />
-        <meta property="og:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
-        <meta property="og:url" content="https://martinbarker.me/tagger" />
-        <meta property="og:type" content="website" />
-        <meta property="og:site_name" content="Martin Barker Portfolio" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="tagger.site – Timestamped Tracklists Generator" />
-        <meta name="twitter:description" content="Automatically generate timestamped tracklists from audio files. Perfect for DJs and podcasters." />
-        <meta name="twitter:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
-        <link rel="canonical" href="https://martinbarker.me/tagger" />
-      </Head>
-      <div>
-        <h1>tagger page contents</h1>
-      </div>
-    </>
+    <div>
+      <h1>tagger page contents</h1>
+    </div>
   );
 }
