@@ -5,20 +5,18 @@ export const metadata = {
   authors: [{ name: 'Martin Barker' }],
   creator: 'Martin Barker',
   publisher: 'Martin Barker',
-  robots: 'index, follow',
-  canonical: 'https://martinbarker.me/rendertune/contribute',
+  robots: 'index, follow',  canonical: 'https://martinbarker.me/rendertune/contribute',
   openGraph: {
     title: 'Contribute to RenderTune - Open Source Development',
     description: 'Contribute to RenderTune open source project. Learn how to fork, clone, and submit pull requests for the desktop video rendering application.',
     url: 'https://martinbarker.me/rendertune/contribute',
     siteName: 'Martin Barker Portfolio',
-    type: 'website',
-    images: [
+    type: 'website',    images: [
       {
-        url: 'https://martinbarker.me/assets/martin-barker-profile.jpg',
+        url: '/images/rendertune_previewCard.png',
         width: 800,
         height: 600,
-        alt: 'Martin Barker - Software Developer',
+        alt: 'RenderTune - Desktop Video Rendering App',
       },
     ],
   },
@@ -26,7 +24,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Contribute to RenderTune - Open Source Development',
     description: 'Contribute to RenderTune open source project. Learn how to fork, clone, and submit pull requests for the desktop video rendering application.',
-    images: ['https://martinbarker.me/assets/martin-barker-profile.jpg'],
+    images: ['/images/rendertune_previewCard.png'],
     creator: '@MartinBarker99',
   },
 }

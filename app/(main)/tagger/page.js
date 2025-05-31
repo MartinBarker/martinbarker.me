@@ -5,14 +5,13 @@ export const metadata = {
   openGraph: {
     title: 'tagger.site – Generate Timestamped Tracklists',
     description: 'Automatically generate timestamped tracklists from audio files. Perfect for DJs, podcasters, and music enthusiasts.',
-    url: 'https://martinbarker.me/tagger',
-    siteName: 'Martin Barker Portfolio',
+    url: 'https://martinbarker.me/tagger',    siteName: 'Martin Barker Portfolio',
     images: [
       {
-        url: 'https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg',
+        url: '/images/taggerDotSite_previewCard.jpeg',
         width: 800,
         height: 600,
-        alt: 'Martin Barker - tagger.site Project',
+        alt: 'tagger.site - Timestamped Tracklist Generator',
       },
     ],
     locale: 'en_US',
@@ -22,7 +21,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'tagger.site – Timestamped Tracklists Generator',
     description: 'Automatically generate timestamped tracklists from audio files. Perfect for DJs and podcasters.',
-    images: ['https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg'],
+    images: ['/images/taggerDotSite_previewCard.jpeg'],
   },
 };
 

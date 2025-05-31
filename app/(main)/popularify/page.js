@@ -6,10 +6,9 @@ export const metadata = {
     title: 'Popularify – Spotify Discography Sorted by Popularity',
     description: 'Fetch an artist\'s full Spotify catalog ordered by popularity. Discover hidden gems and popular tracks in one organized view.',
     url: 'https://martinbarker.me/popularify',
-    siteName: 'Martin Barker Portfolio',
-    images: [
+    siteName: 'Martin Barker Portfolio',    images: [
       {
-        url: 'https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg',
+        url: '/images/headshot.jpg',
         width: 800,
         height: 600,
         alt: 'Martin Barker - Popularify Project',
@@ -22,7 +21,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Popularify – Spotify Discography Sorted',
     description: 'Fetch an artist\'s full Spotify catalog ordered by popularity. Find hidden gems and popular tracks.',
-    images: ['https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg'],
+    images: ['/images/headshot.jpg'],
   },
 };
 

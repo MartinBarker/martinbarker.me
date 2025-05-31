@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import styles from './rendertune.module.css';
-const screenshot = '/images/RenderTune_Windows.PNG';
+const screenshot = '/images/RenderTune_screenshot.PNG';
 
 const macAppStoreBadge = '/svg/mac-app-store-badge.svg';
 const msStoreBadge = '/svg/ms-store-badge.svg';
@@ -27,9 +27,7 @@ export default function RenderTune() {
 
   const handleMacClick = () => {
     setShowMacOptions(!showMacOptions);
-  };
-
-  return (
+  };  return (
     <>
       <Head>
         <title>RenderTune – Desktop Audio Rendering Tool | Martin Barker</title>
@@ -37,15 +35,14 @@ export default function RenderTune() {
         <meta name="keywords" content="RenderTune, audio rendering, desktop app, cross-platform, Windows, macOS, Linux, audio processing, music production" />
         <meta name="author" content="Martin Barker" />
         <meta property="og:title" content="RenderTune – Desktop Audio Rendering Tool" />
-        <meta property="og:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />
-        <meta property="og:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
+        <meta property="og:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />        <meta property="og:image" content="https://martinbarker.me/images/rendertune_previewCard.png" />
         <meta property="og:url" content="https://martinbarker.me/rendertune" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Martin Barker Portfolio" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="RenderTune – Desktop Audio Rendering Tool" />
         <meta name="twitter:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />
-        <meta name="twitter:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
+        <meta name="twitter:image" content="https://martinbarker.me/images/rendertune_previewCard.png" />
         <link rel="canonical" href="https://martinbarker.me/rendertune" />
       </Head>
 
@@ -126,8 +123,7 @@ export default function RenderTune() {
           <div className={styles.featureItem}>
             <h3>Format Support</h3>
             <p>Supports popular audio formats (mp3, wav, flac, etc.) and image formats (png, jpg, webp), output as mp4.</p>
-          </div>
-        </div>
+          </div>        </div>
       </section>
     </>
   );
