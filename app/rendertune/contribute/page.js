@@ -1,3 +1,36 @@
+export const metadata = {
+  title: 'Contribute to RenderTune - Open Source Development',
+  description: 'Contribute to RenderTune open source project. Learn how to fork, clone, and submit pull requests for the desktop video rendering application.',
+  keywords: ['RenderTune', 'contribute', 'open source', 'GitHub', 'pull request', 'fork', 'development', 'video rendering'],
+  authors: [{ name: 'Martin Barker' }],
+  creator: 'Martin Barker',
+  publisher: 'Martin Barker',
+  robots: 'index, follow',
+  canonical: 'https://martinbarker.me/rendertune/contribute',
+  openGraph: {
+    title: 'Contribute to RenderTune - Open Source Development',
+    description: 'Contribute to RenderTune open source project. Learn how to fork, clone, and submit pull requests for the desktop video rendering application.',
+    url: 'https://martinbarker.me/rendertune/contribute',
+    siteName: 'Martin Barker Portfolio',
+    type: 'website',
+    images: [
+      {
+        url: 'https://martinbarker.me/assets/martin-barker-profile.jpg',
+        width: 800,
+        height: 600,
+        alt: 'Martin Barker - Software Developer',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Contribute to RenderTune - Open Source Development',
+    description: 'Contribute to RenderTune open source project. Learn how to fork, clone, and submit pull requests for the desktop video rendering application.',
+    images: ['https://martinbarker.me/assets/martin-barker-profile.jpg'],
+    creator: '@MartinBarker99',
+  },
+}
+
 export default function ContributePage() {
   return (
     <div style={{ padding: '20px', color: '#fff' }}>

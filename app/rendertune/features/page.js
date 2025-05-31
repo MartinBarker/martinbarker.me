@@ -1,3 +1,36 @@
+export const metadata = {
+  title: 'RenderTune Features - Desktop Video Rendering',
+  description: 'Discover RenderTune features: render videos from audio files, drag-and-drop functionality, multiple format support, batch processing, and more.',
+  keywords: ['RenderTune', 'features', 'video rendering', 'audio to video', 'mp3', 'wav', 'flac', 'batch processing', 'desktop app'],
+  authors: [{ name: 'Martin Barker' }],
+  creator: 'Martin Barker',
+  publisher: 'Martin Barker',
+  robots: 'index, follow',
+  canonical: 'https://martinbarker.me/rendertune/features',
+  openGraph: {
+    title: 'RenderTune Features - Desktop Video Rendering',
+    description: 'Discover RenderTune features: render videos from audio files, drag-and-drop functionality, multiple format support, batch processing, and more.',
+    url: 'https://martinbarker.me/rendertune/features',
+    siteName: 'Martin Barker Portfolio',
+    type: 'website',
+    images: [
+      {
+        url: 'https://martinbarker.me/assets/martin-barker-profile.jpg',
+        width: 800,
+        height: 600,
+        alt: 'Martin Barker - Software Developer',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'RenderTune Features - Desktop Video Rendering',
+    description: 'Discover RenderTune features: render videos from audio files, drag-and-drop functionality, multiple format support, batch processing, and more.',
+    images: ['https://martinbarker.me/assets/martin-barker-profile.jpg'],
+    creator: '@MartinBarker99',
+  },
+}
+
 export default function FeaturesPage() {
   return (
     <div style={{ padding: '20px', color: '#fff' }}>

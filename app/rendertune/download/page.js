@@ -1,3 +1,36 @@
+export const metadata = {
+  title: 'Download RenderTune - Free Desktop Video Rendering App',
+  description: 'Download RenderTune for Windows, macOS, and Linux. Free desktop application for rendering videos from audio files with multiple format support.',
+  keywords: ['RenderTune', 'download', 'Windows', 'macOS', 'Linux', 'desktop app', 'video rendering', 'free', 'Mac App Store', 'Microsoft Store'],
+  authors: [{ name: 'Martin Barker' }],
+  creator: 'Martin Barker',
+  publisher: 'Martin Barker',
+  robots: 'index, follow',
+  canonical: 'https://martinbarker.me/rendertune/download',
+  openGraph: {
+    title: 'Download RenderTune - Free Desktop Video Rendering App',
+    description: 'Download RenderTune for Windows, macOS, and Linux. Free desktop application for rendering videos from audio files with multiple format support.',
+    url: 'https://martinbarker.me/rendertune/download',
+    siteName: 'Martin Barker Portfolio',
+    type: 'website',
+    images: [
+      {
+        url: 'https://martinbarker.me/assets/martin-barker-profile.jpg',
+        width: 800,
+        height: 600,
+        alt: 'Martin Barker - Software Developer',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Download RenderTune - Free Desktop Video Rendering App',
+    description: 'Download RenderTune for Windows, macOS, and Linux. Free desktop application for rendering videos from audio files with multiple format support.',
+    images: ['https://martinbarker.me/assets/martin-barker-profile.jpg'],
+    creator: '@MartinBarker99',
+  },
+}
+
 export default function DownloadPage() {
   return (
     <div style={{ padding: '20px', color: '#fff' }}>

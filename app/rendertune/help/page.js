@@ -1,3 +1,36 @@
+export const metadata = {
+  title: 'Help & Support - RenderTune',
+  description: 'Get help with RenderTune, contact support, and find answers to your questions about the desktop video rendering application.',
+  keywords: ['RenderTune', 'help', 'support', 'contact', 'questions', 'video rendering', 'desktop app'],
+  authors: [{ name: 'Martin Barker' }],
+  creator: 'Martin Barker',
+  publisher: 'Martin Barker',
+  robots: 'index, follow',
+  canonical: 'https://martinbarker.me/rendertune/help',
+  openGraph: {
+    title: 'Help & Support - RenderTune',
+    description: 'Get help with RenderTune, contact support, and find answers to your questions about the desktop video rendering application.',
+    url: 'https://martinbarker.me/rendertune/help',
+    siteName: 'Martin Barker Portfolio',
+    type: 'website',
+    images: [
+      {
+        url: 'https://martinbarker.me/assets/martin-barker-profile.jpg',
+        width: 800,
+        height: 600,
+        alt: 'Martin Barker - Software Developer',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Help & Support - RenderTune',
+    description: 'Get help with RenderTune, contact support, and find answers to your questions about the desktop video rendering application.',
+    images: ['https://martinbarker.me/assets/martin-barker-profile.jpg'],
+    creator: '@MartinBarker99',
+  },
+}
+
 export default function HelpPage() {
   return (
     <div style={{ padding: '20px', color: '#fff' }}>

@@ -1,31 +1,40 @@
 /* eslint-disable @next/next/no-img-element */
-import Head from 'next/head';
 import styles from './page.module.css';
 // remove the broken import
 // instead reference the public asset by its URL:
 const headshot = '/images/headshot.jpg';
 
+export const metadata = {
+  title: 'Martin Barker – Software Developer Portfolio',
+  description: 'Seattle-based software developer Martin Barker creates open-source music applications and web tools. Explore projects like RenderTune, Popularify, and more.',
+  keywords: 'Martin Barker, software developer, open source, music applications, Seattle developer, portfolio, web development',
+  openGraph: {
+    title: 'Martin Barker – Software Developer Portfolio',
+    description: 'Seattle-based software developer creating open-source music applications and innovative web tools. Check out my portfolio of projects and experience.',
+    url: 'https://martinbarker.me/',
+    siteName: 'Martin Barker Portfolio',
+    images: [
+      {
+        url: 'https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg',
+        width: 800,
+        height: 600,
+        alt: 'Martin Barker Profile Photo',
+      },
+    ],
+    locale: 'en_US',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Martin Barker – Software Developer Portfolio',
+    description: 'Seattle-based software developer creating open-source music applications and innovative web tools.',
+    images: ['https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg'],
+  },
+};
+
 export default function Home() {
   return (
-    <>
-      <Head>
-        <title>Martin Barker – Software Developer Portfolio</title>
-        <meta name="description" content="Seattle-based software developer Martin Barker creates open-source music applications and web tools. Explore projects like RenderTune, Popularify, and more." />
-        <meta name="keywords" content="Martin Barker, software developer, open source, music applications, Seattle developer, portfolio, web development" />
-        <meta name="author" content="Martin Barker" />
-        <meta property="og:title" content="Martin Barker – Software Developer Portfolio" />
-        <meta property="og:description" content="Seattle-based software developer creating open-source music applications and innovative web tools. Check out my portfolio of projects and experience." />
-        <meta property="og:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
-        <meta property="og:url" content="https://martinbarker.me/" />
-        <meta property="og:type" content="website" />
-        <meta property="og:site_name" content="Martin Barker Portfolio" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Martin Barker – Software Developer Portfolio" />
-        <meta name="twitter:description" content="Seattle-based software developer creating open-source music applications and innovative web tools." />
-        <meta name="twitter:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
-        <link rel="canonical" href="https://martinbarker.me/" />
-      </Head>
-      <div className={styles.homeContent}>
+    <div className={styles.homeContent}>
             {/* Top Section - 3 Column Layout */}
             <div className={styles.topSection}>
 
@@ -178,12 +187,10 @@ export default function Home() {
                         <ul>
                             {job.responsibilities.map((task, idx) => (
                                 <li key={idx}>{task}</li>
-                            ))}
-                        </ul>
+                            ))}                        </ul>
                     </div>
                 ))}
             </section>
         </div>
-    </>
 );
 }

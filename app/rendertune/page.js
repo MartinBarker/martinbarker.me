@@ -26,25 +26,25 @@ export default function RenderTune() {
   }, []);
 
   const handleMacClick = () => {
-    setShowMacOptions(true);
+    setShowMacOptions(!showMacOptions);
   };
 
   return (
     <>
       <Head>
-        <title>RenderTune – Professional Video Rendering App | Martin Barker</title>
-        <meta name="description" content="Combine audio and images into professional videos with RenderTune. Cross-platform desktop app for Windows, macOS, and Linux with drag-and-drop support." />
-        <meta name="keywords" content="video rendering, audio visualization, desktop app, cross-platform, video creation, multimedia, Windows, macOS, Linux" />
+        <title>RenderTune – Desktop Audio Rendering Tool | Martin Barker</title>
+        <meta name="description" content="RenderTune is a cross-platform desktop application for high-quality audio rendering and processing. Available for Windows, macOS, and Linux." />
+        <meta name="keywords" content="RenderTune, audio rendering, desktop app, cross-platform, Windows, macOS, Linux, audio processing, music production" />
         <meta name="author" content="Martin Barker" />
-        <meta property="og:title" content="RenderTune – Professional Video Rendering" />
-        <meta property="og:description" content="Combine audio & images into professional videos with RenderTune. Available for Windows, macOS, and Linux." />
+        <meta property="og:title" content="RenderTune – Desktop Audio Rendering Tool" />
+        <meta property="og:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />
         <meta property="og:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
         <meta property="og:url" content="https://martinbarker.me/rendertune" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Martin Barker Portfolio" />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="RenderTune – Professional Video Rendering" />
-        <meta name="twitter:description" content="Combine audio & images into professional videos. Cross-platform desktop app available now." />
+        <meta name="twitter:title" content="RenderTune – Desktop Audio Rendering Tool" />
+        <meta name="twitter:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />
         <meta name="twitter:image" content="https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg" />
         <link rel="canonical" href="https://martinbarker.me/rendertune" />
       </Head>
