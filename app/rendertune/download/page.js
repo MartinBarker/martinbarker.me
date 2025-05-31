@@ -5,20 +5,18 @@ export const metadata = {
   authors: [{ name: 'Martin Barker' }],
   creator: 'Martin Barker',
   publisher: 'Martin Barker',
-  robots: 'index, follow',
-  canonical: 'https://martinbarker.me/rendertune/download',
+  robots: 'index, follow',  canonical: 'https://martinbarker.me/rendertune/download',
   openGraph: {
     title: 'Download RenderTune - Free Desktop Video Rendering App',
     description: 'Download RenderTune for Windows, macOS, and Linux. Free desktop application for rendering videos from audio files with multiple format support.',
     url: 'https://martinbarker.me/rendertune/download',
     siteName: 'Martin Barker Portfolio',
-    type: 'website',
-    images: [
+    type: 'website',    images: [
       {
-        url: 'https://martinbarker.me/assets/martin-barker-profile.jpg',
+        url: '/images/rendertune_previewCard.png',
         width: 800,
         height: 600,
-        alt: 'Martin Barker - Software Developer',
+        alt: 'RenderTune - Desktop Video Rendering App',
       },
     ],
   },
@@ -26,7 +24,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Download RenderTune - Free Desktop Video Rendering App',
     description: 'Download RenderTune for Windows, macOS, and Linux. Free desktop application for rendering videos from audio files with multiple format support.',
-    images: ['https://martinbarker.me/assets/martin-barker-profile.jpg'],
+    images: ['/images/rendertune_previewCard.png'],
     creator: '@MartinBarker99',
   },
 }

@@ -6,13 +6,12 @@ export const metadata = {
     title: 'FFmpeg WASM – Browser-Based Video Processing',
     description: 'Process videos directly in your browser with FFmpeg WASM. No uploads required - all processing happens locally.',
     url: 'https://martinbarker.me/ffmpegwasm',
-    siteName: 'Martin Barker Portfolio',
-    images: [
+    siteName: 'Martin Barker Portfolio',    images: [
       {
-        url: 'https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg',
+        url: '/images/ffmpegWasm_previewCard.png',
         width: 800,
         height: 600,
-        alt: 'Martin Barker - FFmpeg WASM Project',
+        alt: 'FFmpeg WASM - Browser Video Processing Tool',
       },
     ],
     locale: 'en_US',
@@ -22,7 +21,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'FFmpeg WASM – Browser Video Processing',
     description: 'Process videos directly in your browser with FFmpeg WASM. No uploads required - all processing happens locally.',
-    images: ['https://alleninstitute.org/wp-content/uploads/2025/03/Martin-Barker-square-web.jpg'],
+    images: ['/images/ffmpegWasm_previewCard.png'],
   },
 };
 

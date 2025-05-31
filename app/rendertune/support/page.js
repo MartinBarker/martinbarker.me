@@ -5,20 +5,18 @@ export const metadata = {
   authors: [{ name: 'Martin Barker' }],
   creator: 'Martin Barker',
   publisher: 'Martin Barker',
-  robots: 'index, follow',
-  canonical: 'https://martinbarker.me/rendertune/support',
+  robots: 'index, follow',  canonical: 'https://martinbarker.me/rendertune/support',
   openGraph: {
     title: 'Support RenderTune - Help & Donations',
     description: 'Support RenderTune development through donations, sponsorships, and community engagement. Get help with the desktop video rendering application.',
     url: 'https://martinbarker.me/rendertune/support',
     siteName: 'Martin Barker Portfolio',
-    type: 'website',
-    images: [
+    type: 'website',    images: [
       {
-        url: 'https://martinbarker.me/assets/martin-barker-profile.jpg',
+        url: '/images/rendertune_previewCard.png',
         width: 800,
         height: 600,
-        alt: 'Martin Barker - Software Developer',
+        alt: 'RenderTune - Desktop Video Rendering App',
       },
     ],
   },
@@ -26,7 +24,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Support RenderTune - Help & Donations',
     description: 'Support RenderTune development through donations, sponsorships, and community engagement. Get help with the desktop video rendering application.',
-    images: ['https://martinbarker.me/assets/martin-barker-profile.jpg'],
+    images: ['/images/rendertune_previewCard.png'],
     creator: '@MartinBarker99',
   },
 }
