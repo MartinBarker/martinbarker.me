@@ -547,6 +547,10 @@ async function fetchDiscogsData(type, id) {
       url = `${DISCOGS_API_URL}/artists/${id}/releases`;
     } else if (type === 'list') {
       url = `${DISCOGS_API_URL}/lists/${id}`;
+    } else if (type === 'release') {
+      url = `${DISCOGS_API_URL}/releases/${id}`;
+    } else if (type === 'master') {
+      url = `${DISCOGS_API_URL}/masters/${id}`;
     } else {
       throw new Error('Invalid type provided.');
     }
@@ -556,7 +560,11 @@ async function fetchDiscogsData(type, id) {
       headers: { 'User-Agent': USER_AGENT },
     });
 
-    // Return only the first item from the response
+    // For release/master, return full JSON
+    if (type === 'release' || type === 'master') {
+      return response.data;
+    }
+    // Return only the first item from the response for other types
     if (response.data.releases && response.data.releases.length > 0) {
       return response.data.releases[0];
     } else if (response.data.items && response.data.items.length > 0) {

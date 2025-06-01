@@ -7,6 +7,18 @@ import { useColorContext } from '../ColorContext';
 import { GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 
+// Helper: Extract Discogs type and ID from URL
+function parseDiscogsUrl(url) {
+  // Examples:
+  // https://www.discogs.com/release/1234567-Artist-Title
+  // https://www.discogs.com/master/7654321-Artist-Title
+  const releaseMatch = url.match(/discogs\.com\/(release|master)\/(\d+)/i);
+  if (releaseMatch) {
+    return { type: releaseMatch[1].toLowerCase(), id: releaseMatch[2] };
+  }
+  return null;
+}
+
 export default function TaggerPage() {
   const { colors } = useColorContext();
   const urlInputContainerRef = useRef(null);
@@ -17,6 +29,7 @@ export default function TaggerPage() {
   const [urlInput, setUrlInput] = useState('');
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
+  const [discogsResponse, setDiscogsResponse] = useState(null);
 
   const [formatOrder, setFormatOrder] = useState([
     { id: 1, value: 'startTime' },
@@ -299,12 +312,38 @@ export default function TaggerPage() {
   };
 
   // Handle URL submit (button or enter)
-  const handleUrlSubmit = (e) => {
+  const handleUrlSubmit = async (e) => {
     if (e) e.preventDefault();
     setDebugInfo(prev => ({
       ...prev,
       url: urlInput
     }));
+
+    // Discogs URL logic
+    const discogsInfo = parseDiscogsUrl(urlInput);
+    if (discogsInfo) {
+      try {
+        const res = await fetch('http://localhost:3030/discogsFetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(discogsInfo)
+        });
+        const data = await res.json();
+        setDiscogsResponse(data); // Save to state
+      } catch (err) {
+        console.error('Error fetching Discogs data:', err);
+        setDiscogsResponse(null);
+      }
+    }
+  };
+
+  // Method to print Discogs response
+  const printDiscogsResponse = () => {
+    if (discogsResponse) {
+      console.log('Discogs API response:', discogsResponse);
+    } else {
+      console.log('No Discogs response available.');
+    }
   };
 
   // Detect if anything has changed from defaults
@@ -859,6 +898,69 @@ export default function TaggerPage() {
         >
           Clear / Reset
         </button>
+      )}
+      {/* Print Discogs Response Button */}
+      {discogsResponse && (
+        <button
+          type="button"
+          onClick={printDiscogsResponse}
+          style={{
+            margin: '0.5rem 0',
+            background: '#e0e7ff',
+            border: '1px solid #6366f1',
+            borderRadius: 4,
+            padding: '0.5rem 1.2rem',
+            fontWeight: 600,
+            fontSize: '1em',
+            cursor: 'pointer',
+            color: '#222',
+            display: 'block',
+            width: '100%',
+            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = '#6366f1';
+            e.currentTarget.style.color = '#fff';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = '#e0e7ff';
+            e.currentTarget.style.color = '#222';
+          }}
+        >
+          Print Discogs API Response to Console
+        </button>
+      )}
+
+      {/* Discogs API Response Status */}
+      {discogsResponse && (
+        <div style={{
+          margin: '1rem 0',
+          background: '#f0fdf4',
+          border: '1px solid #22c55e',
+          borderRadius: 6,
+          padding: '1rem',
+          fontFamily: 'monospace',
+          fontSize: '1em',
+          color: '#14532d',
+          wordBreak: 'break-all',
+          whiteSpace: 'pre-wrap',
+        }}>
+          <strong>Discogs API Response Status:</strong>
+          <div>
+            {discogsResponse.error ? (
+              <span style={{ color: '#dc2626' }}>Error: {discogsResponse.error}</span>
+            ) : (
+              <span>Status: Success</span>
+            )}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <strong>Summary:</strong>
+            <pre style={{ margin: 0, fontSize: '0.95em', color: '#14532d', background: 'none', border: 'none', padding: 0 }}>
+              {JSON.stringify(discogsResponse, null, 2).slice(0, 1000)}
+              {JSON.stringify(discogsResponse, null, 2).length > 1000 ? '\n...truncated...' : ''}
+            </pre>
+          </div>
+        </div>
       )}
       {/* DEBUG BOX */}
       <div
