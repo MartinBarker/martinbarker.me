@@ -4,20 +4,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import styles from './Tagger.module.css';
 import FileDrop from '../FileDrop/FileDrop';
 import { useColorContext } from '../ColorContext';
-import { GripVertical } from 'lucide-react';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
-
-// Helper: Extract Discogs type and ID from URL
-function parseDiscogsUrl(url) {
-  // Examples:
-  // https://www.discogs.com/release/1234567-Artist-Title
-  // https://www.discogs.com/master/7654321-Artist-Title
-  const releaseMatch = url.match(/discogs\.com\/(release|master)\/(\d+)/i);
-  if (releaseMatch) {
-    return { type: releaseMatch[1].toLowerCase(), id: releaseMatch[2] };
-  }
-  return null;
-}
 
 export default function TaggerPage() {
   const { colors } = useColorContext();
@@ -30,13 +16,15 @@ export default function TaggerPage() {
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
   const [discogsResponse, setDiscogsResponse] = useState(null);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
   const [formatOrder, setFormatOrder] = useState([
     { id: 1, value: 'startTime' },
     { id: 2, value: 'dash' },
     { id: 3, value: 'endTime' },
     { id: 4, value: 'title' },
-    { id: 5, value: 'artist' }
+    { id: 5, value: 'dash-artist' }, // new dash before artist
+    { id: 6, value: 'artist' }
   ]);
 
   const [selectOptions, setSelectOptions] = useState([
@@ -56,6 +44,10 @@ export default function TaggerPage() {
       { value: 'title', label: 'title' }
     ],
     [
+      { value: 'dash-artist', label: '-' },
+      { value: 'blank', label: '(blank)' }
+    ],
+    [
       { value: 'artist', label: 'artist' },
       { value: 'blank', label: '(blank)' }
     ]
@@ -67,7 +59,8 @@ export default function TaggerPage() {
     { id: 2, value: 'dash' },
     { id: 3, value: 'endTime' },
     { id: 4, value: 'title' },
-    { id: 5, value: 'artist' }
+    { id: 5, value: 'dash-artist' },
+    { id: 6, value: 'artist' }
   ];
   const defaultSelectOptions = [
     [
@@ -86,6 +79,10 @@ export default function TaggerPage() {
       { value: 'title', label: 'title' }
     ],
     [
+      { value: 'dash-artist', label: '-' },
+      { value: 'blank', label: '(blank)' }
+    ],
+    [
       { value: 'artist', label: 'artist' },
       { value: 'blank', label: '(blank)' }
     ]
@@ -97,25 +94,41 @@ export default function TaggerPage() {
   // Formatting suggestion state
   const [formatSuggestion, setFormatSuggestion] = useState(null);
 
-  // Load formatOrder/selectOptions from localStorage on mount (client only)
+  // Store last audioFiles/durations for dynamic textarea update
+  const audioFilesRef = useRef([]);
+  const durationsRef = useRef([]);
+
+  // Store last Discogs tracks/durations for dynamic textarea update
+  const discogsTracksRef = useRef([]);
+  const discogsDurationsRef = useRef([]);
+  // Track input source: 'files' | 'discogs' | null
+  const [inputSource, setInputSource] = useState(null);
+
+  // Load formatOrder/selectOptions/inputValue/artistDisabled from localStorage on mount (client only)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const savedOrder = localStorage.getItem('tagger_formatOrder');
       const savedOptions = localStorage.getItem('tagger_selectOptions');
+      const savedInputValue = localStorage.getItem('tagger_inputValue');
+      const savedArtistDisabled = localStorage.getItem('tagger_artistDisabled');
       if (savedOrder) setFormatOrder(JSON.parse(savedOrder));
       if (savedOptions) setSelectOptions(JSON.parse(savedOptions));
+      if (savedInputValue) setInputValue(savedInputValue);
+      if (savedArtistDisabled !== null) setArtistDisabled(savedArtistDisabled === 'true');
     } catch {}
   }, []);
 
-  // Save formatOrder/selectOptions to localStorage on change (client only)
+  // Save formatOrder/selectOptions/inputValue/artistDisabled to localStorage on change (client only)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem('tagger_formatOrder', JSON.stringify(formatOrder));
       localStorage.setItem('tagger_selectOptions', JSON.stringify(selectOptions));
+      localStorage.setItem('tagger_inputValue', inputValue);
+      localStorage.setItem('tagger_artistDisabled', String(artistDisabled));
     } catch {}
-  }, [formatOrder, selectOptions]);
+  }, [formatOrder, selectOptions, inputValue, artistDisabled]);
 
   const handleSelectChange = (idx, val) => {
     setFormatOrder((prev) => {
@@ -123,8 +136,6 @@ export default function TaggerPage() {
       updated[idx] = { ...updated[idx], value: val };
       return updated;
     });
-    // Save immediately after change (optional, but useEffect above will also handle)
-    // localStorage.setItem('tagger_formatOrder', JSON.stringify(updated));
   };
 
   // Helper to format seconds as mm:ss
@@ -151,12 +162,9 @@ export default function TaggerPage() {
     });
   }
 
-  // Store last audioFiles/durations for dynamic textarea update
-  const audioFilesRef = useRef([]);
-  const durationsRef = useRef([]);
-
   // Handle files: get durations, build tracklist, update debug
   const handleFilesSelected = async (files) => {
+    setIsLoadingFiles(true);
     const fileArr = Array.from(files);
     setDebugInfo(prev => ({
       ...prev,
@@ -182,6 +190,9 @@ export default function TaggerPage() {
     // Store for later use in dropdown changes
     audioFilesRef.current = audioFiles;
     durationsRef.current = durations;
+    discogsTracksRef.current = [];
+    discogsDurationsRef.current = [];
+    setInputSource('files');
 
     // Build tracklist lines
     let currentTime = 0;
@@ -198,6 +209,7 @@ export default function TaggerPage() {
           if (item.value === 'endTime') return end;
           if (item.value === 'title') return title;
           if (item.value === 'dash') return '-';
+          if (item.value === 'dash-artist') return artistDisabled ? '' : '-';
           if (item.value === 'artist') return '';
           return '';
         })
@@ -206,34 +218,124 @@ export default function TaggerPage() {
     });
 
     setInputValue(lines.join('\n'));
+    setIsLoadingFiles(false);
   };
 
-  // Update textarea when dropdowns change and audioFilesRef is set
+  // Update textarea when dropdowns change and audioFilesRef/discogsTracksRef is set
   useEffect(() => {
-    if (audioFilesRef.current.length === 0) return;
-    let currentTime = 0;
-    const lines = audioFilesRef.current.map((file, idx) => {
-      const start = formatTime(currentTime);
-      const end = formatTime(currentTime + (durationsRef.current[idx] || 0));
-      const title = file.name.replace(/\.[^/.]+$/, '');
-      currentTime += durationsRef.current[idx] || 0;
-
-      return formatOrder
-        .map((item) => {
-          if (item.value === 'blank') return '';
-          if (item.value === 'startTime') return start;
-          if (item.value === 'endTime') return end;
-          if (item.value === 'title') return title;
-          if (item.value === 'dash') return '-';
-          if (item.value === 'artist') return '';
-          return '';
-        })
-        .filter(Boolean)
-        .join(' ');
-    });
-    setInputValue(lines.join('\n'));
+    // Helper: check if dash-artist dropdown is present and enabled
+    const dashArtistIdx = formatOrder.findIndex(item => item.value === 'dash-artist');
+    const dashArtistEnabled = dashArtistIdx !== -1 && !artistDisabled;
+    if (inputSource === 'files' && audioFilesRef.current.length > 0) {
+      let currentTime = 0;
+      const lines = audioFilesRef.current.map((file, idx) => {
+        const start = formatTime(currentTime);
+        const end = formatTime(currentTime + (durationsRef.current[idx] || 0));
+        const title = file.name.replace(/\.[^/.]+$/, '');
+        currentTime += durationsRef.current[idx] || 0;
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(lines.join('\n'));
+    } else if (inputSource === 'discogs' && discogsTracksRef.current.length > 0) {
+      let currentTime = 0;
+      const lines = discogsTracksRef.current.map((track, idx) => {
+        const durationSec = discogsDurationsRef.current[idx] || 0;
+        const start = formatTime(currentTime);
+        const end = formatTime(currentTime + durationSec);
+        currentTime += durationSec;
+        // Get artist name for this track if present
+        let artistName = '';
+        if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
+          artistName = track.artists.map(a => a.name).join(', ');
+        }
+        return formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
+            if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(lines.join('\n'));
+    }
     // eslint-disable-next-line
   }, [formatOrder]);
+
+  // Update textarea when dropdowns change and audioFilesRef/discogsTracksRef/inputValue is set
+  useEffect(() => {
+    // Helper: check if dash-artist dropdown is present and enabled
+    const dashArtistIdx = formatOrder.findIndex(item => item.value === 'dash-artist');
+    const dashArtistEnabled = dashArtistIdx !== -1 && !artistDisabled;
+    // If we have discogsTracksRef or audioFilesRef, use those for accurate data
+    if (inputSource === 'files' && audioFilesRef.current.length > 0) {
+      let currentTime = 0;
+      const newLines = audioFilesRef.current.map((file, idx) => {
+        const start = formatTime(currentTime);
+        const end = formatTime(currentTime + (durationsRef.current[idx] || 0));
+        const title = file.name.replace(/\.[^/.]+$/, '');
+        currentTime += durationsRef.current[idx] || 0;
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(newLines.join('\n'));
+    } else if (inputSource === 'discogs' && discogsTracksRef.current.length > 0) {
+      let currentTime = 0;
+      const newLines = discogsTracksRef.current.map((track, idx) => {
+        const durationSec = discogsDurationsRef.current[idx] || 0;
+        const start = formatTime(currentTime);
+        const end = formatTime(currentTime + durationSec);
+        currentTime += durationSec;
+        let artistName = '';
+        if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
+          artistName = track.artists.map(a => a.name).join(', ');
+        }
+        return formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
+            if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(newLines.join('\n'));
+    }
+    // eslint-disable-next-line
+  }, [formatOrder, artistDisabled, inputSource]);
 
   // Detect duplicate prefix in textarea and show suggestion
   useEffect(() => {
@@ -298,7 +400,7 @@ export default function TaggerPage() {
   }, [inputValue, formatOrder, selectOptions]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(inputValue);
+    navigator.clipboard.writeText(inputValue ? `Timestamps generated by https://tagger.site:\n${inputValue}` : '');
     setCopyState('copied');
     setTimeout(() => setCopyState('idle'), 900);
   };
@@ -322,17 +424,75 @@ export default function TaggerPage() {
     // Discogs URL logic
     const discogsInfo = parseDiscogsUrl(urlInput);
     if (discogsInfo) {
+      const route = 'http://localhost:3030/discogsFetch';
       try {
-        const res = await fetch('http://localhost:3030/discogsFetch', {
+        const res = await fetch(route, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(discogsInfo)
         });
         const data = await res.json();
         setDiscogsResponse(data); // Save to state
+        logDiscogsRequest({ route, payload: discogsInfo, response: data });
+        // If response has a tracklist, generate textarea output
+        if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
+          // Helper to parse duration string (mm:ss or hh:mm:ss) to seconds
+          function parseDuration(str) {
+            if (!str) return 0;
+            const parts = str.split(':').map(Number);
+            if (parts.length === 3) {
+              return parts[0] * 3600 + parts[1] * 60 + parts[2];
+            } else if (parts.length === 2) {
+              return parts[0] * 60 + parts[1];
+            } else if (parts.length === 1) {
+              return parts[0];
+            }
+            return 0;
+          }
+          // Store Discogs tracks and durations for dropdown reactivity
+          discogsTracksRef.current = data.tracklist;
+          discogsDurationsRef.current = data.tracklist.map(track => parseDuration(track.duration));
+          audioFilesRef.current = [];
+          durationsRef.current = [];
+          setInputSource('discogs');
+          // Enable artist dropdown if any track has an artist
+          const hasArtist = data.tracklist.some(track => Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name);
+          setArtistDisabled(!hasArtist);
+          // Build textarea output
+          let currentTime = 0;
+          // Helper: check if dash-artist dropdown is present and enabled
+          const dashArtistIdx = formatOrder.findIndex(item => item.value === 'dash-artist');
+          const dashArtistEnabled = dashArtistIdx !== -1 && hasArtist;
+          const lines = data.tracklist.map((track, idx) => {
+            const durationSec = discogsDurationsRef.current[idx] || 0;
+            const start = formatTime(currentTime);
+            const end = formatTime(currentTime + durationSec);
+            currentTime += durationSec;
+            // Get artist name for this track if present
+            let artistName = '';
+            if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
+              artistName = track.artists.map(a => a.name).join(', ');
+            }
+            return formatOrder
+              .map(item => {
+                if (item.value === 'blank') return '';
+                if (item.value === 'startTime') return start;
+                if (item.value === 'endTime') return end;
+                if (item.value === 'title') return track.title || '';
+                if (item.value === 'dash') return '-';
+                if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
+                if (item.value === 'artist') return artistName;
+                return '';
+              })
+              .filter(Boolean)
+              .join(' ');
+          });
+          setInputValue(lines.join('\n'));
+        }
       } catch (err) {
         console.error('Error fetching Discogs data:', err);
         setDiscogsResponse(null);
+        logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
       }
     }
   };
@@ -365,11 +525,16 @@ export default function TaggerPage() {
     setArtistDisabled(true);
     audioFilesRef.current = [];
     durationsRef.current = [];
+    discogsTracksRef.current = [];
+    discogsDurationsRef.current = [];
+    setInputSource(null);
     setFormatSuggestion(null);
     // Remove from localStorage
     if (typeof window !== 'undefined') {
       localStorage.removeItem('tagger_formatOrder');
       localStorage.removeItem('tagger_selectOptions');
+      localStorage.removeItem('tagger_inputValue');
+      localStorage.removeItem('tagger_artistDisabled');
     }
   };
 
@@ -424,7 +589,7 @@ export default function TaggerPage() {
         .filter(Boolean)
         .join(' ')
     );
-    return `Sample tracklist generated by http://tagger.site:\n${lines.join('\n')}`;
+    return `Sample timestamps generated by https://tagger.site:\n${lines.join('\n')}`;
   };
 
   useEffect(() => {
@@ -443,57 +608,6 @@ export default function TaggerPage() {
     handleResize();
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
-  const dragItem = useRef(null);
-  const dragOverItem = useRef(null);
-
-  const handleDragStart = (index) => {
-    dragItem.current = index;
-    setDraggedIndex(index);
-  };
-
-  const handleDragEnter = (index) => {
-    dragOverItem.current = index;
-  };
-
-  const handleDragEnd = () => {
-    const from = dragItem.current;
-    const to = dragOverItem.current;
-    if (
-      from !== undefined &&
-      to !== undefined &&
-      from !== to &&
-      from !== null &&
-      to !== null
-    ) {
-      const newOrder = [...formatOrder];
-      const [removed] = newOrder.splice(from, 1);
-      newOrder.splice(to, 0, removed);
-      setFormatOrder(newOrder);
-    }
-    setDraggedIndex(null);
-    dragItem.current = null;
-    dragOverItem.current = null;
-  };
-
-  // react-beautiful-dnd reorder helper
-  function reorder(list, startIndex, endIndex) {
-    const result = Array.from(list);
-    const [removed] = result.splice(startIndex, 1);
-    result.splice(endIndex, 0, removed);
-    return result;
-  }
-
-  // DnD handler for timestamp format dropdowns
-  function onFormatDragEnd(result) {
-    if (!result.destination) return;
-    if (result.source.index === result.destination.index) return;
-    setFormatOrder(prev => reorder(prev, result.source.index, result.destination.index));
-    setSelectOptions(prev => reorder(prev, result.source.index, result.destination.index));
-    // Save immediately after drag (optional, but useEffect above will also handle)
-    // localStorage.setItem('tagger_formatOrder', JSON.stringify(newOrder));
-    // localStorage.setItem('tagger_selectOptions', JSON.stringify(newOptions));
-  }
 
   return (
     <div>
@@ -539,8 +653,8 @@ export default function TaggerPage() {
               marginBottom: '0.25rem',
               display: 'flex',
               alignItems: 'center',
-              gap: 0, // No gap between input and button
-              width: '80%'
+              gap: 0,
+              width: '100%' // Changed from 80% to 100%
             }}
             onSubmit={handleUrlSubmit}
           >
@@ -551,7 +665,7 @@ export default function TaggerPage() {
             >
               URL:
             </label>
-            <div style={{ display: 'flex', flex: 1 }}>
+            <div style={{ display: 'flex', flex: 1, width: '100%' }}> {/* Added width: 100% */}
               <input
                 id="url-input"
                 type="text"
@@ -567,8 +681,7 @@ export default function TaggerPage() {
                   background: '#fff',
                   flex: 1,
                   minWidth: 0,
-                  width: '0',
-                  // Ensures input shrinks to allow button to always be visible
+                  width: '100%', // Changed from 0 to 100%
                 }}
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
@@ -586,7 +699,9 @@ export default function TaggerPage() {
                   background: '#eee',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+                  transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
+                  width: 'auto', // Ensures button only as wide as content
+                  flexShrink: 0 // Prevents button from shrinking
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.background = '#ffe156';
@@ -623,111 +738,16 @@ export default function TaggerPage() {
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Timestamps:</strong>
       </div>
-      <DragDropContext onDragEnd={onFormatDragEnd}>
-        <Droppable
-          droppableId="timestamp-format"
-          direction="horizontal"
-          isDropDisabled={false}
-          isCombineEnabled={false}
-          ignoreContainerClipping={false}
-        >
-          {(provided, snapshot) => (
-            <div
-              ref={provided.innerRef}
-              {...provided.droppableProps}
-              style={{
-                width: '100%',
-                display: 'flex',
-                gap: 0,
-                justifyContent: 'center',
-                alignItems: 'stretch',
-                height: '2.5rem'
-              }}
-              className="timestamp-format-container"
-            >
-              {formatOrder.map((item, idx) => (
-                <Draggable draggableId={String(item.id)} index={idx} key={item.id}>
-                  {(draggableProvided, draggableSnapshot) => (
-                    <div
-                      ref={draggableProvided.innerRef}
-                      {...draggableProvided.draggableProps}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'stretch',
-                        flex: 1,
-                        minWidth: 0,
-                        opacity: draggableSnapshot.isDragging ? 0.5 : 1,
-                        ...draggableProvided.draggableProps.style
-                      }}
-                    >
-                      <span
-                        {...draggableProvided.dragHandleProps}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: 0,
-                          paddingLeft: 4,
-                          paddingRight: 4,
-                          background: '#fff',
-                          borderTopLeftRadius: idx === 0 ? 4 : 0,
-                          borderBottomLeftRadius: idx === 0 ? 4 : 0,
-                          borderTopRightRadius: 0,
-                          borderBottomRightRadius: 0,
-                          border: '1px solid #ccc',
-                          borderRight: 'none',
-                          cursor: 'grab',
-                          userSelect: 'none'
-                        }}
-                        tabIndex={0}
-                        aria-label="Drag to reorder"
-                      >
-                        <GripVertical size={18} />
-                      </span>
-                      <select
-                        className="taggerOptions"
-                        id={`taggerOption${item.id}`}
-                        value={item.value}
-                        onChange={e => handleSelectChange(idx, e.target.value)}
-                        disabled={formatOrder[idx].value === 'artist' && artistDisabled}
-                        style={{
-                          height: '100%',
-                          flex: 1,
-                          minWidth: 0,
-                          padding: 0,
-                          borderRadius: idx === 0
-                            ? '0 0 0 0'
-                            : idx === formatOrder.length - 1
-                            ? '0 4px 4px 0'
-                            : '0',
-                          border: '1px solid #ccc',
-                          borderLeft: 'none',
-                          borderRight: idx !== formatOrder.length - 1 ? 'none' : '1px solid #ccc',
-                          fontSize: '1rem',
-                          textAlign: 'center',
-                          background: '#fff',
-                          boxSizing: 'border-box',
-                          cursor: formatOrder[idx].value === 'artist' && artistDisabled ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        {selectOptions[idx].map(opt => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </Draggable>
-              ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-      </DragDropContext>
       <div style={{ width: '100%' }}>
         <textarea
-          value={inputValue}
-          onChange={e => setInputValue(e.target.value)}
+          value={inputValue ? `Timestamps generated by https://tagger.site:\n${inputValue}` : ''}
+          onChange={e => {
+            // Remove the prefix if present, then update inputValue
+            const prefix = 'Timestamps generated by https://tagger.site:\n';
+            let val = e.target.value;
+            if (val.startsWith(prefix)) val = val.slice(prefix.length);
+            setInputValue(val);
+          }}
           onFocus={() => setInputFocused(true)}
           onBlur={() => setInputFocused(false)}
           placeholder={inputFocused ? '' : getPlaceholder()}
@@ -767,7 +787,7 @@ export default function TaggerPage() {
         >
           {copyState === 'copied'
             ? 'Copied!'
-            : `Copy ${inputValue.length} chars to clipboard`}
+            : `Copy ${(inputValue ? (`Timestamps generated by https://tagger.site:\n${inputValue}`) : '').length} chars to clipboard`}
         </button>
         {/* Formatting Suggestion Popup */}
         {formatSuggestion && (
@@ -866,6 +886,31 @@ export default function TaggerPage() {
           </div>
         )}
       </div>
+      {/* Loading Spinner Overlay */}
+      {isLoadingFiles && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: 'rgba(255,255,255,0.7)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <div style={{
+            border: '6px solid #eee',
+            borderTop: '6px solid #6366f1',
+            borderRadius: '50%',
+            width: 60,
+            height: 60,
+            animation: 'spin 1s linear infinite',
+          }} />
+          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
       {/* Clear/Reset Button moved here above Debug Box */}
       {isChanged && (
         <button
@@ -930,69 +975,6 @@ export default function TaggerPage() {
           Print Discogs API Response to Console
         </button>
       )}
-
-      {/* Discogs API Response Status */}
-      {discogsResponse && (
-        <div style={{
-          margin: '1rem 0',
-          background: '#f0fdf4',
-          border: '1px solid #22c55e',
-          borderRadius: 6,
-          padding: '1rem',
-          fontFamily: 'monospace',
-          fontSize: '1em',
-          color: '#14532d',
-          wordBreak: 'break-all',
-          whiteSpace: 'pre-wrap',
-        }}>
-          <strong>Discogs API Response Status:</strong>
-          <div>
-            {discogsResponse.error ? (
-              <span style={{ color: '#dc2626' }}>Error: {discogsResponse.error}</span>
-            ) : (
-              <span>Status: Success</span>
-            )}
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <strong>Summary:</strong>
-            <pre style={{ margin: 0, fontSize: '0.95em', color: '#14532d', background: 'none', border: 'none', padding: 0 }}>
-              {JSON.stringify(discogsResponse, null, 2).slice(0, 1000)}
-              {JSON.stringify(discogsResponse, null, 2).length > 1000 ? '\n...truncated...' : ''}
-            </pre>
-          </div>
-        </div>
-      )}
-      {/* DEBUG BOX */}
-      <div
-        style={{
-          marginTop: '0rem',
-          width: '100%',
-          background: '#f6f6f6',
-          border: '1px solid #ccc',
-          borderRadius: 6,
-          padding: '1rem',
-          fontFamily: 'monospace',
-          fontSize: '1em',
-          color: '#333',
-          wordBreak: 'break-all'
-        }}
-      >
-        <strong>Debug Info:</strong>
-        <div>
-          <div>
-            <span style={{ fontWeight: 600 }}>URL:</span>{' '}
-            <span>{debugInfo.url}</span>
-          </div>
-          <div>
-            <span style={{ fontWeight: 600 }}>Files:</span>{' '}
-            <span>
-              {debugInfo.files && debugInfo.files.length > 0
-                ? debugInfo.files.join(', ')
-                : <span style={{ color: '#888' }}>(none)</span>}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
