@@ -1,0 +1,27 @@
+.fileDrop {
+  border: 2px dashed black;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+  color: black;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+  outline: none;
+  user-select: none;
+}
+
+.fileDrop:hover,
+.fileDrop:focus {
+  border-color: #ffe156;
+  background: #fffbe6;
+  color: #d97706;
+}
+
+.fileDrop.dragging {
+  border-color: #0070f3;
+  background: #e6f0ff;
+}
+
+.fileDrop span {
+  font-size: 1rem;
+}

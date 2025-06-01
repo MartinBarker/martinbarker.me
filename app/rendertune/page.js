@@ -35,7 +35,7 @@ export default function RenderTune() {
         <meta name="keywords" content="RenderTune, audio rendering, desktop app, cross-platform, Windows, macOS, Linux, audio processing, music production" />
         <meta name="author" content="Martin Barker" />
         <meta property="og:title" content="RenderTune – Desktop Audio Rendering Tool" />
-        <meta property="og:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />
+        <meta property="og:description" content="RenderTune is a cross-platform desktop application for high-quality audio rendering and processing. Available for Windows, macOS, and Linux." />
         <meta property="og:image" content="/images/rendertune_previewCard.png" />
         <meta property="og:url" content="https://martinbarker.me/rendertune" />
         <meta property="og:type" content="website" />
