@@ -5,13 +5,15 @@ export const metadata = {
   authors: [{ name: 'Martin Barker' }],
   creator: 'Martin Barker',
   publisher: 'Martin Barker',
-  robots: 'index, follow',  canonical: 'https://martinbarker.me/rendertune/contribute',
+  robots: 'index, follow',
+  canonical: 'https://martinbarker.me/rendertune/contribute',
   openGraph: {
     title: 'Contribute to RenderTune - Open Source Development',
     description: 'Contribute to RenderTune open source project. Learn how to fork, clone, and submit pull requests for the desktop video rendering application.',
     url: 'https://martinbarker.me/rendertune/contribute',
     siteName: 'Martin Barker Portfolio',
-    type: 'website',    images: [
+    type: 'website',
+    images: [
       {
         url: '/images/rendertune_previewCard.png',
         width: 800,

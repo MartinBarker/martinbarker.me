@@ -7,7 +7,7 @@ export const metadata = {
     url: 'https://martinbarker.me/popularify',
     siteName: 'Martin Barker Portfolio',    images: [
       {
-        url: 'https://martinbarker.me/images/headshot.jpg',
+        url: '/images/headshot.jpg',
         width: 800,
         height: 600,
         alt: 'Martin Barker - Popularify Project',
@@ -20,7 +20,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Popularify – Spotify Discography Sorted',
     description: 'Fetch an artist\'s full Spotify catalog ordered by popularity. Find hidden gems and popular tracks.',
-    images: ['https://martinbarker.me/images/headshot.jpg'],
+    images: ['/images/headshot.jpg'],
   },
 };
 

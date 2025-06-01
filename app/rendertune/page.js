@@ -35,14 +35,15 @@ export default function RenderTune() {
         <meta name="keywords" content="RenderTune, audio rendering, desktop app, cross-platform, Windows, macOS, Linux, audio processing, music production" />
         <meta name="author" content="Martin Barker" />
         <meta property="og:title" content="RenderTune – Desktop Audio Rendering Tool" />
-        <meta property="og:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />        <meta property="og:image" content="https://martinbarker.me/images/rendertune_previewCard.png" />
+        <meta property="og:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />
+        <meta property="og:image" content="/images/rendertune_previewCard.png" />
         <meta property="og:url" content="https://martinbarker.me/rendertune" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Martin Barker Portfolio" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="RenderTune – Desktop Audio Rendering Tool" />
         <meta name="twitter:description" content="Cross-platform desktop application for high-quality audio rendering and processing. Download for Windows, macOS, and Linux." />
-        <meta name="twitter:image" content="https://martinbarker.me/images/rendertune_previewCard.png" />
+        <meta name="twitter:image" content="/images/rendertune_previewCard.png" />
         <link rel="canonical" href="https://martinbarker.me/rendertune" />
       </Head>
 
