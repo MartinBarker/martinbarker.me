@@ -5,13 +5,15 @@ export const metadata = {
   authors: [{ name: 'Martin Barker' }],
   creator: 'Martin Barker',
   publisher: 'Martin Barker',
-  robots: 'index, follow',  canonical: 'https://martinbarker.me/rendertune/help',
+  robots: 'index, follow',
+  canonical: 'https://martinbarker.me/rendertune/help',
   openGraph: {
     title: 'Help & Support - RenderTune',
     description: 'Get help with RenderTune, contact support, and find answers to your questions about the desktop video rendering application.',
     url: 'https://martinbarker.me/rendertune/help',
     siteName: 'Martin Barker Portfolio',
-    type: 'website',    images: [
+    type: 'website',
+    images: [
       {
         url: '/images/rendertune_previewCard.png',
         width: 800,

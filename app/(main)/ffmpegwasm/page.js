@@ -7,7 +7,7 @@ export const metadata = {
     url: 'https://martinbarker.me/ffmpegwasm',
     siteName: 'Martin Barker Portfolio',    images: [
       {
-        url: 'https://martinbarker.me/images/ffmpegWasm_previewCard.png',
+        url: '/images/ffmpegWasm_previewCard.png',
         width: 800,
         height: 600,
         alt: 'FFmpeg WASM - Browser Video Processing Tool',
@@ -20,7 +20,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'FFmpeg WASM – Browser Video Processing',
     description: 'Process videos directly in your browser with FFmpeg WASM. No uploads required - all processing happens locally.',
-    images: ['https://martinbarker.me/images/ffmpegWasm_previewCard.png'],
+    images: ['/images/ffmpegWasm_previewCard.png'],
   },
 };
 

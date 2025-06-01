@@ -12,7 +12,7 @@ export const metadata = {
     description: 'Seattle-based software developer creating open-source music applications and innovative web tools. Check out my portfolio of projects and experience.',    url: 'https://martinbarker.me/',
     siteName: 'Martin Barker Portfolio',    images: [
       {
-        url: 'https://martinbarker.me/images/headshot.jpg',
+        url: '/images/headshot.jpg',
         width: 800,
         height: 600,
         alt: 'Martin Barker Profile Photo',
@@ -25,7 +25,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Martin Barker – Software Developer Portfolio',
     description: 'Seattle-based software developer creating open-source music applications and innovative web tools.',
-    images: ['https://martinbarker.me/images/headshot.jpg'],
+    images: ['/images/headshot.jpg'],
   },
 };
 
