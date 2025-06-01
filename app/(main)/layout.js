@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'; // <-- add this import
 import { Home, Music, FileMusicIcon, BarChart, Mail, Github, Linkedin, Menu, ChevronRight, Contact, FileText as ResumeIcon } from 'lucide-react';
 import ImageModal from './ImageModal/ImageModal';
+import { ColorContext } from './ColorContext';
 
 export default function RootLayout({ children }) {
   
@@ -35,7 +36,7 @@ export default function RootLayout({ children }) {
     },
     "/tagger": {
       title: "tagger.site",
-      subtitle: "Generate timestamped tracklists for audio files",
+      subtitle: "Generate timestamped tracklists and comma seperated tags from audio files or URLs",
       icon: "/ico/martinbarker.ico"
     },
     "/discogs2youtube": {
@@ -116,6 +117,7 @@ export default function RootLayout({ children }) {
           const randomKey = imageKeys[Math.floor(Math.random() * imageKeys.length)];
           setRandomImage(`/images/aesthetic-images/images/${randomKey}`);
           setColors(data[randomKey].colors);
+          console.log('fetched color data: ', data[randomKey].colors)
         })
         .catch((error) => console.error("Error loading colors.json:", error));
     }, []);
@@ -266,235 +268,237 @@ export default function RootLayout({ children }) {
     );
 
   return (
-    <html lang="en">
-      <head>
-        <title>{pageTitle}</title>
-        <link rel="icon" href={pageIcon} />
-        <link rel="shortcut icon" href={pageIcon} />
-      </head>
-      <body  style={{ margin: '0px' }}>
-      <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
-        <defs>
-          <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" colorInterpolationFilters="sRGB" overflow="visible">
-            <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="1" result="bigNoise" /> {/* Increased baseFrequency for fewer particles */}
-            <feComponentTransfer in="bigNoise" result="bigNoiseAdjusted">
-              <feFuncR type="linear" slope="2" intercept="-0.8" /> {/* Adjusted values for less intense effect */}
-              <feFuncG type="linear" slope="2" intercept="-0.8" />
-            </feComponentTransfer>
-            <feTurbulence type="fractalNoise" baseFrequency="1.5" numOctaves="1" result="fineNoise" /> {/* Adjusted baseFrequency */}
-            <feMerge result="mergedNoise">
-              <feMergeNode in="bigNoiseAdjusted" />
-              <feMergeNode in="fineNoise" />
-            </feMerge>
-            <feDisplacementMap in="SourceGraphic" in2="mergedNoise" scale="0" xChannelSelector="R" yChannelSelector="G" />
-          </filter>
-        </defs>
-      </svg>
-      <div className={`${styles.wrapper} ${isMobile ? styles.mobile : ''}`}>
-        <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
-          onClick={() => isMobile && setSidebarActive(false)} />
-        <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : styles.collapsed}`}
-          style={{ background: colors.Vibrant }}>
-          <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
-            <button id="sidebarToggle" className={styles.sidebarCollapse} onClick={toggleSidebar}>
-              {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
-            </button>
-            <h3 className={`${styles.sidebarHeaderText} ${!sidebarActive && styles.hidden}`}>
-              <strong>Martin Barker</strong>
-            </h3>
-          </div>
-          <ul className={styles.sidebarMenu} style={{ background: colors.DarkVibrant }}>
-
-            {/* Home */}
-            <ProjectLink
-              to="/"
-              icon={Home}
-              label="Home"
-            />
-
-            <ProjectLink
-              to="/rendertune"
-              icon={FileMusicIcon}
-              label="RenderTune"
-            />
-
-            <ProjectLink
-              to="/tagger"
-              icon={FileMusicIcon}
-              label="tagger.site"
-            />
-
-            <ProjectLink
-              to="/ffmpegwasm"
-              icon={FileMusicIcon}
-              label="ffmpeg wasm"
-            />
-
-            <ProjectLink
-              to="/discogs2youtube"
-              icon={FileMusicIcon}
-              label="Discogs2Youtube"
-            />
-{/* 
-            <ProjectLink
-              to="/retro-roulette"
-              icon={FileMusicIcon}
-              label="Retro Roulette"
-            />
-
-            <ProjectLink
-              to="/discogs-video-extension"
-              icon={Music}
-              label="Discogs Extension"
-            />
-
-            <ProjectLink
-              to="/rap-genius-producer-exporter"
-              icon={BarChart}
-              label="Rap Genius Exporter"
-            />
-
-            <ProjectLink
-              to="/bandcamp-api"
-              icon={FileMusicIcon}
-              label="Bandcamp API"
-            />
-
-            <ProjectLink
-              to="/split-by-silence"
-              icon={FileMusicIcon}
-              label="Split By Silence"
-            />
-
-            <ProjectLink
-              to="/jermasearch"
-              icon={FileMusicIcon}
-              label="Jerma985 Search"
-            />
-
-            <ProjectLink
-              to="/ableton-to-cue"
-              icon={FileMusicIcon}
-              label="Ableton .als to .cue"
-            />
-*/}
-            {/* Existing Contact and other sections remain the same */}
-            <ProjectLink
-              to="/popularify"
-              icon={BarChart}
-              label="Popularify"
-            />
-
-            {/* Contact Submenu */}
-            <li className={`${styles.navbarItem} ${styles.contactSection}`}>
-              <button className={styles.contactToggle} onClick={handleContactClick} style={{ color: sidebarTextColor }}>
-                <div className={styles.iconContainer}>
-                  <Contact size={20} color={sidebarTextColor} />
-                </div>
-                <span className={!sidebarActive ? styles.hidden : ''}>Contact</span>
-                {sidebarActive && (
-                  <span className={`${styles.arrowIcon} ${contactExpanded ? styles.expanded : ''}`} style={{ color: sidebarTextColor }}>
-                    ▼
-                  </span>
-                )}
+    <ColorContext.Provider value={{ colors, colorData }}>
+      <html lang="en">
+        <head>
+          <title>{pageTitle}</title>
+          <link rel="icon" href={pageIcon} />
+          <link rel="shortcut icon" href={pageIcon} />
+        </head>
+        <body  style={{ margin: '0px' }}>
+        <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
+          <defs>
+            <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" colorInterpolationFilters="sRGB" overflow="visible">
+              <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="1" result="bigNoise" /> {/* Increased baseFrequency for fewer particles */}
+              <feComponentTransfer in="bigNoise" result="bigNoiseAdjusted">
+                <feFuncR type="linear" slope="2" intercept="-0.8" /> {/* Adjusted values for less intense effect */}
+                <feFuncG type="linear" slope="2" intercept="-0.8" />
+              </feComponentTransfer>
+              <feTurbulence type="fractalNoise" baseFrequency="1.5" numOctaves="1" result="fineNoise" /> {/* Adjusted baseFrequency */}
+              <feMerge result="mergedNoise">
+                <feMergeNode in="bigNoiseAdjusted" />
+                <feMergeNode in="fineNoise" />
+              </feMerge>
+              <feDisplacementMap in="SourceGraphic" in2="mergedNoise" scale="0" xChannelSelector="R" yChannelSelector="G" />
+            </filter>
+          </defs>
+        </svg>
+        <div className={`${styles.wrapper} ${isMobile ? styles.mobile : ''}`}>
+          <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
+            onClick={() => isMobile && setSidebarActive(false)} />
+          <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : styles.collapsed}`}
+            style={{ background: colors.Vibrant }}>
+            <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
+              <button id="sidebarToggle" className={styles.sidebarCollapse} onClick={toggleSidebar}>
+                {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
               </button>
-              <ul className={`${styles.contactList} ${contactExpanded ? styles.expanded : ''}`}>
-                <li>
-                  <a href="/static/assets/pdf/Martin Barker Resume.pdf"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.contactItem}
-                    style={{ color: sidebarTextColor }}>
-                    <ResumeIcon size={20} className={styles.contactIcon} color={sidebarTextColor} />
-                    Resume
-                  </a>
-                </li>
-                <li>
-                  <a href="mailto:martinbarker99@gmail.com" className={styles.contactItem} style={{ color: sidebarTextColor }}>
-                    <Mail size={20} className={styles.contactIcon} color={sidebarTextColor} />
-                    Email
-                  </a>
-                </li>
-                <li>
-                  <a href="https://github.com/MartinBarker"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.contactItem}
-                    style={{ color: sidebarTextColor }}>
-                    <Github size={20} className={styles.contactIcon} color={sidebarTextColor} />
-                    Github
-                  </a>
-                </li>
-                <li>
-                  <a href="https://www.linkedin.com/in/martinbarker99"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={styles.contactItem}
-                    style={{ color: sidebarTextColor }}>
-                    <Linkedin size={20} className={styles.contactIcon} color={sidebarTextColor} />
-                    LinkedIn
-                  </a>
-                </li>
-              </ul>
-            </li>
-          </ul>
-          <div className={styles.sidebarFooter}>
-            <button onClick={refreshColors} className={`${styles.refreshButton} ${!sidebarActive && styles.hidden}`} style={{ border: '1px solid black' }}>
-              Refresh Colors
-            </button>
-            <div className={`${styles.colorBoxes} ${!sidebarActive && styles.hidden}`}>
-              {Object.entries(colors).map(([name, color]) => (
-                <div
-                  key={name}
-                  className={styles.colorBox}
-                  style={{ background: color }}
-                  title={`${name}: ${color}`}
-                />
-              ))}
+              <h3 className={`${styles.sidebarHeaderText} ${!sidebarActive && styles.hidden}`}>
+                <strong>Martin Barker</strong>
+              </h3>
             </div>
-            {randomImage && (
-              <img
-                src={randomImage}
-                alt="Random aesthetic"
-                className={styles.colorImage}
-                onClick={handleImageClick}
+            <ul className={styles.sidebarMenu} style={{ background: colors.DarkVibrant }}>
+
+              {/* Home */}
+              <ProjectLink
+                to="/"
+                icon={Home}
+                label="Home"
               />
-            )}
-            <p className={`${styles.creditText} ${!sidebarActive ? styles.hidden : ''}`}>
-              <a href="https://codepen.io/Mikhail-Bespalov/pen/yLmpxOG" target="_blank" rel="noopener noreferrer">
-                snap effect by Mike Bespalov
-              </a>
-            </p>
-          </div>
-        </nav>
-        <main
-          className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''
-            }`}
-          style={{ background: colors.LightMuted }}
-        >
-          <div className={styles.contentWrapper}>
-            <div
-              className={styles.titleCard}
-              style={{ background: colors.Muted }}
-            >
-              <h1 className={styles.pageTitle}>
-                <strong>{pageTitle}</strong>
-              </h1>
-              {pageSubTitle && (
-                <p className={styles.pageSubTitle}>{pageSubTitle}</p>
+
+              <ProjectLink
+                to="/rendertune"
+                icon={FileMusicIcon}
+                label="RenderTune"
+              />
+
+              <ProjectLink
+                to="/tagger"
+                icon={FileMusicIcon}
+                label="tagger.site"
+              />
+
+              <ProjectLink
+                to="/ffmpegwasm"
+                icon={FileMusicIcon}
+                label="ffmpeg wasm"
+              />
+
+              <ProjectLink
+                to="/discogs2youtube"
+                icon={FileMusicIcon}
+                label="Discogs2Youtube"
+              />
+  {/* 
+              <ProjectLink
+                to="/retro-roulette"
+                icon={FileMusicIcon}
+                label="Retro Roulette"
+              />
+
+              <ProjectLink
+                to="/discogs-video-extension"
+                icon={Music}
+                label="Discogs Extension"
+              />
+
+              <ProjectLink
+                to="/rap-genius-producer-exporter"
+                icon={BarChart}
+                label="Rap Genius Exporter"
+              />
+
+              <ProjectLink
+                to="/bandcamp-api"
+                icon={FileMusicIcon}
+                label="Bandcamp API"
+              />
+
+              <ProjectLink
+                to="/split-by-silence"
+                icon={FileMusicIcon}
+                label="Split By Silence"
+              />
+
+              <ProjectLink
+                to="/jermasearch"
+                icon={FileMusicIcon}
+                label="Jerma985 Search"
+              />
+
+              <ProjectLink
+                to="/ableton-to-cue"
+                icon={FileMusicIcon}
+                label="Ableton .als to .cue"
+              />
+  */}
+              {/* Existing Contact and other sections remain the same */}
+              <ProjectLink
+                to="/popularify"
+                icon={BarChart}
+                label="Popularify"
+              />
+
+              {/* Contact Submenu */}
+              <li className={`${styles.navbarItem} ${styles.contactSection}`}>
+                <button className={styles.contactToggle} onClick={handleContactClick} style={{ color: sidebarTextColor }}>
+                  <div className={styles.iconContainer}>
+                    <Contact size={20} color={sidebarTextColor} />
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Contact</span>
+                  {sidebarActive && (
+                    <span className={`${styles.arrowIcon} ${contactExpanded ? styles.expanded : ''}`} style={{ color: sidebarTextColor }}>
+                      ▼
+                    </span>
+                  )}
+                </button>
+                <ul className={`${styles.contactList} ${contactExpanded ? styles.expanded : ''}`}>
+                  <li>
+                    <a href="/static/assets/pdf/Martin Barker Resume.pdf"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.contactItem}
+                      style={{ color: sidebarTextColor }}>
+                      <ResumeIcon size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      Resume
+                    </a>
+                  </li>
+                  <li>
+                    <a href="mailto:martinbarker99@gmail.com" className={styles.contactItem} style={{ color: sidebarTextColor }}>
+                      <Mail size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      Email
+                    </a>
+                  </li>
+                  <li>
+                    <a href="https://github.com/MartinBarker"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.contactItem}
+                      style={{ color: sidebarTextColor }}>
+                      <Github size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      Github
+                    </a>
+                  </li>
+                  <li>
+                    <a href="https://www.linkedin.com/in/martinbarker99"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.contactItem}
+                      style={{ color: sidebarTextColor }}>
+                      <Linkedin size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      LinkedIn
+                    </a>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+            <div className={styles.sidebarFooter}>
+              <button onClick={refreshColors} className={`${styles.refreshButton} ${!sidebarActive && styles.hidden}`} style={{ border: '1px solid black' }}>
+                Refresh Colors
+              </button>
+              <div className={`${styles.colorBoxes} ${!sidebarActive && styles.hidden}`}>
+                {Object.entries(colors).map(([name, color]) => (
+                  <div
+                    key={name}
+                    className={styles.colorBox}
+                    style={{ background: color }}
+                    title={`${name}: ${color}`}
+                  />
+                ))}
+              </div>
+              {randomImage && (
+                <img
+                  src={randomImage}
+                  alt="Random aesthetic"
+                  className={styles.colorImage}
+                  onClick={handleImageClick}
+                />
               )}
+              <p className={`${styles.creditText} ${!sidebarActive ? styles.hidden : ''}`}>
+                <a href="https://codepen.io/Mikhail-Bespalov/pen/yLmpxOG" target="_blank" rel="noopener noreferrer">
+                  Refresh color effect by Mike Bespalov
+                </a>
+              </p>
             </div>
-            <div className={styles.contentBody}>{children}</div>
-          </div>
-        </main>
-        {imageModalOpen && (
-          <ImageModal 
-            imageUrl={randomImage} 
-            onClose={() => setImageModalOpen(false)} 
-          />
-        )}
-      </div>
-      </body>
-    </html>
+          </nav>
+          <main
+            className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''
+              }`}
+            style={{ background: colors.LightMuted }}
+          >
+            <div className={styles.contentWrapper}>
+              <div
+                className={styles.titleCard}
+                style={{ background: colors.Muted }}
+              >
+                <h1 className={styles.pageTitle}>
+                  <strong>{pageTitle}</strong>
+                </h1>
+                {pageSubTitle && (
+                  <p className={styles.pageSubTitle}>{pageSubTitle}</p>
+                )}
+              </div>
+              <div className={styles.contentBody}>{children}</div>
+            </div>
+          </main>
+          {imageModalOpen && (
+            <ImageModal 
+              imageUrl={randomImage} 
+              onClose={() => setImageModalOpen(false)} 
+            />
+          )}
+        </div>
+        </body>
+      </html>
+    </ColorContext.Provider>
   );
 }
