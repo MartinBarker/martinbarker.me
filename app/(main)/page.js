@@ -7,13 +7,12 @@ const headshot = '/images/headshot.jpg';
 export const metadata = {
   title: 'Martin Barker – Software Developer Portfolio',
   description: 'Seattle-based software developer Martin Barker creates open-source music applications and web tools. Explore projects like RenderTune, Popularify, and more.',
-  keywords: 'Martin Barker, software developer, open source, music applications, Seattle developer, portfolio, web development',
-  openGraph: {
+  keywords: 'Martin Barker, software developer, open source, music applications, Seattle developer, portfolio, web development',  openGraph: {
     title: 'Martin Barker – Software Developer Portfolio',
     description: 'Seattle-based software developer creating open-source music applications and innovative web tools. Check out my portfolio of projects and experience.',    url: 'https://martinbarker.me/',
     siteName: 'Martin Barker Portfolio',    images: [
       {
-        url: '/images/headshot.jpg',
+        url: 'https://martinbarker.me/images/headshot.jpg',
         width: 800,
         height: 600,
         alt: 'Martin Barker Profile Photo',
@@ -26,7 +25,7 @@ export const metadata = {
     card: 'summary_large_image',
     title: 'Martin Barker – Software Developer Portfolio',
     description: 'Seattle-based software developer creating open-source music applications and innovative web tools.',
-    images: ['/images/headshot.jpg'],
+    images: ['https://martinbarker.me/images/headshot.jpg'],
   },
 };
 
