@@ -267,6 +267,15 @@ export default function RootLayout({ children }) {
       </li>
     );
 
+  // Function to convert image path to thumbnail path
+  const getThumbnailPath = (imagePath) => {
+    if (!imagePath) return null;
+    // Extract filename from path like "/images/aesthetic-images/images/1597379681161.jpg"
+    const filename = imagePath.split('/').pop();
+    const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+    return `/images/aesthetic-images/thumbnails/${nameWithoutExt}-thumbnail.jpg`;
+  };
+
   return (
     <ColorContext.Provider value={{ colors, colorData }}>
       <html lang="en">
@@ -457,7 +466,8 @@ export default function RootLayout({ children }) {
               </div>
               {randomImage && (
                 <img
-                  src={randomImage}
+                  id="colorImage"
+                  src={getThumbnailPath(randomImage)}
                   alt="Random aesthetic"
                   className={styles.colorImage}
                   onClick={handleImageClick}
