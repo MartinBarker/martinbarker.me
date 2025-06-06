@@ -5,7 +5,6 @@ import styles from './Tagger.module.css';
 import FileDrop from '../FileDrop/FileDrop';
 import { useColorContext } from '../ColorContext';
 import { GripVertical } from 'lucide-react';
-import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 
 // Helper: Extract Discogs type and ID from URL
 function parseDiscogsUrl(url) {
@@ -34,11 +33,16 @@ export default function TaggerPage() {
   const [inputValue, setInputValue] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
   const [urlInput, setUrlInput] = useState('');
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
   const [discogsResponse, setDiscogsResponse] = useState(null);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [tagsValue, setTagsValue] = useState('');
+  // Add hydration state
+  const [hasHydrated, setHasHydrated] = useState(false);
+  const [isClient, setIsClient] = useState(false); // Track if we're on the client side
 
   const [formatOrder, setFormatOrder] = useState([
     { id: 1, value: 'startTime' },
@@ -129,6 +133,9 @@ export default function TaggerPage() {
   // Load formatOrder/selectOptions/inputValue/artistDisabled from localStorage on mount (client only)
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    
+    setIsClient(true); // Set client flag
+    
     try {
       const savedOrder = localStorage.getItem('tagger_formatOrder');
       const savedOptions = localStorage.getItem('tagger_selectOptions');
@@ -138,7 +145,9 @@ export default function TaggerPage() {
       if (savedOptions) setSelectOptions(JSON.parse(savedOptions));
       if (savedInputValue) setInputValue(savedInputValue);
       if (savedArtistDisabled !== null) setArtistDisabled(savedArtistDisabled === 'true');
-    } catch {}
+    } finally {
+      setHasHydrated(true); // Mark hydration complete
+    }
   }, []);
 
   // Save formatOrder/selectOptions/inputValue/artistDisabled to localStorage on change (client only)
@@ -229,7 +238,7 @@ export default function TaggerPage() {
           if (item.value === 'blank') return '';
           if (item.value === 'startTime') return start;
           if (item.value === 'endTime') return end;
-          if (item.value === 'title') return title;
+          if (item.value === 'title' ) return title;
           if (item.value === 'dash') return '-';
           if (item.value === 'dash-artist') return artistDisabled ? '' : '-';
           if (item.value === 'artist') return '';
@@ -260,7 +269,7 @@ export default function TaggerPage() {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return title;
+            if (item.value === 'title' ) return title;
             if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
@@ -287,7 +296,7 @@ export default function TaggerPage() {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return track.title || '';
+            if (item.value === 'title' ) return track.title || '';
             if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
@@ -319,7 +328,7 @@ export default function TaggerPage() {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return title;
+            if (item.value === 'title' ) return title;
             if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
@@ -345,7 +354,7 @@ export default function TaggerPage() {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return track.title || '';
+            if (item.value === 'title' ) return track.title || '';
             if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
@@ -500,7 +509,7 @@ export default function TaggerPage() {
                 if (item.value === 'blank') return '';
                 if (item.value === 'startTime') return start;
                 if (item.value === 'endTime') return end;
-                if (item.value === 'title') return track.title || '';
+                if (item.value === 'title' ) return track.title || '';
                 if (item.value === 'dash') return '-';
                 if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
                 if (item.value === 'artist') return artistName;
@@ -631,52 +640,108 @@ export default function TaggerPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const dragItem = useRef(null);
-  const dragOverItem = useRef(null);
-
-  const handleDragStart = (index) => {
-    dragItem.current = index;
+  // Custom drag and drop handlers
+  const handleDragStart = (e, index) => {
     setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+    
+    // Create a properly styled drag image
+    const originalElement = e.target;
+    const dragImage = originalElement.cloneNode(true);
+    
+    // Apply the exact same styles to maintain size and appearance
+    dragImage.style.position = 'absolute';
+    dragImage.style.top = '-1000px'; // Move off-screen
+    dragImage.style.left = '-1000px';
+    dragImage.style.opacity = '0.8';
+    dragImage.style.transform = 'rotate(5deg)';
+    dragImage.style.width = originalElement.offsetWidth + 'px';
+    dragImage.style.height = originalElement.offsetHeight + 'px';
+    dragImage.style.display = 'flex';
+    dragImage.style.alignItems = 'stretch';
+    dragImage.style.pointerEvents = 'none';
+    dragImage.style.zIndex = '9999';
+    
+    document.body.appendChild(dragImage);
+    e.dataTransfer.setDragImage(dragImage, e.offsetX, e.offsetY);
+    
+    // Clean up the drag image after a short delay
+    setTimeout(() => {
+      if (document.body.contains(dragImage)) {
+        document.body.removeChild(dragImage);
+      }
+    }, 0);
   };
 
-  const handleDragEnter = (index) => {
-    dragOverItem.current = index;
-  };
-
-  const handleDragEnd = () => {
-    const from = dragItem.current;
-    const to = dragOverItem.current;
-    if (
-      from !== undefined &&
-      to !== undefined &&
-      from !== to &&
-      from !== null &&
-      to !== null
-    ) {
-      const newOrder = [...formatOrder];
-      const [removed] = newOrder.splice(from, 1);
-      newOrder.splice(to, 0, removed);
-      setFormatOrder(newOrder);
-    }
+  const handleDragEnd = (e) => {
     setDraggedIndex(null);
-    dragItem.current = null;
-    dragOverItem.current = null;
+    setDragOverIndex(null);
   };
 
-  // react-beautiful-dnd reorder helper
-  function reorder(list, startIndex, endIndex) {
-    const result = Array.from(list);
-    const [removed] = result.splice(startIndex, 1);
-    result.splice(endIndex, 0, removed);
-    return result;
-  }
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
 
-  // DnD handler for timestamp format dropdowns
-  function onFormatDragEnd(result) {
-    if (!result.destination) return;
-    if (result.source.index === result.destination.index) return;
-    setFormatOrder(prev => reorder(prev, result.source.index, result.destination.index));
-    setSelectOptions(prev => reorder(prev, result.source.index, result.destination.index));
+  const handleDragEnter = (e, index) => {
+    e.preventDefault();
+    if (draggedIndex !== null && draggedIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    // Only clear dragOverIndex if we're leaving the entire drop zone
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setDragOverIndex(null);
+    }
+  };
+
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault();
+    
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDragOverIndex(null);
+      return;
+    }
+
+    console.log('Reordering from', draggedIndex, 'to', dropIndex);
+    
+    // Reorder both formatOrder and selectOptions
+    const newFormatOrder = [...formatOrder];
+    const newSelectOptions = [...selectOptions];
+    
+    const draggedItem = newFormatOrder[draggedIndex];
+    const draggedOptions = newSelectOptions[draggedIndex];
+    
+    // Remove dragged item
+    newFormatOrder.splice(draggedIndex, 1);
+    newSelectOptions.splice(draggedIndex, 1);
+    
+    // Insert at new position
+    newFormatOrder.splice(dropIndex, 0, draggedItem);
+    newSelectOptions.splice(dropIndex, 0, draggedOptions);
+    
+    setFormatOrder(newFormatOrder);
+    setSelectOptions(newSelectOptions);
+    setDragOverIndex(null);
+  };
+
+  // At the start of your return statement:
+  if (!hasHydrated || !isClient) {
+    // Show a loading state or nothing until client-side hydration is complete
+    return (
+      <div>
+        <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+          <strong>Loading...</strong>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -808,114 +873,108 @@ export default function TaggerPage() {
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Timestamps:</strong>
       </div>
-      <DragDropContext onDragEnd={onFormatDragEnd}>
-        <Droppable
-          droppableId="timestamp-format"
-          direction="horizontal"
-          isDropDisabled={false}
-          isCombineEnabled={false}
-          ignoreContainerClipping={false}
-        >
-          {(provided, snapshot) => (
-            <div
-              ref={provided.innerRef}
-              {...provided.droppableProps}
+      
+      <div
+        style={{
+          width: '100%',
+          display: 'flex',
+          gap: 0,
+          justifyContent: 'center',
+          alignItems: 'stretch',
+          height: '2.5rem',
+        }}
+        className="timestamp-format-container"
+      >
+        {formatOrder.map((item, idx) => (
+          <div
+            key={`format-item-${item.id}`}
+            draggable
+            onDragStart={(e) => handleDragStart(e, idx)}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            onDragEnter={(e) => handleDragEnter(e, idx)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, idx)}
+            style={{
+              display: 'flex',
+              alignItems: 'stretch',
+              flex: 1,
+              minWidth: 0,
+              opacity: draggedIndex === idx ? 0.3 : 1,
+              backgroundColor: dragOverIndex === idx ? '#e3f2fd' : 'transparent',
+              transform: draggedIndex === idx ? 'scale(1.02) rotate(2deg)' : 'none',
+              transition: draggedIndex === idx ? 'none' : 'all 0.2s ease',
+              cursor: draggedIndex === idx ? 'grabbing' : 'grab',
+              zIndex: draggedIndex === idx ? 1000 : 1,
+              border: dragOverIndex === idx ? '2px dashed #2196f3' : '2px solid transparent'
+            }}
+          >
+            <span
               style={{
-                width: '100%',
                 display: 'flex',
-                gap: 0,
-                justifyContent: 'center',
-                alignItems: 'stretch',
-                height: '2.5rem'
+                alignItems: 'center',
+                padding: 0,
+                paddingLeft: 4,
+                paddingRight: 4,
+                background: draggedIndex === idx ? '#bbdefb' : '#fff',
+                borderTopLeftRadius: idx === 0 ? 4 : 0,
+                borderBottomLeftRadius: idx === 0 ? 4 : 0,
+                borderTopRightRadius: 0,
+                borderBottomRightRadius: 0,
+                border: '1px solid #ccc',
+                borderRight: 'none',
+                cursor: draggedIndex === idx ? 'grabbing' : 'grab',
+                userSelect: 'none',
+                transition: 'background-color 0.2s',
+                color: draggedIndex === idx ? '#1976d2' : '#666'
               }}
-              className="timestamp-format-container"
+              onMouseDown={() => console.log('Drag handle clicked')}
             >
-              {formatOrder.map((item, idx) => (
-                <Draggable draggableId={String(item.id)} index={idx} key={item.id}>
-                  {(draggableProvided, draggableSnapshot) => (
-                    <div
-                      ref={draggableProvided.innerRef}
-                      {...draggableProvided.draggableProps}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'stretch',
-                        flex: 1,
-                        minWidth: 0,
-                        opacity: draggableSnapshot.isDragging ? 0.5 : 1,
-                        ...draggableProvided.draggableProps.style
-                      }}
-                    >
-                      <span
-                        {...draggableProvided.dragHandleProps}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: 0,
-                          paddingLeft: 4,
-                          paddingRight: 4,
-                          background: '#fff',
-                          borderTopLeftRadius: idx === 0 ? 4 : 0,
-                          borderBottomLeftRadius: idx === 0 ? 4 : 0,
-                          borderTopRightRadius: 0,
-                          borderBottomRightRadius: 0,
-                          border: '1px solid #ccc',
-                          borderRight: 'none',
-                          cursor: 'grab',
-                          userSelect: 'none'
-                        }}
-                        tabIndex={0}
-                        aria-label="Drag to reorder"
-                      >
-                        <GripVertical size={18} />
-                      </span>
-                      <select
-                        className="taggerOptions"
-                        id={`taggerOption${item.id}`}
-                        value={item.value}
-                        onChange={e => handleSelectChange(idx, e.target.value)}
-                        disabled={
-                          (item.value === 'artist' && artistDisabled) ||
-                          (item.value === 'dash-artist' && artistDisabled)
-                        }
-                        style={{
-                          height: '100%',
-                          flex: 1,
-                          minWidth: 0,
-                          padding: 0,
-                          borderRadius: idx === 0
-                            ? '0 0 0 0'
-                            : idx === formatOrder.length - 1
-                            ? '0 4px 4px 0'
-                            : '0',
-                          border: '1px solid #ccc',
-                          borderLeft: 'none',
-                          borderRight: idx !== formatOrder.length - 1 ? 'none' : '1px solid #ccc',
-                          fontSize: '1rem',
-                          textAlign: 'center',
-                          background: '#fff',
-                          boxSizing: 'border-box',
-                          cursor:
-                            ((item.value === 'artist' && artistDisabled) ||
-                              (item.value === 'dash-artist' && artistDisabled))
-                              ? 'not-allowed'
-                              : 'pointer'
-                        }}
-                      >
-                        {selectOptions[idx].map(opt => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </Draggable>
+              <GripVertical size={18} />
+            </span>
+            <select
+              className="taggerOptions"
+              id={`taggerOption${item.id}`}
+              value={item.value}
+              onChange={e => handleSelectChange(idx, e.target.value)}
+              disabled={
+                (item.value === 'artist' && artistDisabled) ||
+                (item.value === 'dash-artist' && artistDisabled)
+              }
+              style={{
+                height: '100%',
+                flex: 1,
+                minWidth: 0,
+                padding: 0,
+                borderRadius: idx === 0
+                  ? '0 0 0 0'
+                  : idx === formatOrder.length - 1
+                  ? '0 4px 4px 0'
+                  : '0',
+                border: '1px solid #ccc',
+                borderLeft: 'none',
+                borderRight: idx !== formatOrder.length - 1 ? 'none' : '1px solid #ccc',
+                fontSize: '1rem',
+                textAlign: 'center',
+                background: draggedIndex === idx ? '#f5f5f5' : '#fff',
+                boxSizing: 'border-box',
+                cursor:
+                  ((item.value === 'artist' && artistDisabled) ||
+                    (item.value === 'dash-artist' && artistDisabled))
+                    ? 'not-allowed'
+                    : 'pointer',
+                pointerEvents: draggedIndex === idx ? 'none' : 'auto'
+              }}
+            >
+              {selectOptions[idx].map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
-              {provided.placeholder}
-            </div>
-          )}
-        </Droppable>
-      </DragDropContext>
+            </select>
+          </div>
+        ))}
+      </div>
       <div style={{ width: '100%' }}>
         <textarea
           value={inputValue ? `Timestamps generated by https://tagger.site:\n${inputValue}` : ''}
@@ -1153,6 +1212,29 @@ export default function TaggerPage() {
           Print Discogs API Response to Console
         </button>
       )}
+      {/* --- New Section Below --- */}
+      <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} />
+      <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+        <strong>Tags:</strong>
+      </div>
+      <textarea
+        value={tagsValue}
+        onChange={e => setTagsValue(e.target.value)}
+        placeholder="Tags will be generated from your files or URL metadata"
+        rows={2}
+        style={{
+          width: '100%',
+          minWidth: '100%',
+          padding: '0.5rem',
+          borderRadius: '4px',
+          border: '1px solid #ccc',
+          fontSize: '1rem',
+          boxSizing: 'border-box',
+          display: 'block',
+          resize: 'vertical',
+          marginBottom: '1rem'
+        }}
+      />
     </div>
   );
 }

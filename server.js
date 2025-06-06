@@ -604,7 +604,14 @@ app.post('/discogsFetch', async (req, res) => {
 
   try {
     const data = await fetchDiscogsData(type, id);
-    console.log('Discogs API Response:', data);
+    // Only log a summary, not the full response
+    if (data && data.id) {
+      console.log(`Discogs API Response: type=${type}, id=${id}, response.id=${data.id}`);
+    } else if (data && data.message) {
+      console.log(`Discogs API Response: type=${type}, id=${id}, message=${data.message}`);
+    } else {
+      console.log(`Discogs API Response: type=${type}, id=${id}, response received.`);
+    }
     res.status(200).json(data);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch data from Discogs.' });
@@ -1234,7 +1241,6 @@ app.get('/ping', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  console.log("🏠 [GET /] Hit");
   res.status(200).send('hello world');
 });
 
@@ -1368,3 +1374,23 @@ app.post('/clearBackgroundTasks', (req, res) => {
         res.status(500).json({ error: 'Failed to clear background tasks.' });
     }
 });
+
+// --- DEBUG: Print when process is about to exit ---
+process.on('exit', (code) => {
+  console.log(`Process is exiting with code ${code}`);
+});
+
+// --- DEBUG: Print on uncaught exceptions ---
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+// --- DEBUG: Print on unhandled promise rejections ---
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// --- DEBUG: Print every 30 seconds to show process is alive ---
+setInterval(() => {
+  console.log('[DEBUG] Server process is still alive at', new Date().toISOString());
+}, 30000);
