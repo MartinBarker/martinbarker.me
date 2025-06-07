@@ -419,10 +419,10 @@
 }
 
 .creditText {
-  font-size: 10px;
+  font-size: 0.75rem;
   color: white;
   text-align: center;
-  margin-top: 5px;
+  margin-top: 0.5rem;
   text-shadow: -1px -1px 0 #000,  
                 1px -1px 0 #000,
                -1px  1px 0 #000,
@@ -474,4 +474,10 @@
   color: white; /* Adjust color for visibility */
   margin-bottom: 10px;
   margin-top: 0px;
+}
+
+.mobileText {
+  margin-top: 0;
+  font-style: italic;
+  color: #888;
 }
