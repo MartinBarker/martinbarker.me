@@ -14,6 +14,7 @@ export default function RootLayout({ children }) {
   const [sidebarActive, setSidebarActive] = useState(true); // Always start with sidebar active
   const [contactExpanded, setContactExpanded] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [thumbnailVisible, setThumbnailVisible] = useState(true); // New state for thumbnail visibility
   const [colors, setColors] = useState({
     Vibrant: '#ffffff',
     LightVibrant: '#ffffff',
@@ -467,7 +468,8 @@ export default function RootLayout({ children }) {
                   />
                 ))}
               </div>
-              {randomImage && (
+              {/* Show image thumbnail conditionally based on thumbnailVisible state */}
+              {randomImage && thumbnailVisible && (
                 <img
                   id="colorImage"
                   src={getThumbnailPath(randomImage)}
@@ -481,11 +483,21 @@ export default function RootLayout({ children }) {
                   Refresh color effect by Mike Bespalov
                 </a>
               </p>
-              {/* Mobile indicator text */}
+              {/* Convert mobile text to a toggle button */}
               {isMobile && (
-                <p className={`${styles.creditText} ${styles.mobileText} ${!sidebarActive ? styles.hidden : ''}`}>
-                  mobile
-                </p>
+                <button
+                  className={`${styles.creditText} ${styles.mobileText} ${!sidebarActive ? styles.hidden : ''}`}
+                  onClick={() => setThumbnailVisible(!thumbnailVisible)}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    padding: '0.25rem 0.5rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {thumbnailVisible ? 'Hide Thumbnail' : 'Show Thumbnail'}
+                </button>
               )}
             </div>
           </nav>
