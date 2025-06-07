@@ -478,6 +478,13 @@ export default function RootLayout({ children }) {
                   Refresh color effect by Mike Bespalov
                 </a>
               </p>
+              
+              {/* Mobile indicator text */}
+              {isMobile && (
+                <p className={`${styles.creditText} ${styles.mobileText} ${!sidebarActive ? styles.hidden : ''}`}>
+                  mobile
+                </p>
+              )}
             </div>
           </nav>
           <main
