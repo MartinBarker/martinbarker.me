@@ -11,7 +11,7 @@ import { ColorContext } from './ColorContext';
 export default function RootLayout({ children }) {
   
   const [isMobile, setIsMobile] = useState(false);
-  const [sidebarActive, setSidebarActive] = useState(true);
+  const [sidebarActive, setSidebarActive] = useState(true); // Always start with sidebar active
   const [contactExpanded, setContactExpanded] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [colors, setColors] = useState({
@@ -82,7 +82,8 @@ export default function RootLayout({ children }) {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      setSidebarActive(!mobile);
+      // Remove this line to prevent automatic sidebar collapse on mobile
+      // setSidebarActive(!mobile);
     };
 
     handleResize();
@@ -347,7 +348,8 @@ export default function RootLayout({ children }) {
                 icon={FileMusicIcon}
                 label="Discogs2Youtube"
               />
-  {/* 
+
+              {/* 
               <ProjectLink
                 to="/retro-roulette"
                 icon={FileMusicIcon}
@@ -365,38 +367,38 @@ export default function RootLayout({ children }) {
                 icon={BarChart}
                 label="Rap Genius Exporter"
               />
-
+              
               <ProjectLink
                 to="/bandcamp-api"
                 icon={FileMusicIcon}
                 label="Bandcamp API"
               />
-
+              
               <ProjectLink
                 to="/split-by-silence"
                 icon={FileMusicIcon}
                 label="Split By Silence"
               />
-
+              
               <ProjectLink
                 to="/jermasearch"
                 icon={FileMusicIcon}
                 label="Jerma985 Search"
               />
-
+              
               <ProjectLink
                 to="/ableton-to-cue"
                 icon={FileMusicIcon}
                 label="Ableton .als to .cue"
               />
-  */}
-              {/* Existing Contact and other sections remain the same */}
+              */}
+              
               <ProjectLink
                 to="/popularify"
                 icon={BarChart}
                 label="Popularify"
               />
-
+              
               {/* Contact Submenu */}
               <li className={`${styles.navbarItem} ${styles.contactSection}`}>
                 <button className={styles.contactToggle} onClick={handleContactClick} style={{ color: sidebarTextColor }}>
@@ -449,7 +451,8 @@ export default function RootLayout({ children }) {
                   </li>
                 </ul>
               </li>
-            </ul>
+            </ul> 
+            
             <div className={styles.sidebarFooter}>
               <button onClick={refreshColors} className={`${styles.refreshButton} ${!sidebarActive && styles.hidden}`} style={{ border: '1px solid black' }}>
                 Refresh Colors
@@ -478,7 +481,6 @@ export default function RootLayout({ children }) {
                   Refresh color effect by Mike Bespalov
                 </a>
               </p>
-              
               {/* Mobile indicator text */}
               {isMobile && (
                 <p className={`${styles.creditText} ${styles.mobileText} ${!sidebarActive ? styles.hidden : ''}`}>
@@ -493,8 +495,7 @@ export default function RootLayout({ children }) {
             style={{ background: colors.LightMuted }}
           >
             <div className={styles.contentWrapper}>
-              <div
-                className={styles.titleCard}
+              <div className={styles.titleCard}
                 style={{ background: colors.Muted }}
               >
                 <h1 className={styles.pageTitle}>
@@ -508,7 +509,7 @@ export default function RootLayout({ children }) {
             </div>
           </main>
           {imageModalOpen && (
-            <ImageModal 
+            <ImageModal
               imageUrl={randomImage} 
               onClose={() => setImageModalOpen(false)} 
             />
