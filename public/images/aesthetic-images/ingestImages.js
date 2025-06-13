@@ -3,6 +3,10 @@ const path = require('path');
 const { Vibrant } = require('node-vibrant/node');
 const sharp = require('sharp');
 
+// Parse command line arguments
+const args = process.argv.slice(2);
+const shouldRegenerateThumbnails = args.includes('--regenerate-thumbnails');
+
 // Paths to folders and files
 const imagesFolder = path.join(__dirname, 'images');
 const thumbnailsFolder = path.join(__dirname, 'thumbnails'); // Changed to be outside 'images'
@@ -20,6 +24,23 @@ let colorsData = JSON.parse(fs.readFileSync(colorsFilePath, 'utf-8'));
 if (!fs.existsSync(thumbnailsFolder)) {
   fs.mkdirSync(thumbnailsFolder, { recursive: true });
 }
+
+// Function to delete all thumbnails if regeneration is requested
+const clearThumbnails = () => {
+  if (shouldRegenerateThumbnails) {
+    console.log('Regenerating thumbnails - deleting existing thumbnails...');
+    if (fs.existsSync(thumbnailsFolder)) {
+      const files = fs.readdirSync(thumbnailsFolder);
+      for (const file of files) {
+        fs.unlinkSync(path.join(thumbnailsFolder, file));
+      }
+      console.log(`Deleted ${files.length} existing thumbnails`);
+    }
+  }
+};
+
+// Run the thumbnail clearing logic before processing
+clearThumbnails();
 
 // Function to analyze colors and generate a thumbnail
 const processImage = async (filename) => {
@@ -43,20 +64,36 @@ const processImage = async (filename) => {
     colorsData[filename] = { colors };
     fs.writeFileSync(colorsFilePath, JSON.stringify(colorsData, null, 2), 'utf-8');
 
-    // Create a thumbnail using Sharp, resizing to a 4MB limit while preserving dimensions
+    // Create a thumbnail using Sharp, following recommended thumbnail guidelines
     await sharp(imagePath)
-      .jpeg({ quality: 80 }) // Set quality to manage file size
+      .resize({ 
+        width: 320, // Standard thumbnail width (16:9 ratio will be ~180px height)
+        withoutEnlargement: true // Don't enlarge smaller images
+      })
+      .jpeg({ 
+        quality: 70,        // Lower quality for smaller file size
+        progressive: true,  // Better web loading
+        optimizeCoding: true // Optimize Huffman coding tables
+      })
       .toBuffer()
       .then(async data => {
-        if (data.length > 4 * 1024 * 1024) { // Check if file size exceeds 4MB
-          const reductionFactor = Math.sqrt(data.length / (4 * 1024 * 1024));
-          await sharp(data)
-            .resize({
-              width: Math.round((await sharp(data).metadata()).width / reductionFactor),
-              height: Math.round((await sharp(data).metadata()).height / reductionFactor)
+        // If still over target size (100KB), reduce quality further
+        if (data.length > 100 * 1024) { 
+          // Calculate appropriate quality to target ~50KB
+          const qualityReduction = Math.min(30, Math.round(data.length / (50 * 1024)));
+          await sharp(imagePath)
+            .resize({ 
+              width: 320,
+              withoutEnlargement: true
+            })
+            .jpeg({ 
+              quality: Math.max(40, 70 - qualityReduction), // Quality between 40-70%
+              progressive: true,
+              optimizeCoding: true
             })
             .toFile(thumbnailPath);
         } else {
+          // Current size is good, save directly
           await sharp(data).toFile(thumbnailPath);
         }
       });
@@ -79,11 +116,11 @@ const ingestColors = () => {
       const fileExt = path.extname(file).toLowerCase();
       const isImage = ['.jpg', '.jpeg', '.png', '.jiff', '.jfif'].includes(fileExt); // Add '.jfif' to the list
 
-      if (isImage && !colorsData[file]) {
+      if (isImage && (!colorsData[file] || shouldRegenerateThumbnails)) {
         processImage(file);
       } else if (!isImage && file !== 'thumbnails') {
         console.log(`Skipping non-image file: ${file}`);
-      } else {
+      } else if (!shouldRegenerateThumbnails) {
         console.log(`Skipping already processed image: ${file}`);
       }
     });
