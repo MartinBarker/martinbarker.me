@@ -286,7 +286,7 @@ export default function RootLayout({ children }) {
           <link rel="icon" href={pageIcon} />
           <link rel="shortcut icon" href={pageIcon} />
         </head>
-        <body  style={{ margin: '0px' }}>
+        <body style={{ margin: '0px' }}>
         <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
           <defs>
             <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" colorInterpolationFilters="sRGB" overflow="visible">
@@ -476,6 +476,12 @@ export default function RootLayout({ children }) {
                   alt="Random aesthetic"
                   className={styles.colorImage}
                   onClick={handleImageClick}
+                  style={{
+                    transition: 'none', // Disable all transitions on the image
+                    willChange: 'auto', // Reset any GPU acceleration hints
+                    maxWidth: '100%',
+                    height: 'auto'
+                  }}
                 />
               )}
               <p className={`${styles.creditText} ${!sidebarActive ? styles.hidden : ''}`}>
