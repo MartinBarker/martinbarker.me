@@ -62,6 +62,13 @@ export default function Discogs2Youtube() {
       return savedTaskData ? JSON.parse(savedTaskData) : {};
   });
   const [loadedTasks, setLoadedTasks] = useState(new Set());
+  const [extractImgInput, setExtractImgInput] = useState('');
+  const [extractImgResult, setExtractImgResult] = useState('');
+  const [extractImgsQuery, setExtractImgsQuery] = useState('https://www.discogs.com/label/935942-TR-Design');
+  const [extractImgsResult, setExtractImgsResult] = useState('');
+
+  // Add state for video title recommendations
+  const [videoTitleSuggestions, setVideoTitleSuggestions] = useState([]);
 
   const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
   const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
@@ -325,9 +332,7 @@ export default function Discogs2Youtube() {
       if (backgroundJobStatus.isRunning && !backgroundJobStatus.isPaused && !taskCompleted) {
           interval = setInterval(async () => {
               try {
-                  const response = await loggedAxios.get(`${apiUrl}/backgroundJobStatus`);
-
-                  // Check if the task is now completed
+                  const response = await loggedAxios.get(`${apiUrl}/background`);
                   if (!response.data.isRunning && backgroundJobStatus.isRunning) {
                       console.log('Task completed, saving final stats and stopping polling');
                       setTaskCompleted(true);
@@ -1041,7 +1046,6 @@ export default function Discogs2Youtube() {
       });
   };
 
-
   const createPlaylistUrls = (videoIds) => {
       if (!videoIds || videoIds.length === 0) return [];
       const chunkSize = 50;
@@ -1065,6 +1069,56 @@ export default function Discogs2Youtube() {
   // Determine current progress display based on task completion status
   const displayProgress = taskCompleted ? finalTaskStats : backgroundJobStatus.progress;
 
+  const handleExtractImages = async () => {
+    try {
+        const response = await loggedAxios.post(`${apiUrl}/getDiscogsImgs`, {
+            query: extractImgsQuery,
+            enablePagination: true // Disable pagination for testing
+        });
+        console.log('handleExtractImages() response:', response);
+        setExtractImgsResult(`Success: ${response.data.paginationSummary}`);
+
+        // Try to get the first release info for title suggestions
+        let release = null;
+        if (response.data.item_release) {
+          release = response.data.item_release;
+        } else if (response.data.releases_info && Array.isArray(response.data.releases_info) && response.data.releases_info.length > 0) {
+          release = response.data.releases_info[0];
+        }
+        if (release) {
+          setVideoTitleSuggestions(generateVideoTitleSuggestions(release));
+        } else {
+          setVideoTitleSuggestions([]);
+        }
+    } catch (error) {
+        setExtractImgsResult('Error extracting images.');
+        setVideoTitleSuggestions([]);
+        console.log('error=', error);
+    }
+};
+
+ // Helper to generate video title recommendations
+function generateVideoTitleSuggestions(release) {
+  if (!release) return [];
+  const albumTitle = release.title || '';
+  const artist = (release.artists && release.artists.length > 0 && release.artists[0].name) || release.artist || '';
+  const year = release.year || '';
+  const genres = Array.isArray(release.genres) ? release.genres.join(', ') : (release.genre || '');
+  const styles = Array.isArray(release.styles) ? release.styles.join(', ') : (release.style || '');
+
+  const base = `${albumTitle} - ${artist}`;
+  const yearStr = year ? ` | ${year}` : '';
+  const genreStr = genres ? ` | ${genres}` : '';
+  const styleStr = styles ? ` | ${styles}` : '';
+
+  return [
+    `${base}${yearStr}${genreStr} | Full Album`.replace(/\s+\|/g, ' |').trim(),
+    `${base} [Full Album]${yearStr}${genreStr}`.replace(/\s+\|/g, ' |').trim(),
+    `${albumTitle} (Full Album)${yearStr}${genreStr}${styleStr}`.replace(/\s+\|/g, ' |').trim(),
+    `${artist} - ${albumTitle} (${year}) [Full Album, ${genres}${styles ? ', ' + styles : ''}]`.replace(/\s+\|/g, ' |').trim(),
+    `${albumTitle} by ${artist} | ${year}${genreStr}${styleStr} | Full Album`.replace(/\s+\|/g, ' |').trim(),
+  ];
+}
 
  return (
     <>
@@ -1337,7 +1391,36 @@ export default function Discogs2Youtube() {
           </div>
         )}
 
+        {/* New Extract Images Section */}
+        <div className={styles.section}>
+          <h2>Extract Images</h2>
+          <input
+            type="text"
+            placeholder="Enter label ID or URL"
+            value={extractImgsQuery}
+            onChange={e => setExtractImgsQuery(e.target.value)}
+            className={styles.input}
+          />
+          <button onClick={handleExtractImages} className={styles.searchButton}>
+            Submit (First Page Only)
+          </button>
+          {extractImgsResult && <p className={styles.response}>{extractImgsResult}</p>}
+
+          {/* Video Title Suggestions */}
+          {videoTitleSuggestions.length > 0 && (
+            <div style={{ marginTop: '1em' }}>
+              <h3>Video Title Recommendations for Full Album Upload:</h3>
+              <ul>
+                {videoTitleSuggestions.map((title, idx) => (
+                  <li key={idx}><code>{title}</code></li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
       </div>
     </>
   );
 }
+
