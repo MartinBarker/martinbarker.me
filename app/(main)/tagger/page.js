@@ -40,6 +40,8 @@ export default function TaggerPage() {
   const [discogsResponse, setDiscogsResponse] = useState(null);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);  const [tagsValue, setTagsValue] = useState('');
   const [tagsCopyState, setTagsCopyState] = useState('idle'); // idle | copied | hover
+  const [hashtagsValue, setHashtagsValue] = useState('');
+  const [hashtagsCopyState, setHashtagsCopyState] = useState('idle'); // idle | copied | hover
   // Add new states for tag optimization
   const [charLimit, setCharLimit] = useState('500');
   const [optimizeStatus, setOptimizeStatus] = useState(''); // For feedback messages
@@ -651,6 +653,13 @@ export default function TaggerPage() {
     setTimeout(() => setTagsCopyState('idle'), 900);
   };
 
+  // Handle hashtags copy
+  const handleHashtagsCopy = () => {
+    navigator.clipboard.writeText(hashtagsValue);
+    setHashtagsCopyState('copied');
+    setTimeout(() => setHashtagsCopyState('idle'), 900);
+  };
+
   // Handler for copying video title recommendations
   const handleVideoTitleCopy = async (title) => {
     try {
@@ -856,6 +865,9 @@ export default function TaggerPage() {
     setInputSource(null);
     setFormatSuggestion(null);
     setTagsValue('');
+    setHashtagsValue('');
+    setTagsCopyState('idle');
+    setHashtagsCopyState('idle');
     setParsedTags({
       artists: [],
       album: [],
@@ -1071,6 +1083,38 @@ export default function TaggerPage() {
     }
     setTagsValue(Array.from(allSelectedTags).join(', ')); // No ellipsis or truncation marker
   };
+
+  // Helper function to convert tags to hashtags
+  const updateHashtagsValue = (tagsStr) => {
+    if (!tagsStr.trim()) {
+      setHashtagsValue('');
+      return;
+    }
+    
+    // Split by comma, clean each tag, and convert to hashtag format
+    const hashtags = tagsStr
+      .split(',')
+      .map(tag => {
+        const cleanTag = tag.trim();
+        if (!cleanTag) return '';
+        
+        // Remove spaces and special characters, keep alphanumeric and basic chars
+        const hashtagText = cleanTag
+          .replace(/[^\w\s-]/g, '') // Remove special chars except hyphens
+          .replace(/\s+/g, '') // Remove all spaces
+          .replace(/-+/g, ''); // Remove hyphens
+        
+        return hashtagText ? `#${hashtagText}` : '';
+      })
+      .filter(Boolean); // Remove empty strings
+    
+    setHashtagsValue(hashtags.join(' '));
+  };
+
+  // Update hashtags whenever tagsValue changes
+  useEffect(() => {
+    updateHashtagsValue(tagsValue);
+  }, [tagsValue]);
 
   const logDiscogsRequest = ({ route, payload, response }) => {
     console.log('[Discogs API Request]', { route, payload, response });
@@ -1427,7 +1471,9 @@ export default function TaggerPage() {
                   {videoTitleCopyState === 'copied' ? 'Copied!' : 'Copy'}
                 </button>
               </div>
-            ))}          </div>        </>
+            ))}
+          </div>
+        </>
       )}      <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} />
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Tags:</strong>
@@ -1778,6 +1824,57 @@ export default function TaggerPage() {
             : `Copy ${tagsValue.length} chars to clipboard`}
         </button>
       )}
+
+    {/* Hashtags Section */}
+    <div>
+      <h3 style={{
+        color: colors.primaryText,
+        marginBottom: '1rem',
+        fontSize: '1.2rem',
+        fontWeight: 600
+      }}>
+        Hashtags
+      </h3>
+      
+      <textarea
+        value={hashtagsValue}
+        onChange={e => setHashtagsValue(e.target.value)}
+        placeholder="Hashtags will be automatically generated from tags..."
+        rows={5}
+        style={{
+          width: '100%',
+          minWidth: '100%',
+          padding: '0.5rem',
+          borderRadius: '4px',
+          border: '1px solid #ccc',
+          fontSize: '1rem',
+          boxSizing: 'border-box',
+          display: 'block',
+          resize: 'none',
+          marginBottom: '1rem'
+        }}
+      />
+      
+      <button
+        style={{
+          width: '100%',
+          padding: '0.5rem',
+          borderRadius: '4px',
+          border: '1px solid #ccc',
+          background: hashtagsCopyState === 'copied' ? '#ffe156' : '#eee',
+          fontWeight: 600,
+          cursor: 'pointer',
+          marginBottom: '0.5rem',
+          display: 'block',
+          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+        }}
+        onClick={handleHashtagsCopy}
+      >
+        {hashtagsCopyState === 'copied'
+          ? 'Copied!'
+          : `Copy ${hashtagsValue.length} chars to clipboard`}
+      </button>
+    </div>
     </div>
   );
 }
