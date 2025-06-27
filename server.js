@@ -5,8 +5,6 @@
 require('dotenv').config();
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 const express = require('express');
-const next = require('next');
-const compression = require('compression'); // Add this import
 const cors = require('cors');
 const fs = require('fs');
 const { google } = require('googleapis');
@@ -17,28 +15,6 @@ const querystring = require('querystring'); // For query string manipulation
 const app = express();
 const port = 3030;
 
-app.use(compression({
-  level: 6, // Balanced between compression ratio and CPU usage
-  threshold: 0, // Compress all responses
-  filter: (req, res) => {
-    // Don't compress responses with this header
-    if (req.headers['x-no-compression']) {
-      return false;
-    }
-    
-    // Use compression for all text-based content types
-    return compression.filter(req, res);
-  },
-  // Specify which content types to compress
-  // This includes fonts, which can significantly improve loading performance
-  contentType: [
-    'text/html', 'text/css', 'text/plain', 'text/javascript', 
-    'application/javascript', 'application/json', 'application/x-javascript',
-    'application/xml', 'application/xml+rss', 'application/vnd.ms-fontobject',
-    'application/x-font-ttf', 'application/x-font-opentype', 'application/x-font',
-    'image/svg+xml', 'image/x-icon', 'font/ttf', 'font/eot', 'font/otf', 'font/opentype'
-  ]
-}));
 app.use(cors());
 app.use(express.json()); // To parse JSON bodies
 
