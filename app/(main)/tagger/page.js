@@ -332,52 +332,89 @@ export default function TaggerPage() {
   }
 
   // Handle files: get durations, build tracklist, update debug
-  const handleFilesSelected = async (files) => {
-    setIsLoadingFiles(true);
-    const fileArr = Array.from(files);
-    setDebugInfo(prev => ({
-      ...prev,
-      files: fileArr.map(f => f.name)
-    }));
+const handleFilesSelected = async (files) => {
+  setIsLoadingFiles(true);
+  const fileArr = Array.from(files);
+  setDebugInfo(prev => ({
+    ...prev,
+    files: fileArr.map(f => f.name)
+  }));
 
-    // Only process audio files
-    const audioFiles = fileArr.filter(f =>
-      f.type.startsWith('audio/') ||
-      /\.(mp3|wav|aiff|flac)$/i.test(f.name)
+  // Only process audio files
+  const audioFiles = fileArr.filter(f =>
+    f.type.startsWith('audio/') ||
+    /\.(mp3|wav|aiff|flac)$/i.test(f.name)
+  );
+
+  // Get durations for each file
+  const durations = await Promise.all(audioFiles.map(async (file) => {
+    try {
+      const duration = await getAudioDuration(file);
+      return duration;
+    } catch {
+      return 0;
+    }
+  }));
+
+  // Store for later use in dropdown changes
+  audioFilesRef.current = audioFiles;
+  durationsRef.current = durations;
+  discogsTracksRef.current = [];
+  discogsDurationsRef.current = [];
+  setInputSource('files');
+
+  // Update input sources state
+  setInputSources(prev => ({
+    ...prev,
+    files: {
+      ...prev.files,
+      data: {
+        files: audioFiles,
+        durations: durations
+      },
+      label: `${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`
+    }
+  }));
+
+  // Generate combined timestamps
+  setTimeout(generateCombinedTimestamps, 0);
+
+  // ✅ Auto-populate tags, hashtags, titles
+  if (discogsData) {
+    processDiscogsResponseToTags(discogsData);
+    const videoTitles = generateVideoTitleRecommendations(discogsData, videoTitleVariation);
+    setVideoTitleRecommendations(videoTitles);
+  } else {
+    // Basic tag fallback using filenames
+    const filenameTags = audioFiles.map(file =>
+      file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]/g, ' ').trim()
     );
 
-    // Get durations for each file
-    const durations = await Promise.all(audioFiles.map(async (file) => {
-      try {
-        const duration = await getAudioDuration(file);
-        return duration;
-      } catch {
-        return 0;
-      }
-    }));    // Store for later use in dropdown changes
-    audioFilesRef.current = audioFiles;
-    durationsRef.current = durations;
-    discogsTracksRef.current = [];
-    discogsDurationsRef.current = [];
-    setInputSource('files');
+    const fallbackTags = {
+      artists: [],
+      album: [],
+      tracklist: [],
+      combinations: [],
+      credits: [],
+      filenames: filenameTags
+    };
 
-    // Update input sources state
-    setInputSources(prev => ({
+    setParsedTags(prev => ({
       ...prev,
-      files: {
-        ...prev.files,
-        data: {
-          files: audioFiles,
-          durations: durations
-        },
-        label: `${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`
-      }
+      filenames: filenameTags
     }));
 
-    // Generate combined timestamps
-    setTimeout(generateCombinedTimestamps, 0);
-    setIsLoadingFiles(false);
-  };
+    // Create a single tag pool from filenames
+    setTagsValue(filenameTags.join(', '));
+    updateHashtagsValue(filenameTags.join(', '));
+    setVideoTitleRecommendations([]);
+  }
+
+  setIsLoadingFiles(false);
+};
+
+
+
 
   // Handle URL submission
   const handleUrlSubmit = async (e) => {
@@ -1280,8 +1317,7 @@ export default function TaggerPage() {
                 <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Times</th>
               </tr>
             </thead>
-            <tbody>
-              {inputSources.url.data && (
+            <tbody>{inputSources.url.data && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
                     <strong>URL:</strong> {inputSources.url.label}
@@ -1322,8 +1358,7 @@ export default function TaggerPage() {
                     />
                   </td>
                 </tr>
-              )}
-            </tbody>
+              )}</tbody>
           </table>
         </>
       )}      
@@ -1639,28 +1674,26 @@ export default function TaggerPage() {
         </div>
       </div>
 
-      {isChanged && (
-        <button
-          type="button"
-          onClick={handleReset}
-          style={{
-            margin: '1rem 0 1rem 0',
-            background: '#f6f6f6',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-            padding: '0.5rem 1.2rem',
-            fontWeight: 600,
-            fontSize: '1em',
-            cursor: 'pointer',
-            color: '#222',
-            display: 'block',
-            width: '100%',
-            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-          }}
-        >
-          Clear / Reset
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={handleReset}
+        style={{
+          margin: '1rem 0 1rem 0',
+          background: '#f6f6f6',
+          border: '1px solid #ccc',
+          borderRadius: 4,
+          padding: '0.5rem 1.2rem',
+          fontWeight: 600,
+          fontSize: '1em',
+          cursor: 'pointer',
+          color: '#222',
+          display: 'block',
+          width: '100%',
+          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+        }}
+      >
+        Clear / Reset
+      </button>
 
       {/* Video Title Recommendations Section */}
       {videoTitleRecommendations.length > 0 && (
@@ -1734,6 +1767,7 @@ export default function TaggerPage() {
           </div>
         </>
       )}     
+          
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Tags:</strong>
@@ -1755,8 +1789,7 @@ export default function TaggerPage() {
                 <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '50%' }}>Percentage</th>
               </tr>
             </thead>
-            <tbody>
-              {parsedTags.artists.length > 0 && (
+            <tbody>{parsedTags.artists.length > 0 && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
@@ -1999,99 +2032,8 @@ export default function TaggerPage() {
                     </div>
                   </td>
                 </tr>
-              )}
-            </tbody>
+              )}</tbody>
           </table>
-          
-          {/* Tags Controls */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '4px',
-                border: '1px solid #ccc',
-                background: tagsCopyState === 'copied' ? '#ffe156' : '#eee',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-              }}
-              onClick={handleTagsCopy}
-            >
-              {tagsCopyState === 'copied'
-                ? 'Copied!'
-                : `Copy ${tagsValue.length} chars to clipboard`}
-            </button>
-            
-            <input
-              type="number"
-              value={charLimit}
-              onChange={(e) => setCharLimit(e.target.value)}
-              min="1"
-              max="1000"
-              style={{
-                padding: '0.5rem',
-                borderRadius: '4px',
-                border: '1px solid #ccc',
-                width: '80px',
-                textAlign: 'center'
-              }}
-              title="Character limit for tag optimization"
-            />
-            
-            <button
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '4px',
-                border: '1px solid #ccc',
-                background: '#eee',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-              }}              onClick={() => {
-                // Optimize tags based on character limit and enabled filters
-                const enabledTags = [];
-                if (tagFilters.artists.enabled) {
-                  const count = Math.ceil((parsedTags.artists.length * tagFilters.artists.sliderValue) / 100);
-                  enabledTags.push(...parsedTags.artists.slice(0, count));
-                }
-                if (tagFilters.album.enabled) {
-                  const count = Math.ceil((parsedTags.album.length * tagFilters.album.sliderValue) / 100);
-                  enabledTags.push(...parsedTags.album.slice(0, count));
-                }
-                if (tagFilters.tracklist.enabled) {
-                  const count = Math.ceil((parsedTags.tracklist.length * tagFilters.tracklist.sliderValue) / 100);
-                  enabledTags.push(...parsedTags.tracklist.slice(0, count));
-                }
-                if (tagFilters.combinations.enabled) {
-                  const count = Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100);
-                  enabledTags.push(...parsedTags.combinations.slice(0, count));
-                }
-                
-                // Remove duplicates using Set, then join with commas and spaces
-                const uniqueTags = Array.from(new Set(enabledTags));
-                const optimized = uniqueTags.join(', ');
-                
-                if (optimized.length <= parseInt(charLimit)) {
-                  setTagsValue(optimized);
-                  setOptimizeStatus(`Optimized to ${optimized.length} chars`);
-                } else {
-                  // Truncate to fit within limit
-                  const truncated = optimized.substring(0, parseInt(charLimit) - 3) + '...';
-                  setTagsValue(truncated);
-                  setOptimizeStatus(`Truncated to ${charLimit} chars`);
-                }
-                setTimeout(() => setOptimizeStatus(''), 3000);
-              }}
-            >
-              Optimize
-            </button>
-            
-            {optimizeStatus && (
-              <span style={{ fontSize: '0.9rem', color: '#666' }}>
-                {optimizeStatus}
-              </span>
-            )}
-          </div>
         </>
       )}
       
@@ -2117,28 +2059,103 @@ export default function TaggerPage() {
         }}
       />
       
-      {/* Simple copy button for when no parsed tags are available */}
-      {!(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0) && (
-        <button
+
+      
+      {/* Simple copy button - always visible */}
+      <button
+        style={{
+          width: '100%',
+          padding: '0.5rem',
+          borderRadius: '4px',
+          border: '1px solid #ccc',
+          background: tagsCopyState === 'copied' ? '#ffe156' : '#eee',
+          fontWeight: 600,
+          cursor: 'pointer',
+          marginBottom: '0.5rem',
+          display: 'block',
+          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+        }}
+        onClick={handleTagsCopy}
+      >
+        {tagsCopyState === 'copied'
+          ? 'Copied!'
+          : `Copy ${tagsValue.length} chars to clipboard`}
+      </button>
+
+            {/* Tags Controls - moved to appear underneath textarea */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+
+        <input
+          type="number"
+          value={charLimit}
+          onChange={(e) => setCharLimit(e.target.value)}
+          min="1"
+          max="1000"
           style={{
-            width: '100%',
             padding: '0.5rem',
             borderRadius: '4px',
             border: '1px solid #ccc',
-            background: tagsCopyState === 'copied' ? '#ffe156' : '#eee',
+            width: '80px',
+            textAlign: 'center'
+          }}
+          title="Character limit for tag optimization"
+        />
+        
+        <button
+          style={{
+            padding: '0.5rem 1rem',
+            borderRadius: '4px',
+            border: '1px solid #ccc',
+            background: '#eee',
             fontWeight: 600,
             cursor: 'pointer',
-            marginBottom: '0.5rem',
-            display: 'block',
             transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
           }}
-          onClick={handleTagsCopy}
+          onClick={() => {
+            // Optimize tags based on character limit and enabled filters
+            const enabledTags = [];
+            if (tagFilters.artists.enabled) {
+              const count = Math.ceil((parsedTags.artists.length * tagFilters.artists.sliderValue) / 100);
+              enabledTags.push(...parsedTags.artists.slice(0, count));
+            }
+            if (tagFilters.album.enabled) {
+              const count = Math.ceil((parsedTags.album.length * tagFilters.album.sliderValue) / 100);
+              enabledTags.push(...parsedTags.album.slice(0, count));
+            }
+            if (tagFilters.tracklist.enabled) {
+              const count = Math.ceil((parsedTags.tracklist.length * tagFilters.tracklist.sliderValue) / 100);
+              enabledTags.push(...parsedTags.tracklist.slice(0, count));
+            }
+            if (tagFilters.combinations.enabled) {
+              const count = Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100);
+              enabledTags.push(...parsedTags.combinations.slice(0, count));
+            }
+            
+            // Remove duplicates using Set, then join with commas and spaces
+            const uniqueTags = Array.from(new Set(enabledTags));
+            const optimized = uniqueTags.join(', ');
+            
+            if (optimized.length <= parseInt(charLimit)) {
+              setTagsValue(optimized);
+              setOptimizeStatus(`Optimized to ${optimized.length} chars`);
+            } else {
+              // Truncate to fit within limit
+              const truncated = optimized.substring(0, parseInt(charLimit) - 3) + '...';
+              setTagsValue(truncated);
+              setOptimizeStatus(`Truncated to ${charLimit} chars`);
+            }
+            setTimeout(() => setOptimizeStatus(''), 3000);
+          }}
         >
-          {tagsCopyState === 'copied'
-            ? 'Copied!'
-            : `Copy ${tagsValue.length} chars to clipboard`}
+          Optimize
         </button>
-      )}
+        
+        {optimizeStatus && (
+          <span style={{ fontSize: '0.9rem', color: '#666' }}>
+            {optimizeStatus}
+          </span>
+        )}
+      </div>
 
     {/* Hashtags Section */}
     <div>
