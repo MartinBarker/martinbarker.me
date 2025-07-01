@@ -637,42 +637,56 @@ const handleFilesSelected = async (files) => {
       setFormatSuggestion(null);
       return;
     }
-    // Find common prefix (case-insensitive)
-    function commonPrefix(arr) {
-      if (!arr.length) return '';
-      let prefix = arr[0];
-      for (let i = 1; i < arr.length; i++) {
-        while (
-          arr[i].toLowerCase().indexOf(prefix.toLowerCase()) !== 0 &&
-          prefix.length > 0
-        ) {
-          prefix = prefix.slice(0, -1);
+    // Function to compute common prefix between two strings, case-insensitive
+    function commonPrefixPair(a, b) {
+      let prefix = '';
+      const minLen = Math.min(a.length, b.length);
+      for (let i = 0; i < minLen; i++) {
+        if (a[i].toLowerCase() === b[i].toLowerCase()) {
+          prefix += a[i];
+        } else {
+          break;
         }
-        if (!prefix) break;
       }
       return prefix;
     }
-    const prefix = commonPrefix(titleParts);
-    // Only suggest if prefix is at least 3 chars and appears in all lines
-    if (
-      prefix &&
-      prefix.length >= 3 &&
-      titleParts.every(t => t.toLowerCase().startsWith(prefix.toLowerCase()))
-    ) {
-      setFormatSuggestion({
-        prefix,
-        before: lines.join('\n'),
-        after: lines.map(line => {
-          // Remove only the first occurrence of the prefix after the time/dash/track
-          const rest = getTitlePart(line);
-          const replaced = rest.replace(new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '');
-          // Rebuild the line with the original prefix removed
-          return line.replace(rest, replaced);
-        }).join('\n')
-      });
-    } else {
-      setFormatSuggestion(null);
+    // Find the longest common prefix among any two title parts
+    let candidate = '';
+    for (let i = 0; i < titleParts.length; i++) {
+      for (let j = i + 1; j < titleParts.length; j++) {
+        const cp = commonPrefixPair(titleParts[i], titleParts[j]);
+        if (cp.length >= 3 && cp.length > candidate.length) {
+          candidate = cp;
+        }
+      }
     }
+    if (candidate) {
+      // Count how many title parts start with the candidate (case-insensitive)
+      const count = titleParts.filter(t =>
+        t.toLowerCase().startsWith(candidate.toLowerCase())
+      ).length;
+      if (count >= 2) {
+        const newLines = lines.map(line => {
+          const part = getTitlePart(line);
+          if (part.toLowerCase().startsWith(candidate.toLowerCase())) {
+            // Remove only the first occurrence of candidate in that part
+            const newPart = part.replace(
+              new RegExp('^' + candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+              ''
+            );
+            return line.replace(part, newPart);
+          }
+          return line;
+        });
+        setFormatSuggestion({
+          prefix: candidate,
+          before: lines.join('\n'),
+          after: newLines.join('\n')
+        });
+        return;
+      }
+    }
+    setFormatSuggestion(null);
   }, [inputValue, formatOrder, selectOptions]);
 
   // Method to apply formatting suggestion
