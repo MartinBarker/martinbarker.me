@@ -1337,7 +1337,8 @@ const handleFilesSelected = async (files) => {
                 <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Times</th>
               </tr>
             </thead>
-            <tbody>{inputSources.url.data && (
+            <tbody>
+              {inputSources.url.data && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
                     <strong>URL:</strong> {inputSources.url.label}
@@ -1378,7 +1379,8 @@ const handleFilesSelected = async (files) => {
                     />
                   </td>
                 </tr>
-              )}</tbody>
+              )}
+            </tbody>
           </table>
         </>
       )}      
@@ -1519,10 +1521,10 @@ const handleFilesSelected = async (files) => {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
-                          if (item2.value === 'title' ) return track.title || '';
-                          if (item2.value === 'dash' ) return '-'; // Fixed: removed extra quote
-                          if (item2.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
-                          if (item2.value === 'artist') return artistName;
+                          if (item.value === 'title' ) return track.title || '';
+                          if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
+                          if (item.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+                          if (item.value === 'artist') return artistName;
                           return '';
                         })
                         .filter(Boolean)
@@ -1893,7 +1895,8 @@ const handleFilesSelected = async (files) => {
       
       {/* Tags Type Table */}
       {(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0)) && (
-        <>          <table style={{
+        <>
+          <table style={{
             width: '100%',
             borderCollapse: 'collapse',
             border: '1px solid #ccc',
@@ -1907,7 +1910,8 @@ const handleFilesSelected = async (files) => {
                 <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '50%' }}>Percentage</th>
               </tr>
             </thead>
-            <tbody>{parsedTags.artists.length > 0 && (
+            <tbody>
+              {parsedTags.artists.length > 0 && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
@@ -1937,7 +1941,6 @@ const handleFilesSelected = async (files) => {
                         max="100"
                         value={tagFilters.artists.sliderValue}
                         onChange={(e) => {
-
                           const newValue = parseInt(e.target.value);
                           setTagFilters(prev => ({
                             ...prev,
@@ -1956,7 +1959,8 @@ const handleFilesSelected = async (files) => {
                     </div>
                   </td>
                 </tr>
-              )}              {parsedTags.album.length > 0 && (
+              )}
+              {parsedTags.album.length > 0 && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
@@ -2004,7 +2008,8 @@ const handleFilesSelected = async (files) => {
                     </div>
                   </td>
                 </tr>
-              )}              {parsedTags.tracklist.length > 0 && (
+              )}
+              {parsedTags.tracklist.length > 0 && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
@@ -2052,7 +2057,8 @@ const handleFilesSelected = async (files) => {
                     </div>
                   </td>
                 </tr>
-              )}              {parsedTags.combinations.length > 0 && (
+              )}
+              {parsedTags.combinations.length > 0 && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
@@ -2101,7 +2107,6 @@ const handleFilesSelected = async (files) => {
                   </td>
                 </tr>
               )}
-              {/* Add credits row if enabled and available */}
               {includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0 && (
                 <tr>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
@@ -2150,7 +2155,8 @@ const handleFilesSelected = async (files) => {
                     </div>
                   </td>
                 </tr>
-              )}</tbody>
+              )}
+            </tbody>
           </table>
         </>
       )}
