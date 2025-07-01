@@ -38,10 +38,17 @@ export default function TaggerPage() {
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
   const [discogsResponse, setDiscogsResponse] = useState(null);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);  const [tagsValue, setTagsValue] = useState('');
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [tagsValue, setTagsValue] = useState('');
   const [tagsCopyState, setTagsCopyState] = useState('idle'); // idle | copied | hover
   const [hashtagsValue, setHashtagsValue] = useState('');
   const [hashtagsCopyState, setHashtagsCopyState] = useState('idle'); // idle | copied | hover
+
+  // Add new states for progressive loading
+  const [processingStatus, setProcessingStatus] = useState(null); // { current: 0, total: 0, type: 'files' | 'discogs' }
+  const [processedTracks, setProcessedTracks] = useState([]); // Incrementally populated tracks
+  const [processingComplete, setProcessingComplete] = useState(false);
+
   // Add new states for tag optimization
   const [charLimit, setCharLimit] = useState('500');
   const [optimizeStatus, setOptimizeStatus] = useState(''); // For feedback messages
@@ -79,7 +86,8 @@ export default function TaggerPage() {
       metadata: true,
       times: true,
       label: ''
-    }  });
+    }
+  });
 
   // Add state for timestamps formatting options
   const [includeTrackCredits, setIncludeTrackCredits] = useState(false);
@@ -173,9 +181,9 @@ export default function TaggerPage() {
   // Load formatOrder/selectOptions/inputValue/artistDisabled from localStorage on mount (client only)
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     setIsClient(true); // Set client flag
-    
+
     try {
       const savedOrder = localStorage.getItem('tagger_formatOrder');
       const savedOptions = localStorage.getItem('tagger_selectOptions');
@@ -198,7 +206,7 @@ export default function TaggerPage() {
       localStorage.setItem('tagger_selectOptions', JSON.stringify(selectOptions));
       localStorage.setItem('tagger_inputValue', inputValue);
       localStorage.setItem('tagger_artistDisabled', String(artistDisabled));
-    } catch {}
+    } catch { }
   }, [formatOrder, selectOptions, inputValue, artistDisabled]);
 
   const handleSelectChange = (idx, val) => {
@@ -232,200 +240,160 @@ export default function TaggerPage() {
       });
     });
   }
-  // Helper function to generate video title recommendations for full album uploads
-  function generateVideoTitleRecommendations(discogsData, variation = 0) {
-    if (!discogsData) return [];
-    
-    // Helper function to clean Discogs entity names by removing (number) suffixes
-    const cleanDiscogsSuffix = (name) => {
-      if (!name) return '';
-      return name.replace(/\s+\(\d+\)$/, '');
-    };
-
-    const albumTitle = discogsData.title ? cleanDiscogsSuffix(discogsData.title) : '';
-    const primaryArtist = (discogsData.artists && discogsData.artists.length > 0) 
-      ? cleanDiscogsSuffix(discogsData.artists[0].name) 
-      : '';
-    const year = discogsData.released ? discogsData.released.substring(0, 4) : '';
-    const genres = discogsData.genres || [];
-    const styles = discogsData.styles || [];
-    const label = (discogsData.labels && discogsData.labels.length > 0) 
-      ? cleanDiscogsSuffix(discogsData.labels[0].name) 
-      : '';
-    const country = discogsData.country || '';
-
-    // Create different format template sets based on variation
-    const formatSets = [
-      // Variation 0: Original formats
-      [
-        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${t} - ${a} | ${y} | ${g[0]} | Full Album` : null,
-        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${a} - ${t} (${y}) [${g[0]}] Full Album` : null,
-        (a, t, y, g, s, l, c) => y ? `${t} by ${a} • ${y} • Full Album` : null,
-        (a, t, y, g, s, l, c) => l && y ? `${a} - ${t} | ${l} | ${y} | Complete Album` : null,
-        (a, t, y, g, s, l, c) => c && y ? `${t} - ${a} [${c} ${y}] Full LP` : null,
-      ],
-      // Variation 1: Style-focused formats
-      [
-        (a, t, y, g, s, l, c) => s.length > 0 && y ? `${a} - ${t} | ${s[0]} | ${y} | Full Album` : null,
-        (a, t, y, g, s, l, c) => s.length > 0 ? `${t} (${a}) | ${s[0]} Full Album` : null,
-        (a, t, y, g, s, l, c) => s.length > 1 && y ? `${t} - ${a} | ${s[0]} ${s[1]} | ${y}` : null,
-        (a, t, y, g, s, l, c) => g.length > 0 && s.length > 0 ? `${a}: ${t} | ${g[0]}/${s[0]} | Complete LP` : null,
-        (a, t, y, g, s, l, c) => y ? `${t} by ${a} (${y}) | Full Album` : null,
-      ],
-      // Variation 2: Label and country focused
-      [
-        (a, t, y, g, s, l, c) => l && c ? `${t} - ${a} | ${l} (${c}) | Full Album` : null,
-        (a, t, y, g, s, l, c) => l && y ? `${a}: ${t} | ${l} ${y} | Complete Album` : null,
-        (a, t, y, g, s, l, c) => c && g.length > 0 ? `${t} | ${a} | ${c} ${g[0]} | Full LP` : null,
-        (a, t, y, g, s, l, c) => l ? `${a} - ${t} | ${l} Records | Full Album` : null,
-        (a, t, y, g, s, l, c) => y && c ? `${t} (${y}) - ${a} | ${c} Release | Full Album` : null,
-      ],
-      // Variation 3: Alternative separators and formats
-      [
-        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${a} ★ ${t} ★ ${g[0]} ★ ${y} ★ Full Album` : null,
-        (a, t, y, g, s, l, c) => y ? `${t} / ${a} / ${y} / Complete Album` : null,
-        (a, t, y, g, s, l, c) => g.length > 0 ? `[${g[0]}] ${a} - ${t} | Full Album` : null,        (a, t, y, g, s, l, c) => s.length > 0 && y ? `${t} → ${a} → ${s[0]} → ${y} → Full LP` : null,
-        (a, t, y, g, s, l, c) => `${a} presents: ${t} | Complete Album`,
-      ],
-      // Variation 4: Mixed genre/style combinations
-      [
-        (a, t, y, g, s, l, c) => g.length > 1 ? `${t} - ${a} | ${g[0]} & ${g[1]} | Full Album` : null,
-        (a, t, y, g, s, l, c) => g.length > 0 && s.length > 0 && y ? `${a} - ${t} | ${g[0]}/${s[0]} | ${y} | Full LP` : null,
-        (a, t, y, g, s, l, c) => s.length > 1 ? `${t} by ${a} | ${s[0]} + ${s[1]} | Complete Album` : null,
-        (a, t, y, g, s, l, c) => g.length > 0 && y ? `${t} | ${a} | ${g[0]} Classic | ${y}` : null,
-        (a, t, y, g, s, l, c) => l && g.length > 0 ? `${a}: ${t} | ${l} | ${g[0]} | Full Album` : null,
-      ]
-    ];
-
-    const recommendations = [];
-    
-    if (albumTitle && primaryArtist) {
-      const currentSet = formatSets[variation % formatSets.length];
-      
-      // Apply each format template
-      currentSet.forEach(formatFn => {
-        const result = formatFn(primaryArtist, albumTitle, year, genres, styles, label, country);
-        if (result) {
-          recommendations.push(result);
-        }
-      });
-
-      // Fallback formats if we don't have enough recommendations
-      const fallbacks = [
-        `${albumTitle} - ${primaryArtist} | Full Album`,
-        `${primaryArtist} - ${albumTitle} | Complete Album`,
-        `${albumTitle} by ${primaryArtist} - Full LP`,
-        `${primaryArtist}: ${albumTitle} | Full Album`,
-        `${albumTitle} (${primaryArtist}) | Complete Album`
-      ];
-
-      // Add fallbacks if needed
-      fallbacks.forEach(fallback => {
-        if (recommendations.length < 5 && !recommendations.includes(fallback)) {
-          recommendations.push(fallback);
-        }
-      });
-    }
-
-    // Return only the first 5 unique recommendations
-    return [...new Set(recommendations)].slice(0, 5);
-  }
 
   // Handle files: get durations, build tracklist, update debug
-const handleFilesSelected = async (files) => {
-  setIsLoadingFiles(true);
-  const fileArr = Array.from(files);
-  setDebugInfo(prev => ({
-    ...prev,
-    files: fileArr.map(f => f.name)
-  }));
+  const handleFilesSelected = async (files) => {
+    setIsLoadingFiles(true);
+    setProcessingComplete(false);
+    setProcessedTracks([]);
 
-  // Only process audio files
-  const audioFiles = fileArr.filter(f =>
-    f.type.startsWith('audio/') ||
-    /\.(mp3|wav|aiff|flac)$/i.test(f.name)
-  );
+    const fileArr = Array.from(files);
+    setDebugInfo(prev => ({
+      ...prev,
+      files: fileArr.map(f => f.name)
+    }));
 
-  // Get durations for each file
-  const durations = await Promise.all(audioFiles.map(async (file) => {
-    try {
-      const duration = await getAudioDuration(file);
-      return duration;
-    } catch {
-      return 0;
+    // Only process audio files
+    const audioFiles = fileArr.filter(f =>
+      f.type.startsWith('audio/') ||
+      /\.(mp3|wav|aiff|flac)$/i.test(f.name)
+    );
+
+    if (audioFiles.length === 0) {
+      setIsLoadingFiles(false);
+      return;
     }
-  }));
 
-  // Store for later use in dropdown changes
-  audioFilesRef.current = audioFiles;
-  durationsRef.current = durations;
-  discogsTracksRef.current = [];
-  discogsDurationsRef.current = [];
-  setInputSource('files');
+    // Set initial processing status
+    setProcessingStatus({
+      current: 0,
+      total: audioFiles.length,
+      type: 'files'
+    });
 
-  // Update input sources state
-  setInputSources(prev => ({
-    ...prev,
-    files: {
-      ...prev.files,
-      data: {
-        files: audioFiles,
-        durations: durations
-      },
-      label: `${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`
+    // Process files incrementally
+    const durations = [];
+    let currentTime = 0;
+
+    for (let i = 0; i < audioFiles.length; i++) {
+      try {
+        const duration = await getAudioDuration(
+          audioFiles[i],
+          (current, total) => {
+            setProcessingStatus({ current, total, type: 'files' });
+          }
+        );
+
+        durations.push(duration);
+
+        // Create track entry for immediate display
+        const start = formatTime(currentTime);
+        const end = formatTime(currentTime + duration);
+        const title = audioFiles[i].name.replace(/\.[^/.]+$/, '');
+
+        const trackEntry = {
+          start,
+          end,
+          title,
+          artist: '',
+          file: audioFiles[i],
+          duration
+        };
+
+        // Add to processed tracks
+        setProcessedTracks(prev => [...prev, trackEntry]);
+
+        // Update timestamps incrementally
+        const newLine = formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+
+        setInputValue(prev => prev ? `${prev}\n${newLine}` : newLine);
+
+        currentTime += duration;
+
+        // Small delay to show progress visually
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+      } catch (error) {
+        console.error(`Error processing file ${audioFiles[i].name}:`, error);
+        durations.push(0);
+        currentTime += 0;
+      }
     }
-  }));
 
-  // Generate combined timestamps
-  setTimeout(generateCombinedTimestamps, 0);
+    // Store for later use in dropdown changes
+    audioFilesRef.current = audioFiles;
+    durationsRef.current = durations;
+    discogsTracksRef.current = [];
+    discogsDurationsRef.current = [];
+    setInputSource('files');
 
-  // ✅ Auto-populate tags, hashtags, titles
-  if (discogsData) {
-    processDiscogsResponseToTags(discogsData);
-    const videoTitles = generateVideoTitleRecommendations(discogsData, videoTitleVariation);
-    setVideoTitleRecommendations(videoTitles);
-  } else {
-    // Basic tag fallback using filenames
+    // Update input sources state
+    setInputSources(prev => ({
+      ...prev,
+      files: {
+        ...prev.files,
+        data: {
+          files: audioFiles,
+          durations: durations
+        },
+        label: `${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`
+      }
+    }));
+
+    // Process tags from filenames incrementally
     const filenameTags = audioFiles.map(file =>
       file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]/g, ' ').trim()
     );
-
-    const fallbackTags = {
-      artists: [],
-      album: [],
-      tracklist: [],
-      combinations: [],
-      credits: [],
-      filenames: filenameTags
-    };
 
     setParsedTags(prev => ({
       ...prev,
       filenames: filenameTags
     }));
 
-    // Create a single tag pool from filenames
     setTagsValue(filenameTags.join(', '));
     updateHashtagsValue(filenameTags.join(', '));
     setVideoTitleRecommendations([]);
-  }
 
-  setIsLoadingFiles(false);
-};
+    setProcessingComplete(true);
+    setProcessingStatus(null);
+    setIsLoadingFiles(false);
+  };
 
 
   // Handle URL submission
   const handleUrlSubmit = async (e) => {
     if (e) e.preventDefault();
+    setProcessingComplete(false);
+    setProcessedTracks([]);
+
     setDebugInfo(prev => ({
       ...prev,
       url: urlInput
     }));
 
-    // Discogs URL logic
     const discogsInfo = parseDiscogsUrl(urlInput);
     if (discogsInfo) {
       const route = 'http://localhost:3030/discogsFetch';
+
+      // Set initial processing status for URL fetch
+      setProcessingStatus({
+        current: 0,
+        total: 1,
+        type: 'discogs'
+      });
+
       try {
         const res = await fetch(route, {
           method: 'POST',
@@ -433,20 +401,20 @@ const handleFilesSelected = async (files) => {
           body: JSON.stringify(discogsInfo)
         });
         const data = await res.json();
-        setDiscogsResponse(data); // Save to state
-        setDiscogsData(data); // Store for video title refresh
+
+        setDiscogsResponse(data);
+        setDiscogsData(data);
         logDiscogsRequest({ route, payload: discogsInfo, response: data });
-        
-        // Process the response for tags
-        processDiscogsResponseToTags(data);
-        
-        // Generate video title recommendations
-        const videoTitles = generateVideoTitleRecommendations(data, videoTitleVariation);
-        setVideoTitleRecommendations(videoTitles);
-        
-        // If response has a tracklist, process timing data
+
         if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
-          // Helper to parse duration string (mm:ss or hh:mm:ss) to seconds
+          // Update processing status for tracks
+          setProcessingStatus({
+            current: 0,
+            total: data.tracklist.length,
+            type: 'discogs'
+          });
+
+          // Helper to parse duration string
           function parseDuration(str) {
             if (!str) return 0;
             const parts = str.split(':').map(Number);
@@ -459,20 +427,77 @@ const handleFilesSelected = async (files) => {
             }
             return 0;
           }
-          
-          const durations = data.tracklist.map(track => parseDuration(track.duration));
-          
-          // Store Discogs tracks and durations for dropdown reactivity
+
+          const durations = [];
+          let currentTime = 0;
+
+          // Process tracks incrementally
+          for (let i = 0; i < data.tracklist.length; i++) {
+            const track = data.tracklist[i];
+            const duration = parseDuration(track.duration);
+            durations.push(duration);
+
+            const start = formatTime(currentTime);
+            const end = formatTime(currentTime + duration);
+
+            let artistName = '';
+            if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
+              artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
+            }
+
+            const trackEntry = {
+              start,
+              end,
+              title: track.title || '',
+              artist: artistName,
+              track,
+              duration
+            };
+
+            // Add to processed tracks
+            setProcessedTracks(prev => [...prev, trackEntry]);
+
+            // Update processing status
+            setProcessingStatus({
+              current: i + 1,
+              total: data.tracklist.length,
+              type: 'discogs'
+            });
+
+            // Update timestamps incrementally
+            const newLine = formatOrder
+              .map(item => {
+                if (item.value === 'blank') return '';
+                if (item.value === 'startTime') return start;
+                if (item.value === 'endTime') return end;
+                if (item.value === 'title') return track.title || '';
+                if (item.value === 'dash') return '-';
+                if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
+                if (item.value === 'artist') return artistName;
+                return '';
+              })
+              .filter(Boolean)
+              .join(' ');
+
+            setInputValue(prev => prev ? `${prev}\n${newLine}` : newLine);
+
+            currentTime += duration;
+
+            // Small delay to show progress visually
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+
+          // Store Discogs tracks and durations
           discogsTracksRef.current = data.tracklist;
           discogsDurationsRef.current = durations;
           setInputSource('discogs');
-          
+
           // Enable artist dropdown if any track has an artist
-          const hasArtist = data.tracklist.some(track => 
+          const hasArtist = data.tracklist.some(track =>
             Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name
           );
           setArtistDisabled(!hasArtist);
-          
+
           // Update input sources state
           setInputSources(prev => ({
             ...prev,
@@ -485,13 +510,22 @@ const handleFilesSelected = async (files) => {
               label: `Discogs: ${data.title || 'Unknown Album'}`
             }
           }));
-          
-          // Generate combined timestamps
-          setTimeout(generateCombinedTimestamps, 0);
         }
+
+        // Process tags incrementally
+        processDiscogsResponseToTags(data);
+
+        // Generate video title recommendations
+        const videoTitles = generateVideoTitleRecommendations(data, videoTitleVariation);
+        setVideoTitleRecommendations(videoTitles);
+
+        setProcessingComplete(true);
+        setProcessingStatus(null);
+
       } catch (err) {
         console.error('Error fetching Discogs data:', err);
         setDiscogsResponse(null);
+        setProcessingStatus(null);
         logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
       }
     }
@@ -514,9 +548,9 @@ const handleFilesSelected = async (files) => {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return title;
-            if (item.value === 'dash' ) return '-';
-            if (item.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
             return '';
           })
@@ -541,9 +575,9 @@ const handleFilesSelected = async (files) => {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return track.title || '';
-            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
-            if (item.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-'; // Fixed: removed extra quote
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
           })
@@ -573,9 +607,9 @@ const handleFilesSelected = async (files) => {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return title;
-            if (item.value === 'dash' ) return '-';
-            if (item.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
             return '';
           })
@@ -597,11 +631,11 @@ const handleFilesSelected = async (files) => {
         return formatOrder
           .map(item => {
             if (item.value === 'blank') return '';
-            if (item.value === 'startTime' ) return start;
-            if (item.value === 'endTime' ) return end;
-            if (item.value === 'title' ) return track.title || '';
-            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
-            if (item.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-'; // Fixed: removed extra quote
+            if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
           })
@@ -748,7 +782,7 @@ const handleFilesSelected = async (files) => {
         [field]: value
       }
     }));
-    
+
     // Regenerate timestamps when settings change
     generateCombinedTimestamps();
   };
@@ -757,17 +791,17 @@ const handleFilesSelected = async (files) => {
   const generateCombinedTimestamps = () => {
     const urlSource = inputSources.url;
     const filesSource = inputSources.files;
-    
+
     // Determine which source to use for times and metadata
     const useUrlTimes = urlSource.data && urlSource.times;
     const useFileTimes = filesSource.data && filesSource.times;
     const useUrlMetadata = urlSource.data && urlSource.metadata;
     const useFileMetadata = filesSource.data && filesSource.metadata;
-    
+
     // Priority: if both sources have times enabled, prefer files for timing accuracy
     let timingData = null;
     let metadataSource = null;
-    
+
     if (useFileTimes && filesSource.data) {
       timingData = {
         type: 'files',
@@ -781,7 +815,7 @@ const handleFilesSelected = async (files) => {
         durations: urlSource.data.durations
       };
     }
-    
+
     if (useUrlMetadata && urlSource.data) {
       metadataSource = {
         type: 'url',
@@ -793,7 +827,7 @@ const handleFilesSelected = async (files) => {
         files: filesSource.data.files
       };
     }
-    
+
     if (!timingData) {
       setInputValue('');
       return;
@@ -806,10 +840,10 @@ const handleFilesSelected = async (files) => {
         const duration = timingData.durations[idx] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + duration);
-        
+
         let title = '';
         let artistName = '';
-        
+
         if (metadataSource && metadataSource.type === 'url') {
           // Use Discogs metadata if available
           const track = metadataSource.data.tracklist?.[idx];
@@ -825,7 +859,7 @@ const handleFilesSelected = async (files) => {
           // Use filename as title
           title = file.name.replace(/\.[^/.]+$/, '');
         }
-          // Build line based on format order
+        // Build line based on format order
         const lineData = formatOrder
           .map(item => {
             if (item.value === 'blank') return '';
@@ -839,7 +873,7 @@ const handleFilesSelected = async (files) => {
           })
           .filter(Boolean)
           .join(' ');
-          
+
         lines.push(lineData);
         // Add track credits if enabled and available from Discogs data
         if (includeTrackCredits && metadataSource && metadataSource.type === 'url') {
@@ -860,28 +894,28 @@ const handleFilesSelected = async (files) => {
         const duration = timingData.durations[idx] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + duration);
-        
+
         let title = track.title || '';
         let artistName = '';
-        
+
         if (track.artists && track.artists.length > 0) {
           artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
         }
-          // Build line based on format order
+        // Build line based on format order
         const lineData = formatOrder
           .map(item => {
             if (item.value === 'blank') return '';
-            if (item.value === 'startTime' ) return start;
-            if (item.value === 'endTime' ) return end;
-            if (item.value === 'title' ) return title;
-            if (item.value === 'dash' ) return '-';
-            if (item.value === 'dash-artist' ) return (!artistDisabled && artistName) ? '-' : '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
           })
           .filter(Boolean)
           .join(' ');
-            
+
         lines.push(lineData);
         // Add track credits if enabled and available
         if (includeTrackCredits && track.extraartists && track.extraartists.length > 0) {
@@ -895,7 +929,7 @@ const handleFilesSelected = async (files) => {
         currentTime += duration;
       });
     }
-    
+
     setInputValue(lines.join('\n'));
   };
   // Helper function to update combined timestamps when format changes
@@ -928,7 +962,8 @@ const handleFilesSelected = async (files) => {
       album: [],
       tracklist: [],
       combinations: []
-    });    setTagFilters({
+    });
+    setTagFilters({
       artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
@@ -938,7 +973,12 @@ const handleFilesSelected = async (files) => {
     setVideoTitleCopyState('idle');
     setVideoTitleVariation(0);
     setDiscogsData(null);
-    
+
+    // Reset progressive loading states
+    setProcessingStatus(null);
+    setProcessedTracks([]);
+    setProcessingComplete(false);
+
     // Reset input sources
     setInputSources({
       url: {
@@ -951,19 +991,20 @@ const handleFilesSelected = async (files) => {
         data: null,
         metadata: true,
         times: true,
-        label: ''      }
+        label: ''
+      }
     });
-  };  const processDiscogsResponseToTags = (response) => {
+  }; const processDiscogsResponseToTags = (response) => {
     if (!response) return;
-    
+
     const tagCategories = {
       artists: new Set(),
-      album: new Set(), 
+      album: new Set(),
       tracklist: new Set(),
       combinations: new Set(),
       credits: new Set() // NEW: for credits
     };
-    
+
     // Clean function to remove Discogs suffixes and slashes
     const cleanName = (name) => {
       if (!name) return '';
@@ -972,7 +1013,7 @@ const handleFilesSelected = async (files) => {
         .replace(/\s*\/\s*/g, ', ') // Replace slashes with commas
         .trim();
     };
-    
+
     // Process main album artists
     if (response.artists) {
       response.artists.forEach(artist => {
@@ -986,7 +1027,7 @@ const handleFilesSelected = async (files) => {
         }
       });
     }
-    
+
     // Process album info
     if (response.title) {
       const cleanTitle = cleanName(response.title);
@@ -1021,7 +1062,7 @@ const handleFilesSelected = async (files) => {
         if (trimmed) tagCategories.album.add(trimmed);
       });
     }
-    
+
     // Process tracklist
     if (response.tracklist) {
       response.tracklist.forEach(track => {
@@ -1033,7 +1074,7 @@ const handleFilesSelected = async (files) => {
             if (trimmed) tagCategories.tracklist.add(trimmed);
           });
         }
-        
+
         // Add individual track artists to artists category
         if (track.artists && track.artists.length > 0) {
           track.artists.forEach(artist => {
@@ -1046,7 +1087,7 @@ const handleFilesSelected = async (files) => {
             }
           });
         }
-        
+
         // Add track extra artists (producers, etc.)
         if (track.extraartists && track.extraartists.length > 0) {
           track.extraartists.forEach(artist => {
@@ -1065,18 +1106,18 @@ const handleFilesSelected = async (files) => {
         }
       });
     }
-    
+
     // Generate combinations (artist + album, artist + track, etc.)
     const albumTitle = response.title ? cleanName(response.title).split(',')[0].trim() : '';
     const mainArtists = Array.from(tagCategories.artists);
-    
+
     // Create artist + album combinations
     if (albumTitle && mainArtists.length > 0) {
       mainArtists.slice(0, 3).forEach(artist => {
         tagCategories.combinations.add(`${artist} ${albumTitle}`);
       });
     }
-    
+
     // Create artist + genre combinations if available
     if (response.genres && mainArtists.length > 0) {
       response.genres.slice(0, 2).forEach(genre => {
@@ -1088,7 +1129,7 @@ const handleFilesSelected = async (files) => {
         }
       });
     }
-    
+
     const processedTags = {
       artists: Array.from(tagCategories.artists),
       album: Array.from(tagCategories.album),
@@ -1096,9 +1137,9 @@ const handleFilesSelected = async (files) => {
       combinations: Array.from(tagCategories.combinations),
       credits: Array.from(tagCategories.credits) // NEW
     };
-    
+
     setParsedTags(processedTags);
-    
+
     // Calculate tag filter statistics with slider values
     const calculateStats = (tags) => ({
       enabled: true,
@@ -1107,7 +1148,7 @@ const handleFilesSelected = async (files) => {
       totalChars: tags.join(',').length,
       sliderValue: 100 // Default to 100% (show all tags)
     });
-    
+
     setTagFilters({
       artists: calculateStats(processedTags.artists),
       album: calculateStats(processedTags.album),
@@ -1115,7 +1156,7 @@ const handleFilesSelected = async (files) => {
       combinations: calculateStats(processedTags.combinations),
       credits: calculateStats(processedTags.credits) // NEW
     });
-    
+
     // Generate initial tags value with all categories (including credits if enabled)
     updateTagsValue(processedTags, {
       artists: { enabled: true, sliderValue: 100 },
@@ -1125,10 +1166,10 @@ const handleFilesSelected = async (files) => {
       credits: { enabled: includeTrackCredits, sliderValue: 100 } // NEW
     });
   };
-    // Helper function to update tags value based on filters and sliders
+  // Helper function to update tags value based on filters and sliders
   const updateTagsValue = (tags, filters) => {
     const allSelectedTags = new Set(); // Use Set to prevent duplicates
-    
+
     if (filters.artists.enabled && tags.artists.length > 0) {
       const count = Math.ceil((tags.artists.length * filters.artists.sliderValue) / 100);
       tags.artists.slice(0, count).forEach(tag => allSelectedTags.add(tag));
@@ -1159,24 +1200,24 @@ const handleFilesSelected = async (files) => {
       setHashtagsValue('');
       return;
     }
-    
+
     // Split by comma, clean each tag, and convert to hashtag format
     const hashtags = tagsStr
       .split(',')
       .map(tag => {
         const cleanTag = tag.trim();
         if (!cleanTag) return '';
-        
+
         // Remove spaces and special characters, keep alphanumeric and basic chars
         const hashtagText = cleanTag
           .replace(/[^\w\s-]/g, '') // Remove special chars except hyphens
           .replace(/\s+/g, '') // Remove all spaces
           .replace(/-+/g, ''); // Remove hyphens
-        
+
         return hashtagText ? `#${hashtagText}` : '';
       })
       .filter(Boolean); // Remove empty strings
-    
+
     setHashtagsValue(hashtags.join(' '));
   };
 
@@ -1205,6 +1246,41 @@ const handleFilesSelected = async (files) => {
 
   return (
     <div>
+      {/* Processing Status Display */}
+      {processingStatus && (
+        <div style={{
+          background: '#f0f9ff',
+          border: '1px solid #0ea5e9',
+          borderRadius: '4px',
+          padding: '1rem',
+          marginBottom: '1rem',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+            {processingStatus.type === 'files' ? 'Processing Audio Files...' : 'Processing Discogs Data...'}
+          </div>
+          <div style={{ fontSize: '1rem', color: '#0369a1' }}>
+            Processing track {processingStatus.current} of {processingStatus.total}
+          </div>
+          <div style={{
+            width: '100%',
+            height: '8px',
+            backgroundColor: '#e0f2fe',
+            borderRadius: '4px',
+            marginTop: '0.5rem',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              width: `${(processingStatus.current / processingStatus.total) * 100}%`,
+              height: '100%',
+              backgroundColor: '#0ea5e9',
+              transition: 'width 0.3s ease',
+              borderRadius: '4px'
+            }} />
+          </div>
+        </div>
+      )}
+
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Input:</strong>
       </div>
@@ -1319,7 +1395,6 @@ const handleFilesSelected = async (files) => {
       {/* Input Sources Table */}
       {(inputSources.url.data || inputSources.files.data) && (
         <>
-          {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
             <strong>Input Sources:</strong>
           </div>
@@ -1383,8 +1458,7 @@ const handleFilesSelected = async (files) => {
             </tbody>
           </table>
         </>
-      )}      
-      {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
+      )}
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Timestamps:</strong>
       </div>
@@ -1494,9 +1568,9 @@ const handleFilesSelected = async (files) => {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
-                          if (item2.value === 'title' ) return title;
-                          if (item2.value === 'dash' ) return '-';
-                          if (item2.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+                          if (item2.value === 'title') return title;
+                          if (item2.value === 'dash') return '-';
+                          if (item2.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
                           if (item2.value === 'artist') return '';
                           return '';
                         })
@@ -1517,13 +1591,13 @@ const handleFilesSelected = async (files) => {
                         artistName = track.artists.map(a => a.name).join(', ');
                       }
                       return newFormatOrder
-                        .map(item2 => {
+                        .map((item2) => {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
-                          if (item.value === 'title' ) return track.title || '';
-                          if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
-                          if (item.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+                          if (item.value === 'title') return track.title || '';
+                          if (item.value === 'dash') return '-'; // Fixed: removed extra quote
+                          if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
                           if (item.value === 'artist') return artistName;
                           return '';
                         })
@@ -1589,8 +1663,8 @@ const handleFilesSelected = async (files) => {
                 borderRadius: idx === 0
                   ? '0 0 0 0'
                   : idx === formatOrder.length - 1
-                  ? '0 4px 4px 0'
-                  : '0',
+                    ? '0 4px 4px 0'
+                    : '0',
                 border: '1px solid #ccc',
                 borderLeft: 'none',
                 borderRight: idx !== formatOrder.length - 1 ? 'none' : '1px solid #ccc',
@@ -1650,6 +1724,23 @@ const handleFilesSelected = async (files) => {
             resize: 'both'
           }}
         />
+
+        {/* Processing indicator for partially loaded tracks */}
+        {processingStatus && processedTracks.length > 0 && (
+          <div style={{
+            padding: '0.5rem',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderTop: 'none',
+            borderRadius: '0 0 4px 4px',
+            fontSize: '0.9rem',
+            color: '#64748b',
+            textAlign: 'center'
+          }}>
+            {processedTracks.length} of {processingStatus.total} tracks loaded...
+          </div>
+        )}
+
         <button
           style={{
             width: '100%',
@@ -1670,7 +1761,28 @@ const handleFilesSelected = async (files) => {
             : `Copy ${(inputValue ? (`Timestamps generated by https://tagger.site:\n${inputValue}`) : '').length} chars to clipboard`}
         </button>
 
-{/* Formatting Suggestion Popup */}
+        <button
+          type="button"
+          onClick={handleReset}
+          style={{
+            margin: '1rem 0 1rem 0',
+            background: '#f6f6f6',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            padding: '0.5rem 1.2rem',
+            fontWeight: 600,
+            fontSize: '1em',
+            cursor: 'pointer',
+            color: '#222',
+            display: 'block',
+            width: '100%',
+            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+          }}
+        >
+          Clear / Reset
+        </button>
+
+        {/* Formatting Suggestion Popup */}
         {formatSuggestion && (
           <div
             style={{
@@ -1680,7 +1792,6 @@ const handleFilesSelected = async (files) => {
               borderRadius: 6,
               padding: '1rem',
               boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-              maxWidth: 600,
               position: 'relative'
             }}
           >
@@ -1789,36 +1900,16 @@ const handleFilesSelected = async (files) => {
               }}
               style={{ marginRight: '0.5rem' }}
             />
-            Include track credits
+            Include track credits in timestamps.
           </label>
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={handleReset}
-        style={{
-          margin: '1rem 0 1rem 0',
-          background: '#f6f6f6',
-          border: '1px solid #ccc',
-          borderRadius: 4,
-          padding: '0.5rem 1.2rem',
-          fontWeight: 600,
-          fontSize: '1em',
-          cursor: 'pointer',
-          color: '#222',
-          display: 'block',
-          width: '100%',
-          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-        }}
-      >
-        Clear / Reset
-      </button>
+
 
       {/* Video Title Recommendations Section */}
       {videoTitleRecommendations.length > 0 && (
         <>
-          {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
             <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: 0 }}>
               <strong>Video Title Recommendations:</strong>
@@ -1886,13 +1977,12 @@ const handleFilesSelected = async (files) => {
             ))}
           </div>
         </>
-      )}     
-          
-      {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
+      )}
+
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Tags:</strong>
       </div>
-      
+
       {/* Tags Type Table */}
       {(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0)) && (
         <>
@@ -2160,7 +2250,7 @@ const handleFilesSelected = async (files) => {
           </table>
         </>
       )}
-      
+
       <textarea
         value={tagsValue}
         onChange={e => setTagsValue(e.target.value)}
@@ -2182,9 +2272,9 @@ const handleFilesSelected = async (files) => {
           resize: 'none'
         }}
       />
-      
 
-      
+
+
       {/* Simple copy button - always visible */}
       <button
         style={{
@@ -2206,7 +2296,7 @@ const handleFilesSelected = async (files) => {
           : `Copy ${tagsValue.length} chars to clipboard`}
       </button>
 
-            {/* Tags Controls - moved to appear underneath textarea */}
+      {/* Tags Controls - moved to appear underneath textarea */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
 
         <input
@@ -2224,7 +2314,7 @@ const handleFilesSelected = async (files) => {
           }}
           title="Character limit for tag optimization"
         />
-        
+
         <button
           style={{
             padding: '0.5rem 1rem',
@@ -2254,11 +2344,11 @@ const handleFilesSelected = async (files) => {
               const count = Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100);
               enabledTags.push(...parsedTags.combinations.slice(0, count));
             }
-            
+
             // Remove duplicates using Set, then join with commas and spaces
             const uniqueTags = Array.from(new Set(enabledTags));
             const optimized = uniqueTags.join(', ');
-            
+
             if (optimized.length <= parseInt(charLimit)) {
               setTagsValue(optimized);
               setOptimizeStatus(`Optimized to ${optimized.length} chars`);
@@ -2273,7 +2363,7 @@ const handleFilesSelected = async (files) => {
         >
           Optimize
         </button>
-        
+
         {optimizeStatus && (
           <span style={{ fontSize: '0.9rem', color: '#666' }}>
             {optimizeStatus}
@@ -2281,59 +2371,59 @@ const handleFilesSelected = async (files) => {
         )}
       </div>
 
-    {/* Hashtags Section */}
-    <div>
-      <h3 style={{
-        color: colors.primaryText,
-        marginBottom: '1rem',
-        fontSize: '1.2rem',
-        fontWeight: 600
-      }}>
-        Hashtags:
-      </h3>
-      
-      <textarea
-        value={hashtagsValue}
-        onChange={e => setHashtagsValue(e.target.value)}
-        placeholder={
-          hashtagsValue
-            ? ''
-            : `#BookerT.Jones #PriscillaJones #BookerT&TheMGs #TheMar-Keys #TheStaxStaff #ThePackers #TheRCOAll-Stars #PriscillaCoolidge #BookerT.&Priscilla #1971 #France #TheWeddingSong #She #TheIndianSong #SeaGull #ForPriscilla #TheDeltaSong #Why #MississippiVoodoo #CoolBlackDream #SweetChildYoureNotAlone #BookerT.&Priscilla1971 #BookerT.Jones1971`
-        }
-        rows={5}
-        style={{
-          width: '100%',
-          minWidth: '100%',
-          padding: '0.5rem',
-          borderRadius: '4px',
-          border: '1px solid #ccc',
-          fontSize: '1rem',
-          boxSizing: 'border-box',
-          display: 'block',
-          resize: 'none'
-        }}
-      />
-      
-      <button
-        style={{
-          width: '100%',
-          padding: '0.5rem',
-          borderRadius: '4px',
-          border: '1px solid #ccc',
-          background: hashtagsCopyState === 'copied' ? '#ffe156' : '#eee',
-          fontWeight: 600,
-          cursor: 'pointer',
-          marginBottom: '0.5rem',
-          display: 'block',
-          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-        }}
-        onClick={handleHashtagsCopy}
-      >
-        {hashtagsCopyState === 'copied'
-          ? 'Copied!'
-          : `Copy ${hashtagsValue.length} chars to clipboard`}
-      </button>
-    </div>
+      {/* Hashtags Section */}
+      <div>
+        <h3 style={{
+          color: colors.primaryText,
+          marginBottom: '1rem',
+          fontSize: '1.2rem',
+          fontWeight: 600
+        }}>
+          Hashtags:
+        </h3>
+
+        <textarea
+          value={hashtagsValue}
+          onChange={e => setHashtagsValue(e.target.value)}
+          placeholder={
+            hashtagsValue
+              ? ''
+              : `#BookerT.Jones #PriscillaJones #BookerT&TheMGs #TheMar-Keys #TheStaxStaff #ThePackers #TheRCOAll-Stars #PriscillaCoolidge #BookerT.&Priscilla #1971 #France #TheWeddingSong #She #TheIndianSong #SeaGull #ForPriscilla #TheDeltaSong #Why #MississippiVoodoo #CoolBlackDream #SweetChildYoureNotAlone #BookerT.&Priscilla1971 #BookerT.Jones1971`
+          }
+          rows={5}
+          style={{
+            width: '100%',
+            minWidth: '100%',
+            padding: '0.5rem',
+            borderRadius: '4px',
+            border: '1px solid #ccc',
+            fontSize: '1rem',
+            boxSizing: 'border-box',
+            display: 'block',
+            resize: 'none'
+          }}
+        />
+
+        <button
+          style={{
+            width: '100%',
+            padding: '0.5rem',
+            borderRadius: '4px',
+            border: '1px solid #ccc',
+            background: hashtagsCopyState === 'copied' ? '#ffe156' : '#eee',
+            fontWeight: 600,
+            cursor: 'pointer',
+            marginBottom: '0.5rem',
+            display: 'block',
+            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+          }}
+          onClick={handleHashtagsCopy}
+        >
+          {hashtagsCopyState === 'copied'
+            ? 'Copied!'
+            : `Copy ${hashtagsValue.length} chars to clipboard`}
+        </button>
+      </div>
     </div>
   );
 }
