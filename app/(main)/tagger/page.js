@@ -26,7 +26,7 @@ function logDiscogsRequest({ route, payload, response }) {
   console.log('Response:', response);
 }
 
-export default function TaggerPage() {
+export default function TaggerPage({ initialUrl }) {
   const { colors } = useColorContext();
   const urlInputContainerRef = useRef(null);
   const [isStacked, setIsStacked] = useState(false);
@@ -170,6 +170,22 @@ export default function TaggerPage() {
   // Track input source: 'files' | 'discogs' | null
   const [inputSource, setInputSource] = useState(null);
 
+  // Print initialUrl when component mounts
+  useEffect(() => {
+    if (initialUrl) {
+      console.log('Initial URL received:', initialUrl);
+      
+      // If initialUrl is provided, set it as the urlInput value
+      setUrlInput(initialUrl);
+    }
+  }, [initialUrl]);
+  
+  // Method to print initialUrl
+  const printInitialUrl = () => {
+    console.log('Current initialUrl value:', initialUrl);
+    return initialUrl;
+  };
+  
   // Load formatOrder/selectOptions/inputValue/artistDisabled from localStorage on mount (client only)
   useEffect(() => {
     if (typeof window === 'undefined') return;
