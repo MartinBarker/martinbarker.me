@@ -7,12 +7,14 @@ const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
+const path = require('path'); // Add path module for file operations
 const { google } = require('googleapis');
 const readline = require('readline');
 const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
 const app = express();
+app.use(express.json());
 const port = 3030;
 
 app.use(cors());
@@ -1394,3 +1396,248 @@ process.on('unhandledRejection', (reason, promise) => {
 setInterval(() => {
   console.log('[DEBUG] Server process is still alive at', new Date().toISOString());
 }, 30000);
+
+// Create images directory if it doesn't exist
+const IMAGES_DIR = path.join(__dirname, 'discogs_images');
+if (!fs.existsSync(IMAGES_DIR)) {
+  fs.mkdirSync(IMAGES_DIR, { recursive: true });
+  console.log(`Created images directory: ${IMAGES_DIR}`);
+}
+
+// Function to download and save image
+async function downloadImage(imageUrl, releaseId, imageIndex) {
+  try {
+    // Create release-specific directory
+    const releaseDir = path.join(IMAGES_DIR, releaseId.toString());
+    if (!fs.existsSync(releaseDir)) {
+      fs.mkdirSync(releaseDir, { recursive: true });
+      console.log(`📁 Created release directory: ${releaseDir}`);
+    }
+    
+    // Extract file extension from URL
+    const urlParts = imageUrl.split('.');
+    const extension = urlParts[urlParts.length - 1].split('?')[0] || 'jpg';
+    const filename = `${releaseId}_${imageIndex}.${extension}`;
+    const filepath = path.join(releaseDir, filename);
+    
+    // Check if file already exists
+    if (fs.existsSync(filepath)) {
+      console.log(`🖼️ Image already exists: ${filename}`);
+      console.log(`📁 Local filepath: ${filepath}`);
+      return filepath;
+    }
+    
+    console.log(`📥 Downloading image: ${filename} from ${imageUrl}`);
+    
+    const response = await axios.get(imageUrl, {
+      responseType: 'stream',
+      timeout: 30000, // 30 second timeout
+      headers: {
+        'User-Agent': USER_AGENT
+      }
+    });
+    
+    const writer = fs.createWriteStream(filepath);
+    response.data.pipe(writer);
+    
+    return new Promise((resolve, reject) => {
+      writer.on('finish', () => {
+        console.log(`✅ Image saved: ${filename}`);
+        console.log(`📁 Local filepath: ${filepath}`);
+        resolve(filepath);
+      });
+      writer.on('error', (error) => {
+        console.error(`❌ Error saving image ${filename}:`, error.message);
+        reject(error);
+      });
+    });
+  } catch (error) {
+    console.error(`❌ Error downloading image from ${imageUrl}:`, error.message);
+    return null;
+  }
+}
+
+app.post('/getDiscogsImgs', async (req, res) => {
+  console.log('🖼️ [POST /getDiscogsImgs] Hit', req.body);
+
+  try {
+    const { query, enablePagination = true } = req.body; // Add enablePagination flag, default true
+    if (!query) {
+      throw new Error('Query is required.');
+    }
+
+    let labelId = null;
+
+    // Extract label ID from URL or ID
+    const labelMatch = query.match(/discogs\.com\/label\/(\d+)/);
+    if (labelMatch && labelMatch[1]) {
+      labelId = labelMatch[1];
+    } else if (/^\d+$/.test(query)) {
+      labelId = query; // Assume it's a numeric ID
+    }
+
+    if (!labelId) {
+      throw new Error('Label ID is required.');
+    }
+
+    const labelUrl = `${DISCOGS_API_URL}/labels/${labelId}`;
+    console.log(`🔍 [Discogs API Request] Route: /labels, ID: ${labelId}, URL: ${labelUrl}`);
+
+    const labelResponse = await axios.get(labelUrl, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+
+    const { releases_url } = labelResponse.data;
+    if (!releases_url) {
+      throw new Error('Releases URL not found in label data.');
+    }
+
+    console.log(`📡 Fetching all releases from URL: ${releases_url}`);
+    
+    // If pagination is disabled, return the first request directly with first release details
+    if (!enablePagination) {
+      console.log('🛠 Pagination disabled. Returning first request in full with first release details.');
+      const firstResponse = await axios.get(releases_url, {
+        headers: { 'User-Agent': USER_AGENT },
+      });
+      console.log(`✅ 1/1 Fetched first page with ${firstResponse.data.releases?.length || 0} releases from ${releases_url}`);
+      
+      let item_release = null;
+      let items_images = {};
+      
+      // If there are releases, fetch the first release's detailed info
+      if (firstResponse.data.releases && firstResponse.data.releases.length > 0) {
+        const firstReleaseId = firstResponse.data.releases[0].id;
+        try {
+          console.log(`🔍 Fetching first release details for ID: ${firstReleaseId}`);
+          const firstReleaseResponse = await axios.get(`${DISCOGS_API_URL}/releases/${firstReleaseId}`, {
+            headers: { 'User-Agent': USER_AGENT },
+          });
+          item_release = firstReleaseResponse.data;
+          
+          // Extract images from the first release and download them
+          if (item_release.images && item_release.images.length > 0) {
+            items_images[firstReleaseId] = [];
+            for (let i = 0; i < item_release.images.length; i++) {
+              const image = item_release.images[i];
+              items_images[firstReleaseId].push(image.resource_url);
+              
+              // Download image
+              const savedPath = await downloadImage(image.resource_url, firstReleaseId, i);
+              if (savedPath) {
+                console.log(`🖼️ Image ${i + 1}/${item_release.images.length} processed for release ${firstReleaseId}`);
+              }
+            }
+            console.log(`🖼️ Extracted ${item_release.images.length} images for release ID ${firstReleaseId}`);
+          }
+          
+          console.log(`✅ Fetched first release info for ID ${firstReleaseId}`);
+        } catch (error) {
+          console.error(`❌ Failed to fetch first release info for ID ${firstReleaseId}:`, error.message);
+        }
+      }
+      
+      return res.status(200).json({
+        paginationSummary: `Fetched first page only (pagination disabled). Total items available: ${firstResponse.data.pagination?.items || 'unknown'}.`,
+        releases_info: firstResponse.data, // Return the full response
+        item_release: item_release, // Return the first release's detailed info
+        items_images: items_images, // Return image URLs for each release
+      });
+    }
+
+    let url = releases_url;
+    let allReleases = [];
+    let retryCount = 0;
+    let currentPage = 0;
+    let totalPages = 0;
+
+    while (url) {
+      try {
+        const releasesResponse = await axios.get(url, {
+          headers: { 'User-Agent': USER_AGENT },
+        });
+
+        const { pagination, releases } = releasesResponse.data;
+        allReleases = allReleases.concat(releases);
+        currentPage = pagination.page;
+        totalPages = pagination.pages;
+
+        console.log(`✅ ${currentPage}/${totalPages} Fetched page with ${releases.length} releases from ${url}`);
+
+        url = pagination.urls?.next || null; // Get the next page URL
+        retryCount = 0; // Reset retry count on success
+      } catch (error) {
+        if (error.response?.status === 429) {
+          retryCount++;
+          const waitTime = Math.pow(2, retryCount) * 1000;
+          console.error(`⏳ Rate limit hit on page ${currentPage} of ${totalPages}. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          // Removed retry limit - will keep trying indefinitely
+        } else {
+          console.error('❌ Error fetching releases:', error.message);
+          throw error;
+        }
+      }
+    }
+
+    console.log(`✅ Total releases fetched: ${allReleases.length}`);
+
+    // Fetch detailed release info for each release and extract images
+    const releases_info = [];
+    const items_images = {};
+    retryCount = 0; // Reset retry count for detailed release fetching
+    
+    for (const release of allReleases) {
+      try {
+        const releaseResponse = await axios.get(release.resource_url, {
+          headers: { 'User-Agent': USER_AGENT },
+        });
+        releases_info.push(releaseResponse.data);
+        
+        // Extract images from this release and download them
+        if (releaseResponse.data.images && releaseResponse.data.images.length > 0) {
+          items_images[release.id] = [];
+          for (let i = 0; i < releaseResponse.data.images.length; i++) {
+            const image = releaseResponse.data.images[i];
+            items_images[release.id].push(image.resource_url);
+            
+            // Download image
+            const savedPath = await downloadImage(image.resource_url, release.id, i);
+            if (savedPath) {
+              console.log(`🖼️ Image ${i + 1}/${releaseResponse.data.images.length} processed for release ${release.id}`);
+            }
+          }
+          console.log(`🖼️ Extracted ${releaseResponse.data.images.length} images for release ID ${release.id}`);
+        }
+        
+        console.log(`✅ ${releases_info.length}/${allReleases.length} Fetched release info for ${release.resource_url}`);
+        retryCount = 0; // Reset retry count on success
+      } catch (error) {
+        if (error.response?.status === 429) {
+          retryCount++;
+          const waitTime = Math.pow(2, retryCount) * 1000;
+          console.error(`⏳ Rate limit hit while fetching release info for ID ${release.id}. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          // Removed retry limit - will keep trying indefinitely
+          // Don't increment the loop, retry the same release
+          continue;
+        } else {
+          console.error(`❌ Failed to fetch release info for ID ${release.id}:`, error.message);
+        }
+      }
+    }
+
+    // Prepare response object
+    const paginationSummary = `Fetched ${allReleases.length} releases in total.`;
+
+    res.status(200).json({
+      paginationSummary,
+      releases_info, // Return detailed release info
+      items_images, // Return image URLs for each release
+    });
+
+  } catch (error) {
+    console.error('❌ Error in /getDiscogsImgs:', error.message);
+    res.status(500).json({ error: 'Failed to fetch label data or releases from Discogs.' });
+  }
+});

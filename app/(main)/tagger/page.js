@@ -38,17 +38,18 @@ export default function TaggerPage() {
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
   const [discogsResponse, setDiscogsResponse] = useState(null);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [tagsValue, setTagsValue] = useState('');
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);  const [tagsValue, setTagsValue] = useState('');
   const [tagsCopyState, setTagsCopyState] = useState('idle'); // idle | copied | hover
+  const [hashtagsValue, setHashtagsValue] = useState('');
+  const [hashtagsCopyState, setHashtagsCopyState] = useState('idle'); // idle | copied | hover
   // Add new states for tag optimization
   const [charLimit, setCharLimit] = useState('500');
   const [optimizeStatus, setOptimizeStatus] = useState(''); // For feedback messages
   const [tagFilters, setTagFilters] = useState({
-    artists: { enabled: true, percentage: 100, count: 0, totalChars: 0 },
-    album: { enabled: true, percentage: 100, count: 0, totalChars: 0 },
-    tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0 },
-    combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0 }
+    artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+    album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+    tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+    combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
   });
   const [selectAllTags, setSelectAllTags] = useState(true);
   // Add hydration state
@@ -61,7 +62,27 @@ export default function TaggerPage() {
     album: [],
     tracklist: [],
     combinations: []
-  });
+  });  // Add state for video title recommendations
+  const [videoTitleRecommendations, setVideoTitleRecommendations] = useState([]);
+  const [videoTitleCopyState, setVideoTitleCopyState] = useState('idle'); // idle | copied | hover
+  const [videoTitleVariation, setVideoTitleVariation] = useState(0); // Track current variation
+  const [discogsData, setDiscogsData] = useState(null); // Store Discogs data for refresh  // Add state for combined input sources
+  const [inputSources, setInputSources] = useState({
+    url: {
+      data: null,
+      metadata: true,
+      times: true,
+      label: ''
+    },
+    files: {
+      data: null,
+      metadata: true,
+      times: true,
+      label: ''
+    }  });
+
+  // Add state for timestamps formatting options
+  const [includeTrackCredits, setIncludeTrackCredits] = useState(false);
 
   const [formatOrder, setFormatOrder] = useState([
     { id: 1, value: 'startTime' },
@@ -211,64 +232,269 @@ export default function TaggerPage() {
       });
     });
   }
+  // Helper function to generate video title recommendations for full album uploads
+  function generateVideoTitleRecommendations(discogsData, variation = 0) {
+    if (!discogsData) return [];
+    
+    // Helper function to clean Discogs entity names by removing (number) suffixes
+    const cleanDiscogsSuffix = (name) => {
+      if (!name) return '';
+      return name.replace(/\s+\(\d+\)$/, '');
+    };
+
+    const albumTitle = discogsData.title ? cleanDiscogsSuffix(discogsData.title) : '';
+    const primaryArtist = (discogsData.artists && discogsData.artists.length > 0) 
+      ? cleanDiscogsSuffix(discogsData.artists[0].name) 
+      : '';
+    const year = discogsData.released ? discogsData.released.substring(0, 4) : '';
+    const genres = discogsData.genres || [];
+    const styles = discogsData.styles || [];
+    const label = (discogsData.labels && discogsData.labels.length > 0) 
+      ? cleanDiscogsSuffix(discogsData.labels[0].name) 
+      : '';
+    const country = discogsData.country || '';
+
+    // Create different format template sets based on variation
+    const formatSets = [
+      // Variation 0: Original formats
+      [
+        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${t} - ${a} | ${y} | ${g[0]} | Full Album` : null,
+        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${a} - ${t} (${y}) [${g[0]}] Full Album` : null,
+        (a, t, y, g, s, l, c) => y ? `${t} by ${a} • ${y} • Full Album` : null,
+        (a, t, y, g, s, l, c) => l && y ? `${a} - ${t} | ${l} | ${y} | Complete Album` : null,
+        (a, t, y, g, s, l, c) => c && y ? `${t} - ${a} [${c} ${y}] Full LP` : null,
+      ],
+      // Variation 1: Style-focused formats
+      [
+        (a, t, y, g, s, l, c) => s.length > 0 && y ? `${a} - ${t} | ${s[0]} | ${y} | Full Album` : null,
+        (a, t, y, g, s, l, c) => s.length > 0 ? `${t} (${a}) | ${s[0]} Full Album` : null,
+        (a, t, y, g, s, l, c) => s.length > 1 && y ? `${t} - ${a} | ${s[0]} ${s[1]} | ${y}` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 && s.length > 0 ? `${a}: ${t} | ${g[0]}/${s[0]} | Complete LP` : null,
+        (a, t, y, g, s, l, c) => y ? `${t} by ${a} (${y}) | Full Album` : null,
+      ],
+      // Variation 2: Label and country focused
+      [
+        (a, t, y, g, s, l, c) => l && c ? `${t} - ${a} | ${l} (${c}) | Full Album` : null,
+        (a, t, y, g, s, l, c) => l && y ? `${a}: ${t} | ${l} ${y} | Complete Album` : null,
+        (a, t, y, g, s, l, c) => c && g.length > 0 ? `${t} | ${a} | ${c} ${g[0]} | Full LP` : null,
+        (a, t, y, g, s, l, c) => l ? `${a} - ${t} | ${l} Records | Full Album` : null,
+        (a, t, y, g, s, l, c) => y && c ? `${t} (${y}) - ${a} | ${c} Release | Full Album` : null,
+      ],
+      // Variation 3: Alternative separators and formats
+      [
+        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${a} ★ ${t} ★ ${g[0]} ★ ${y} ★ Full Album` : null,
+        (a, t, y, g, s, l, c) => y ? `${t} / ${a} / ${y} / Complete Album` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 ? `[${g[0]}] ${a} - ${t} | Full Album` : null,        (a, t, y, g, s, l, c) => s.length > 0 && y ? `${t} → ${a} → ${s[0]} → ${y} → Full LP` : null,
+        (a, t, y, g, s, l, c) => `${a} presents: ${t} | Complete Album`,
+      ],
+      // Variation 4: Mixed genre/style combinations
+      [
+        (a, t, y, g, s, l, c) => g.length > 1 ? `${t} - ${a} | ${g[0]} & ${g[1]} | Full Album` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 && s.length > 0 && y ? `${a} - ${t} | ${g[0]}/${s[0]} | ${y} | Full LP` : null,
+        (a, t, y, g, s, l, c) => s.length > 1 ? `${t} by ${a} | ${s[0]} + ${s[1]} | Complete Album` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 && y ? `${t} | ${a} | ${g[0]} Classic | ${y}` : null,
+        (a, t, y, g, s, l, c) => l && g.length > 0 ? `${a}: ${t} | ${l} | ${g[0]} | Full Album` : null,
+      ]
+    ];
+
+    const recommendations = [];
+    
+    if (albumTitle && primaryArtist) {
+      const currentSet = formatSets[variation % formatSets.length];
+      
+      // Apply each format template
+      currentSet.forEach(formatFn => {
+        const result = formatFn(primaryArtist, albumTitle, year, genres, styles, label, country);
+        if (result) {
+          recommendations.push(result);
+        }
+      });
+
+      // Fallback formats if we don't have enough recommendations
+      const fallbacks = [
+        `${albumTitle} - ${primaryArtist} | Full Album`,
+        `${primaryArtist} - ${albumTitle} | Complete Album`,
+        `${albumTitle} by ${primaryArtist} - Full LP`,
+        `${primaryArtist}: ${albumTitle} | Full Album`,
+        `${albumTitle} (${primaryArtist}) | Complete Album`
+      ];
+
+      // Add fallbacks if needed
+      fallbacks.forEach(fallback => {
+        if (recommendations.length < 5 && !recommendations.includes(fallback)) {
+          recommendations.push(fallback);
+        }
+      });
+    }
+
+    // Return only the first 5 unique recommendations
+    return [...new Set(recommendations)].slice(0, 5);
+  }
 
   // Handle files: get durations, build tracklist, update debug
-  const handleFilesSelected = async (files) => {
-    setIsLoadingFiles(true);
-    const fileArr = Array.from(files);
-    setDebugInfo(prev => ({
-      ...prev,
-      files: fileArr.map(f => f.name)
-    }));
+const handleFilesSelected = async (files) => {
+  setIsLoadingFiles(true);
+  const fileArr = Array.from(files);
+  setDebugInfo(prev => ({
+    ...prev,
+    files: fileArr.map(f => f.name)
+  }));
 
-    // Only process audio files
-    const audioFiles = fileArr.filter(f =>
-      f.type.startsWith('audio/') ||
-      /\.(mp3|wav|aiff|flac)$/i.test(f.name)
+  // Only process audio files
+  const audioFiles = fileArr.filter(f =>
+    f.type.startsWith('audio/') ||
+    /\.(mp3|wav|aiff|flac)$/i.test(f.name)
+  );
+
+  // Get durations for each file
+  const durations = await Promise.all(audioFiles.map(async (file) => {
+    try {
+      const duration = await getAudioDuration(file);
+      return duration;
+    } catch {
+      return 0;
+    }
+  }));
+
+  // Store for later use in dropdown changes
+  audioFilesRef.current = audioFiles;
+  durationsRef.current = durations;
+  discogsTracksRef.current = [];
+  discogsDurationsRef.current = [];
+  setInputSource('files');
+
+  // Update input sources state
+  setInputSources(prev => ({
+    ...prev,
+    files: {
+      ...prev.files,
+      data: {
+        files: audioFiles,
+        durations: durations
+      },
+      label: `${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`
+    }
+  }));
+
+  // Generate combined timestamps
+  setTimeout(generateCombinedTimestamps, 0);
+
+  // ✅ Auto-populate tags, hashtags, titles
+  if (discogsData) {
+    processDiscogsResponseToTags(discogsData);
+    const videoTitles = generateVideoTitleRecommendations(discogsData, videoTitleVariation);
+    setVideoTitleRecommendations(videoTitles);
+  } else {
+    // Basic tag fallback using filenames
+    const filenameTags = audioFiles.map(file =>
+      file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]/g, ' ').trim()
     );
 
-    // Get durations for each file
-    const durations = await Promise.all(audioFiles.map(async (file) => {
-      try {
-        const duration = await getAudioDuration(file);
-        return duration;
-      } catch {
-        return 0;
-      }
+    const fallbackTags = {
+      artists: [],
+      album: [],
+      tracklist: [],
+      combinations: [],
+      credits: [],
+      filenames: filenameTags
+    };
+
+    setParsedTags(prev => ({
+      ...prev,
+      filenames: filenameTags
     }));
 
-    // Store for later use in dropdown changes
-    audioFilesRef.current = audioFiles;
-    durationsRef.current = durations;
-    discogsTracksRef.current = [];
-    discogsDurationsRef.current = [];
-    setInputSource('files');
+    // Create a single tag pool from filenames
+    setTagsValue(filenameTags.join(', '));
+    updateHashtagsValue(filenameTags.join(', '));
+    setVideoTitleRecommendations([]);
+  }
 
-    // Build tracklist lines
-    let currentTime = 0;
-    const lines = audioFiles.map((file, idx) => {
-      const start = formatTime(currentTime);
-      const end = formatTime(currentTime + durations[idx]);
-      const title = file.name.replace(/\.[^/.]+$/, '');
-      currentTime += durations[idx];
+  setIsLoadingFiles(false);
+};
 
-      return formatOrder
-        .map((item) => {
-          if (item.value === 'blank') return '';
-          if (item.value === 'startTime') return start;
-          if (item.value === 'endTime') return end;
-          if (item.value === 'title' ) return title;
-          if (item.value === 'dash' ) return '-';
-          if (item.value === 'dash-artist' ) return artistDisabled ? '' : '-';
-          if (item.value === 'artist') return '';
-          return '';
-        })
-        .filter(Boolean)
-        .join(' ');
-    });
 
-    setInputValue(lines.join('\n'));
-    setIsLoadingFiles(false);
+  // Handle URL submission
+  const handleUrlSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setDebugInfo(prev => ({
+      ...prev,
+      url: urlInput
+    }));
+
+    // Discogs URL logic
+    const discogsInfo = parseDiscogsUrl(urlInput);
+    if (discogsInfo) {
+      const route = 'http://localhost:3030/discogsFetch';
+      try {
+        const res = await fetch(route, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(discogsInfo)
+        });
+        const data = await res.json();
+        setDiscogsResponse(data); // Save to state
+        setDiscogsData(data); // Store for video title refresh
+        logDiscogsRequest({ route, payload: discogsInfo, response: data });
+        
+        // Process the response for tags
+        processDiscogsResponseToTags(data);
+        
+        // Generate video title recommendations
+        const videoTitles = generateVideoTitleRecommendations(data, videoTitleVariation);
+        setVideoTitleRecommendations(videoTitles);
+        
+        // If response has a tracklist, process timing data
+        if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
+          // Helper to parse duration string (mm:ss or hh:mm:ss) to seconds
+          function parseDuration(str) {
+            if (!str) return 0;
+            const parts = str.split(':').map(Number);
+            if (parts.length === 3) {
+              return parts[0] * 3600 + parts[1] * 60 + parts[2];
+            } else if (parts.length === 2) {
+              return parts[0] * 60 + parts[1];
+            } else if (parts.length === 1) {
+              return parts[0];
+            }
+            return 0;
+          }
+          
+          const durations = data.tracklist.map(track => parseDuration(track.duration));
+          
+          // Store Discogs tracks and durations for dropdown reactivity
+          discogsTracksRef.current = data.tracklist;
+          discogsDurationsRef.current = durations;
+          setInputSource('discogs');
+          
+          // Enable artist dropdown if any track has an artist
+          const hasArtist = data.tracklist.some(track => 
+            Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name
+          );
+          setArtistDisabled(!hasArtist);
+          
+          // Update input sources state
+          setInputSources(prev => ({
+            ...prev,
+            url: {
+              ...prev.url,
+              data: {
+                ...data,
+                durations: durations
+              },
+              label: `Discogs: ${data.title || 'Unknown Album'}`
+            }
+          }));
+          
+          // Generate combined timestamps
+          setTimeout(generateCombinedTimestamps, 0);
+        }
+      } catch (err) {
+        console.error('Error fetching Discogs data:', err);
+        setDiscogsResponse(null);
+        logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
+      }
+    }
   };
 
   // Update textarea when dropdowns change and audioFilesRef/discogsTracksRef is set
@@ -411,43 +637,65 @@ export default function TaggerPage() {
       setFormatSuggestion(null);
       return;
     }
-    // Find common prefix (case-insensitive)
-    function commonPrefix(arr) {
-      if (!arr.length) return '';
-      let prefix = arr[0];
-      for (let i = 1; i < arr.length; i++) {
-        while (
-          arr[i].toLowerCase().indexOf(prefix.toLowerCase()) !== 0 &&
-          prefix.length > 0
-        ) {
-          prefix = prefix.slice(0, -1);
+    // Function to compute common prefix between two strings, case-insensitive
+    function commonPrefixPair(a, b) {
+      let prefix = '';
+      const minLen = Math.min(a.length, b.length);
+      for (let i = 0; i < minLen; i++) {
+        if (a[i].toLowerCase() === b[i].toLowerCase()) {
+          prefix += a[i];
+        } else {
+          break;
         }
-        if (!prefix) break;
       }
       return prefix;
     }
-    const prefix = commonPrefix(titleParts);
-    // Only suggest if prefix is at least 3 chars and appears in all lines
-    if (
-      prefix &&
-      prefix.length >= 3 &&
-      titleParts.every(t => t.toLowerCase().startsWith(prefix.toLowerCase()))
-    ) {
-      setFormatSuggestion({
-        prefix,
-        before: lines.join('\n'),
-        after: lines.map(line => {
-          // Remove only the first occurrence of the prefix after the time/dash/track
-          const rest = getTitlePart(line);
-          const replaced = rest.replace(new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '');
-          // Rebuild the line with the original prefix removed
-          return line.replace(rest, replaced);
-        }).join('\n')
-      });
-    } else {
+    // Find the longest common prefix among any two title parts
+    let candidate = '';
+    for (let i = 0; i < titleParts.length; i++) {
+      for (let j = i + 1; j < titleParts.length; j++) {
+        const cp = commonPrefixPair(titleParts[i], titleParts[j]);
+        if (cp.length >= 3 && cp.length > candidate.length) {
+          candidate = cp;
+        }
+      }
+    }
+    if (candidate) {
+      // Count how many title parts start with the candidate (case-insensitive)
+      const count = titleParts.filter(t =>
+        t.toLowerCase().startsWith(candidate.toLowerCase())
+      ).length;
+      if (count >= 2) {
+        const newLines = lines.map(line => {
+          const part = getTitlePart(line);
+          if (part.toLowerCase().startsWith(candidate.toLowerCase())) {
+            // Remove only the first occurrence of candidate in that part
+            const newPart = part.replace(
+              new RegExp('^' + candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+              ''
+            );
+            return line.replace(part, newPart);
+          }
+          return line;
+        });
+        setFormatSuggestion({
+          prefix: candidate,
+          before: lines.join('\n'),
+          after: newLines.join('\n')
+        });
+        return;
+      }
+    }
+    setFormatSuggestion(null);
+  }, [inputValue, formatOrder, selectOptions]);
+
+  // Method to apply formatting suggestion
+  const applyFormatSuggestion = () => {
+    if (formatSuggestion) {
+      setInputValue(formatSuggestion.after);
       setFormatSuggestion(null);
     }
-  }, [inputValue, formatOrder, selectOptions]);
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(inputValue ? `Timestamps generated by https://tagger.site:\n${inputValue}` : '');
@@ -462,405 +710,202 @@ export default function TaggerPage() {
     setTimeout(() => setTagsCopyState('idle'), 900);
   };
 
-  // New function to optimize tags based on character limit
-  const optimizeTags = () => {
-    const limit = parseInt(charLimit, 10);
-    if (isNaN(limit) || limit <= 0) {
-      setOptimizeStatus('Please enter a valid character limit');
-      return;
-    }
-
-    // Get current tags and split by comma
-    const currentTags = tagsValue.split(',').map(tag => tag.trim()).filter(Boolean);
-    
-    if (currentTags.length === 0) {
-      setOptimizeStatus('No tags to optimize');
-      return;
-    }
-
-    // Calculate current character count (including commas)
-    const currentCharCount = tagsValue.length;
-    
-    if (currentCharCount <= limit) {
-      setOptimizeStatus(`Already within limit (${currentCharCount}/${limit} chars)`);
-      return;
-    }
-
-    // Rank tags by priority (multi-word tags, unique terms, years, etc.)
-    const rankedTags = currentTags.map(tag => {
-      // Calculate a score for each tag
-      let score = 0;
-      
-      // Multi-word tags are often more specific and valuable
-      const wordCount = tag.split(/\s+/).length;
-      score += wordCount * 2;
-      
-      // Tags containing years often provide context
-      if (/\b(19|20)\d{2}\b/.test(tag)) {
-        score += 3;
-      }
-      
-      // Prioritize medium-length tags that provide info without being too long
-      if (tag.length > 3 && tag.length < 15) {
-        score += 2;
-      }
-      
-      // Penalize very short or very long tags
-      if (tag.length <= 2) {
-        score -= 2;
-      }
-      
-      // Prioritize album and artist names (these tend to be more important for search)
-      if (parsedTags.artists.includes(tag) || parsedTags.album.includes(tag)) {
-        score += 5;
-      }
-      
-      return { tag, score };
-    });
-
-    // Sort tags by score (highest first)
-    rankedTags.sort((a, b) => b.score - a.score);
-
-    // Start building optimized tag list
-    const optimizedTags = [];
-    let charCount = 0;
-
-    // Add tags until we reach the limit
-    for (const { tag } of rankedTags) {
-      // Calculate length including comma if it's not the first tag
-      const tagLength = optimizedTags.length ? tag.length + 1 : tag.length;
-      
-      if (charCount + tagLength <= limit) {
-        optimizedTags.push(tag);
-        charCount += tagLength;
-      } else {
-        // We've reached the limit
-        break;
-      }
-    }
-
-    // Update the tags textarea
-    setTagsValue(optimizedTags.join(','));
-    setOptimizeStatus(`Optimized: ${optimizedTags.length}/${currentTags.length} tags kept (${charCount}/${limit} chars)`);
-    
-    // Clear status message after a few seconds
-    setTimeout(() => setOptimizeStatus(''), 5000);
+  // Handle hashtags copy
+  const handleHashtagsCopy = () => {
+    navigator.clipboard.writeText(hashtagsValue);
+    setHashtagsCopyState('copied');
+    setTimeout(() => setHashtagsCopyState('idle'), 900);
   };
 
-  // Method to apply formatting suggestion
-  const applyFormatSuggestion = () => {
-    if (formatSuggestion) {
-      setInputValue(formatSuggestion.after);
-      setFormatSuggestion(null);
+  // Handler for copying video title recommendations
+  const handleVideoTitleCopy = async (title) => {
+    try {
+      await navigator.clipboard.writeText(title);
+      setVideoTitleCopyState('copied');
+      setTimeout(() => setVideoTitleCopyState('idle'), 2000);
+    } catch (err) {
+      console.error('Failed to copy video title:', err);
     }
   };
 
-  // New function to parse Discogs response into tag categories
-  const processDiscogsResponseToTags = (response) => {
-    if (!response) return;
-    
-    // Helper function to clean Discogs entity names by removing (number) suffixes
-    const cleanDiscogsSuffix = (name) => {
-      if (!name) return '';
-      // Regex to match " (123)" at the end of a string - space, open parenthesis, digits, close parenthesis
-      return name.replace(/\s+\(\d+\)$/, '');
-    };
-    
-    const tagCategories = {
-      artists: new Set(),
-      album: new Set(),
-      tracklist: new Set(),
-      combinations: new Set()
-    };
-    
-    // Process Artists
-    if (response.artists && response.artists.length > 0) {
-      response.artists.forEach(artist => {
-        if (artist.name) tagCategories.artists.add(cleanDiscogsSuffix(artist.name));
-      });
+  // Handler for refreshing video title recommendations
+  const handleVideoTitleRefresh = () => {
+    if (discogsData) {
+      const nextVariation = (videoTitleVariation + 1) % 5; // Cycle through 5 variations
+      setVideoTitleVariation(nextVariation);
+      const newTitles = generateVideoTitleRecommendations(discogsData, nextVariation);
+      setVideoTitleRecommendations(newTitles);
+      setVideoTitleCopyState('idle'); // Reset copy state
     }
-    
-    // Process individual track artists
-    if (response.tracklist && response.tracklist.length > 0) {
-      response.tracklist.forEach(track => {
-        if (track.artists && track.artists.length > 0) {
-          track.artists.forEach(artist => {
-            if (artist.name) tagCategories.artists.add(cleanDiscogsSuffix(artist.name));
-          });
-        }
-      });
-    }
-    
-    // Process Album Info
-    if (response.title) tagCategories.album.add(cleanDiscogsSuffix(response.title));
-    if (response.released) {
-      const year = response.released.substring(0, 4);
-      tagCategories.album.add(year);
-    }
-    if (response.country) tagCategories.album.add(response.country);
-    
-    // Labels
-    if (response.labels && response.labels.length > 0) {
-      response.labels.forEach(label => {
-        if (label.name) tagCategories.album.add(cleanDiscogsSuffix(label.name));
-      });
-    }
-    
-    // Genres & Styles
-    if (response.genres && response.genres.length > 0) {
-      response.genres.forEach(genre => tagCategories.album.add(genre));
-    }
-    if (response.styles && response.styles.length > 0) {
-      response.styles.forEach(style => tagCategories.album.add(style));
-    }
-    
-    // Process Tracklist
-    if (response.tracklist && response.tracklist.length > 0) {
-      response.tracklist.forEach(track => {
-        if (track.title) tagCategories.tracklist.add(cleanDiscogsSuffix(track.title));
-      });
-    }
-    
-    // Generate Combinations
-    if (response.title) {
-      const cleanTitle = cleanDiscogsSuffix(response.title);
-      
-      // Artist + Album
-      if (response.artists && response.artists.length > 0) {
-        response.artists.forEach(artist => {
-          if (artist.name) {
-            tagCategories.combinations.add(`${cleanDiscogsSuffix(artist.name)} ${cleanTitle}`);
-          }
-        });
-      }
-      
-      // Year + Album
-      if (response.released) {
-        const year = response.released.substring(0, 4);
-        tagCategories.combinations.add(`${cleanTitle} ${year}`);
-      }
-      
-      // Label + Album
-      if (response.labels && response.labels.length > 0) {
-        response.labels.forEach(label => {
-          if (label.name) {
-            tagCategories.combinations.add(`${cleanDiscogsSuffix(label.name)} ${cleanTitle}`);
-          }
-        });
-      }
-      
-      // Genre/Style + Album
-      if (response.genres && response.genres.length > 0) {
-        response.genres.forEach(genre => {
-          tagCategories.combinations.add(`${genre} ${cleanTitle}`);
-        });
-      }
-      if (response.styles && response.styles.length > 0) {
-        response.styles.forEach(style => {
-          tagCategories.combinations.add(`${style} ${cleanTitle}`);
-        });
-      }
-      
-      // Artist + Year
-      if (response.artists && response.artists.length > 0 && response.released) {
-        const year = response.released.substring(0, 4);
-        response.artists.forEach(artist => {
-          if (artist.name) {
-            tagCategories.combinations.add(`${cleanDiscogsSuffix(artist.name)} ${year}`);
-          }
-        });
-      }
-    }
-    
-    // Convert Sets to Arrays and update state
-    const processedTags = {
-      artists: Array.from(tagCategories.artists),
-      album: Array.from(tagCategories.album),
-      tracklist: Array.from(tagCategories.tracklist),
-      combinations: Array.from(tagCategories.combinations)
-    };
-    
-    setParsedTags(processedTags);
-    
-    // Update filter counts
-    const newFilters = { ...tagFilters };
-    Object.keys(processedTags).forEach(category => {
-      newFilters[category].count = processedTags[category].length;
-      newFilters[category].totalChars = processedTags[category].join(',').length;
-    });
-    setTagFilters(newFilters);
-    
-    // Generate initial tags value based on current filter settings
-    generateTagsValue(processedTags, newFilters);
-  };
-  
-  // Function to generate tags based on filters
-  const generateTagsValue = (tags = parsedTags, filters = tagFilters) => {
-    const selectedTags = [];
-    
-    Object.keys(tags).forEach(category => {
-      if (filters[category].enabled) {
-        const categoryTags = tags[category];
-        // Calculate how many tags to include based on percentage
-        const tagsToInclude = Math.ceil((categoryTags.length * filters[category].percentage) / 100);
-        selectedTags.push(...categoryTags.slice(0, tagsToInclude));
-      }
-    });
-    
-    setTagsValue(selectedTags.join(','));
-  };
-  
-  // Update tag filtering logic
-  const handleTagFilterChange = (type, field, value) => {
-    setTagFilters(prev => {
-      const updated = {
-        ...prev,
-        [type]: {
-          ...prev[type],
-          [field]: value
-        }
-      };
-      
-      // If we're changing percentage, regenerate tags
-      if (field === 'percentage' || field === 'enabled') {
-        setTimeout(() => generateTagsValue(parsedTags, updated), 0);
-      }
-      
-      return updated;
-    });
-  };
-  
-  // Update select all tags handler
-  const handleSelectAllTags = (checked) => {
-    setSelectAllTags(checked);
-    setTagFilters(prev => {
-      const newFilters = { ...prev };
-      Object.keys(newFilters).forEach(key => {
-        newFilters[key].enabled = checked;
-      });
-      
-      // Regenerate tags based on new filter settings
-      setTimeout(() => generateTagsValue(parsedTags, newFilters), 0);
-      
-      return newFilters;
-    });
   };
 
-  // Modify the existing URL submit handler to use cleanDiscogsSuffix where artist names are used
-  const handleUrlSubmit = async (e) => {
-    if (e) e.preventDefault();
-    setDebugInfo(prev => ({
+  // Handler for input source checkbox changes
+  const handleInputSourceChange = (sourceType, field, value) => {
+    setInputSources(prev => ({
       ...prev,
-      url: urlInput
-    }));
-
-    // Discogs URL logic
-    const discogsInfo = parseDiscogsUrl(urlInput);
-    if (discogsInfo) {
-      const route = 'http://localhost:3030/discogsFetch';
-      try {
-        const res = await fetch(route, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(discogsInfo)
-        });
-        const data = await res.json();
-        setDiscogsResponse(data); // Save to state
-        logDiscogsRequest({ route, payload: discogsInfo, response: data });
-        
-        // Process the response for tags
-        processDiscogsResponseToTags(data);
-        
-        // If response has a tracklist, generate textarea output
-        if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
-          // Helper to clean Discogs entity names by removing (number) suffixes
-          const cleanDiscogsSuffix = (name) => {
-            if (!name) return '';
-            return name.replace(/\s+\(\d+\)$/, '');
-          };
-
-          // Helper to parse duration string (mm:ss or hh:mm:ss) to seconds
-          function parseDuration(str) {
-            if (!str) return 0;
-            const parts = str.split(':').map(Number);
-            if (parts.length === 3) {
-              return parts[0] * 3600 + parts[1] * 60 + parts[2];
-            } else if (parts.length === 2) {
-              return parts[0] * 60 + parts[1];
-            } else if (parts.length === 1) {
-              return parts[0];
-            }
-            return 0;
-          }
-          // Store Discogs tracks and durations for dropdown reactivity
-          discogsTracksRef.current = data.tracklist;
-          discogsDurationsRef.current = data.tracklist.map(track => parseDuration(track.duration));
-          audioFilesRef.current = [];
-          durationsRef.current = [];
-          setInputSource('discogs');
-          // Enable artist dropdown if any track has an artist
-          const hasArtist = data.tracklist.some(track => Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name);
-          setArtistDisabled(!hasArtist);
-          // Build textarea output
-          let currentTime = 0;
-          // Helper: check if dash-artist dropdown is present and enabled
-          const dashArtistIdx = formatOrder.findIndex(item => item.value === 'dash-artist');
-          const dashArtistEnabled = dashArtistIdx !== -1 && hasArtist;
-          const lines = data.tracklist.map((track, idx) => {
-            const durationSec = discogsDurationsRef.current[idx] || 0;
-            const start = formatTime(currentTime);
-            const end = formatTime(currentTime + durationSec);
-            currentTime += durationSec;
-            
-            // Get artist name for this track if present, and clean it
-            let artistName = '';
-            if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
-              artistName = track.artists.map(a => cleanDiscogsSuffix(a.name)).join(', ');
-            }
-            
-            return formatOrder
-              .map(item => {
-                if (item.value === 'blank') return '';
-                if (item.value === 'startTime') return start;
-                if (item.value === 'endTime') return end;
-                if (item.value === 'title' ) return track.title || '';
-                if (item.value === 'dash' ) return '-';
-                if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
-                if (item.value === 'artist') return artistName;
-                return '';
-              })
-              .filter(Boolean)
-              .join(' ');
-          });
-          setInputValue(lines.join('\n'));
-        }
-      } catch (err) {
-        console.error('Error fetching Discogs data:', err);
-        setDiscogsResponse(null);
-        logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
+      [sourceType]: {
+        ...prev[sourceType],
+        [field]: value
       }
-    }
+    }));
+    
+    // Regenerate timestamps when settings change
+    generateCombinedTimestamps();
   };
 
-  // Method to print Discogs response
-  const printDiscogsResponse = () => {
-    if (discogsResponse) {
-      console.log('Discogs API response:', discogsResponse);
-    } else {
-      console.log('No Discogs response available.');
+  // Function to generate timestamps from combined input sources
+  const generateCombinedTimestamps = () => {
+    const urlSource = inputSources.url;
+    const filesSource = inputSources.files;
+    
+    // Determine which source to use for times and metadata
+    const useUrlTimes = urlSource.data && urlSource.times;
+    const useFileTimes = filesSource.data && filesSource.times;
+    const useUrlMetadata = urlSource.data && urlSource.metadata;
+    const useFileMetadata = filesSource.data && filesSource.metadata;
+    
+    // Priority: if both sources have times enabled, prefer files for timing accuracy
+    let timingData = null;
+    let metadataSource = null;
+    
+    if (useFileTimes && filesSource.data) {
+      timingData = {
+        type: 'files',
+        files: filesSource.data.files,
+        durations: filesSource.data.durations
+      };
+    } else if (useUrlTimes && urlSource.data) {
+      timingData = {
+        type: 'url',
+        tracks: urlSource.data.tracklist,
+        durations: urlSource.data.durations
+      };
     }
+    
+    if (useUrlMetadata && urlSource.data) {
+      metadataSource = {
+        type: 'url',
+        data: urlSource.data
+      };
+    } else if (useFileMetadata && filesSource.data) {
+      metadataSource = {
+        type: 'files',
+        files: filesSource.data.files
+      };
+    }
+    
+    if (!timingData) {
+      setInputValue('');
+      return;
+    }
+    // Generate timestamps based on combined sources
+    let currentTime = 0;
+    const lines = [];
+    if (timingData.type === 'files') {
+      timingData.files.forEach((file, idx) => {
+        const duration = timingData.durations[idx] || 0;
+        const start = formatTime(currentTime);
+        const end = formatTime(currentTime + duration);
+        
+        let title = '';
+        let artistName = '';
+        
+        if (metadataSource && metadataSource.type === 'url') {
+          // Use Discogs metadata if available
+          const track = metadataSource.data.tracklist?.[idx];
+          if (track) {
+            title = track.title || file.name.replace(/\.[^/.]+$/, '');
+            if (track.artists && track.artists.length > 0) {
+              artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
+            }
+          } else {
+            title = file.name.replace(/\.[^/.]+$/, '');
+          }
+        } else {
+          // Use filename as title
+          title = file.name.replace(/\.[^/.]+$/, '');
+        }
+          // Build line based on format order
+        const lineData = formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
+            if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+          
+        lines.push(lineData);
+        // Add track credits if enabled and available from Discogs data
+        if (includeTrackCredits && metadataSource && metadataSource.type === 'url') {
+          const track = metadataSource.data.tracklist?.[idx];
+          if (track && track.extraartists && track.extraartists.length > 0) {
+            lines.push(`  Credits:`);
+            track.extraartists.forEach(artist => {
+              lines.push(`      ${artist.name} (${artist.role})`);
+            });
+            lines.push(''); // Add blank line after credits
+          }
+        }
+
+        currentTime += duration;
+      });
+    } else if (timingData.type === 'url') {
+      timingData.tracks.forEach((track, idx) => {
+        const duration = timingData.durations[idx] || 0;
+        const start = formatTime(currentTime);
+        const end = formatTime(currentTime + duration);
+        
+        let title = track.title || '';
+        let artistName = '';
+        
+        if (track.artists && track.artists.length > 0) {
+          artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
+        }
+          // Build line based on format order
+        const lineData = formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime' ) return start;
+            if (item.value === 'endTime' ) return end;
+            if (item.value === 'title' ) return title;
+            if (item.value === 'dash' ) return '-';
+            if (item.value === 'dash-artist' ) return (!artistDisabled && artistName) ? '-' : '';
+            if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+            
+        lines.push(lineData);
+        // Add track credits if enabled and available
+        if (includeTrackCredits && track.extraartists && track.extraartists.length > 0) {
+          lines.push(`  Credits:`);
+          track.extraartists.forEach(artist => {
+            lines.push(`      ${artist.name} (${artist.role})`);
+          });
+          lines.push('');
+        }
+
+        currentTime += duration;
+      });
+    }
+    
+    setInputValue(lines.join('\n'));
   };
+  // Helper function to update combined timestamps when format changes
+  useEffect(() => {
+    if (inputSources.url.data || inputSources.files.data) {
+      generateCombinedTimestamps();
+    }
+  }, [formatOrder, artistDisabled, inputSources, includeTrackCredits]);
 
-  // Detect if anything has changed from defaults
-  const isChanged =
-    JSON.stringify(formatOrder) !== JSON.stringify(defaultFormatOrder) ||
-    JSON.stringify(selectOptions) !== JSON.stringify(defaultSelectOptions) ||
-    inputValue !== '' ||
-    urlInput !== '' ||
-    debugInfo.url !== '' ||
-    (debugInfo.files && debugInfo.files.length > 0);
-
-  // Reset everything to default
+  // Reset function for input sources
   const handleReset = () => {
     setFormatOrder(defaultFormatOrder);
     setSelectOptions(defaultSelectOptions);
@@ -874,155 +919,281 @@ export default function TaggerPage() {
     discogsDurationsRef.current = [];
     setInputSource(null);
     setFormatSuggestion(null);
-    // Reset tag-related state
     setTagsValue('');
+    setHashtagsValue('');
+    setTagsCopyState('idle');
+    setHashtagsCopyState('idle');
     setParsedTags({
       artists: [],
       album: [],
       tracklist: [],
       combinations: []
+    });    setTagFilters({
+      artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+      album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+      tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+      combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
     });
+    setVideoTitleRecommendations([]);
+    setVideoTitleCopyState('idle');
+    setVideoTitleVariation(0);
+    setDiscogsData(null);
+    
+    // Reset input sources
+    setInputSources({
+      url: {
+        data: null,
+        metadata: true,
+        times: true,
+        label: ''
+      },
+      files: {
+        data: null,
+        metadata: true,
+        times: true,
+        label: ''      }
+    });
+  };  const processDiscogsResponseToTags = (response) => {
+    if (!response) return;
+    
+    const tagCategories = {
+      artists: new Set(),
+      album: new Set(), 
+      tracklist: new Set(),
+      combinations: new Set(),
+      credits: new Set() // NEW: for credits
+    };
+    
+    // Clean function to remove Discogs suffixes and slashes
+    const cleanName = (name) => {
+      if (!name) return '';
+      return name
+        .replace(/\s+\(\d+\)$/, '') // Remove (number) suffixes
+        .replace(/\s*\/\s*/g, ', ') // Replace slashes with commas
+        .trim();
+    };
+    
+    // Process main album artists
+    if (response.artists) {
+      response.artists.forEach(artist => {
+        if (artist.name) {
+          const cleanArtist = cleanName(artist.name);
+          // Split by commas in case cleaning created multiple items
+          cleanArtist.split(',').forEach(item => {
+            const trimmed = item.trim();
+            if (trimmed) tagCategories.artists.add(trimmed);
+          });
+        }
+      });
+    }
+    
+    // Process album info
+    if (response.title) {
+      const cleanTitle = cleanName(response.title);
+      cleanTitle.split(',').forEach(item => {
+        const trimmed = item.trim();
+        if (trimmed) tagCategories.album.add(trimmed);
+      });
+    }
+    if (response.released) tagCategories.album.add(response.released.substring(0, 4));
+    if (response.genres) {
+      response.genres.forEach(genre => {
+        const cleanGenre = cleanName(genre);
+        cleanGenre.split(',').forEach(item => {
+          const trimmed = item.trim();
+          if (trimmed) tagCategories.album.add(trimmed);
+        });
+      });
+    }
+    if (response.styles) {
+      response.styles.forEach(style => {
+        const cleanStyle = cleanName(style);
+        cleanStyle.split(',').forEach(item => {
+          const trimmed = item.trim();
+          if (trimmed) tagCategories.album.add(trimmed);
+        });
+      });
+    }
+    if (response.labels && response.labels.length > 0) {
+      const cleanLabel = cleanName(response.labels[0].name);
+      cleanLabel.split(',').forEach(item => {
+        const trimmed = item.trim();
+        if (trimmed) tagCategories.album.add(trimmed);
+      });
+    }
+    
+    // Process tracklist
+    if (response.tracklist) {
+      response.tracklist.forEach(track => {
+        // Add track titles
+        if (track.title) {
+          const cleanTitle = cleanName(track.title);
+          cleanTitle.split(',').forEach(item => {
+            const trimmed = item.trim();
+            if (trimmed) tagCategories.tracklist.add(trimmed);
+          });
+        }
+        
+        // Add individual track artists to artists category
+        if (track.artists && track.artists.length > 0) {
+          track.artists.forEach(artist => {
+            if (artist.name) {
+              const cleanArtist = cleanName(artist.name);
+              cleanArtist.split(',').forEach(item => {
+                const trimmed = item.trim();
+                if (trimmed) tagCategories.artists.add(trimmed);
+              });
+            }
+          });
+        }
+        
+        // Add track extra artists (producers, etc.)
+        if (track.extraartists && track.extraartists.length > 0) {
+          track.extraartists.forEach(artist => {
+            if (artist.name) {
+              const cleanArtist = cleanName(artist.name);
+              cleanArtist.split(',').forEach(item => {
+                const trimmed = item.trim();
+                if (trimmed) tagCategories.artists.add(trimmed);
+              });
+              // Add credit as "Name (Role)" to credits set
+              if (artist.role) {
+                tagCategories.credits.add(`${artist.name.replace(/\s+\(\d+\)$/, '')} (${artist.role})`);
+              }
+            }
+          });
+        }
+      });
+    }
+    
+    // Generate combinations (artist + album, artist + track, etc.)
+    const albumTitle = response.title ? cleanName(response.title).split(',')[0].trim() : '';
+    const mainArtists = Array.from(tagCategories.artists);
+    
+    // Create artist + album combinations
+    if (albumTitle && mainArtists.length > 0) {
+      mainArtists.slice(0, 3).forEach(artist => {
+        tagCategories.combinations.add(`${artist} ${albumTitle}`);
+      });
+    }
+    
+    // Create artist + genre combinations if available
+    if (response.genres && mainArtists.length > 0) {
+      response.genres.slice(0, 2).forEach(genre => {
+        const cleanGenre = cleanName(genre).split(',')[0].trim();
+        if (cleanGenre) {
+          mainArtists.slice(0, 2).forEach(artist => {
+            tagCategories.combinations.add(`${artist} ${cleanGenre}`);
+          });
+        }
+      });
+    }
+    
+    const processedTags = {
+      artists: Array.from(tagCategories.artists),
+      album: Array.from(tagCategories.album),
+      tracklist: Array.from(tagCategories.tracklist),
+      combinations: Array.from(tagCategories.combinations),
+      credits: Array.from(tagCategories.credits) // NEW
+    };
+    
+    setParsedTags(processedTags);
+    
+    // Calculate tag filter statistics with slider values
+    const calculateStats = (tags) => ({
+      enabled: true,
+      percentage: 100,
+      count: tags.length,
+      totalChars: tags.join(',').length,
+      sliderValue: 100 // Default to 100% (show all tags)
+    });
+    
     setTagFilters({
-      artists: { enabled: true, percentage: 100, count: 0, totalChars: 0 },
-      album: { enabled: true, percentage: 100, count: 0, totalChars: 0 },
-      tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0 },
-      combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0 }
-    });
-  };
-
-  // Remove artist from placeholder lines
-  const exampleLines = [
-    '00:00 - 01:30 Title of the Track',
-    '01:30 - 03:00 Another Track Title',
-    '03:00 - 04:45 Yet Another Title',
-    '04:45 - 06:00 Final Track Title'
-  ];
-
-  const getPlaceholder = () => {
-    // Determine which example lines to show based on available tags
-    const lines = exampleLines.filter(line => {
-      const titlePart = line.replace(/^((\d{2}:\d{2}\s*(-\s*)?)+)?(\d{2}\s+)?-?\s*/i, '');
-      const hasArtist = parsedTags.artists.length > 0;
-      const hasAlbum = parsedTags.album.length > 0;
-      const hasTracklist = parsedTags.tracklist.length > 0;
-      const hasCombination = parsedTags.combinations.length > 0;
-      
-      // Show line if it has a title part and either:
-      // - No tags are available, or
-      // - It matches the available tag types (artist, album, tracklist, combination)
-      return titlePart.trim() !== '' && (
-        !hasArtist && !hasAlbum && !hasTracklist && !hasCombination ||
-        (hasArtist && /Artist/.test(titlePart)) ||
-        (hasAlbum && /Album/.test(titlePart)) ||
-        (hasTracklist && /Track/.test(titlePart)) ||
-        (hasCombination && /Combo/.test(titlePart))
-      );
+      artists: calculateStats(processedTags.artists),
+      album: calculateStats(processedTags.album),
+      tracklist: calculateStats(processedTags.tracklist),
+      combinations: calculateStats(processedTags.combinations),
+      credits: calculateStats(processedTags.credits) // NEW
     });
     
-    // If no lines match, fall back to a generic placeholder
-    if (lines.length === 0) {
-      return 'MM:SS - MM:SS Title of the Track';
+    // Generate initial tags value with all categories (including credits if enabled)
+    updateTagsValue(processedTags, {
+      artists: { enabled: true, sliderValue: 100 },
+      album: { enabled: true, sliderValue: 100 },
+      tracklist: { enabled: true, sliderValue: 100 },
+      combinations: { enabled: true, sliderValue: 100 },
+      credits: { enabled: includeTrackCredits, sliderValue: 100 } // NEW
+    });
+  };
+    // Helper function to update tags value based on filters and sliders
+  const updateTagsValue = (tags, filters) => {
+    const allSelectedTags = new Set(); // Use Set to prevent duplicates
+    
+    if (filters.artists.enabled && tags.artists.length > 0) {
+      const count = Math.ceil((tags.artists.length * filters.artists.sliderValue) / 100);
+      tags.artists.slice(0, count).forEach(tag => allSelectedTags.add(tag));
     }
-    
-    // Return the first matching line as the placeholder
-    return lines[0];
-  };
-
-  // Custom drag and drop handlers
-  const handleDragStart = (e, index) => {
-    setDraggedIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', index.toString());
-    
-    // Create a properly styled drag image
-    const originalElement = e.target;
-    const dragImage = originalElement.cloneNode(true);
-    
-    // Apply the exact same styles to maintain size and appearance
-    dragImage.style.position = 'absolute';
-    dragImage.style.top = '-1000px'; // Move off-screen
-    dragImage.style.left = '-1000px';
-    dragImage.style.opacity = '0.8';
-    dragImage.style.transform = 'rotate(5deg)';
-    dragImage.style.width = originalElement.offsetWidth + 'px';
-    dragImage.style.height = originalElement.offsetHeight + 'px';
-    dragImage.style.display = 'flex';
-    dragImage.style.alignItems = 'stretch';
-    dragImage.style.pointerEvents = 'none';
-    dragImage.style.zIndex = '9999';
-    
-    document.body.appendChild(dragImage);
-    e.dataTransfer.setDragImage(dragImage, e.offsetX, e.offsetY);
-    
-    // Clean up the drag image after a short delay
-    setTimeout(() => {
-      if (document.body.contains(dragImage)) {
-        document.body.removeChild(dragImage);
-      }
-    }, 0);
-  };
-
-  const handleDragEnd = (e) => {
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleDragEnter = (e, index) => {
-    e.preventDefault();
-    if (draggedIndex !== null && draggedIndex !== index) {
-      setDragOverIndex(index);
+    if (filters.album.enabled && tags.album.length > 0) {
+      const count = Math.ceil((tags.album.length * filters.album.sliderValue) / 100);
+      tags.album.slice(0, count).forEach(tag => allSelectedTags.add(tag));
     }
-  };
-
-  const handleDragLeave = (e) => {
-    // Only clear dragOverIndex if we're leaving the entire drop zone
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX;
-    const y = e.clientY;
-    
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      setDragOverIndex(null);
+    if (filters.tracklist.enabled && tags.tracklist.length > 0) {
+      const count = Math.ceil((tags.tracklist.length * filters.tracklist.sliderValue) / 100);
+      tags.tracklist.slice(0, count).forEach(tag => allSelectedTags.add(tag));
     }
+    if (filters.combinations.enabled && tags.combinations.length > 0) {
+      const count = Math.ceil((tags.combinations.length * filters.combinations.sliderValue) / 100);
+      tags.combinations.slice(0, count).forEach(tag => allSelectedTags.add(tag));
+    }
+    // NEW: Add credits if enabled
+    if (filters.credits && filters.credits.enabled && tags.credits && tags.credits.length > 0) {
+      const count = Math.ceil((tags.credits.length * (filters.credits.sliderValue || 100)) / 100);
+      tags.credits.slice(0, count).forEach(tag => allSelectedTags.add(tag));
+    }
+    setTagsValue(Array.from(allSelectedTags).join(', ')); // No ellipsis or truncation marker
   };
 
-  const handleDrop = (e, dropIndex) => {
-    e.preventDefault();
-    
-    if (draggedIndex === null || draggedIndex === dropIndex) {
-      setDragOverIndex(null);
+  // Helper function to convert tags to hashtags
+  const updateHashtagsValue = (tagsStr) => {
+    if (!tagsStr.trim()) {
+      setHashtagsValue('');
       return;
     }
-
-    console.log('Reordering from', draggedIndex, 'to', dropIndex);
     
-    // Reorder both formatOrder and selectOptions
-    const newFormatOrder = [...formatOrder];
-    const newSelectOptions = [...selectOptions];
+    // Split by comma, clean each tag, and convert to hashtag format
+    const hashtags = tagsStr
+      .split(',')
+      .map(tag => {
+        const cleanTag = tag.trim();
+        if (!cleanTag) return '';
+        
+        // Remove spaces and special characters, keep alphanumeric and basic chars
+        const hashtagText = cleanTag
+          .replace(/[^\w\s-]/g, '') // Remove special chars except hyphens
+          .replace(/\s+/g, '') // Remove all spaces
+          .replace(/-+/g, ''); // Remove hyphens
+        
+        return hashtagText ? `#${hashtagText}` : '';
+      })
+      .filter(Boolean); // Remove empty strings
     
-    const draggedItem = newFormatOrder[draggedIndex];
-    const draggedOptions = newSelectOptions[draggedIndex];
-    
-    // Remove dragged item
-    newFormatOrder.splice(draggedIndex, 1);
-    newSelectOptions.splice(draggedIndex, 1);
-    
-    // Insert at new position
-    newFormatOrder.splice(dropIndex, 0, draggedItem);
-    newSelectOptions.splice(dropIndex, 0, draggedOptions);
-    
-    setFormatOrder(newFormatOrder);
-    setSelectOptions(newSelectOptions);
-    setDragOverIndex(null);
+    setHashtagsValue(hashtags.join(' '));
   };
 
-  // At the start of your return statement:
+  // Update hashtags whenever tagsValue changes
+  useEffect(() => {
+    updateHashtagsValue(tagsValue);
+  }, [tagsValue]);
+
+  const logDiscogsRequest = ({ route, payload, response }) => {
+    console.log('[Discogs API Request]', { route, payload, response });
+  };
+
+  // Check if anything has changed
+  const isChanged = inputSources.url.data || inputSources.files.data || inputValue !== '' || urlInput !== '';
+
+  // Loading state
   if (!hasHydrated || !isClient) {
-    // Show a loading state or nothing until client-side hydration is complete
     return (
       <div>
         <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
@@ -1057,8 +1228,6 @@ export default function TaggerPage() {
           <FileDrop onFilesSelected={handleFilesSelected} />
         </div>
         <div
-          id='url-input-container'
-          ref={urlInputContainerRef}
           style={{
             flex: '1 1 300px',
             minWidth: 0,
@@ -1067,8 +1236,7 @@ export default function TaggerPage() {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-start',
-            height: '100%',
-            paddingTop: isStacked ? 0 : '1rem'
+            height: '100%'
           }}
         >
           <form
@@ -1077,7 +1245,7 @@ export default function TaggerPage() {
               display: 'flex',
               alignItems: 'center',
               gap: 0,
-              width: '100%' // Changed from 80% to 100%
+              width: '100%'
             }}
             onSubmit={handleUrlSubmit}
           >
@@ -1088,7 +1256,7 @@ export default function TaggerPage() {
             >
               URL:
             </label>
-            <div style={{ display: 'flex', flex: 1, width: '100%' }}> {/* Added width: 100% */}
+            <div style={{ display: 'flex', flex: 1, width: '100%' }}>
               <input
                 id="url-input"
                 type="text"
@@ -1104,7 +1272,7 @@ export default function TaggerPage() {
                   background: '#fff',
                   flex: 1,
                   minWidth: 0,
-                  width: '100%', // Changed from 0 to 100%
+                  width: '100%',
                 }}
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
@@ -1123,18 +1291,8 @@ export default function TaggerPage() {
                   fontWeight: 600,
                   cursor: 'pointer',
                   transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
-                  width: 'auto', // Ensures button only as wide as content
-                  flexShrink: 0 // Prevents button from shrinking
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = '#ffe156';
-                  e.currentTarget.style.color = '#000';
-                  e.currentTarget.style.boxShadow = '0 2px 8px #ffe15655';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = '#eee';
-                  e.currentTarget.style.color = '#222';
-                  e.currentTarget.style.boxShadow = 'none';
+                  width: 'auto',
+                  flexShrink: 0
                 }}
               >
                 Submit
@@ -1157,11 +1315,79 @@ export default function TaggerPage() {
           </div>
         </div>
       </div>
-      <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} />
+
+      {/* Input Sources Table */}
+      {(inputSources.url.data || inputSources.files.data) && (
+        <>
+          {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
+          <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+            <strong>Input Sources:</strong>
+          </div>
+          <table style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            border: '1px solid #ccc',
+            marginBottom: '1rem',
+            background: '#ffffff'
+          }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f5f5f5' }}>
+                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '40%' }}>Source</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Metadata</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Times</th>
+              </tr>
+            </thead>
+            <tbody>{inputSources.url.data && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <strong>URL:</strong> {inputSources.url.label}
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.url.metadata}
+                      onChange={e => handleInputSourceChange('url', 'metadata', e.target.checked)}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.url.times}
+                      onChange={e => handleInputSourceChange('url', 'times', e.target.checked)}
+                    />
+                  </td>
+                </tr>
+              )}
+              {inputSources.files.data && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <strong>Files:</strong> {inputSources.files.label}
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.files.metadata}
+                      onChange={e => handleInputSourceChange('files', 'metadata', e.target.checked)}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.files.times}
+                      onChange={e => handleInputSourceChange('files', 'times', e.target.checked)}
+                    />
+                  </td>
+                </tr>
+              )}</tbody>
+          </table>
+        </>
+      )}      
+      {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Timestamps:</strong>
       </div>
-      
+
+      {/* --- Timestamp Formatting Dropdowns & Drag-and-Drop --- */}
       <div
         style={{
           width: '100%',
@@ -1177,12 +1403,137 @@ export default function TaggerPage() {
           <div
             key={`format-item-${item.id}`}
             draggable
-            onDragStart={(e) => handleDragStart(e, idx)}
-            onDragEnd={handleDragEnd}
-            onDragOver={handleDragOver}
-            onDragEnter={(e) => handleDragEnter(e, idx)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, idx)}
+            onDragStart={(e) => {
+              setDraggedIndex(idx);
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', idx.toString());
+              // Drag image logic
+              const originalElement = e.target;
+              const dragImage = originalElement.cloneNode(true);
+              dragImage.style.position = 'absolute';
+              dragImage.style.top = '-1000px';
+              dragImage.style.left = '-1000px';
+              dragImage.style.opacity = '0.8';
+              dragImage.style.transform = 'rotate(5deg)';
+              dragImage.style.width = originalElement.offsetWidth + 'px';
+              dragImage.style.height = originalElement.offsetHeight + 'px';
+              dragImage.style.display = 'flex';
+              dragImage.style.alignItems = 'stretch';
+              dragImage.style.pointerEvents = 'none';
+              dragImage.style.zIndex = '9999';
+              document.body.appendChild(dragImage);
+              e.dataTransfer.setDragImage(dragImage, e.offsetX, e.offsetY);
+              setTimeout(() => {
+                if (document.body.contains(dragImage)) {
+                  document.body.removeChild(dragImage);
+                }
+              }, 0);
+            }}
+            onDragEnd={() => {
+              setDraggedIndex(null);
+              setDragOverIndex(null);
+            }}
+            onDragOver={e => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDragEnter={e => {
+              e.preventDefault();
+              if (draggedIndex !== null && draggedIndex !== idx) {
+                setDragOverIndex(idx);
+              }
+            }}
+            onDragLeave={e => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = e.clientX;
+              const y = e.clientY;
+              if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+                setDragOverIndex(null);
+              }
+            }}
+            onDrop={e => {
+              e.preventDefault();
+              if (draggedIndex === null || draggedIndex === idx) {
+                setDragOverIndex(null);
+                return;
+              }
+              // Reorder both formatOrder and selectOptions
+              const newFormatOrder = [...formatOrder];
+              const newSelectOptions = [...selectOptions];
+              const draggedItem = newFormatOrder[draggedIndex];
+              const draggedOptions = newSelectOptions[draggedIndex];
+              newFormatOrder.splice(draggedIndex, 1);
+              newSelectOptions.splice(draggedIndex, 1);
+              newFormatOrder.splice(idx, 0, draggedItem);
+              newSelectOptions.splice(idx, 0, draggedOptions);
+              setFormatOrder(newFormatOrder);
+              setSelectOptions(newSelectOptions);
+              setDragOverIndex(null);
+
+              // --- ADDED: Regenerate timestamps after drag-and-drop ---
+              // This ensures the textarea updates immediately after reordering
+              setTimeout(() => {
+                if (inputSources.url.data || inputSources.files.data) {
+                  generateCombinedTimestamps();
+                } else {
+                  // fallback: update from refs if not using inputSources
+                  // Helper: check if dash-artist dropdown is present and enabled
+                  const dashArtistIdx = newFormatOrder.findIndex(item => item.value === 'dash-artist');
+                  const dashArtistEnabled = dashArtistIdx !== -1 && !artistDisabled;
+                  if (inputSource === 'files' && audioFilesRef.current.length > 0) {
+                    let currentTime = 0;
+                    const lines = audioFilesRef.current.map((file, idx2) => {
+                      const start = formatTime(currentTime);
+                      const end = formatTime(currentTime + (durationsRef.current[idx2] || 0));
+                      const title = file.name.replace(/\.[^/.]+$/, '');
+                      currentTime += durationsRef.current[idx2] || 0;
+                      return newFormatOrder
+                        .map((item2) => {
+                          if (item2.value === 'blank') return '';
+                          if (item2.value === 'startTime') return start;
+                          if (item2.value === 'endTime') return end;
+                          if (item2.value === 'title' ) return title;
+                          if (item2.value === 'dash' ) return '-';
+                          if (item2.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+                          if (item2.value === 'artist') return '';
+                          return '';
+                        })
+                        .filter(Boolean)
+                        .join(' ');
+                    });
+                    setInputValue(lines.join('\n'));
+                  } else if (inputSource === 'discogs' && discogsTracksRef.current.length > 0) {
+                    let currentTime = 0;
+                    const lines = discogsTracksRef.current.map((track, idx2) => {
+                      const durationSec = discogsDurationsRef.current[idx2] || 0;
+                      const start = formatTime(currentTime);
+                      const end = formatTime(currentTime + durationSec);
+                      currentTime += durationSec;
+                      // Get artist name for this track if present
+                      let artistName = '';
+                      if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
+                        artistName = track.artists.map(a => a.name).join(', ');
+                      }
+                      return newFormatOrder
+                        .map(item2 => {
+                          if (item2.value === 'blank') return '';
+                          if (item2.value === 'startTime') return start;
+                          if (item2.value === 'endTime') return end;
+                          if (item2.value === 'title' ) return track.title || '';
+                          if (item2.value === 'dash' ) return '-'; // Fixed: removed extra quote
+                          if (item2.value === 'dash-artist' ) return dashArtistEnabled ? '-' : '';
+                          if (item2.value === 'artist') return artistName;
+                          return '';
+                        })
+                        .filter(Boolean)
+                        .join(' ');
+                    });
+                    setInputValue(lines.join('\n'));
+                  }
+                }
+              }, 0);
+              // --- END ADDED ---
+            }}
             style={{
               display: 'flex',
               alignItems: 'stretch',
@@ -1216,7 +1567,6 @@ export default function TaggerPage() {
                 transition: 'background-color 0.2s',
                 color: draggedIndex === idx ? '#1976d2' : '#666'
               }}
-              onMouseDown={() => console.log('Drag handle clicked')}
             >
               <GripVertical size={18} />
             </span>
@@ -1263,21 +1613,29 @@ export default function TaggerPage() {
           </div>
         ))}
       </div>
+      {/* --- End Timestamp Formatting Dropdowns --- */}
+
       <div style={{ width: '100%' }}>
         <textarea
           value={inputValue ? `Timestamps generated by https://tagger.site:\n${inputValue}` : ''}
           onChange={e => {
-            // Remove the prefix if present, then update inputValue
             const prefix = 'Timestamps generated by https://tagger.site:\n';
             let val = e.target.value;
             if (val.startsWith(prefix)) val = val.slice(prefix.length);
             setInputValue(val);
           }}
-          onFocus={() => setInputFocused(true)}
-          onBlur={() => setInputFocused(false)}
-          placeholder={inputFocused ? '' : getPlaceholder()}
+          placeholder={
+            inputValue
+              ? ''
+              : `Tracklist generated by http://tagger.site: 
+00:00 - 02:36 Metal
+02:36 - 06:06 Nada Mas 
+06:06 - 10:17 El Sombrero De Metal 
+10:17 - 13:52 Plata De Azul
+13:52 - 18:18 Manzanita
+18:18 - 21:03 Imprevu`
+          }
           rows={7}
-          cols={44}
           style={{
             width: '100%',
             minWidth: '100%',
@@ -1301,20 +1659,16 @@ export default function TaggerPage() {
             cursor: 'pointer',
             marginBottom: '0.25rem',
             display: 'block',
-            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
-            ...(copyState === 'hover'
-              ? { background: '#ffe156', color: '#222', boxShadow: '0 2px 8px #ffe15655' }
-              : {})
+            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
           }}
           onClick={handleCopy}
-          onMouseEnter={() => setCopyState(copyState === 'copied' ? 'copied' : 'hover')}
-          onMouseLeave={() => setCopyState(copyState === 'copied' ? 'copied' : 'idle')}
         >
           {copyState === 'copied'
             ? 'Copied!'
             : `Copy ${(inputValue ? (`Timestamps generated by https://tagger.site:\n${inputValue}`) : '').length} chars to clipboard`}
         </button>
-        {/* Formatting Suggestion Popup */}
+
+{/* Formatting Suggestion Popup */}
         {formatSuggestion && (
           <div
             style={{
@@ -1410,76 +1764,406 @@ export default function TaggerPage() {
             </div>
           </div>
         )}
-      </div>
-      {/* Loading Spinner Overlay */}
-      {isLoadingFiles && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          background: 'rgba(255,255,255,0.7)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <div style={{
-            border: '6px solid #eee',
-            borderTop: '6px solid #6366f1',
-            borderRadius: '50%',
-            width: 60,
-            height: 60,
-            animation: 'spin 1s linear infinite',
-          }} />
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+
+        <div style={{ margin: '0.5rem 0' }}>
+          <label style={{ fontSize: '0.95rem', color: '#333' }}>
+            <input
+              type="checkbox"
+              checked={includeTrackCredits}
+              onChange={e => {
+                const enabled = e.target.checked;
+                setIncludeTrackCredits(enabled);
+                // regenerate timestamps with credits
+                generateCombinedTimestamps();
+                // update tag filters so credits show up in Tags/Hashtags
+                setTagFilters(prev => {
+                  const next = {
+                    ...prev,
+                    credits: { ...(prev.credits || { sliderValue: 100 }), enabled }
+                  };
+                  updateTagsValue(parsedTags, next);
+                  return next;
+                });
+              }}
+              style={{ marginRight: '0.5rem' }}
+            />
+            Include track credits
+          </label>
         </div>
-      )}
-      {/* Clear/Reset Button moved here above Debug Box */}
-      {isChanged && (
-        <button
-          type="button"
-          onClick={handleReset}
-          style={{
-            margin: '1rem 0 1rem 0',
-            background: '#f6f6f6',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-            padding: '0.5rem 1.2rem',
-            fontWeight: 600,
-            fontSize: '1em',
-            cursor: 'pointer',
-            color: '#222',
-            display: 'block',
-            width: '100%',
-            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = '#ffe156';
-            e.currentTarget.style.color = '#000';
-            e.currentTarget.style.boxShadow = '0 2px 8px #ffe15655';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = '#f6f6f6';
-            e.currentTarget.style.color = '#222';
-            e.currentTarget.style.boxShadow = 'none';
-          }}
-        >
-          Clear / Reset
-        </button>
-      )}
-      {/* --- New Section Below --- */}
-      <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} />
+      </div>
+
+      <button
+        type="button"
+        onClick={handleReset}
+        style={{
+          margin: '1rem 0 1rem 0',
+          background: '#f6f6f6',
+          border: '1px solid #ccc',
+          borderRadius: 4,
+          padding: '0.5rem 1.2rem',
+          fontWeight: 600,
+          fontSize: '1em',
+          cursor: 'pointer',
+          color: '#222',
+          display: 'block',
+          width: '100%',
+          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+        }}
+      >
+        Clear / Reset
+      </button>
+
+      {/* Video Title Recommendations Section */}
+      {videoTitleRecommendations.length > 0 && (
+        <>
+          {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: 0 }}>
+              <strong>Video Title Recommendations:</strong>
+            </div>
+            <button
+              onClick={handleVideoTitleRefresh}
+              style={{
+                padding: '0.25rem 0.5rem',
+                fontSize: '0.8rem',
+                borderRadius: '4px',
+                border: '1px solid #ccc',
+                background: '#eee',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
+                whiteSpace: 'nowrap'
+              }}
+              title="Generate different video title combinations"
+            >
+              🔄 Refresh
+            </button>
+          </div>
+          <div style={{ marginBottom: '1rem' }}>
+            {videoTitleRecommendations.map((title, index) => (
+              <div
+                key={index}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginBottom: '0.5rem',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  backgroundColor: '#f9f9f9'
+                }}
+              >
+                <div
+                  style={{
+                    flex: 1,
+                    fontSize: '0.95rem',
+                    color: '#333',
+                    wordBreak: 'break-word',
+                    marginRight: '0.5rem'
+                  }}
+                >
+                  {title}
+                </div>
+                <button
+                  onClick={() => handleVideoTitleCopy(title)}
+                  style={{
+                    padding: '0.25rem 0.5rem',
+                    fontSize: '0.8rem',
+                    borderRadius: '4px',
+                    border: '1px solid #ccc',
+                    background: videoTitleCopyState === 'copied' ? '#ffe156' : '#eee',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {videoTitleCopyState === 'copied' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}     
+          
+      {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Tags:</strong>
       </div>
+      
+      {/* Tags Type Table */}
+      {(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0)) && (
+        <>          <table style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            border: '1px solid #ccc',
+            marginBottom: '1rem',
+            background: '#ffffff'
+          }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f5f5f5' }}>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '15%' }}>Include</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '35%' }}>Tag Type</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '50%' }}>Percentage</th>
+              </tr>
+            </thead>
+            <tbody>{parsedTags.artists.length > 0 && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.artists.enabled}
+                      onChange={(e) => setTagFilters(prev => {
+                        const newFilters = {
+                          ...prev,
+                          artists: { ...prev.artists, enabled: e.target.checked }
+                        };
+                        updateTagsValue(parsedTags, newFilters);
+                        return newFilters;
+                      })}
+                    />
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                    <strong>Artist(s)</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                      {parsedTags.artists.length} total tags
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tagFilters.artists.sliderValue}
+                        onChange={(e) => {
+
+                          const newValue = parseInt(e.target.value);
+                          setTagFilters(prev => ({
+                            ...prev,
+                            artists: { ...prev.artists, sliderValue: newValue }
+                          }));
+                          updateTagsValue(parsedTags, {
+                            ...tagFilters,
+                            artists: { ...tagFilters.artists, sliderValue: newValue }
+                          });
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        {tagFilters.artists.sliderValue}% ({Math.ceil((parsedTags.artists.length * tagFilters.artists.sliderValue) / 100)} tags)
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}              {parsedTags.album.length > 0 && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.album.enabled}
+                      onChange={(e) => setTagFilters(prev => {
+                        const newFilters = {
+                          ...prev,
+                          album: { ...prev.album, enabled: e.target.checked }
+                        };
+                        updateTagsValue(parsedTags, newFilters);
+                        return newFilters;
+                      })}
+                    />
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                    <strong>Album</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                      {parsedTags.album.length} total tags
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tagFilters.album.sliderValue}
+                        onChange={(e) => {
+                          const newValue = parseInt(e.target.value);
+                          setTagFilters(prev => ({
+                            ...prev,
+                            album: { ...prev.album, sliderValue: newValue }
+                          }));
+                          updateTagsValue(parsedTags, {
+                            ...tagFilters,
+                            album: { ...tagFilters.album, sliderValue: newValue }
+                          });
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        {tagFilters.album.sliderValue}% ({Math.ceil((parsedTags.album.length * tagFilters.album.sliderValue) / 100)} tags)
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}              {parsedTags.tracklist.length > 0 && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.tracklist.enabled}
+                      onChange={(e) => setTagFilters(prev => {
+                        const newFilters = {
+                          ...prev,
+                          tracklist: { ...prev.tracklist, enabled: e.target.checked }
+                        };
+                        updateTagsValue(parsedTags, newFilters);
+                        return newFilters;
+                      })}
+                    />
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                    <strong>Tracklist</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                      {parsedTags.tracklist.length} total tags
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tagFilters.tracklist.sliderValue}
+                        onChange={(e) => {
+                          const newValue = parseInt(e.target.value);
+                          setTagFilters(prev => ({
+                            ...prev,
+                            tracklist: { ...prev.tracklist, sliderValue: newValue }
+                          }));
+                          updateTagsValue(parsedTags, {
+                            ...tagFilters,
+                            tracklist: { ...tagFilters.tracklist, sliderValue: newValue }
+                          });
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        {tagFilters.tracklist.sliderValue}% ({Math.ceil((parsedTags.tracklist.length * tagFilters.tracklist.sliderValue) / 100)} tags)
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}              {parsedTags.combinations.length > 0 && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.combinations.enabled}
+                      onChange={(e) => setTagFilters(prev => {
+                        const newFilters = {
+                          ...prev,
+                          combinations: { ...prev.combinations, enabled: e.target.checked }
+                        };
+                        updateTagsValue(parsedTags, newFilters);
+                        return newFilters;
+                      })}
+                    />
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                    <strong>Combinations</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                      {parsedTags.combinations.length} total tags
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tagFilters.combinations.sliderValue}
+                        onChange={(e) => {
+                          const newValue = parseInt(e.target.value);
+                          setTagFilters(prev => ({
+                            ...prev,
+                            combinations: { ...prev.combinations, sliderValue: newValue }
+                          }));
+                          updateTagsValue(parsedTags, {
+                            ...tagFilters,
+                            combinations: { ...tagFilters.combinations, sliderValue: newValue }
+                          });
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        {tagFilters.combinations.sliderValue}% ({Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100)} tags)
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {/* Add credits row if enabled and available */}
+              {includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0 && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.credits && tagFilters.credits.enabled}
+                      onChange={e => setTagFilters(prev => {
+                        const newFilters = {
+                          ...prev,
+                          credits: { ...prev.credits, enabled: e.target.checked }
+                        };
+                        updateTagsValue(parsedTags, newFilters);
+                        return newFilters;
+                      })}
+                    />
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                    <strong>Track Credits</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                      {parsedTags.credits.length} total credits
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tagFilters.credits ? tagFilters.credits.sliderValue : 100}
+                        onChange={e => {
+                          const newValue = parseInt(e.target.value);
+                          setTagFilters(prev => ({
+                            ...prev,
+                            credits: { ...prev.credits, sliderValue: newValue }
+                          }));
+                          updateTagsValue(parsedTags, {
+                            ...tagFilters,
+                            credits: { ...tagFilters.credits, sliderValue: newValue }
+                          });
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        {tagFilters.credits ? tagFilters.credits.sliderValue : 100}% ({Math.ceil((parsedTags.credits.length * (tagFilters.credits ? tagFilters.credits.sliderValue : 100)) / 100)} credits)
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}</tbody>
+          </table>
+        </>
+      )}
+      
       <textarea
         value={tagsValue}
         onChange={e => setTagsValue(e.target.value)}
-        placeholder="Booker T. Jones,Priscilla Jones,Booker T & The MGs,The Mar-Keys,The Stax Staff,The Packers,The RCO All-Stars,Priscilla Coolidge,Booker T. & Priscilla,1971,France,The Wedding Song,She,The Indian Song,Sea Gull,For Priscilla,The Delta Song,Why,Mississippi Voodoo,Cool Black Dream,Sweet Child Youre Not Alone,Booker T. & Priscilla 1971,Booker T. Jones 1971,"
+        placeholder={
+          tagsValue
+            ? ''
+            : `Booker T. Jones,Priscilla Jones,Booker T & The MGs,The Mar-Keys,The Stax Staff,The Packers,The RCO All-Stars,Priscilla Coolidge,Booker T. & Priscilla,1971,France,The Wedding Song,She,The Indian Song,Sea Gull,For Priscilla,The Delta  Song,Why,Mississippi Voodoo,Cool  Black Dream,Sweet Child Youre Not Alone,Booker T. & Priscilla 1971,Booker T. Jones 1971,`
+        }
         rows={7}
-        cols={44}
         style={{
           width: '100%',
           minWidth: '100%',
@@ -1489,158 +2173,13 @@ export default function TaggerPage() {
           fontSize: '1rem',
           boxSizing: 'border-box',
           display: 'block',
-          resize: 'none',
-          marginBottom: '1rem'
+          resize: 'none'
         }}
       />
       
-      {/* Tags Filter Table */}
-      <table style={{
-        width: '100%',
-        whiteSpace: 'nowrap',
-        tableLayout: 'fixed',
-        borderCollapse: 'collapse',
-        border: '1px solid #ccc',
-        marginBottom: '1rem',
-        background: '#ffffff'
-      }}>
-        <tbody>
-          {/* Header */}
-          <tr style={{ backgroundColor: '#ffffff', border: '1px solid #ccc' }}>
-            <th style={{ textAlign: 'center', width: '6%', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="checkbox" 
-                checked={selectAllTags}
-                onChange={e => handleSelectAllTags(e.target.checked)}
-              />
-            </th>
-            <th style={{ textAlign: 'center', width: '14%', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              Tags Type
-            </th>
-            <th style={{ textAlign: 'center', width: '20%', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              Tags
-            </th>
-          </tr>
 
-          {/* Artists */}
-          <tr style={{ background: '#ffffff' }}>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="checkbox" 
-                checked={tagFilters.artists.enabled}
-                onChange={e => handleTagFilterChange('artists', 'enabled', e.target.checked)}
-              />
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              Artist(s)
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="range" 
-                min="0" 
-                max="100" 
-                value={tagFilters.artists.percentage}
-                onChange={e => handleTagFilterChange('artists', 'percentage', parseInt(e.target.value))}
-                style={{ marginRight: '0.5rem' }}
-              />
-              <span>{tagFilters.artists.percentage}%</span>
-              <div style={{ fontSize: '15px', marginTop: '0.25rem' }}>
-                <div>{Math.round((parsedTags.artists.join(',').length * tagFilters.artists.percentage) / 100)} chars</div>
-                <div>{Math.ceil((parsedTags.artists.length * tagFilters.artists.percentage) / 100)}/{parsedTags.artists.length} tags</div>
-              </div>
-            </td>
-          </tr>
-
-          {/* Album */}
-          <tr style={{ background: '#ffffff' }}>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="checkbox" 
-                checked={tagFilters.album.enabled}
-                onChange={e => handleTagFilterChange('album', 'enabled', e.target.checked)}
-              />
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              Album
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="range" 
-                min="0" 
-                max="100" 
-                value={tagFilters.album.percentage}
-                onChange={e => handleTagFilterChange('album', 'percentage', parseInt(e.target.value))}
-                style={{ marginRight: '0.5rem' }}
-              />
-              <span>{tagFilters.album.percentage}%</span>
-              <div style={{ fontSize: '15px', marginTop: '0.25rem' }}>
-                <div>{Math.round((parsedTags.album.join(',').length * tagFilters.album.percentage) / 100)} chars</div>
-                <div>{Math.ceil((parsedTags.album.length * tagFilters.album.percentage) / 100)}/{parsedTags.album.length} tags</div>
-              </div>
-            </td>
-          </tr>
-
-          {/* Tracklist */}
-          <tr style={{ background: '#ffffff' }}>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="checkbox" 
-                checked={tagFilters.tracklist.enabled}
-                onChange={e => handleTagFilterChange('tracklist', 'enabled', e.target.checked)}
-              />
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              Tracklist
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="range" 
-                min="0" 
-                max="100" 
-                value={tagFilters.tracklist.percentage}
-                onChange={e => handleTagFilterChange('tracklist', 'percentage', parseInt(e.target.value))}
-                style={{ marginRight: '0.5rem' }}
-              />
-              <span>{tagFilters.tracklist.percentage}%</span>
-              <div style={{ fontSize: '15px', marginTop: '0.25rem' }}>
-                <div>{Math.round((parsedTags.tracklist.join(',').length * tagFilters.tracklist.percentage) / 100)} chars</div>
-                <div>{Math.ceil((parsedTags.tracklist.length * tagFilters.tracklist.percentage) / 100)}/{parsedTags.tracklist.length} tags</div>
-              </div>
-            </td>
-          </tr>
-
-          {/* Combinations */}
-          <tr style={{ background: '#ffffff' }}>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="checkbox" 
-                checked={tagFilters.combinations.enabled}
-                onChange={e => handleTagFilterChange('combinations', 'enabled', e.target.checked)}
-              />
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              Combinations
-            </td>
-            <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', background: '#ffffff' }}>
-              <input 
-                type="range" 
-                min="0" 
-                max="100" 
-                value={tagFilters.combinations.percentage}
-                onChange={e => handleTagFilterChange('combinations', 'percentage', parseInt(e.target.value))}
-                style={{ marginRight: '0.5rem' }}
-              />
-              <span>{tagFilters.combinations.percentage}%</span>
-              <div style={{ fontSize: '15px', marginTop: '0.25rem' }}>
-                <div>{Math.round((parsedTags.combinations.join(',').length * tagFilters.combinations.percentage) / 100)} chars</div>
-                <div>{Math.ceil((parsedTags.combinations.length * tagFilters.combinations.percentage) / 100)}/{parsedTags.combinations.length} tags</div>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
       
-      {/* Tags Copy Button */}
+      {/* Simple copy button - always visible */}
       <button
         style={{
           width: '100%',
@@ -1650,48 +2189,39 @@ export default function TaggerPage() {
           background: tagsCopyState === 'copied' ? '#ffe156' : '#eee',
           fontWeight: 600,
           cursor: 'pointer',
-          marginBottom: '0.5rem', // Changed from 1rem to 0.5rem to reduce space before optimization UI
+          marginBottom: '0.5rem',
           display: 'block',
-          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
-          ...(tagsCopyState === 'hover'
-            ? { background: '#ffe156', color: '#222', boxShadow: '0 2px 8px #ffe15655' }
-            : {})
+          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
         }}
         onClick={handleTagsCopy}
-        onMouseEnter={() => setTagsCopyState(tagsCopyState === 'copied' ? 'copied' : 'hover')}
-        onMouseLeave={() => setTagsCopyState(tagsCopyState === 'copied' ? 'copied' : 'idle')}
       >
         {tagsCopyState === 'copied'
           ? 'Copied!'
           : `Copy ${tagsValue.length} chars to clipboard`}
       </button>
-      
-      {/* Tags Optimization UI - ADD THIS SECTION */}
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        marginBottom: '0.5rem',
-        gap: '0.5rem'
-      }}>
+
+            {/* Tags Controls - moved to appear underneath textarea */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', marginTop: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+
         <input
           type="number"
           value={charLimit}
           onChange={(e) => setCharLimit(e.target.value)}
-          placeholder="Char limit"
+          min="1"
+          max="1000"
           style={{
             padding: '0.5rem',
             borderRadius: '4px',
             border: '1px solid #ccc',
-            width: '100px'
+            width: '80px',
+            textAlign: 'center'
           }}
-          min="1"
-          max="5000"
+          title="Character limit for tag optimization"
         />
+        
         <button
-          onClick={optimizeTags}
           style={{
-            flex: 1,
-            padding: '0.5rem',
+            padding: '0.5rem 1rem',
             borderRadius: '4px',
             border: '1px solid #ccc',
             background: '#eee',
@@ -1699,35 +2229,105 @@ export default function TaggerPage() {
             cursor: 'pointer',
             transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
           }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = '#ffe156';
-            e.currentTarget.style.color = '#000';
-            e.currentTarget.style.boxShadow = '0 2px 8px #ffe15655';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = '#eee';
-            e.currentTarget.style.color = '#222';
-            e.currentTarget.style.boxShadow = 'none';
+          onClick={() => {
+            // Optimize tags based on character limit and enabled filters
+            const enabledTags = [];
+            if (tagFilters.artists.enabled) {
+              const count = Math.ceil((parsedTags.artists.length * tagFilters.artists.sliderValue) / 100);
+              enabledTags.push(...parsedTags.artists.slice(0, count));
+            }
+            if (tagFilters.album.enabled) {
+              const count = Math.ceil((parsedTags.album.length * tagFilters.album.sliderValue) / 100);
+              enabledTags.push(...parsedTags.album.slice(0, count));
+            }
+            if (tagFilters.tracklist.enabled) {
+              const count = Math.ceil((parsedTags.tracklist.length * tagFilters.tracklist.sliderValue) / 100);
+              enabledTags.push(...parsedTags.tracklist.slice(0, count));
+            }
+            if (tagFilters.combinations.enabled) {
+              const count = Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100);
+              enabledTags.push(...parsedTags.combinations.slice(0, count));
+            }
+            
+            // Remove duplicates using Set, then join with commas and spaces
+            const uniqueTags = Array.from(new Set(enabledTags));
+            const optimized = uniqueTags.join(', ');
+            
+            if (optimized.length <= parseInt(charLimit)) {
+              setTagsValue(optimized);
+              setOptimizeStatus(`Optimized to ${optimized.length} chars`);
+            } else {
+              // Truncate to fit within limit
+              const truncated = optimized.substring(0, parseInt(charLimit) - 3) + '...';
+              setTagsValue(truncated);
+              setOptimizeStatus(`Truncated to ${charLimit} chars`);
+            }
+            setTimeout(() => setOptimizeStatus(''), 3000);
           }}
         >
-          Optimize Tags to Character Limit
+          Optimize
         </button>
+        
+        {optimizeStatus && (
+          <span style={{ fontSize: '0.9rem', color: '#666' }}>
+            {optimizeStatus}
+          </span>
+        )}
       </div>
+
+    {/* Hashtags Section */}
+    <div>
+      <h3 style={{
+        color: colors.primaryText,
+        marginBottom: '1rem',
+        fontSize: '1.2rem',
+        fontWeight: 600
+      }}>
+        Hashtags:
+      </h3>
       
-      {/* Optimization status message */}
-      {optimizeStatus && (
-        <div style={{ 
-          marginBottom: '1rem',
+      <textarea
+        value={hashtagsValue}
+        onChange={e => setHashtagsValue(e.target.value)}
+        placeholder={
+          hashtagsValue
+            ? ''
+            : `#BookerT.Jones #PriscillaJones #BookerT&TheMGs #TheMar-Keys #TheStaxStaff #ThePackers #TheRCOAll-Stars #PriscillaCoolidge #BookerT.&Priscilla #1971 #France #TheWeddingSong #She #TheIndianSong #SeaGull #ForPriscilla #TheDeltaSong #Why #MississippiVoodoo #CoolBlackDream #SweetChildYoureNotAlone #BookerT.&Priscilla1971 #BookerT.Jones1971`
+        }
+        rows={5}
+        style={{
+          width: '100%',
+          minWidth: '100%',
           padding: '0.5rem',
-          fontSize: '0.9rem',
-          background: '#f0f9ff',
-          border: '1px solid #bae6fd',
           borderRadius: '4px',
-          color: '#0369a1'
-        }}>
-          {optimizeStatus}
-        </div>
-      )}
+          border: '1px solid #ccc',
+          fontSize: '1rem',
+          boxSizing: 'border-box',
+          display: 'block',
+          resize: 'none'
+        }}
+      />
+      
+      <button
+        style={{
+          width: '100%',
+          padding: '0.5rem',
+          borderRadius: '4px',
+          border: '1px solid #ccc',
+          background: hashtagsCopyState === 'copied' ? '#ffe156' : '#eee',
+          fontWeight: 600,
+          cursor: 'pointer',
+          marginBottom: '0.5rem',
+          display: 'block',
+          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+        }}
+        onClick={handleHashtagsCopy}
+      >
+        {hashtagsCopyState === 'copied'
+          ? 'Copied!'
+          : `Copy ${hashtagsValue.length} chars to clipboard`}
+      </button>
+    </div>
     </div>
   );
 }
