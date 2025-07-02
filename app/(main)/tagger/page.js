@@ -38,10 +38,18 @@ export default function TaggerPage({ initialUrl }) {
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
   const [discogsResponse, setDiscogsResponse] = useState(null);
+
   const [isLoadingFiles, setIsLoadingFiles] = useState(false); const [tagsValue, setTagsValue] = useState('');
+
   const [tagsCopyState, setTagsCopyState] = useState('idle'); // idle | copied | hover
   const [hashtagsValue, setHashtagsValue] = useState('');
   const [hashtagsCopyState, setHashtagsCopyState] = useState('idle'); // idle | copied | hover
+
+  // Add new states for progressive loading
+  const [processingStatus, setProcessingStatus] = useState(null); // { current: 0, total: 0, type: 'files' | 'discogs' }
+  const [processedTracks, setProcessedTracks] = useState([]); // Incrementally populated tracks
+  const [processingComplete, setProcessingComplete] = useState(false);
+
   // Add new states for tag optimization
   const [charLimit, setCharLimit] = useState('500');
   const [optimizeStatus, setOptimizeStatus] = useState(''); // For feedback messages
@@ -252,6 +260,7 @@ export default function TaggerPage({ initialUrl }) {
       });
     });
   }
+
   // Helper function to generate video title recommendations for full album uploads
   function generateVideoTitleRecommendations(discogsData, variation = 0) {
     if (!discogsData) return [];
@@ -330,26 +339,30 @@ export default function TaggerPage({ initialUrl }) {
         }
       });
 
-      // Fallback formats if we don't have enough recommendations
-      const fallbacks = [
-        `${albumTitle} - ${primaryArtist} | Full Album`,
-        `${primaryArtist} - ${albumTitle} | Complete Album`,
-        `${albumTitle} by ${primaryArtist} - Full LP`,
-        `${primaryArtist}: ${albumTitle} | Full Album`,
-        `${albumTitle} (${primaryArtist}) | Complete Album`
-      ];
 
-      // Add fallbacks if needed
-      fallbacks.forEach(fallback => {
-        if (recommendations.length < 5 && !recommendations.includes(fallback)) {
-          recommendations.push(fallback);
-        }
-      });
+    const fileArr = Array.from(files);
+    setDebugInfo(prev => ({
+      ...prev,
+      files: fileArr.map(f => f.name)
+    }));
+
+    // Only process audio files
+    const audioFiles = fileArr.filter(f =>
+      f.type.startsWith('audio/') ||
+      /\.(mp3|wav|aiff|flac)$/i.test(f.name)
+    );
+
+    if (audioFiles.length === 0) {
+      setIsLoadingFiles(false);
+      return;
     }
 
-    // Return only the first 5 unique recommendations
-    return [...new Set(recommendations)].slice(0, 5);
-  }
+    // Set initial processing status
+    setProcessingStatus({
+      current: 0,
+      total: audioFiles.length,
+      type: 'files'
+    });
 
   // Handle files: get durations, build tracklist, update debug
   const handleFilesSelected = async (files) => {
@@ -441,6 +454,9 @@ export default function TaggerPage({ initialUrl }) {
     console.log('URL submitted:', urlToSubmit);
 
     if (e) e.preventDefault();
+    setProcessingComplete(false);
+    setProcessedTracks([]);
+
     setDebugInfo(prev => ({
       ...prev,
       url: urlToSubmit
@@ -448,8 +464,17 @@ export default function TaggerPage({ initialUrl }) {
 
     // Discogs URL logic
     const discogsInfo = parseDiscogsUrl(urlToSubmit);
+
     if (discogsInfo) {
       const route = 'http://localhost:3030/discogsFetch';
+
+      // Set initial processing status for URL fetch
+      setProcessingStatus({
+        current: 0,
+        total: 1,
+        type: 'discogs'
+      });
+
       try {
         const res = await fetch(route, {
           method: 'POST',
@@ -457,9 +482,11 @@ export default function TaggerPage({ initialUrl }) {
           body: JSON.stringify(discogsInfo)
         });
         const data = await res.json();
-        setDiscogsResponse(data); // Save to state
-        setDiscogsData(data); // Store for video title refresh
+
+        setDiscogsResponse(data);
+        setDiscogsData(data);
         logDiscogsRequest({ route, payload: discogsInfo, response: data });
+
 
         // Process the response for tags
         processDiscogsResponseToTags(data);
@@ -470,7 +497,14 @@ export default function TaggerPage({ initialUrl }) {
 
         // If response has a tracklist, process timing data
         if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
-          // Helper to parse duration string (mm:ss or hh:mm:ss) to seconds
+          // Update processing status for tracks
+          setProcessingStatus({
+            current: 0,
+            total: data.tracklist.length,
+            type: 'discogs'
+          });
+
+          // Helper to parse duration string
           function parseDuration(str) {
             if (!str) return 0;
             const parts = str.split(':').map(Number);
@@ -483,6 +517,7 @@ export default function TaggerPage({ initialUrl }) {
             }
             return 0;
           }
+
 
           const durations = data.tracklist.map(track => parseDuration(track.duration));
 
@@ -510,12 +545,26 @@ export default function TaggerPage({ initialUrl }) {
             }
           }));
 
+
           // Generate combined timestamps
           setTimeout(generateCombinedTimestamps, 0);
+
         }
+
+        // Process tags incrementally
+        processDiscogsResponseToTags(data);
+
+        // Generate video title recommendations
+        const videoTitles = generateVideoTitleRecommendations(data, videoTitleVariation);
+        setVideoTitleRecommendations(videoTitles);
+
+        setProcessingComplete(true);
+        setProcessingStatus(null);
+
       } catch (err) {
         console.error('Error fetching Discogs data:', err);
         setDiscogsResponse(null);
+        setProcessingStatus(null);
         logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
       }
     }
@@ -952,7 +1001,9 @@ export default function TaggerPage({ initialUrl }) {
       album: [],
       tracklist: [],
       combinations: []
+
     }); setTagFilters({
+
       artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
@@ -962,6 +1013,7 @@ export default function TaggerPage({ initialUrl }) {
     setVideoTitleCopyState('idle');
     setVideoTitleVariation(0);
     setDiscogsData(null);
+
 
     // Reset input sources
     setInputSources({
@@ -1230,6 +1282,41 @@ export default function TaggerPage({ initialUrl }) {
 
   return (
     <div>
+      {/* Processing Status Display */}
+      {processingStatus && (
+        <div style={{
+          background: '#f0f9ff',
+          border: '1px solid #0ea5e9',
+          borderRadius: '4px',
+          padding: '1rem',
+          marginBottom: '1rem',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+            {processingStatus.type === 'files' ? 'Processing Audio Files...' : 'Processing Discogs Data...'}
+          </div>
+          <div style={{ fontSize: '1rem', color: '#0369a1' }}>
+            Processing track {processingStatus.current} of {processingStatus.total}
+          </div>
+          <div style={{
+            width: '100%',
+            height: '8px',
+            backgroundColor: '#e0f2fe',
+            borderRadius: '4px',
+            marginTop: '0.5rem',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              width: `${(processingStatus.current / processingStatus.total) * 100}%`,
+              height: '100%',
+              backgroundColor: '#0ea5e9',
+              transition: 'width 0.3s ease',
+              borderRadius: '4px'
+            }} />
+          </div>
+        </div>
+      )}
+
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Input:</strong>
       </div>
@@ -1344,7 +1431,6 @@ export default function TaggerPage({ initialUrl }) {
       {/* Input Sources Table */}
       {(inputSources.url.data || inputSources.files.data) && (
         <>
-          {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
             <strong>Input Sources:</strong>
           </div>
@@ -1409,7 +1495,9 @@ export default function TaggerPage({ initialUrl }) {
           </table>
         </>
       )}
+
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
+
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Timestamps:</strong>
       </div>
@@ -1542,7 +1630,7 @@ export default function TaggerPage({ initialUrl }) {
                         artistName = track.artists.map(a => a.name).join(', ');
                       }
                       return newFormatOrder
-                        .map(item2 => {
+                        .map((item2) => {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
@@ -1675,6 +1763,23 @@ export default function TaggerPage({ initialUrl }) {
             resize: 'both'
           }}
         />
+
+        {/* Processing indicator for partially loaded tracks */}
+        {processingStatus && processedTracks.length > 0 && (
+          <div style={{
+            padding: '0.5rem',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderTop: 'none',
+            borderRadius: '0 0 4px 4px',
+            fontSize: '0.9rem',
+            color: '#64748b',
+            textAlign: 'center'
+          }}>
+            {processedTracks.length} of {processingStatus.total} tracks loaded...
+          </div>
+        )}
+
         <button
           style={{
             width: '100%',
@@ -1694,6 +1799,7 @@ export default function TaggerPage({ initialUrl }) {
             ? 'Copied!'
             : `Copy ${(inputValue ? (`Timestamps generated by https://tagger.site:\n${inputValue}`) : '').length} chars to clipboard`}
         </button>
+
 
       <button
         type="button"
@@ -1715,6 +1821,7 @@ export default function TaggerPage({ initialUrl }) {
       >
         Clear / Reset
       </button>
+
 
 
         {/* Formatting Suggestion Popup */}
@@ -1835,15 +1942,15 @@ export default function TaggerPage({ initialUrl }) {
               }}
               style={{ marginRight: '0.5rem' }}
             />
-            Include track credits
+            Include track credits in timestamps.
           </label>
         </div>
       </div>
 
+
       {/* Video Title Recommendations Section */}
       {videoTitleRecommendations.length > 0 && (
         <>
-          {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
             <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: 0 }}>
               <strong>Video Title Recommendations:</strong>
@@ -1913,7 +2020,9 @@ export default function TaggerPage({ initialUrl }) {
         </>
       )}
 
+
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
+
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Tags:</strong>
       </div>
