@@ -3,10 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import styles from './layout.module.css';
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'; // <-- add this import
+import { usePathname } from 'next/navigation';
 import { Home, Music, FileMusicIcon, BarChart, Mail, Github, Linkedin, Menu, ChevronRight, Contact, FileText as ResumeIcon } from 'lucide-react';
 import ImageModal from './ImageModal/ImageModal';
 import { ColorContext } from './ColorContext';
+import { getRouteInfo } from './routeInfo';
 
 export default function RootLayout({ children }) {
   
@@ -26,58 +27,10 @@ export default function RootLayout({ children }) {
   const [colorData, setColorData] = useState(null);
   const [randomImage, setRandomImage] = useState(null);
 
-  const pathname = usePathname(); // <-- get current path
-
-  // map specific routes to titles/subtitles and optional icons
-  const routeInfo = {
-    "/": {
-      title: "Martin Barker",
-      subtitle: "Software Developer Portfolio",
-      icon: "/ico/martinbarker.ico"
-    },
-    "/tagger": {
-      title: "tagger.site",
-      subtitle: "Generate timestamped tracklists and comma seperated tags from audio files or URLs",
-      icon: "/ico/martinbarker.ico"
-    },
-    "/discogs2youtube": {
-      title: "Discogs2Youtube",
-      subtitle: "Convert Discogs releases to playlists",
-      icon: "/ico/martinbarker.ico"
-    },
-    "/ffmpegwasm": {
-      title: "FFMPEG WASM",
-      subtitle: "Browser-based audio encoding with FFMPEG WebAssembly",
-      icon: "/ico/martinbarker.ico"
-    },
-    "/popularify": {
-      title: "Popularify",
-      subtitle: "Get a spotify artist's entire discography sorted by popularity",
-      icon: "/ico/martinbarker.ico"
-    }
-  };
-
-  // default fallback
-  const defaultInfo = {
-    title: "",
-    subtitle: "",
-    icon: "/ico/martinbarker.ico"
-  };
-
-  // pick base info
-  let info = routeInfo[pathname] || defaultInfo;
-
-  // override icon for any /rendertune path
-  if (pathname.startsWith("/rendertune")) {
-    info = {
-      ...info,
-      icon: "/ico/rendertune.ico",
-      title: info.title || "RenderTune",
-      subtitle: info.subtitle || "Video Rendering App"
-    };
-  }
-
-  const { title: pageTitle, subtitle: pageSubTitle, icon: pageIcon } = info;
+  const pathname = usePathname(); // get current path
+  
+  // Get route info from shared module
+  const { title: pageTitle, subtitle: pageSubTitle, icon: pageIcon } = getRouteInfo(pathname);
 
   useEffect(() => {
     const handleResize = () => {
@@ -531,4 +484,4 @@ export default function RootLayout({ children }) {
       </html>
     </ColorContext.Provider>
   );
-}
+} 
