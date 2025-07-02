@@ -1713,7 +1713,7 @@ export default function TaggerPage({ initialUrl }) {
           transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
         }}
       >
-        Clear / Reset
+        Clear / Reset 
       </button>
 
 
