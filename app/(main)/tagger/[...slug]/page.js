@@ -31,3 +31,4 @@ export default async function TaggerSlugPage({ params }) {
   // Pass both URL and route info to the TaggerPage component
   return <TaggerPage initialUrl={urlFromSlug} routeInfo={routeInfo} />;
 }
+ 

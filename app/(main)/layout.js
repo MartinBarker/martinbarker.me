@@ -484,4 +484,4 @@ export default function RootLayout({ children }) {
       </html>
     </ColorContext.Provider>
   );
-}
+} 

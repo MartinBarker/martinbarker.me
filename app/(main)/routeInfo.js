@@ -53,3 +53,4 @@ export function getRouteInfo(pathname) {
   
   return info;
 }
+ 
