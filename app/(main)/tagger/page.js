@@ -229,11 +229,19 @@ export default function TaggerPage({ initialUrl }) {
     });
   };
 
-  // Helper to format seconds as mm:ss
+  // Helper to format seconds as mm:ss or hh:mm:ss depending on duration
   function formatTime(seconds) {
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    
+    if (h > 0) {
+      // Format as hh:mm:ss if there are hours
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    } else {
+      // Format as mm:ss if less than an hour
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
   }
 
   // Helper to get audio duration from a File
@@ -538,8 +546,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return title;
-            if (item.value === 'dash') return '-';
+            if (item.value === 'title' ) return title;
+            if (item.value === 'dash' ) return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
             return '';
@@ -565,8 +573,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return track.title || '';
-            if (item.value === 'dash') return '-'; // Fixed: removed extra quote
+            if (item.value === 'title' ) return track.title || '';
+            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -597,8 +605,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return title;
-            if (item.value === 'dash') return '-';
+            if (item.value === 'title' ) return title;
+            if (item.value === 'dash' ) return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
             return '';
@@ -623,8 +631,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return track.title || '';
-            if (item.value === 'dash') return '-'; // Fixed: removed extra quote
+            if (item.value === 'title' ) return track.title || '';
+            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -855,8 +863,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return title;
-            if (item.value === 'dash') return '-';
+            if (item.value === 'title' ) return title;
+            if (item.value === 'dash' ) return '-';
             if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -884,12 +892,11 @@ export default function TaggerPage({ initialUrl }) {
         const duration = timingData.durations[idx] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + duration);
-
-        let title = track.title || '';
+        currentTime += duration;
+        // Get artist name for this track if present
         let artistName = '';
-
-        if (track.artists && track.artists.length > 0) {
-          artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
+        if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
+          artistName = track.artists.map(a => a.name).join(', ');
         }
         // Build line based on format order
         const lineData = formatOrder
@@ -897,8 +904,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return title;
-            if (item.value === 'dash') return '-';
+            if (item.value === 'title' ) return track.title || '';
+            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -1519,8 +1526,8 @@ export default function TaggerPage({ initialUrl }) {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
-                          if (item2.value === 'title') return title;
-                          if (item2.value === 'dash') return '-';
+                          if (item2.value === 'title' ) return title;
+                          if (item2.value === 'dash' ) return '-';
                           if (item2.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
                           if (item2.value === 'artist') return '';
                           return '';
@@ -1546,8 +1553,8 @@ export default function TaggerPage({ initialUrl }) {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
-                          if (item.value === 'title') return track.title || '';
-                          if (item.value === 'dash') return '-'; // Fixed: removed extra quote
+                          if (item.value === 'title' ) return track.title || '';
+                          if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
                           if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
                           if (item.value === 'artist') return artistName;
                           return '';
@@ -1768,6 +1775,7 @@ export default function TaggerPage({ initialUrl }) {
                 display: 'block',
                 transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
               }}
+             
               onMouseEnter={e => {
                 e.currentTarget.style.background = '#ffd700';
                 e.currentTarget.style.color = '#000';
@@ -2361,4 +2369,4 @@ export default function TaggerPage({ initialUrl }) {
       </div>
     </div>
   );
-} 
+}
