@@ -26,7 +26,7 @@ function logDiscogsRequest({ route, payload, response }) {
   console.log('Response:', response);
 }
 
-export default function TaggerPage() {
+export default function TaggerPage({ initialUrl }) {
   const { colors } = useColorContext();
   const urlInputContainerRef = useRef(null);
   const [isStacked, setIsStacked] = useState(false);
@@ -38,8 +38,9 @@ export default function TaggerPage() {
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
   const [discogsResponse, setDiscogsResponse] = useState(null);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [tagsValue, setTagsValue] = useState('');
+
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false); const [tagsValue, setTagsValue] = useState('');
+
   const [tagsCopyState, setTagsCopyState] = useState('idle'); // idle | copied | hover
   const [hashtagsValue, setHashtagsValue] = useState('');
   const [hashtagsCopyState, setHashtagsCopyState] = useState('idle'); // idle | copied | hover
@@ -178,6 +179,25 @@ export default function TaggerPage() {
   // Track input source: 'files' | 'discogs' | null
   const [inputSource, setInputSource] = useState(null);
 
+  // Print initialUrl when component mounts
+  useEffect(() => {
+    if (initialUrl) {
+      console.log('Initial URL received:', initialUrl);
+
+      // If initialUrl is provided, set it as the urlInput value
+      setUrlInput(initialUrl);
+
+      // Pass the URL directly to the submit function to avoid state timing issues
+      handleUrlSubmit(null, initialUrl);
+    }
+  }, [initialUrl]);
+
+  // Method to print initialUrl
+  const printInitialUrl = () => {
+    console.log('Current initialUrl value:', initialUrl);
+    return initialUrl;
+  };
+
   // Load formatOrder/selectOptions/inputValue/artistDisabled from localStorage on mount (client only)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -241,11 +261,84 @@ export default function TaggerPage() {
     });
   }
 
-  // Handle files: get durations, build tracklist, update debug
-  const handleFilesSelected = async (files) => {
-    setIsLoadingFiles(true);
-    setProcessingComplete(false);
-    setProcessedTracks([]);
+  // Helper function to generate video title recommendations for full album uploads
+  function generateVideoTitleRecommendations(discogsData, variation = 0) {
+    if (!discogsData) return [];
+
+    // Helper function to clean Discogs entity names by removing (number) suffixes
+    const cleanDiscogsSuffix = (name) => {
+      if (!name) return '';
+      return name.replace(/\s+\(\d+\)$/, '');
+    };
+
+    const albumTitle = discogsData.title ? cleanDiscogsSuffix(discogsData.title) : '';
+    const primaryArtist = (discogsData.artists && discogsData.artists.length > 0)
+      ? cleanDiscogsSuffix(discogsData.artists[0].name)
+      : '';
+    const year = discogsData.released ? discogsData.released.substring(0, 4) : '';
+    const genres = discogsData.genres || [];
+    const styles = discogsData.styles || [];
+    const label = (discogsData.labels && discogsData.labels.length > 0)
+      ? cleanDiscogsSuffix(discogsData.labels[0].name)
+      : '';
+    const country = discogsData.country || '';
+
+    // Create different format template sets based on variation
+    const formatSets = [
+      // Variation 0: Original formats
+      [
+        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${t} - ${a} | ${y} | ${g[0]} | Full Album` : null,
+        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${a} - ${t} (${y}) [${g[0]}] Full Album` : null,
+        (a, t, y, g, s, l, c) => y ? `${t} by ${a} • ${y} • Full Album` : null,
+        (a, t, y, g, s, l, c) => l && y ? `${a} - ${t} | ${l} | ${y} | Complete Album` : null,
+        (a, t, y, g, s, l, c) => c && y ? `${t} - ${a} [${c} ${y}] Full LP` : null,
+      ],
+      // Variation 1: Style-focused formats
+      [
+        (a, t, y, g, s, l, c) => s.length > 0 && y ? `${a} - ${t} | ${s[0]} | ${y} | Full Album` : null,
+        (a, t, y, g, s, l, c) => s.length > 0 ? `${t} (${a}) | ${s[0]} Full Album` : null,
+        (a, t, y, g, s, l, c) => s.length > 1 && y ? `${t} - ${a} | ${s[0]} ${s[1]} | ${y}` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 && s.length > 0 ? `${a}: ${t} | ${g[0]}/${s[0]} | Complete LP` : null,
+        (a, t, y, g, s, l, c) => y ? `${t} by ${a} (${y}) | Full Album` : null,
+      ],
+      // Variation 2: Label and country focused
+      [
+        (a, t, y, g, s, l, c) => l && c ? `${t} - ${a} | ${l} (${c}) | Full Album` : null,
+        (a, t, y, g, s, l, c) => l && y ? `${a}: ${t} | ${l} ${y} | Complete Album` : null,
+        (a, t, y, g, s, l, c) => c && g.length > 0 ? `${t} | ${a} | ${c} ${g[0]} | Full LP` : null,
+        (a, t, y, g, s, l, c) => l ? `${a} - ${t} | ${l} Records | Full Album` : null,
+        (a, t, y, g, s, l, c) => y && c ? `${t} (${y}) - ${a} | ${c} Release | Full Album` : null,
+      ],
+      // Variation 3: Alternative separators and formats
+      [
+        (a, t, y, g, s, l, c) => y && g.length > 0 ? `${a} ★ ${t} ★ ${g[0]} ★ ${y} ★ Full Album` : null,
+        (a, t, y, g, s, l, c) => y ? `${t} / ${a} / ${y} / Complete Album` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 ? `[${g[0]}] ${a} - ${t} | Full Album` : null, (a, t, y, g, s, l, c) => s.length > 0 && y ? `${t} → ${a} → ${s[0]} → ${y} → Full LP` : null,
+        (a, t, y, g, s, l, c) => `${a} presents: ${t} | Complete Album`,
+      ],
+      // Variation 4: Mixed genre/style combinations
+      [
+        (a, t, y, g, s, l, c) => g.length > 1 ? `${t} - ${a} | ${g[0]} & ${g[1]} | Full Album` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 && s.length > 0 && y ? `${a} - ${t} | ${g[0]}/${s[0]} | ${y} | Full LP` : null,
+        (a, t, y, g, s, l, c) => s.length > 1 ? `${t} by ${a} | ${s[0]} + ${s[1]} | Complete Album` : null,
+        (a, t, y, g, s, l, c) => g.length > 0 && y ? `${t} | ${a} | ${g[0]} Classic | ${y}` : null,
+        (a, t, y, g, s, l, c) => l && g.length > 0 ? `${a}: ${t} | ${l} | ${g[0]} | Full Album` : null,
+      ]
+    ];
+
+    const recommendations = [];
+
+    if (albumTitle && primaryArtist) {
+      const currentSet = formatSets[variation % formatSets.length];
+
+      // Apply each format template
+      currentSet.forEach(formatFn => {
+        const result = formatFn(primaryArtist, albumTitle, year, genres, styles, label, country);
+        if (result) {
+          recommendations.push(result);
+        }
+      });
+
 
     const fileArr = Array.from(files);
     setDebugInfo(prev => ({
@@ -271,66 +364,30 @@ export default function TaggerPage() {
       type: 'files'
     });
 
-    // Process files incrementally
-    const durations = [];
-    let currentTime = 0;
+  // Handle files: get durations, build tracklist, update debug
+  const handleFilesSelected = async (files) => {
+    setIsLoadingFiles(true);
+    const fileArr = Array.from(files);
+    setDebugInfo(prev => ({
+      ...prev,
+      files: fileArr.map(f => f.name)
+    }));
 
-    for (let i = 0; i < audioFiles.length; i++) {
+    // Only process audio files
+    const audioFiles = fileArr.filter(f =>
+      f.type.startsWith('audio/') ||
+      /\.(mp3|wav|aiff|flac)$/i.test(f.name)
+    );
+
+    // Get durations for each file
+    const durations = await Promise.all(audioFiles.map(async (file) => {
       try {
-        const duration = await getAudioDuration(
-          audioFiles[i],
-          (current, total) => {
-            setProcessingStatus({ current, total, type: 'files' });
-          }
-        );
-
-        durations.push(duration);
-
-        // Create track entry for immediate display
-        const start = formatTime(currentTime);
-        const end = formatTime(currentTime + duration);
-        const title = audioFiles[i].name.replace(/\.[^/.]+$/, '');
-
-        const trackEntry = {
-          start,
-          end,
-          title,
-          artist: '',
-          file: audioFiles[i],
-          duration
-        };
-
-        // Add to processed tracks
-        setProcessedTracks(prev => [...prev, trackEntry]);
-
-        // Update timestamps incrementally
-        const newLine = formatOrder
-          .map((item) => {
-            if (item.value === 'blank') return '';
-            if (item.value === 'startTime') return start;
-            if (item.value === 'endTime') return end;
-            if (item.value === 'title') return title;
-            if (item.value === 'dash') return '-';
-            if (item.value === 'dash-artist') return '';
-            if (item.value === 'artist') return '';
-            return '';
-          })
-          .filter(Boolean)
-          .join(' ');
-
-        setInputValue(prev => prev ? `${prev}\n${newLine}` : newLine);
-
-        currentTime += duration;
-
-        // Small delay to show progress visually
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-      } catch (error) {
-        console.error(`Error processing file ${audioFiles[i].name}:`, error);
-        durations.push(0);
-        currentTime += 0;
+        const duration = await getAudioDuration(file);
+        return duration;
+      } catch {
+        return 0;
       }
-    }
+    }));
 
     // Store for later use in dropdown changes
     audioFilesRef.current = audioFiles;
@@ -352,38 +409,62 @@ export default function TaggerPage() {
       }
     }));
 
-    // Process tags from filenames incrementally
-    const filenameTags = audioFiles.map(file =>
-      file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]/g, ' ').trim()
-    );
+    // Generate combined timestamps
+    setTimeout(generateCombinedTimestamps, 0);
 
-    setParsedTags(prev => ({
-      ...prev,
-      filenames: filenameTags
-    }));
+    // ✅ Auto-populate tags, hashtags, titles
+    if (discogsData) {
+      processDiscogsResponseToTags(discogsData);
+      const videoTitles = generateVideoTitleRecommendations(discogsData, videoTitleVariation);
+      setVideoTitleRecommendations(videoTitles);
+    } else {
+      // Basic tag fallback using filenames
+      const filenameTags = audioFiles.map(file =>
+        file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]/g, ' ').trim()
+      );
 
-    setTagsValue(filenameTags.join(', '));
-    updateHashtagsValue(filenameTags.join(', '));
-    setVideoTitleRecommendations([]);
+      const fallbackTags = {
+        artists: [],
+        album: [],
+        tracklist: [],
+        combinations: [],
+        credits: [],
+        filenames: filenameTags
+      };
 
-    setProcessingComplete(true);
-    setProcessingStatus(null);
+      setParsedTags(prev => ({
+        ...prev,
+        filenames: filenameTags
+      }));
+
+      // Create a single tag pool from filenames
+      setTagsValue(filenameTags.join(', '));
+      updateHashtagsValue(filenameTags.join(', '));
+      setVideoTitleRecommendations([]);
+    }
+
     setIsLoadingFiles(false);
   };
 
 
   // Handle URL submission
-  const handleUrlSubmit = async (e) => {
+  const handleUrlSubmit = async (e, directUrl) => {
+    // Use directUrl if provided, otherwise use the state
+    const urlToSubmit = directUrl || urlInput;
+    console.log('URL submitted:', urlToSubmit);
+
     if (e) e.preventDefault();
     setProcessingComplete(false);
     setProcessedTracks([]);
 
     setDebugInfo(prev => ({
       ...prev,
-      url: urlInput
+      url: urlToSubmit
     }));
 
-    const discogsInfo = parseDiscogsUrl(urlInput);
+    // Discogs URL logic
+    const discogsInfo = parseDiscogsUrl(urlToSubmit);
+
     if (discogsInfo) {
       const route = 'http://localhost:3030/discogsFetch';
 
@@ -406,6 +487,15 @@ export default function TaggerPage() {
         setDiscogsData(data);
         logDiscogsRequest({ route, payload: discogsInfo, response: data });
 
+
+        // Process the response for tags
+        processDiscogsResponseToTags(data);
+
+        // Generate video title recommendations
+        const videoTitles = generateVideoTitleRecommendations(data, videoTitleVariation);
+        setVideoTitleRecommendations(videoTitles);
+
+        // If response has a tracklist, process timing data
         if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
           // Update processing status for tracks
           setProcessingStatus({
@@ -428,66 +518,10 @@ export default function TaggerPage() {
             return 0;
           }
 
-          const durations = [];
-          let currentTime = 0;
 
-          // Process tracks incrementally
-          for (let i = 0; i < data.tracklist.length; i++) {
-            const track = data.tracklist[i];
-            const duration = parseDuration(track.duration);
-            durations.push(duration);
+          const durations = data.tracklist.map(track => parseDuration(track.duration));
 
-            const start = formatTime(currentTime);
-            const end = formatTime(currentTime + duration);
-
-            let artistName = '';
-            if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
-              artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
-            }
-
-            const trackEntry = {
-              start,
-              end,
-              title: track.title || '',
-              artist: artistName,
-              track,
-              duration
-            };
-
-            // Add to processed tracks
-            setProcessedTracks(prev => [...prev, trackEntry]);
-
-            // Update processing status
-            setProcessingStatus({
-              current: i + 1,
-              total: data.tracklist.length,
-              type: 'discogs'
-            });
-
-            // Update timestamps incrementally
-            const newLine = formatOrder
-              .map(item => {
-                if (item.value === 'blank') return '';
-                if (item.value === 'startTime') return start;
-                if (item.value === 'endTime') return end;
-                if (item.value === 'title') return track.title || '';
-                if (item.value === 'dash') return '-';
-                if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
-                if (item.value === 'artist') return artistName;
-                return '';
-              })
-              .filter(Boolean)
-              .join(' ');
-
-            setInputValue(prev => prev ? `${prev}\n${newLine}` : newLine);
-
-            currentTime += duration;
-
-            // Small delay to show progress visually
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-
-          // Store Discogs tracks and durations
+          // Store Discogs tracks and durations for dropdown reactivity
           discogsTracksRef.current = data.tracklist;
           discogsDurationsRef.current = durations;
           setInputSource('discogs');
@@ -510,6 +544,11 @@ export default function TaggerPage() {
               label: `Discogs: ${data.title || 'Unknown Album'}`
             }
           }));
+
+
+          // Generate combined timestamps
+          setTimeout(generateCombinedTimestamps, 0);
+
         }
 
         // Process tags incrementally
@@ -962,8 +1001,9 @@ export default function TaggerPage() {
       album: [],
       tracklist: [],
       combinations: []
-    });
-    setTagFilters({
+
+    }); setTagFilters({
+
       artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
@@ -974,10 +1014,6 @@ export default function TaggerPage() {
     setVideoTitleVariation(0);
     setDiscogsData(null);
 
-    // Reset progressive loading states
-    setProcessingStatus(null);
-    setProcessedTracks([]);
-    setProcessingComplete(false);
 
     // Reset input sources
     setInputSources({
@@ -1459,6 +1495,9 @@ export default function TaggerPage() {
           </table>
         </>
       )}
+
+      {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
+
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Timestamps:</strong>
       </div>
@@ -1761,26 +1800,29 @@ export default function TaggerPage() {
             : `Copy ${(inputValue ? (`Timestamps generated by https://tagger.site:\n${inputValue}`) : '').length} chars to clipboard`}
         </button>
 
-        <button
-          type="button"
-          onClick={handleReset}
-          style={{
-            margin: '1rem 0 1rem 0',
-            background: '#f6f6f6',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-            padding: '0.5rem 1.2rem',
-            fontWeight: 600,
-            fontSize: '1em',
-            cursor: 'pointer',
-            color: '#222',
-            display: 'block',
-            width: '100%',
-            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-          }}
-        >
-          Clear / Reset
-        </button>
+
+      <button
+        type="button"
+        onClick={handleReset}
+        style={{
+          margin: '1rem 0 1rem 0',
+          background: '#f6f6f6',
+          border: '1px solid #ccc',
+          borderRadius: 4,
+          padding: '0.5rem 1.2rem',
+          fontWeight: 600,
+          fontSize: '1em',
+          cursor: 'pointer',
+          color: '#222',
+          display: 'block',
+          width: '100%',
+          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+        }}
+      >
+        Clear / Reset
+      </button>
+
+
 
         {/* Formatting Suggestion Popup */}
         {formatSuggestion && (
@@ -1906,7 +1948,6 @@ export default function TaggerPage() {
       </div>
 
 
-
       {/* Video Title Recommendations Section */}
       {videoTitleRecommendations.length > 0 && (
         <>
@@ -1978,6 +2019,9 @@ export default function TaggerPage() {
           </div>
         </>
       )}
+
+
+      {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
 
       <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
         <strong>Tags:</strong>
