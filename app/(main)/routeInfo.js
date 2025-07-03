@@ -8,7 +8,7 @@ export const routeInfo = {
   },
   "/tagger": {
     title: "tagger.site",
-    subtitle: "Generate timestamped tracklists and comma seperated tags from audio files or URLs",
+    subtitle: "Generate timestamped tracklists and comma separated tags from audio files or URLs",
     icon: "/ico/martinbarker.ico"
   },
   "/discogs2youtube": {

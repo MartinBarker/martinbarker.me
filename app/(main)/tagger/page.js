@@ -55,6 +55,7 @@ export default function TaggerPage({ initialUrl }) {
   // Add hydration state
   const [hasHydrated, setHasHydrated] = useState(false);
   const [isClient, setIsClient] = useState(false); // Track if we're on the client side
+  const [hasTrackCredits, setHasTrackCredits] = useState(false); // Add this line
 
   // Add the missing parsedTags state
   const [parsedTags, setParsedTags] = useState({
@@ -64,7 +65,7 @@ export default function TaggerPage({ initialUrl }) {
     combinations: []
   });  // Add state for video title recommendations
   const [videoTitleRecommendations, setVideoTitleRecommendations] = useState([]);
-  const [videoTitleCopyState, setVideoTitleCopyState] = useState('idle'); // idle | copied | hover
+  const [videoTitleCopyStates, setVideoTitleCopyStates] = useState({}); // Change from single state to an object tracking each button
   const [videoTitleVariation, setVideoTitleVariation] = useState(0); // Track current variation
   const [discogsData, setDiscogsData] = useState(null); // Store Discogs data for refresh  // Add state for combined input sources
   const [inputSources, setInputSources] = useState({
@@ -465,6 +466,13 @@ export default function TaggerPage({ initialUrl }) {
           body: JSON.stringify(discogsInfo)
         });
         const data = await res.json();
+        
+        // Check if any track has credits
+        const hasCredits = data.tracklist?.some(track => 
+          track.extraartists && track.extraartists.length > 0
+        );
+        setHasTrackCredits(hasCredits);
+        
         setDiscogsResponse(data); // Save to state
         setDiscogsData(data); // Store for video title refresh
         logDiscogsRequest({ route, payload: discogsInfo, response: data });
@@ -749,12 +757,20 @@ export default function TaggerPage({ initialUrl }) {
     setTimeout(() => setHashtagsCopyState('idle'), 900);
   };
 
-  // Handler for copying video title recommendations
-  const handleVideoTitleCopy = async (title) => {
+  // Updated handler for copying video titles
+  const handleVideoTitleCopy = async (title, index) => {
     try {
       await navigator.clipboard.writeText(title);
-      setVideoTitleCopyState('copied');
-      setTimeout(() => setVideoTitleCopyState('idle'), 2000);
+      setVideoTitleCopyStates(prev => ({
+        ...prev,
+        [index]: 'copied'
+      }));
+      setTimeout(() => {
+        setVideoTitleCopyStates(prev => ({
+          ...prev,
+          [index]: 'idle'
+        }));
+      }, 2000);
     } catch (err) {
       console.error('Failed to copy video title:', err);
     }
@@ -767,7 +783,7 @@ export default function TaggerPage({ initialUrl }) {
       setVideoTitleVariation(nextVariation);
       const newTitles = generateVideoTitleRecommendations(discogsData, nextVariation);
       setVideoTitleRecommendations(newTitles);
-      setVideoTitleCopyState('idle'); // Reset copy state
+      setVideoTitleCopyStates({}); // Reset copy state
     }
   };
 
@@ -966,7 +982,7 @@ export default function TaggerPage({ initialUrl }) {
       combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
     });
     setVideoTitleRecommendations([]);
-    setVideoTitleCopyState('idle');
+    setVideoTitleCopyStates({});
     setVideoTitleVariation(0);
     setDiscogsData(null);
 
@@ -1827,11 +1843,10 @@ export default function TaggerPage({ initialUrl }) {
               type="checkbox"
               checked={includeTrackCredits}
               onChange={e => {
+                if (!hasTrackCredits) return;
                 const enabled = e.target.checked;
                 setIncludeTrackCredits(enabled);
-                // regenerate timestamps with credits
                 generateCombinedTimestamps();
-                // update tag filters so credits show up in Tags/Hashtags
                 setTagFilters(prev => {
                   const next = {
                     ...prev,
@@ -1841,9 +1856,15 @@ export default function TaggerPage({ initialUrl }) {
                   return next;
                 });
               }}
+              disabled={!hasTrackCredits}
               style={{ marginRight: '0.5rem' }}
             />
             Include track credits
+            {!hasTrackCredits && (
+              <span style={{ marginLeft: '0.5rem', fontSize: '0.85rem', color: '#333' }}>
+                (disabled because no track credit info was found)
+              </span>
+            )}
           </label>
         </div>
       </div>
@@ -1900,20 +1921,20 @@ export default function TaggerPage({ initialUrl }) {
                   {title}
                 </div>
                 <button
-                  onClick={() => handleVideoTitleCopy(title)}
+                  onClick={() => handleVideoTitleCopy(title, index)}
                   style={{
                     padding: '0.25rem 0.5rem',
                     fontSize: '0.8rem',
                     borderRadius: '4px',
                     border: '1px solid #ccc',
-                    background: videoTitleCopyState === 'copied' ? '#ffe156' : '#eee',
+                    background: videoTitleCopyStates[index] === 'copied' ? '#ffe156' : '#eee',
                     fontWeight: 600,
                     cursor: 'pointer',
                     transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {videoTitleCopyState === 'copied' ? 'Copied!' : 'Copy'}
+                  {videoTitleCopyStates[index] === 'copied' ? 'Copied!' : 'Copy'}
                 </button>
               </div>
             ))}
@@ -2215,7 +2236,6 @@ export default function TaggerPage({ initialUrl }) {
           resize: 'none'
         }}
       />
-
 
 
       {/* Simple copy button - always visible */}
