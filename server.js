@@ -5,7 +5,6 @@
 require('dotenv').config();
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 const express = require('express');
-const cors = require('cors');
 const fs = require('fs');
 const path = require('path'); // Add path module for file operations
 const { google } = require('googleapis');
@@ -13,27 +12,56 @@ const readline = require('readline');
 const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
+const http = require('http');
+const { Server } = require('socket.io');
+
+// --- Application initialization ---
 const app = express();
 app.use(express.json());
 const port = 3030;
 
-app.use(cors());
-app.use(express.json()); // To parse JSON bodies
+// --- CORS setup for REST API ---
+const cors = require('cors');
+app.use(cors({ origin: 'http://localhost:3001', credentials: true }));
 
-const localCallback = 'http://localhost:3030/oauth2callback'; // Centralized variable for local callback URI
-const prodCallback = "https://www.jermasearch.com/internal-api/oauth2callback"
+// --- Socket.IO setup ---
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: 'http://localhost:3001', methods: ["GET", "POST"] }
+});
 
-// Helper function to get the current timestamp in hh:mm:ss format
-function getTimestamp() {
-    const now = new Date();
-    return now.toTimeString().split(' ')[0]; // Extract hh:mm:ss
+// --- Socket.IO connection logic ---
+io.on('connection', (socket) => {
+  console.log('[Socket.IO] Client connected:', socket.id);
+
+  // Send initial progress state
+  socket.emit('progress', {
+    progress: backgroundJob.progress,
+    waitTime: backgroundJob.waitTime,
+    isRunning: backgroundJob.isRunning,
+    isPaused: backgroundJob.isPaused
+  });
+
+  socket.on('disconnect', () => {
+    console.log('[Socket.IO] Client disconnected:', socket.id);
+  });
+});
+
+// Emit progress to all connected clients and log to server console
+function emitProgressUpdate(extraLog) {
+  const data = {
+    progress: backgroundJob.progress,
+    waitTime: backgroundJob.waitTime,
+    isRunning: backgroundJob.isRunning,
+    isPaused: backgroundJob.isPaused
+  };
+  io.emit('progress', data);
+  if (extraLog) {
+    io.emit('progressLog', extraLog);
+    console.log('[Socket.IO] Emitting progressLog:', extraLog);
+  }
+  console.log('[Socket.IO] Emitting progress:', data);
 }
-
-// Override console.log to include timestamps
-const originalLog = console.log;
-console.log = (...args) => {
-    originalLog(`[${getTimestamp()}]`, ...args);
-};
 
 // YouTube configuration
 const TOKEN_PATH = 'tokens.json';
@@ -304,6 +332,9 @@ app.post('/discogsSearch', async (req, res) => {
         if (type === 'artist' || type === 'label') {
             const url = `${DISCOGS_API_URL}/${type}s/${id}`;
             console.log(`🌐 Fetching Discogs ${type} data from URL: ${url}`);
+            // Emit progress log to clients
+            io.emit('progressLog', `Fetching Discogs ${type} data from URL: ${url}`);
+            
             const headers = { 'User-Agent': USER_AGENT };
 
             if (discogsAuth.accessToken) {
@@ -315,6 +346,15 @@ app.post('/discogsSearch', async (req, res) => {
             const response = await fetchWithRetry(url, { headers });
             const name = response.data.name;
             console.log(`✅ ${type} data fetched for: ${name}`);
+            io.emit('progressLog', `✅ ${type} data fetched for: ${name}`);
+
+            // Initialize progress data
+            const progressData = {
+                isRunning: true,
+                isPaused: false,
+                waitTime: 0,
+                progress: { current: 0, total: 0, uniqueLinks: 0 }
+            };
 
             // Fetch all release IDs
             const releaseIds = type === 'artist' 
@@ -322,24 +362,68 @@ app.post('/discogsSearch', async (req, res) => {
                 : await fetchLabelReleaseIds(id, isDevMode);
             
             console.log(`🎵 Found ${releaseIds.length} releases to process`);
+            io.emit('progressLog', `🎵 Found ${releaseIds.length} releases to process`);
+            
+            // Update progress total
+            progressData.progress.total = releaseIds.length;
+            io.emit('progress', progressData);
 
             // Fetch YouTube links for all releases with better error handling
             const allVideos = [];
             const errors = [];
+            const uniqueVideoIds = new Set();
 
             for (let i = 0; i < releaseIds.length; i++) {
                 const releaseId = releaseIds[i];
                 try {
                     const videos = await fetchVideoIds(releaseId);
                     allVideos.push(...videos);
-                    console.log(`✅ Processed release ${i + 1}/${releaseIds.length}: Found ${videos.length} videos`);
+                    
+                    // Count unique videos
+                    videos.forEach(video => {
+                        if (video.url) {
+                            uniqueVideoIds.add(video.url);
+                        }
+                    });
+                    
+                    // Update progress
+                    progressData.progress.current = i + 1;
+                    progressData.progress.uniqueLinks = uniqueVideoIds.size;
+                    
+                    const logMsg = `✅ Processed release ${i + 1}/${releaseIds.length}: Found ${videos.length} videos, Total unique: ${uniqueVideoIds.size}`;
+                    console.log(logMsg);
+                    io.emit('progressLog', logMsg);
+                    io.emit('progress', progressData);
                 } catch (error) {
                     console.error(`❌ Error processing release ${releaseId}:`, error.message);
+                    io.emit('progressLog', `❌ Error processing release ${releaseId}: ${error.message}`);
+                    
                     errors.push({ releaseId, error: error.message });
+                    
+                    // Handle rate limiting
+                    if (error.response?.status === 429) {
+                        const waitTime = 5000;  // 5 seconds wait
+                        progressData.waitTime = waitTime;
+                        io.emit('progressLog', `⏳ Rate limit hit. Waiting ${waitTime/1000} seconds...`);
+                        io.emit('progress', progressData);
+                        
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        progressData.waitTime = 0;
+                    }
+                    
+                    // Update progress even after error
+                    progressData.progress.current = i + 1;
+                    io.emit('progress', progressData);
+                    
                     // Continue with next release instead of failing completely
                     continue;
                 }
             }
+            
+            // Mark job as completed
+            progressData.isRunning = false;
+            io.emit('progress', progressData);
+            io.emit('progressLog', `✅ Processing complete! Found ${uniqueVideoIds.size} unique YouTube videos.`);
 
             // Return results with any errors encountered
             res.status(200).json({
@@ -358,6 +442,8 @@ app.post('/discogsSearch', async (req, res) => {
         }
     } catch (error) {
         console.error(`❌ Error in /discogsSearch for type ${type}:`, error.message);
+        io.emit('progressLog', `❌ Error in discogsSearch: ${error.message}`);
+        io.emit('progress', { isRunning: false, isPaused: false, waitTime: 0, progress: { current: 0, total: 0, uniqueLinks: 0 } });
         res.status(500).json({ 
             error: `Failed to fetch ${type} data from Discogs.`, 
             details: error.message
@@ -379,6 +465,7 @@ async function startBackgroundJob({ artistId, labelId, isDevMode, artistName }) 
     backgroundJob.uniqueLinks.clear();
     backgroundJob.waitTime = 0;
 
+    emitProgressUpdate();
     const processReleases = async () => {
         try {
             const releaseIds = artistId
@@ -386,52 +473,44 @@ async function startBackgroundJob({ artistId, labelId, isDevMode, artistName }) 
                 : await fetchLabelReleaseIds(labelId, isDevMode);
 
             backgroundJob.progress.total = releaseIds.length;
-            console.log(`🎵 Total releases to process: ${releaseIds.length}`);
+            emitProgressUpdate();
 
             for (let i = 0; i < releaseIds.length; i++) {
                 if (!backgroundJob.isRunning) break;
                 while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
-                    // Update status when paused or rate-limited
+                    emitProgressUpdate();
                     await new Promise((resolve) => setTimeout(resolve, 1000));
                     if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
                 }
 
                 const releaseId = releaseIds[i];
-                console.log(`🎧 Processing release ${i + 1} of ${releaseIds.length}: Release ID ${releaseId}`);
-
                 try {
                     const videos = await fetchVideoIds(releaseId);
                     videos.forEach((video) => backgroundJob.uniqueLinks.add(video));
                     backgroundJob.progress.current = i + 1;
                     backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
-                    console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
-                    backgroundJob.waitTime = 0; // Reset wait time on success
+                    backgroundJob.waitTime = 0;
+                    const logMsg = `Processed release ${i + 1}/${releaseIds.length}: Release ID ${releaseId}, Found ${videos.length} videos, Total unique: ${backgroundJob.progress.uniqueLinks}`;
+                    emitProgressUpdate(logMsg);
                 } catch (error) {
                     if (error.response?.status === 429) {
                         backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
-                        console.error(`⏳ Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
+                        emitProgressUpdate('Rate limit hit. Waiting...');
                     } else {
                         throw error;
                     }
                 }
-
-                if (isDevMode) {
-                    console.log('🛠 Dev mode enabled: Skipping pagination.');
-                    break; // Skip pagination in Dev Mode
-                }
+                if (isDevMode) break;
             }
-
-            console.log('✅ Background job completed.');
-            // Ensure final stats are preserved
             backgroundJob.progress.current = backgroundJob.progress.total;
             backgroundJob.isRunning = false;
+            emitProgressUpdate('Background job completed.');
         } catch (error) {
-            console.error('❌ Error processing releases:', error.message);
             backgroundJob.isRunning = false;
             backgroundJob.error = error.message;
+            emitProgressUpdate('Background job error: ' + error.message);
         }
     };
-
     processReleases();
 }
 
@@ -503,6 +582,8 @@ app.post('/startBackgroundJob', async (req, res) => {
     };
 
     processReleases();
+    // Add SSE update after state changes
+    emitProgressUpdate();
     res.status(200).json({ message: 'Background job started.' });
 });
 
@@ -839,7 +920,7 @@ if (isLocal) {
 }
 
 // Start server and initialize secrets
-app.listen(port, async () => {
+server.listen(port, async () => {
   try {
     await initializeSecrets();
     await initializeOAuth();
@@ -1296,21 +1377,6 @@ app.get('/ping', (req, res) => {
 app.get('/', (req, res) => {
   res.status(200).send('hello world');
 });
-
-// Add this helper function at the top level
-function logError(location, error, details = {}) {
-  console.error('\n=== Error in', location, '===');
-  console.error('Message:', error.message);
-  if (error.response) {
-    console.error('Status:', error.response.status);
-    console.error('Response data:', error.response.data);
-  }
-  if (Object.keys(details).length) {
-    console.error('Additional details:', details);
-  }
-  console.error('Stack:', error.stack);
-  console.error('================\n');
-}
 
 // Simplify background job object
 let backgroundJob = {

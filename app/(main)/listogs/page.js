@@ -1,10 +1,11 @@
 'use client'
 import Head from 'next/head';
 import styles from './listogs.module.css';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { socket, useSocketStatus } from './socket'; // <-- Import useSocketStatus hook
 
-const loggedAxios = axios;  // ← ADD THIS LINE
+const loggedAxios = axios;
 
 export default function Discogs2Youtube() {
   const [authStatus, setAuthStatus] = useState(false);
@@ -35,9 +36,62 @@ export default function Discogs2Youtube() {
   const [selectedType, setSelectedType] = useState(null);
   const [inputError, setInputError] = useState('');
   const [searchHistory, setSearchHistory] = useState([]);
+  const [progress, setProgress] = useState({
+    progress: { current: 0, total: 0, uniqueLinks: 0 },
+    waitTime: 0,
+    isRunning: false,
+    isPaused: false
+  });
+  const [progressLogs, setProgressLogs] = useState([]);
+  const logsEndRef = useRef(null);
+  
+  // Add socket connection status
+  const { status: socketStatus, hasMounted } = useSocketStatus();
 
   const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
   const apiUrl = isLocal ? "http://localhost:3030" : "https://www.jermasearch.com/internal-api";
+  const wsUrl = isLocal ? 'http://localhost:3030' : 'https://www.jermasearch.com';
+
+  // --- Real-time progress updates using shared socket instance ---
+  useEffect(() => {
+    if (!socket) {
+      console.log('[Socket.IO] No socket instance available');
+      return;
+    }
+    
+    function onProgress(data) {
+      console.log('[Socket.IO] Progress update received:', data);
+      setProgress(data);
+    }
+    
+    function onProgressLog(msg) {
+      console.log('[Socket.IO] Progress log received:', msg);
+      setProgressLogs(logs => [...logs, msg]);
+    }
+
+    console.log('[Socket.IO] Setting up event listeners');
+    socket.on("progress", onProgress);
+    socket.on("progressLog", onProgressLog);
+    
+    // Force socket to connect if not connected
+    if (!socket.connected) {
+      console.log('[Socket.IO] Socket not connected, attempting to connect');
+      socket.connect();
+    }
+
+    return () => {
+      console.log('[Socket.IO] Cleaning up event listeners');
+      socket.off("progress", onProgress);
+      socket.off("progressLog", onProgressLog);
+    };
+  }, []);
+  
+  // Scroll to bottom of logs on update
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [progressLogs]);
 
   useEffect(() => {
       const fetchSignInURL = async () => {
@@ -828,6 +882,65 @@ function generateVideoTitleSuggestions(release) {
           </div>
         )}
 
+        {/* Real-time Progress Section */}
+        <div className={styles.section}>
+          <h2>Background Job Progress</h2>
+          
+          {/* Socket connection status indicator - Only show dynamic status after mounting */}
+          <div className={styles.socketStatus}>
+            <span>Socket Connection: </span>
+            {hasMounted ? (
+              <>
+                <span className={socketStatus.connected ? styles.connected : styles.disconnected}>
+                  {socketStatus.connected ? 'Connected' : 'Disconnected'}
+                </span>
+                {socketStatus.error && (
+                  <span className={styles.error}> (Error: {socketStatus.error})</span>
+                )}
+              </>
+            ) : (
+              // During SSR and before hydration, always show disconnected
+              <span className={styles.disconnected}>Disconnected</span>
+            )}
+          </div>
+          
+          <div className={styles.progressContainer}>
+            <div>
+              <strong>Status:</strong>{' '}
+              {progress.isRunning
+                ? progress.isPaused
+                  ? 'Paused'
+                  : 'Running'
+                : 'Idle'}
+            </div>
+            <div>
+              <strong>Progress:</strong>{' '}
+              {progress.progress.current} / {progress.progress.total} releases processed
+            </div>
+            <div>
+              <strong>Unique YouTube Links:</strong> {progress.progress.uniqueLinks}
+            </div>
+            {progress.waitTime > 0 && (
+              <div className={styles.waitTime}>
+                <strong>Rate limited. Waiting:</strong> {(progress.waitTime / 1000).toFixed(0)} seconds...
+              </div>
+            )}
+            
+            {/* Progress log output */}
+            <div style={{ marginTop: 16, background: "#222", color: "#fff", padding: 8, borderRadius: 4, maxHeight: 120, overflowY: "auto", fontSize: 13 }}>
+              <div><strong>Progress Log:</strong></div>
+              {progressLogs.length === 0 ? (
+                <div style={{fontStyle: 'italic', color: '#999'}}>No logs yet</div>
+              ) : (
+                progressLogs.map((log, i) => (
+                  <div key={i}>{log}</div>
+                ))
+              )}
+              <div ref={logsEndRef} />
+            </div>
+          </div>
+        </div>
+        
         {/* New Extract Images Section */}
         {/* <div className={styles.section}>
           <h2>Extract Images</h2>

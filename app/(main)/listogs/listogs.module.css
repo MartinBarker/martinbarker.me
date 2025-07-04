@@ -1,4 +1,3 @@
-
 .container {
     /* padding: 20px; */
     max-width: 800px;
@@ -516,4 +515,19 @@
     font-size: 14px;
     color: #666;
     margin: 10px 0;
+}
+
+.socketStatus {
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.connected {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.disconnected {
+    color: #dc3545;
+    font-weight: bold;
 }
