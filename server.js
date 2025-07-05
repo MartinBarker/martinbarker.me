@@ -621,7 +621,9 @@ async function makeDiscogsRequest(url, isDevMode) {
                 if (error.response?.status === 429) {
                     retryCount++;
                     const waitTime = Math.pow(2, retryCount) * 1000;
-                    console.error(`Rate limit hit. Retrying in ${waitTime / 1000} seconds...`);
+                    const logMsg = `⏳ Rate limit hit. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`;
+                    console.error(logMsg);
+                    io.emit('progressLog', logMsg); // Send logMsg to frontend
                     await new Promise((resolve) => setTimeout(resolve, waitTime));
                 } else {
                     throw error;
@@ -694,7 +696,9 @@ async function fetchWithRetry(url, options, maxRetries = 15) {
             if (error.response?.status === 429) {
                 retryCount++;
                 const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
-                console.log(`⏳ Rate limit hit. Attempt ${retryCount}/${maxRetries}. Waiting ${waitTime/1000} seconds...`);
+                const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}/${maxRetries}. Waiting ${waitTime / 1000} seconds...`;
+                console.log(logMsg);
+                io.emit('progressLog', logMsg); // Send logMsg to frontend
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 lastError = error;
                 continue;
@@ -715,11 +719,21 @@ async function fetchVideoIds(releaseId) {
     try {
         const response = await fetchWithRetry(url, options);
         const videos = response.data.videos?.map((video) => ({
-            url: video.uri,
+            videoId: video.uri.split("v=")[1],
+            fullUrl: video.uri, // Include full YouTube URL
             artist: response.data.artists_sort,
             releaseName: response.data.title,
             releaseId: releaseId,
         })) || [];
+
+        // Print each fetched YouTube URL with emojis
+        videos.forEach(video => {
+            console.log(`🎥 Fetched YouTube URL: ${video.fullUrl}`);
+        });
+
+        // Emit all YouTube URLs to the front end in real-time as 'results'
+        io.emit("results", videos.map(video => video.fullUrl));
+
         return videos;
     } catch (error) {
         console.error(`❌ Error fetching videos for release ${releaseId}:`, error.message);
@@ -1575,7 +1589,9 @@ app.post('/getDiscogsImgs', async (req, res) => {
         if (error.response?.status === 429) {
           retryCount++;
           const waitTime = Math.pow(2, retryCount) * 1000;
-          console.error(`⏳ Rate limit hit on page ${currentPage} of ${totalPages}. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`);
+          const logMsg = `⏳ Rate limit hit. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`;
+          console.error(logMsg);
+          io.emit('progressLog', logMsg); // Send logMsg to frontend
           await new Promise((resolve) => setTimeout(resolve, waitTime));
         } else {
           console.error('❌ Error fetching releases:', error.message);

@@ -3,7 +3,7 @@ import Head from 'next/head';
 import styles from './listogs.module.css';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { socket, useSocketStatus } from './socket'; // <-- Import useSocketStatus hook
+import { socket, useSocketStatus, useYoutubeLinks, useYoutubeResults } from './socket'; // <-- Import useSocketStatus hook
 
 const loggedAxios = axios;
 
@@ -31,6 +31,8 @@ export default function Discogs2Youtube() {
   const [backgroundJobErrorDetails, setBackgroundJobErrorDetails] = useState(null);
   const [waitTime, setWaitTime] = useState(0);
   const [youtubeLinks, setYoutubeLinks] = useState([]);
+  const youtubeResults = useYoutubeResults(); // Capture real-time YouTube results
+
   const [initialVideoId, setInitialVideoId] = useState('bVbt8qG7Fl8');
   const [isDevMode, setIsDevMode] = useState(false);
   const [selectedType, setSelectedType] = useState(null);
@@ -968,6 +970,62 @@ function generateVideoTitleSuggestions(release) {
             </div>
           )}
         </div> */}
+
+        <div className={styles.section}>
+          <h2>Fetched YouTube Videos</h2>
+          {youtubeLinks.length === 0 ? (
+            <p>No videos fetched yet.</p>
+          ) : (
+            <div className={styles.youtubeContainer}>
+              {youtubeLinks.map((link, index) => (
+                <div key={index} className={styles.youtubeEmbed}>
+                  <iframe
+                    src={`https://www.youtube.com/embed/${link.videoId}`}
+                    title={`YouTube Video ${index + 1}`}
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  ></iframe>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className={styles.section}>
+          <h2>Fetched YouTube URLs</h2>
+          {youtubeLinks.length === 0 ? (
+            <p>No URLs fetched yet.</p>
+          ) : (
+            <ul className={styles.youtubeLinksList}>
+              {youtubeLinks.map((url, index) => (
+                <li key={index}>
+                  <a href={url} target="_blank" rel="noopener noreferrer" className={styles.youtubeLink}>
+                    {url}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Real-time YouTube Results Section */}
+        <div className={styles.section}>
+          <h2>Real-time YouTube Results</h2>
+          {youtubeResults.length === 0 ? (
+            <p>No results received yet.</p>
+          ) : (
+            <ul className={styles.youtubeLinksList}>
+              {youtubeResults.map((url, index) => (
+                <li key={index}>
+                  <a href={url} target="_blank" rel="noopener noreferrer" className={styles.youtubeLink}>
+                    {url}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
       </div>
     </>

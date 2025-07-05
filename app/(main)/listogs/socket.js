@@ -91,4 +91,47 @@ export function useSocketStatus() {
   return { status, hasMounted };
 }
 
+// Custom hook to receive YouTube links in real-time
+export function useYoutubeLinks() {
+  const [youtubeLinks, setYoutubeLinks] = useState([]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const onYoutubeLinks = (links) => {
+      setYoutubeLinks((prevLinks) => [...prevLinks, ...links]);
+    };
+
+    socket.on("youtubeLinks", onYoutubeLinks);
+
+    return () => {
+      socket.off("youtubeLinks", onYoutubeLinks);
+    };
+  }, []);
+
+  return youtubeLinks;
+}
+
+// Custom hook to receive YouTube results in real-time
+export function useYoutubeResults() {
+  const [results, setResults] = useState([]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const onResults = (links) => {
+      console.log(`[Socket.IO] Real-time YouTube results received:`, links);
+      setResults((prevResults) => [...prevResults, ...links]);
+    };
+
+    socket.on("results", onResults);
+
+    return () => {
+      socket.off("results", onResults);
+    };
+  }, []);
+
+  return results;
+}
+
 export { socket };
