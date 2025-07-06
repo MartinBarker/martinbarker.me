@@ -298,9 +298,9 @@ export default function RootLayout({ children }) {
               />
 
               <ProjectLink
-                to="/listogs"
+                to="/discogs2youtube"
                 icon={FileMusicIcon}
-                label="Listogs"
+                label="Discogs2Youtube"
               />
 
               {/* 
