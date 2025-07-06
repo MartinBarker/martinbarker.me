@@ -14,15 +14,32 @@ const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
 const http = require('http');
 const { Server } = require('socket.io');
+const cors = require('cors');
 
 // --- Application initialization ---
 const app = express();
 app.use(express.json());
 const port = 3030;
 
-// --- CORS setup for REST API ---
-const cors = require('cors');
-app.use(cors({ origin: 'http://localhost:3001', credentials: true }));
+// Define allowed origins for both local and production
+const allowedOrigins = [
+  'http://localhost:3001',
+  'https://jermasearch.com',
+  'https://www.jermasearch.com'
+];
+
+// Use dynamic CORS middleware
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
 
 // --- Socket.IO setup ---
 const server = http.createServer(app);
@@ -964,7 +981,7 @@ server.listen(port, async () => {
     }
     console.log(`Server is running on port ${port}`);
   } catch (error) {
-    console.error("Failed to initialize server components:", error);
+    console.error "Failed to initialize server components:", error);
     console.error("Server will continue running with limited functionality.");
     console.log(`Server is running on port ${port} (with initialization errors)`);
   }
