@@ -44,7 +44,13 @@ app.use(cors({
 // --- Socket.IO setup ---
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: 'http://localhost:3001', methods: ["GET", "POST"] }
+  cors: { 
+    origin: allowedOrigins, 
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  allowEIO3: true,
+  transports: ['websocket', 'polling']
 });
 
 // --- Socket.IO connection logic ---
@@ -727,10 +733,9 @@ async function fetchWithRetry(url, options, maxRetries = 15) {
                 console.log(logMsg);
                 io.emit('progressLog', logMsg); // Send logMsg to frontend
                 await new Promise(resolve => setTimeout(resolve, waitTime));
-                lastError = error;
-                continue;
+            } else {
+                throw error; // For non-429 errors, throw immediately
             }
-            throw error; // For non-429 errors, throw immediately
         }
     }
     throw lastError || new Error('Max retries exceeded');

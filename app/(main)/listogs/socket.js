@@ -26,10 +26,12 @@ if (typeof window !== "undefined") {
     console.log(`[Socket.IO] Initializing connection to ${socketUrl} with path ${socketPath}`);
     socket = io(socketUrl, {
       path: socketPath,
-      transports: ["websocket"],
+      transports: ["websocket", "polling"], // Allow fallback to polling
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      timeout: 20000,
+      forceNew: true,
     });
 
     // Add connection event handlers
