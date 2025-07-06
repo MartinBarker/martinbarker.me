@@ -4,6 +4,8 @@ import styles from './listogs.module.css';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { socket, useSocketStatus, useYoutubeLinks, useYoutubeResults } from './socket'; // <-- Import useSocketStatus hook
+import dynamic from 'next/dynamic';
+const TanstackTable = dynamic(() => import('./TanstackTable'), { ssr: false });
 
 const loggedAxios = axios;
 
@@ -31,7 +33,7 @@ export default function Discogs2Youtube() {
   const [backgroundJobErrorDetails, setBackgroundJobErrorDetails] = useState(null);
   const [waitTime, setWaitTime] = useState(0);
   const [embedCount, setEmbedCount] = useState(0);
-
+  const [showTable, setShowTable] = useState(true);
   const [youtubeLinks, setYoutubeLinks] = useState([]);
   const youtubeResults = useYoutubeResults(); // Capture real-time YouTube results
 
@@ -762,6 +764,11 @@ function generateVideoTitleSuggestions(release) {
   ];
 }
 
+ const tableColumns = [
+  { header: "ID", accessorKey: "id" },
+  { header: "Title", accessorKey: "title" },
+];
+
  return (
     <>
       <Head>
@@ -1032,108 +1039,124 @@ function generateVideoTitleSuggestions(release) {
         {/* Fetched YouTube Videos Section */}
         <div className={styles.section}>
           <h2>Fetched YouTube Videos</h2>
-          {/* Embed count selector */}
-          {youtubeLinks.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <label htmlFor="embedCountInput" style={{ fontWeight: 500, marginRight: 8 }}>
-                Number of videos to embed:
-              </label>
-              <input
-                id="embedCountInput"
-                type="number"
-                min={0}
-                max={youtubeLinks.length}
-                value={embedCount}
-                onChange={e => {
-                  let val = parseInt(e.target.value, 10);
-                  if (isNaN(val) || val < 0) val = 0;
-                  if (val > youtubeLinks.length) val = youtubeLinks.length;
-                  setEmbedCount(val);
-                }}
-                style={{ width: 60, marginRight: 10, padding: "2px 6px" }}
-              />
-              <span style={{ color: "#666", fontSize: 13 }}>
-                (Set to 0 to disable all embeds)
-              </span>
-            </div>
-          )}
-          {youtubeLinks.length === 0 ? (
-            <p>No videos fetched yet.</p>
+          {/* Toggle Table/Embed View */}
+          <div style={{ marginBottom: 16 }}>
+            <button
+              className={styles.button}
+              onClick={() => setShowTable(v => !v)}
+              style={{ marginRight: 10 }}
+            >
+              {showTable ? 'Show Embeds' : 'Show Table'}
+            </button>
+          </div>
+          {showTable ? (
+            <TanstackTable columns={tableColumns} data={youtubeLinks} />
           ) : (
-            <div className={styles.youtubeContainer}>
-              {youtubeLinks.map((link, index) => (
-                <div key={index} className={styles.youtubeEmbed}>
-                  {/* Discogs release info above the video */}
-                  <div style={{ marginBottom: 6 }}>
-                    {link.discogsUrl && link.artist && link.releaseName ? (
-                      <a
-                        href={link.discogsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.discogsTitleLink}
-                        style={{
-                          color: "#007bff",
-                          textDecoration: "underline",
-                          fontWeight: "bold",
-                          fontSize: "1.05em",
-                          cursor: "pointer"
-                        }}
-                      >
-                        {link.artist} - {link.releaseName}
-                        {link.year ? ` (${link.year})` : ''}
-                      </a>
-                    ) : null}
-                  </div>
-                  {/* YouTube video link above the embed */}
-                  {link.fullUrl && (
-                    <div style={{ marginBottom: 4 }}>
-                      <a
-                        href={link.fullUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: '#007bff', textDecoration: 'underline', fontSize: '14px' }}
-                      >
-                        {link.fullUrl}
-                      </a>
-                    </div>
-                  )}
-                  {/* Conditionally embed or just show link */}
-                  {index < embedCount ? (
-                    <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                      <iframe
-                        width="400"
-                        height="225"
-                        src={`https://www.youtube.com/embed/${link.videoId}`}
-                        title={`YouTube Video ${index + 1}`}
-                        frameBorder="0"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                        style={{ display: "block", maxWidth: "100%", borderRadius: "6px", background: "#000" }}
-                      ></iframe>
-                    </div>
-                  ) : (
-                    <div style={{ margin: "12px 0", textAlign: "center" }}>
-                      <a
-                        href={link.fullUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          color: "#007bff",
-                          textDecoration: "underline",
-                          fontWeight: "bold",
-                          fontSize: "15px",
-                          wordBreak: "break-all"
-                        }}
-                      >
-                        {link.fullUrl}
-                      </a>
-                    </div>
-                  )}
-                  {/* Divider under each video section */}
-                  <hr className={styles.youtubeDivider} />
+            <>
+              {/* Embed count selector */}
+              {youtubeLinks.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <label htmlFor="embedCountInput" style={{ fontWeight: 500, marginRight: 8 }}>
+                    Number of videos to embed:
+                  </label>
+                  <input
+                    id="embedCountInput"
+                    type="number"
+                    min={0}
+                    max={youtubeLinks.length}
+                    value={embedCount}
+                    onChange={e => {
+                      let val = parseInt(e.target.value, 10);
+                      if (isNaN(val) || val < 0) val = 0;
+                      if (val > youtubeLinks.length) val = youtubeLinks.length;
+                      setEmbedCount(val);
+                    }}
+                    style={{ width: 60, marginRight: 10, padding: "2px 6px" }}
+                  />
+                  <span style={{ color: "#666", fontSize: 13 }}>
+                    (Set to 0 to disable all embeds)
+                  </span>
                 </div>
-              ))}
-            </div>
+              )}
+              {youtubeLinks.length === 0 ? (
+                <p>No videos fetched yet.</p>
+              ) : (
+                <div className={styles.youtubeContainer}>
+                  {youtubeLinks.map((link, index) => (
+                    <div key={index} className={styles.youtubeEmbed}>
+                      {/* Discogs release info above the video */}
+                      <div style={{ marginBottom: 6 }}>
+                        {link.discogsUrl && link.artist && link.releaseName ? (
+                          <a
+                            href={link.discogsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.discogsTitleLink}
+                            style={{
+                              color: "#007bff",
+                              textDecoration: "underline",
+                              fontWeight: "bold",
+                              fontSize: "1.05em",
+                              cursor: "pointer"
+                            }}
+                          >
+                            {link.artist} - {link.releaseName}
+                            {link.year ? ` (${link.year})` : ''}
+                          </a>
+                        ) : null}
+                      </div>
+                      {/* YouTube video link above the embed */}
+                      {link.fullUrl && (
+                        <div style={{ marginBottom: 4 }}>
+                          <a
+                            href={link.fullUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: '#007bff', textDecoration: 'underline', fontSize: '14px' }}
+                          >
+                            {link.fullUrl}
+                          </a>
+                        </div>
+                      )}
+                      {/* Conditionally embed or just show link */}
+                      {index < embedCount ? (
+                        <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+                          <iframe
+                            width="400"
+                            height="225"
+                            src={`https://www.youtube.com/embed/${link.videoId}`}
+                            title={`YouTube Video ${index + 1}`}
+                            frameBorder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                            style={{ display: "block", maxWidth: "100%", borderRadius: "6px", background: "#000" }}
+                          ></iframe>
+                        </div>
+                      ) : (
+                        <div style={{ margin: "12px 0", textAlign: "center" }}>
+                          <a
+                            href={link.fullUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: "#007bff",
+                              textDecoration: "underline",
+                              fontWeight: "bold",
+                              fontSize: "15px",
+                              wordBreak: "break-all"
+                            }}
+                          >
+                            {link.fullUrl}
+                          </a>
+                        </div>
+                      )}
+                      {/* Divider under each video section */}
+                      <hr className={styles.youtubeDivider} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
