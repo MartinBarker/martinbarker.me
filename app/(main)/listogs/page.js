@@ -88,13 +88,6 @@ export default function Discogs2Youtube() {
     };
   }, []);
   
-  // Scroll to bottom of logs on update
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [progressLogs]);
-
   useEffect(() => {
       const fetchSignInURL = async () => {
           try {
