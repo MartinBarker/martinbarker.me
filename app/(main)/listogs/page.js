@@ -117,12 +117,16 @@ export default function Discogs2Youtube() {
   
   useEffect(() => {
       const fetchSignInURL = async () => {
+          console.log('[fetchSignInURL] Requesting YouTube sign-in URL from:', `${apiUrl}/generateURL`);
           try {
-              const response = await loggedAxios.get(`${apiUrl}/generateURL`);
-              setGeneratedURL(response.data.url);
+          const response = await loggedAxios.get(`${apiUrl}/generateURL`);
+          console.log('[fetchSignInURL] Received YouTube sign-in URL:', response.data.url);
+          setGeneratedURL(response.data.url);
           } catch (error) {
-              console.error('Error during generateURL request:', error);
-              setUrlError(`Error generating URL: ${error.response?.status || 'Unknown'} - ${error.response?.data?.error || error.message}`);
+          const status = error.response?.status || 'Unknown';
+          const message = error.response?.data?.error || error.message;
+          console.error(`[fetchSignInURL] Failed to fetch YouTube sign-in URL. Status: ${status}, Message: ${message}`);
+          setUrlError(`Error generating URL: ${status} - ${message}`);
           }
       };
 
