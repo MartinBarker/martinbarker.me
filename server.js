@@ -981,7 +981,7 @@ server.listen(port, async () => {
     }
     console.log(`Server is running on port ${port}`);
   } catch (error) {
-    console.error "Failed to initialize server components:", error);
+    console.error("Failed to initialize server components:", error);
     console.error("Server will continue running with limited functionality.");
     console.log(`Server is running on port ${port} (with initialization errors)`);
   }
