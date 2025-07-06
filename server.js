@@ -687,14 +687,24 @@ async function fetchDiscogsData(type, id) {
 async function fetchWithRetry(url, options, maxRetries = 15) {
     let retryCount = 0;
     let lastError = null;
+    let rateLimitStart = null;
 
     while (retryCount < maxRetries) {
         try {
             const response = await axios.get(url, options);
+            // If we were in a rate limit session, print how long it took
+            if (rateLimitStart !== null) {
+                const seconds = ((Date.now() - rateLimitStart) / 1000).toFixed(1);
+                const msg = `✅ Rate limit recovery: ${seconds} seconds since last 429 to first success.`;
+                console.log(msg);
+                io.emit('progressLog', msg);
+                rateLimitStart = null;
+            }
             return response;
         } catch (error) {
             if (error.response?.status === 429) {
                 retryCount++;
+                if (rateLimitStart === null) rateLimitStart = Date.now();
                 const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
                 const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}/${maxRetries}. Waiting ${waitTime / 1000} seconds...`;
                 console.log(logMsg);
@@ -718,12 +728,20 @@ async function fetchVideoIds(releaseId) {
 
     try {
         const response = await fetchWithRetry(url, options);
+        // Extract artist, title, year, and Discogs URL from the release data
+        const artist = response.data.artists_sort || (response.data.artists && response.data.artists[0]?.name) || '';
+        const title = response.data.title || '';
+        const year = response.data.year || '';
+        const discogsUrl = response.data.uri || `https://www.discogs.com/release/${releaseId}`;
+
         const videos = response.data.videos?.map((video) => ({
             videoId: video.uri.split("v=")[1],
             fullUrl: video.uri, // Include full YouTube URL
-            artist: response.data.artists_sort,
-            releaseName: response.data.title,
+            artist,
+            releaseName: title,
             releaseId: releaseId,
+            year,
+            discogsUrl,
         })) || [];
 
         // Print each fetched YouTube URL with emojis
@@ -732,7 +750,8 @@ async function fetchVideoIds(releaseId) {
         });
 
         // Emit all YouTube URLs to the front end in real-time as 'results'
-        io.emit("results", videos.map(video => video.fullUrl));
+        // Now send the full video objects (with artist/title/year/discogsUrl)
+        io.emit("results", videos);
 
         return videos;
     } catch (error) {

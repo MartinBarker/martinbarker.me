@@ -119,9 +119,10 @@ export function useYoutubeResults() {
   useEffect(() => {
     if (!socket) return;
 
-    const onResults = (links) => {
-      console.log(`[Socket.IO] Real-time YouTube results received:`, links);
-      setResults((prevResults) => [...prevResults, ...links]);
+    const onResults = (videos) => {
+      // videos is now an array of video objects with artist/title/year/discogsUrl
+      console.log(`[Socket.IO] Real-time YouTube results received:`, videos);
+      setResults((prevResults) => [...prevResults, ...videos]);
     };
 
     socket.on("results", onResults);

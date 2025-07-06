@@ -74,7 +74,23 @@ export default function Discogs2Youtube() {
     console.log('[Socket.IO] Setting up event listeners');
     socket.on("progress", onProgress);
     socket.on("progressLog", onProgressLog);
-    
+
+    // Real-time YouTube links: deduplicate by videoId
+    const onResults = (videos) => {
+      setYoutubeLinks(prevLinks => {
+        // Add only unique videoIds
+        const all = [...prevLinks, ...videos];
+        const seen = new Set();
+        return all.filter(link => {
+          if (!link.videoId) return false;
+          if (seen.has(link.videoId)) return false;
+          seen.add(link.videoId);
+          return true;
+        });
+      });
+    };
+    socket.on("results", onResults);
+
     // Force socket to connect if not connected
     if (!socket.connected) {
       console.log('[Socket.IO] Socket not connected, attempting to connect');
@@ -85,6 +101,7 @@ export default function Discogs2Youtube() {
       console.log('[Socket.IO] Cleaning up event listeners');
       socket.off("progress", onProgress);
       socket.off("progressLog", onProgressLog);
+      socket.off("results", onResults);
     };
   }, []);
   
@@ -205,6 +222,7 @@ export default function Discogs2Youtube() {
       });
       setBackgroundJobError(null);
       setBackgroundJobErrorDetails(null);
+      setProgressLogs([]); // Clear progress log on submit
 
       try {
           const response = await loggedAxios.post(`${apiUrl}/discogsSearch`, {
@@ -815,7 +833,7 @@ function generateVideoTitleSuggestions(release) {
             className={styles.button} 
             disabled={!extractedId || !selectedType || (!authStatus && !discogsAuthStatus)}
           >
-            Search
+            Submit
           </button>
           {/* Add debug info */}
           {process.env.NODE_ENV === 'development' && (
@@ -880,7 +898,6 @@ function generateVideoTitleSuggestions(release) {
         {/* Real-time Progress Section */}
         <div className={styles.section}>
           <h2>Background Job Progress</h2>
-          
           {/* Socket connection status indicator - Only show dynamic status after mounting */}
           <div className={styles.socketStatus}>
             <span>Socket Connection: </span>
@@ -913,7 +930,7 @@ function generateVideoTitleSuggestions(release) {
               {progress.progress.current} / {progress.progress.total} releases processed
             </div>
             <div>
-              <strong>Unique YouTube Links:</strong> {progress.progress.uniqueLinks}
+              <strong>Unique YouTube Links:</strong> {youtubeLinks.length}
             </div>
             {progress.waitTime > 0 && (
               <div className={styles.waitTime}>
@@ -964,6 +981,7 @@ function generateVideoTitleSuggestions(release) {
           )}
         </div> */}
 
+        {/* Fetched YouTube Videos Section */}
         <div className={styles.section}>
           <h2>Fetched YouTube Videos</h2>
           {youtubeLinks.length === 0 ? (
@@ -972,51 +990,52 @@ function generateVideoTitleSuggestions(release) {
             <div className={styles.youtubeContainer}>
               {youtubeLinks.map((link, index) => (
                 <div key={index} className={styles.youtubeEmbed}>
-                  <iframe
-                    src={`https://www.youtube.com/embed/${link.videoId}`}
-                    title={`YouTube Video ${index + 1}`}
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  ></iframe>
+                  {/* Discogs release info above the video */}
+                  <div style={{ marginBottom: 6 }}>
+                    {link.discogsUrl && link.artist && link.releaseName ? (
+                      <a
+                        href={link.discogsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.discogsTitleLink}
+                        style={{ color: "#111" }} // Force black text
+                      >
+                        {link.artist} - {link.releaseName}
+                        {link.year ? ` (${link.year})` : ''}
+                      </a>
+                    ) : null}
+                  </div>
+                  {/* YouTube video link above the embed */}
+                  {link.fullUrl && (
+                    <div style={{ marginBottom: 4 }}>
+                      <a
+                        href={link.fullUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#007bff', textDecoration: 'underline', fontSize: '14px' }}
+                      >
+                        {link.fullUrl}
+                      </a>
+                    </div>
+                  )}
+                  {/* Fixed-size YouTube embed */}
+                  <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+                    <iframe
+                      width="400"
+                      height="225"
+                      src={`https://www.youtube.com/embed/${link.videoId}`}
+                      title={`YouTube Video ${index + 1}`}
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      style={{ display: "block", maxWidth: "100%", borderRadius: "6px", background: "#000" }}
+                    ></iframe>
+                  </div>
+                  {/* Divider under each video section */}
+                  <hr className={styles.youtubeDivider} />
                 </div>
               ))}
             </div>
-          )}
-        </div>
-
-        <div className={styles.section}>
-          <h2>Fetched YouTube URLs</h2>
-          {youtubeLinks.length === 0 ? (
-            <p>No URLs fetched yet.</p>
-          ) : (
-            <ul className={styles.youtubeLinksList}>
-              {youtubeLinks.map((url, index) => (
-                <li key={index}>
-                  <a href={url} target="_blank" rel="noopener noreferrer" className={styles.youtubeLink}>
-                    {url}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Real-time YouTube Results Section */}
-        <div className={styles.section}>
-          <h2>Real-time YouTube Results</h2>
-          {youtubeResults.length === 0 ? (
-            <p>No results received yet.</p>
-          ) : (
-            <ul className={styles.youtubeLinksList}>
-              {youtubeResults.map((url, index) => (
-                <li key={index}>
-                  <a href={url} target="_blank" rel="noopener noreferrer" className={styles.youtubeLink}>
-                    {url}
-                  </a>
-                </li>
-              ))}
-            </ul>
           )}
         </div>
 
