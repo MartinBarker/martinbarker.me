@@ -11,8 +11,8 @@ export const routeInfo = {
     subtitle: "Generate timestamped tracklists and comma separated tags from audio files or URLs",
     icon: "/ico/martinbarker.ico"
   },
-  "/discogs2youtube": {
-    title: "Discogs2Youtube",
+  "/listogs": {
+    title: "Listogs",
     subtitle: "Convert Discogs releases to playlists",
     icon: "/ico/martinbarker.ico"
   },

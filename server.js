@@ -5,7 +5,6 @@
 require('dotenv').config();
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 const express = require('express');
-const cors = require('cors');
 const fs = require('fs');
 const path = require('path'); // Add path module for file operations
 const { google } = require('googleapis');
@@ -13,27 +12,56 @@ const readline = require('readline');
 const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
+const http = require('http');
+const { Server } = require('socket.io');
+
+// --- Application initialization ---
 const app = express();
 app.use(express.json());
 const port = 3030;
 
-app.use(cors());
-app.use(express.json()); // To parse JSON bodies
+// --- CORS setup for REST API ---
+const cors = require('cors');
+app.use(cors({ origin: 'http://localhost:3001', credentials: true }));
 
-const localCallback = 'http://localhost:3030/oauth2callback'; // Centralized variable for local callback URI
-const prodCallback = "https://www.jermasearch.com/internal-api/oauth2callback"
+// --- Socket.IO setup ---
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: 'http://localhost:3001', methods: ["GET", "POST"] }
+});
 
-// Helper function to get the current timestamp in hh:mm:ss format
-function getTimestamp() {
-    const now = new Date();
-    return now.toTimeString().split(' ')[0]; // Extract hh:mm:ss
+// --- Socket.IO connection logic ---
+io.on('connection', (socket) => {
+  console.log('[Socket.IO] Client connected:', socket.id);
+
+  // Send initial progress state
+  socket.emit('progress', {
+    progress: backgroundJob.progress,
+    waitTime: backgroundJob.waitTime,
+    isRunning: backgroundJob.isRunning,
+    isPaused: backgroundJob.isPaused
+  });
+
+  socket.on('disconnect', () => {
+    console.log('[Socket.IO] Client disconnected:', socket.id);
+  });
+});
+
+// Emit progress to all connected clients and log to server console
+function emitProgressUpdate(extraLog) {
+  const data = {
+    progress: backgroundJob.progress,
+    waitTime: backgroundJob.waitTime,
+    isRunning: backgroundJob.isRunning,
+    isPaused: backgroundJob.isPaused
+  };
+  io.emit('progress', data);
+  if (extraLog) {
+    io.emit('progressLog', extraLog);
+    console.log('[Socket.IO] Emitting progressLog:', extraLog);
+  }
+  console.log('[Socket.IO] Emitting progress:', data);
 }
-
-// Override console.log to include timestamps
-const originalLog = console.log;
-console.log = (...args) => {
-    originalLog(`[${getTimestamp()}]`, ...args);
-};
 
 // YouTube configuration
 const TOKEN_PATH = 'tokens.json';
@@ -55,16 +83,16 @@ var envVar = 'production'; //process.env.NODE_ENV;
 // Function to determine the redirect URL based on the environment
 function getRedirectUrl() {
   if (isLocal) {
-    return 'http://localhost:3030/discogs2youtube/youtube/callback'; // Updated local redirect URL
+    return 'http://localhost:3030/listogs/youtube/callback'; // Updated local redirect URL
   }
-  return 'https://jermasearch.com/internal-api/discogs2youtube/youtube/callback'; // Updated production redirect URL
+  return 'https://jermasearch.com/internal-api/listogs/youtube/callback'; // Updated production redirect URL
 }
 
 function getDiscogsRediurectUrl() {
   if (isLocal) {
-    return 'http://localhost:3030/discogs2youtube/callback/discogs';
+    return 'http://localhost:3030/listogs/callback/discogs';
   }
-  return 'https://jermasearch.com/internal-api/discogs2youtube/callback/discogs';
+  return 'https://jermasearch.com/internal-api/listogs/callback/discogs';
 }
 
 // Centralized function to initialize the OAuth2 client
@@ -134,7 +162,7 @@ app.get('/oauth2callback', (req, res) => {
       // Update authentication status
       authStatus.isAuthenticated = true;
 
-      // Redirect to /discogs2youtube route
+      // Redirect to /listogs route
       const redirectUrl = getRedirectUrl();
       res.redirect(redirectUrl);
     });
@@ -150,8 +178,8 @@ app.get('/authStatus', (req, res) => {
 });
 
 // Handle YouTube OAuth2 callback
-app.get('/discogs2youtube/youtube/callback', async (req, res) => {
-  console.log("📺 [GET /discogs2youtube/youtube/callback] Hit:", req.originalUrl);
+app.get('/listogs/youtube/callback', async (req, res) => {
+  console.log("📺 [GET /listogs/youtube/callback] Hit:", req.originalUrl);
 
   const { code } = req.query;
   if (!code) {
@@ -168,7 +196,7 @@ app.get('/discogs2youtube/youtube/callback', async (req, res) => {
     authStatus.isAuthenticated = true;
 
     // Redirect to the frontend route
-    const redirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
+    const redirectUrl = isLocal ? 'http://localhost:3001/listogs' : 'https://jermasearch.com/listogs';
     res.redirect(redirectUrl);
   } catch (error) {
     console.error('\nError during YouTube authentication:', error.message);
@@ -301,9 +329,12 @@ app.post('/discogsSearch', async (req, res) => {
     }
 
     try {
-        if (type === 'artist') {
-            const url = `${DISCOGS_API_URL}/artists/${id}`;
-            console.log(`🌐 Fetching Discogs artist data from URL: ${url}`);
+        if (type === 'artist' || type === 'label') {
+            const url = `${DISCOGS_API_URL}/${type}s/${id}`;
+            console.log(`🌐 Fetching Discogs ${type} data from URL: ${url}`);
+            // Emit progress log to clients
+            io.emit('progressLog', `Fetching Discogs ${type} data from URL: ${url}`);
+            
             const headers = { 'User-Agent': USER_AGENT };
 
             if (discogsAuth.accessToken) {
@@ -311,37 +342,112 @@ app.post('/discogsSearch', async (req, res) => {
                 headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
             }
 
-            const response = await axios.get(url, { headers });
-            const artistName = response.data.name; // Extract artist name
-            console.log(`✅ Artist name fetched: ${artistName}`);
+            // Fetch artist/label info with retry
+            const response = await fetchWithRetry(url, { headers });
+            const name = response.data.name;
+            console.log(`✅ ${type} data fetched for: ${name}`);
+            io.emit('progressLog', `✅ ${type} data fetched for: ${name}`);
 
-            // Start background job for artist
-            await startBackgroundJob({ artistId: id, isDevMode, artistName });
-            res.status(200).json({ message: `Successfully fetched artist data.`, artistName });
-        } else if (type === 'label') {
-            const url = `${DISCOGS_API_URL}/labels/${id}`;
-            console.log(`🌐 Fetching Discogs label data from URL: ${url}`);
-            const headers = { 'User-Agent': USER_AGENT };
+            // Initialize progress data
+            const progressData = {
+                isRunning: true,
+                isPaused: false,
+                waitTime: 0,
+                progress: { current: 0, total: 0, uniqueLinks: 0 }
+            };
 
-            if (discogsAuth.accessToken) {
-                const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
-                headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+            // Fetch all release IDs
+            const releaseIds = type === 'artist' 
+                ? await fetchReleaseIds(id, isDevMode)
+                : await fetchLabelReleaseIds(id, isDevMode);
+            
+            console.log(`🎵 Found ${releaseIds.length} releases to process`);
+            io.emit('progressLog', `🎵 Found ${releaseIds.length} releases to process`);
+            
+            // Update progress total
+            progressData.progress.total = releaseIds.length;
+            io.emit('progress', progressData);
+
+            // Fetch YouTube links for all releases with better error handling
+            const allVideos = [];
+            const errors = [];
+            const uniqueVideoIds = new Set();
+
+            for (let i = 0; i < releaseIds.length; i++) {
+                const releaseId = releaseIds[i];
+                try {
+                    const videos = await fetchVideoIds(releaseId);
+                    allVideos.push(...videos);
+                    
+                    // Count unique videos
+                    videos.forEach(video => {
+                        if (video.url) {
+                            uniqueVideoIds.add(video.url);
+                        }
+                    });
+                    
+                    // Update progress
+                    progressData.progress.current = i + 1;
+                    progressData.progress.uniqueLinks = uniqueVideoIds.size;
+                    
+                    const logMsg = `✅ Processed release ${i + 1}/${releaseIds.length}: Found ${videos.length} videos, Total unique: ${uniqueVideoIds.size}`;
+                    console.log(logMsg);
+                    io.emit('progressLog', logMsg);
+                    io.emit('progress', progressData);
+                } catch (error) {
+                    console.error(`❌ Error processing release ${releaseId}:`, error.message);
+                    io.emit('progressLog', `❌ Error processing release ${releaseId}: ${error.message}`);
+                    
+                    errors.push({ releaseId, error: error.message });
+                    
+                    // Handle rate limiting
+                    if (error.response?.status === 429) {
+                        const waitTime = 5000;  // 5 seconds wait
+                        progressData.waitTime = waitTime;
+                        io.emit('progressLog', `⏳ Rate limit hit. Waiting ${waitTime/1000} seconds...`);
+                        io.emit('progress', progressData);
+                        
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        progressData.waitTime = 0;
+                    }
+                    
+                    // Update progress even after error
+                    progressData.progress.current = i + 1;
+                    io.emit('progress', progressData);
+                    
+                    // Continue with next release instead of failing completely
+                    continue;
+                }
             }
+            
+            // Mark job as completed
+            progressData.isRunning = false;
+            io.emit('progress', progressData);
+            io.emit('progressLog', `✅ Processing complete! Found ${uniqueVideoIds.size} unique YouTube videos.`);
 
-            const response = await axios.get(url, { headers });
-            const labelName = response.data.name; // Extract label name
-            console.log(`✅ Label name fetched: ${labelName}`);
-
-            // Start background job for label
-            await startBackgroundJob({ labelId: id, isDevMode, artistName: labelName });
-            res.status(200).json({ message: `Successfully fetched label data.`, labelName });
+            // Return results with any errors encountered
+            res.status(200).json({
+                name,
+                [`${type}Data`]: response.data,
+                videos: allVideos,
+                stats: {
+                    totalReleases: releaseIds.length,
+                    successfullyProcessed: releaseIds.length - errors.length,
+                    totalVideos: allVideos.length,
+                    errors: errors.length ? errors : undefined
+                }
+            });
         } else {
-            // Handle list type
             res.status(400).json({ error: 'List type is not yet implemented.' });
         }
     } catch (error) {
         console.error(`❌ Error in /discogsSearch for type ${type}:`, error.message);
-        res.status(500).json({ error: `Failed to fetch ${type} data from Discogs.`, details: error.message });
+        io.emit('progressLog', `❌ Error in discogsSearch: ${error.message}`);
+        io.emit('progress', { isRunning: false, isPaused: false, waitTime: 0, progress: { current: 0, total: 0, uniqueLinks: 0 } });
+        res.status(500).json({ 
+            error: `Failed to fetch ${type} data from Discogs.`, 
+            details: error.message
+        });
     }
 });
 
@@ -359,6 +465,7 @@ async function startBackgroundJob({ artistId, labelId, isDevMode, artistName }) 
     backgroundJob.uniqueLinks.clear();
     backgroundJob.waitTime = 0;
 
+    emitProgressUpdate();
     const processReleases = async () => {
         try {
             const releaseIds = artistId
@@ -366,52 +473,44 @@ async function startBackgroundJob({ artistId, labelId, isDevMode, artistName }) 
                 : await fetchLabelReleaseIds(labelId, isDevMode);
 
             backgroundJob.progress.total = releaseIds.length;
-            console.log(`🎵 Total releases to process: ${releaseIds.length}`);
+            emitProgressUpdate();
 
             for (let i = 0; i < releaseIds.length; i++) {
                 if (!backgroundJob.isRunning) break;
                 while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
-                    // Update status when paused or rate-limited
+                    emitProgressUpdate();
                     await new Promise((resolve) => setTimeout(resolve, 1000));
                     if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
                 }
 
                 const releaseId = releaseIds[i];
-                console.log(`🎧 Processing release ${i + 1} of ${releaseIds.length}: Release ID ${releaseId}`);
-
                 try {
                     const videos = await fetchVideoIds(releaseId);
                     videos.forEach((video) => backgroundJob.uniqueLinks.add(video));
                     backgroundJob.progress.current = i + 1;
                     backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
-                    console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
-                    backgroundJob.waitTime = 0; // Reset wait time on success
+                    backgroundJob.waitTime = 0;
+                    const logMsg = `Processed release ${i + 1}/${releaseIds.length}: Release ID ${releaseId}, Found ${videos.length} videos, Total unique: ${backgroundJob.progress.uniqueLinks}`;
+                    emitProgressUpdate(logMsg);
                 } catch (error) {
                     if (error.response?.status === 429) {
                         backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
-                        console.error(`⏳ Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
+                        emitProgressUpdate('Rate limit hit. Waiting...');
                     } else {
                         throw error;
                     }
                 }
-
-                if (isDevMode) {
-                    console.log('🛠 Dev mode enabled: Skipping pagination.');
-                    break; // Skip pagination in Dev Mode
-                }
+                if (isDevMode) break;
             }
-
-            console.log('✅ Background job completed.');
-            // Ensure final stats are preserved
             backgroundJob.progress.current = backgroundJob.progress.total;
             backgroundJob.isRunning = false;
+            emitProgressUpdate('Background job completed.');
         } catch (error) {
-            console.error('❌ Error processing releases:', error.message);
             backgroundJob.isRunning = false;
             backgroundJob.error = error.message;
+            emitProgressUpdate('Background job error: ' + error.message);
         }
     };
-
     processReleases();
 }
 
@@ -483,6 +582,8 @@ app.post('/startBackgroundJob', async (req, res) => {
     };
 
     processReleases();
+    // Add SSE update after state changes
+    emitProgressUpdate();
     res.status(200).json({ message: 'Background job started.' });
 });
 
@@ -520,7 +621,9 @@ async function makeDiscogsRequest(url, isDevMode) {
                 if (error.response?.status === 429) {
                     retryCount++;
                     const waitTime = Math.pow(2, retryCount) * 1000;
-                    console.error(`Rate limit hit. Retrying in ${waitTime / 1000} seconds...`);
+                    const logMsg = `⏳ Rate limit hit. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`;
+                    console.error(logMsg);
+                    io.emit('progressLog', logMsg); // Send logMsg to frontend
                     await new Promise((resolve) => setTimeout(resolve, waitTime));
                 } else {
                     throw error;
@@ -580,19 +683,81 @@ async function fetchDiscogsData(type, id) {
   }
 }
 
-// Function to fetch video IDs for a release
+// Add this helper function for exponential backoff
+async function fetchWithRetry(url, options, maxRetries = 15) {
+    let retryCount = 0;
+    let lastError = null;
+    let rateLimitStart = null;
+
+    while (retryCount < maxRetries) {
+        try {
+            const response = await axios.get(url, options);
+            // If we were in a rate limit session, print how long it took
+            if (rateLimitStart !== null) {
+                const seconds = ((Date.now() - rateLimitStart) / 1000).toFixed(1);
+                const msg = `✅ Rate limit recovery: ${seconds} seconds since last 429 to first success.`;
+                console.log(msg);
+                io.emit('progressLog', msg);
+                rateLimitStart = null;
+            }
+            return response;
+        } catch (error) {
+            if (error.response?.status === 429) {
+                retryCount++;
+                if (rateLimitStart === null) rateLimitStart = Date.now();
+                const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
+                const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}/${maxRetries}. Waiting ${waitTime / 1000} seconds...`;
+                console.log(logMsg);
+                io.emit('progressLog', logMsg); // Send logMsg to frontend
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                lastError = error;
+                continue;
+            }
+            throw error; // For non-429 errors, throw immediately
+        }
+    }
+    throw lastError || new Error('Max retries exceeded');
+}
+
+// Update fetchVideoIds to use the retry logic
 async function fetchVideoIds(releaseId) {
     const url = `${DISCOGS_API_URL}/releases/${releaseId}`;
-    const response = await axios.get(url, {
+    const options = {
         headers: { 'User-Agent': USER_AGENT },
-    });
-    const videos = response.data.videos?.map((video) => ({
-        url: video.uri,
-        artist: response.data.artists_sort,
-        releaseName: response.data.title,
-        releaseId: releaseId,
-    })) || [];
-    return videos;
+    };
+
+    try {
+        const response = await fetchWithRetry(url, options);
+        // Extract artist, title, year, and Discogs URL from the release data
+        const artist = response.data.artists_sort || (response.data.artists && response.data.artists[0]?.name) || '';
+        const title = response.data.title || '';
+        const year = response.data.year || '';
+        const discogsUrl = response.data.uri || `https://www.discogs.com/release/${releaseId}`;
+
+        const videos = response.data.videos?.map((video) => ({
+            videoId: video.uri.split("v=")[1],
+            fullUrl: video.uri, // Include full YouTube URL
+            artist,
+            releaseName: title,
+            releaseId: releaseId,
+            year,
+            discogsUrl,
+        })) || [];
+
+        // Print each fetched YouTube URL with emojis
+        videos.forEach(video => {
+            console.log(`🎥 Fetched YouTube URL: ${video.fullUrl}`);
+        });
+
+        // Emit all YouTube URLs to the front end in real-time as 'results'
+        // Now send the full video objects (with artist/title/year/discogsUrl)
+        io.emit("results", videos);
+
+        return videos;
+    } catch (error) {
+        console.error(`❌ Error fetching videos for release ${releaseId}:`, error.message);
+        throw error;
+    }
 }
 
 // Route to handle Discogs API requests
@@ -673,8 +838,8 @@ app.get('/discogs/generateURL', ensureSecretsInitialized, async (req, res) => {
 let discogsAuth = { accessToken: null, accessTokenSecret: null }; // Store Discogs auth tokens
 
 // Handle the Discogs OAuth callback
-app.get('/discogs2youtube/callback/discogs', ensureSecretsInitialized, async (req, res) => {
-  console.log("🎸 [GET /discogs2youtube/callback/discogs] Hit", req.originalUrl);
+app.get('/listogs/callback/discogs', ensureSecretsInitialized, async (req, res) => {
+  console.log("🎸 [GET /listogs/callback/discogs] Hit", req.originalUrl);
   const details = {
     full_url: req.protocol + '://' + req.get('host') + req.originalUrl,
     query_params: req.query
@@ -728,13 +893,13 @@ app.get('/discogs2youtube/callback/discogs', ensureSecretsInitialized, async (re
     console.log('================================\n');
 
     // Dynamically set the redirect URL based on the environment
-    const redirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
+    const redirectUrl = isLocal ? 'http://localhost:3001/listogs' : 'https://jermasearch.com/listogs';
     res.redirect(redirectUrl);
   } catch (error) {
     logError('Discogs OAuth Flow', error, details);
     
     // Redirect to error page or main page with error param
-    const errorRedirectUrl = isLocal ? 'http://localhost:3001/discogs2youtube' : 'https://jermasearch.com/discogs2youtube';
+    const errorRedirectUrl = isLocal ? 'http://localhost:3001/listogs' : 'https://jermasearch.com/listogs';
     res.redirect(`${errorRedirectUrl}?error=${encodeURIComponent(error.message)}`);
   }
 });
@@ -788,7 +953,7 @@ if (isLocal) {
 }
 
 // Start server and initialize secrets
-app.listen(port, async () => {
+server.listen(port, async () => {
   try {
     await initializeSecrets();
     await initializeOAuth();
@@ -1246,156 +1411,29 @@ app.get('/', (req, res) => {
   res.status(200).send('hello world');
 });
 
-// Add this helper function at the top level
-function logError(location, error, details = {}) {
-  console.error('\n=== Error in', location, '===');
-  console.error('Message:', error.message);
-  if (error.response) {
-    console.error('Status:', error.response.status);
-    console.error('Response data:', error.response.data);
-  }
-  if (Object.keys(details).length) {
-    console.error('Additional details:', details);
-  }
-  console.error('Stack:', error.stack);
-  console.error('================\n');
-}
-
+// Simplify background job object
 let backgroundJob = {
     isRunning: false,
     isPaused: false,
     progress: { current: 0, total: 0, uniqueLinks: 0 },
-    artistId: null,
-    labelId: null,
-    artistName: null,
     uniqueLinks: new Set(),
-    waitTime: 0, // Time to wait before resuming requests
+    waitTime: 0,
 };
 
-app.post('/pauseBackgroundJob', (req, res) => {
-    if (!backgroundJob.isRunning) {
-        return res.status(400).json({ error: 'No job is currently running.' });
-    }
-    backgroundJob.isPaused = true;
-    res.status(200).json({ message: 'Background job paused.' });
-});
-
-app.post('/resumeBackgroundJob', (req, res) => {
-    if (!backgroundJob.isRunning) {
-        return res.status(400).json({ error: 'No job is currently running.' });
-    }
-    backgroundJob.isPaused = false;
-    res.status(200).json({ message: 'Background job resumed.' });
-});
-
-app.post('/stopBackgroundJob', (req, res) => {
-    if (!backgroundJob.isRunning) {
-        return res.status(400).json({ error: 'No job is currently running.' });
-    }
-    backgroundJob.isRunning = false;
-    backgroundJob.isPaused = false;
-    res.status(200).json({ message: 'Background job stopped.' });
-});
-
+// Keep core endpoints
 app.get('/backgroundJobStatus', (req, res) => {
     res.status(200).json({
         progress: backgroundJob.progress,
         error: backgroundJob.error || null,
         waitTime: backgroundJob.waitTime,
         isRunning: backgroundJob.isRunning,
-        isPaused: backgroundJob.isPaused,
-        artistName: backgroundJob.artistName,
-        artistId: backgroundJob.artistId,  // Added artistId to the response
-        labelId: backgroundJob.labelId     // Added labelId to the response
+        isPaused: backgroundJob.isPaused
     });
 });
 
-// Endpoint to fetch unique YouTube links
 app.get('/backgroundJobLinks', (req, res) => {
     res.status(200).json({ links: Array.from(backgroundJob.uniqueLinks) });
-})
-
-// Enhanced function to return task with complete info even when finished
-app.get('/backgroundTasks', (req, res) => {
-    console.log("📋 [GET /backgroundTasks] Hit");
-    try {
-        let taskStatus = 'completed';
-        if (backgroundJob.isRunning) {
-            taskStatus = 'in-progress';
-            if (backgroundJob.waitTime > 0) {
-                taskStatus = 'rate-limited';
-            } else if (backgroundJob.isPaused) {
-                taskStatus = 'paused';
-            }
-        }
-        
-        const uniqueLinks = Array.from(backgroundJob.uniqueLinks);
-        const tasks = backgroundJob.artistId || backgroundJob.labelId
-            ? [
-                  {
-                      id: backgroundJob.artistId || backgroundJob.labelId,
-                      name: backgroundJob.artistName 
-                        ? `Artist/Label: ${backgroundJob.artistName}` 
-                        : `Task for ${backgroundJob.artistId ? 'artist' : 'label'} ${backgroundJob.artistId || backgroundJob.labelId}`,
-                      status: taskStatus,
-                      youtubeLinks: uniqueLinks,
-                      progress: {
-                          current: backgroundJob.progress.current,
-                          total: backgroundJob.progress.total,
-                          uniqueLinks: uniqueLinks.length  // Use actual length of unique links
-                      }
-                  },
-              ]
-            : [];
-        
-        const shouldPoll = backgroundJob.isRunning;
-        res.status(200).json({ tasks, shouldPoll });
-    } catch (error) {
-        console.error('Error fetching background tasks:', error.message);
-        res.status(500).json({ error: 'Failed to fetch background tasks.' });
-    }
 });
-
-app.post('/clearBackgroundTasks', (req, res) => {
-    console.log("🧹 [POST /clearBackgroundTasks] Hit");
-    try {
-        // Reset the background job state
-        backgroundJob = {
-            isRunning: false,
-            isPaused: false,
-            progress: { current: 0, total: 0, uniqueLinks: 0 },
-            artistId: null,
-            labelId: null,
-            artistName: null,
-            uniqueLinks: new Set(),
-            waitTime: 0,
-        };
-        res.status(200).json({ message: 'All background tasks cleared.' });
-    } catch (error) {
-        console.error('Error clearing background tasks:', error.message);
-        res.status(500).json({ error: 'Failed to clear background tasks.' });
-    }
-});
-
-// --- DEBUG: Print when process is about to exit ---
-process.on('exit', (code) => {
-  console.log(`Process is exiting with code ${code}`);
-});
-
-// --- DEBUG: Print on uncaught exceptions ---
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-});
-
-// --- DEBUG: Print on unhandled promise rejections ---
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// --- DEBUG: Print every 30 seconds to show process is alive ---
-setInterval(() => {
-  console.log('[DEBUG] Server process is still alive at', new Date().toISOString());
-}, 30000);
 
 // Create images directory if it doesn't exist
 const IMAGES_DIR = path.join(__dirname, 'discogs_images');
@@ -1570,9 +1608,10 @@ app.post('/getDiscogsImgs', async (req, res) => {
         if (error.response?.status === 429) {
           retryCount++;
           const waitTime = Math.pow(2, retryCount) * 1000;
-          console.error(`⏳ Rate limit hit on page ${currentPage} of ${totalPages}. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`);
+          const logMsg = `⏳ Rate limit hit. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`;
+          console.error(logMsg);
+          io.emit('progressLog', logMsg); // Send logMsg to frontend
           await new Promise((resolve) => setTimeout(resolve, waitTime));
-          // Removed retry limit - will keep trying indefinitely
         } else {
           console.error('❌ Error fetching releases:', error.message);
           throw error;
