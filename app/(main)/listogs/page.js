@@ -30,6 +30,8 @@ export default function Discogs2Youtube() {
   const [backgroundJobError, setBackgroundJobError] = useState(null);
   const [backgroundJobErrorDetails, setBackgroundJobErrorDetails] = useState(null);
   const [waitTime, setWaitTime] = useState(0);
+  const [embedCount, setEmbedCount] = useState(0);
+
   const [youtubeLinks, setYoutubeLinks] = useState([]);
   const youtubeResults = useYoutubeResults(); // Capture real-time YouTube results
 
@@ -783,20 +785,47 @@ function generateVideoTitleSuggestions(release) {
         <div className={styles.section}>
           <h2>Authentication</h2>
           <div className={styles.authStatus}>
-            <span>YouTube: {authStatus ? 'Authenticated' : 'Not Authenticated'}</span>
-            {!authStatus && generatedURL && (
-              <button onClick={fetchYouTubeAuthUrl} className={styles.button}>Authenticate YouTube</button>
+            <span>
+              YouTube: {authStatus ? 'Authenticated' : 'Not Authenticated'}
+              {!authStatus && generatedURL && (
+                <>
+                  {' '}
+                  <button onClick={fetchYouTubeAuthUrl} className={styles.button}>Authenticate YouTube</button>
+                </>
+              )}
+            </span>
+          </div>
+          <div className={styles.authStatus} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>
+              Discogs: {discogsAuthStatus ? 'Authenticated' : 'Not Authenticated'}
+              {!discogsAuthStatus && discogsAuthUrl && (
+                <>
+                  {' '}
+                  <button onClick={initiateDiscogsAuth} className={styles.button}>Authenticate Discogs</button>
+                </>
+              )}
+            </span>
+            {/* Move sign out button inline for Discogs */}
+            {discogsAuthStatus && (
+              <button
+                onClick={handleSignOut}
+                className={`${styles.button} ${styles.signOutButton}`}
+                style={{ marginTop: 0, marginLeft: 10 }}
+              >
+                Sign Out
+              </button>
             )}
           </div>
-          <div className={styles.authStatus}>
-            <span>Discogs: {discogsAuthStatus ? 'Authenticated' : 'Not Authenticated'}</span>
-            {!discogsAuthStatus && discogsAuthUrl && (
-              <button onClick={initiateDiscogsAuth} className={styles.button}>Authenticate Discogs</button>
-            )}
-          </div>
-           {(authStatus || discogsAuthStatus) && (
-             <button onClick={handleSignOut} className={`${styles.button} ${styles.signOutButton}`}>Sign Out</button>
-           )}
+          {/* Only show sign out button for YouTube if authenticated and not Discogs */}
+          {authStatus && !discogsAuthStatus && (
+            <button
+              onClick={handleSignOut}
+              className={`${styles.button} ${styles.signOutButton}`}
+              style={{ marginTop: 10 }}
+            >
+              Sign Out
+            </button>
+          )}
           {urlError && <p className={styles.error}>Error: {urlError}</p>}
         </div>
 
@@ -1003,6 +1032,31 @@ function generateVideoTitleSuggestions(release) {
         {/* Fetched YouTube Videos Section */}
         <div className={styles.section}>
           <h2>Fetched YouTube Videos</h2>
+          {/* Embed count selector */}
+          {youtubeLinks.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <label htmlFor="embedCountInput" style={{ fontWeight: 500, marginRight: 8 }}>
+                Number of videos to embed:
+              </label>
+              <input
+                id="embedCountInput"
+                type="number"
+                min={0}
+                max={youtubeLinks.length}
+                value={embedCount}
+                onChange={e => {
+                  let val = parseInt(e.target.value, 10);
+                  if (isNaN(val) || val < 0) val = 0;
+                  if (val > youtubeLinks.length) val = youtubeLinks.length;
+                  setEmbedCount(val);
+                }}
+                style={{ width: 60, marginRight: 10, padding: "2px 6px" }}
+              />
+              <span style={{ color: "#666", fontSize: 13 }}>
+                (Set to 0 to disable all embeds)
+              </span>
+            </div>
+          )}
           {youtubeLinks.length === 0 ? (
             <p>No videos fetched yet.</p>
           ) : (
@@ -1018,8 +1072,8 @@ function generateVideoTitleSuggestions(release) {
                         rel="noopener noreferrer"
                         className={styles.discogsTitleLink}
                         style={{
-                          color: "#007bff", // Blue color for link
-                          textDecoration: "underline", // Underline for clear indication
+                          color: "#007bff",
+                          textDecoration: "underline",
                           fontWeight: "bold",
                           fontSize: "1.05em",
                           cursor: "pointer"
@@ -1043,19 +1097,38 @@ function generateVideoTitleSuggestions(release) {
                       </a>
                     </div>
                   )}
-                  {/* Fixed-size YouTube embed */}
-                  <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                    <iframe
-                      width="400"
-                      height="225"
-                      src={`https://www.youtube.com/embed/${link.videoId}`}
-                      title={`YouTube Video ${index + 1}`}
-                      frameBorder="0"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                      style={{ display: "block", maxWidth: "100%", borderRadius: "6px", background: "#000" }}
-                    ></iframe>
-                  </div>
+                  {/* Conditionally embed or just show link */}
+                  {index < embedCount ? (
+                    <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
+                      <iframe
+                        width="400"
+                        height="225"
+                        src={`https://www.youtube.com/embed/${link.videoId}`}
+                        title={`YouTube Video ${index + 1}`}
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        style={{ display: "block", maxWidth: "100%", borderRadius: "6px", background: "#000" }}
+                      ></iframe>
+                    </div>
+                  ) : (
+                    <div style={{ margin: "12px 0", textAlign: "center" }}>
+                      <a
+                        href={link.fullUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          color: "#007bff",
+                          textDecoration: "underline",
+                          fontWeight: "bold",
+                          fontSize: "15px",
+                          wordBreak: "break-all"
+                        }}
+                      >
+                        {link.fullUrl}
+                      </a>
+                    </div>
+                  )}
                   {/* Divider under each video section */}
                   <hr className={styles.youtubeDivider} />
                 </div>
