@@ -1137,6 +1137,25 @@ function generateVideoTitleSuggestions(release) {
           )}
         </div>
 
+        {/* Discogs Auth URL Debug Section - For development and debugging */}
+        <div className={styles.section}>
+          <h2>Debug Discogs Auth URL</h2>
+          <button onClick={fetchDiscogsAuthUrl} className={styles.button}>
+            Get Discogs Auth URL
+          </button>
+          <div style={{ marginTop: 16 }}>
+            {discogsUrlLoading && <div>Loading Discogs URL...</div>}
+            {discogsUrlResponse && (
+              <pre style={{ background: "#eee", padding: 8 }}>
+                {discogsUrlResponse}
+              </pre>
+            )}
+            {discogsUrlError && (
+              <div style={{ color: "red" }}>{discogsUrlError}</div>
+            )}
+          </div>
+        </div>
+
       </div>
     </>
   );
