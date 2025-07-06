@@ -62,7 +62,15 @@ export default function Discogs2Youtube() {
     }
     
     function onProgress(data) {
-      console.log('[Socket.IO] Progress update received:', data);
+      // If the job just finished, set completed status and final progress
+      if (progress.isRunning && !data.isRunning) {
+        setIsTaskCompleted(true);
+        setFinalProgress({
+          current: data.progress.current,
+          total: data.progress.total,
+          uniqueLinks: data.progress.uniqueLinks
+        });
+      }
       setProgress(data);
     }
     
@@ -211,11 +219,16 @@ export default function Discogs2Youtube() {
       fetchDiscogsAuthStatus();
   }, [apiUrl, discogsAccessToken]);
 
+  // Track if the task is completed and the final progress
+  const [isTaskCompleted, setIsTaskCompleted] = useState(false);
+  const [finalProgress, setFinalProgress] = useState({ current: 0, total: 0, uniqueLinks: 0 });
+
+  // When user submits another URL, clear completed status and final progress
   const handleDiscogsSearch = async () => {
       if (!extractedId.trim() || !selectedType) return;
 
       setYoutubeLinks([]); // Clear previous links
-      setBackgroundJobStatus({ // Reset background job status
+      setBackgroundJobStatus({
           isRunning: false,
           isPaused: false,
           progress: { current: 0, total: 0, uniqueLinks: 0 }
@@ -223,6 +236,8 @@ export default function Discogs2Youtube() {
       setBackgroundJobError(null);
       setBackgroundJobErrorDetails(null);
       setProgressLogs([]); // Clear progress log on submit
+      setIsTaskCompleted(false); // Clear completed status
+      setFinalProgress({ current: 0, total: 0, uniqueLinks: 0 }); // Clear final progress
 
       try {
           const response = await loggedAxios.post(`${apiUrl}/discogsSearch`, {
@@ -827,7 +842,6 @@ function generateVideoTitleSuggestions(release) {
             className={styles.input}
             disabled={!discogsAuthStatus} // Only check Discogs auth for input
           />
-          {extractedId && <p>Detected ID: {extractedId} {selectedType ? `(Type: ${selectedType})` : '(Select Type Above)'}</p>}
           <button 
             onClick={handleSearchClick} 
             className={styles.button} 
@@ -835,12 +849,11 @@ function generateVideoTitleSuggestions(release) {
           >
             Submit
           </button>
-          {/* Add debug info */}
-          {process.env.NODE_ENV === 'development' && (
-            <div style={{fontSize: '12px', color: '#666'}}>
-              Debug - Auth Status: YouTube: {authStatus ? 'Yes' : 'No'}, Discogs: {discogsAuthStatus ? 'Yes' : 'No'}
-            </div>
+          {/* Move Detected ID below the submit button */}
+          {extractedId && (
+            <p>Detected ID: {extractedId} {selectedType ? `(Type: ${selectedType})` : '(Select Type Above)'}</p>
           )}
+          {/* Remove debug info */}
           {inputError && <p className={styles.error}>{inputError}</p>}
           {discogsResponse && <pre className={styles.response}>{discogsResponse}</pre>}
            {/* <div className={styles.devModeToggle}>
@@ -919,15 +932,21 @@ function generateVideoTitleSuggestions(release) {
           <div className={styles.progressContainer}>
             <div>
               <strong>Status:</strong>{' '}
-              {progress.isRunning
-                ? progress.isPaused
-                  ? 'Paused'
-                  : 'Running'
-                : 'Idle'}
+              {isTaskCompleted
+                ? 'Completed'
+                : progress.isRunning
+                  ? progress.isPaused
+                    ? 'Paused'
+                    : 'Running'
+                  : (progress.progress.current === 0 && progress.progress.total === 0)
+                    ? 'Idle'
+                    : 'Completed'}
             </div>
             <div>
               <strong>Progress:</strong>{' '}
-              {progress.progress.current} / {progress.progress.total} releases processed
+              {isTaskCompleted
+                ? `${finalProgress.current} / ${finalProgress.total} releases processed`
+                : `${progress.progress.current} / ${progress.progress.total} releases processed`}
             </div>
             <div>
               <strong>Unique YouTube Links:</strong> {youtubeLinks.length}
@@ -998,7 +1017,13 @@ function generateVideoTitleSuggestions(release) {
                         target="_blank"
                         rel="noopener noreferrer"
                         className={styles.discogsTitleLink}
-                        style={{ color: "#111" }} // Force black text
+                        style={{
+                          color: "#007bff", // Blue color for link
+                          textDecoration: "underline", // Underline for clear indication
+                          fontWeight: "bold",
+                          fontSize: "1.05em",
+                          cursor: "pointer"
+                        }}
                       >
                         {link.artist} - {link.releaseName}
                         {link.year ? ` (${link.year})` : ''}

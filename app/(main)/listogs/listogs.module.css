@@ -244,17 +244,16 @@
 }
 
 .discogsTitleLink {
-    color: #111;
-    text-decoration: none;
+    color: #007bff;
+    text-decoration: underline;
     font-weight: bold;
     font-size: 1.05em;
     transition: color 0.2s;
     cursor: pointer;
-    /* Remove underline */
 }
 
 .discogsTitleLink:hover {
-    color: #007bff;
+    color: #0056b3;
     text-decoration: underline;
 }
 
