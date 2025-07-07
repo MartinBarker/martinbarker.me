@@ -5,6 +5,7 @@
 require('dotenv').config();
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 const express = require('express');
+const session = require('express-session');
 const fs = require('fs');
 const path = require('path'); // Add path module for file operations
 const { google } = require('googleapis');
@@ -19,6 +20,18 @@ const cors = require('cors');
 // --- Application initialization ---
 const app = express();
 app.use(express.json());
+
+// Session configuration
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
 const port = 3030;
 
 // Define allowed origins for both local and production
@@ -54,36 +67,105 @@ const io = new Server(server, {
 });
 
 // --- Socket.IO connection logic ---
+// Store user sockets by session ID
+const userSockets = new Map();
+
 io.on('connection', (socket) => {
   console.log('[Socket.IO] Client connected:', socket.id);
-
-  // Send initial progress state
-  socket.emit('progress', {
-    progress: backgroundJob.progress,
-    waitTime: backgroundJob.waitTime,
-    isRunning: backgroundJob.isRunning,
-    isPaused: backgroundJob.isPaused
-  });
+  
+  // Get session ID from handshake cookies
+  const cookieHeader = socket.handshake.headers.cookie;
+  let sessionId = null;
+  
+  if (cookieHeader) {
+    // Parse cookies to extract session ID
+    const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+      const [name, value] = cookie.trim().split('=');
+      acc[name] = value;
+      return acc;
+    }, {});
+    
+    // Express session uses 'connect.sid' by default
+    sessionId = cookies['connect.sid'];
+    if (sessionId) {
+      // Decode URL-encoded session ID
+      sessionId = decodeURIComponent(sessionId);
+      // Remove signature if present (format: s:sessionId.signature)
+      if (sessionId.startsWith('s:')) {
+        sessionId = sessionId.split('.')[0].substring(2);
+      }
+    }
+  }
+  
+  if (sessionId) {
+    // Store socket for this session
+    userSockets.set(sessionId, socket);
+    console.log(`[Socket.IO] Associated socket ${socket.id} with session ${sessionId}`);
+    
+    // Send initial progress state for this user's session
+    const userBackgroundJob = getUserBackgroundJob(sessionId);
+    socket.emit('progress', {
+      progress: userBackgroundJob.progress,
+      waitTime: userBackgroundJob.waitTime,
+      isRunning: userBackgroundJob.isRunning,
+      isPaused: userBackgroundJob.isPaused,
+      rateLimited: userBackgroundJob.rateLimited
+    });
+  } else {
+    console.log('[Socket.IO] No session ID found for socket:', socket.id);
+  }
 
   socket.on('disconnect', () => {
     console.log('[Socket.IO] Client disconnected:', socket.id);
+    // Remove socket from user sessions
+    for (const [sessionId, socketInstance] of userSockets.entries()) {
+      if (socketInstance.id === socket.id) {
+        userSockets.delete(sessionId);
+        console.log(`[Socket.IO] Removed socket for session ${sessionId}`);
+        break;
+      }
+    }
   });
 });
 
-// Emit progress to all connected clients and log to server console
-function emitProgressUpdate(extraLog) {
-  const data = {
-    progress: backgroundJob.progress,
-    waitTime: backgroundJob.waitTime,
-    isRunning: backgroundJob.isRunning,
-    isPaused: backgroundJob.isPaused
-  };
-  io.emit('progress', data);
-  if (extraLog) {
-    io.emit('progressLog', extraLog);
-    console.log('[Socket.IO] Emitting progressLog:', extraLog);
+// Store user background jobs by session ID
+const userBackgroundJobs = new Map();
+
+// Get or create background job for a user session
+function getUserBackgroundJob(sessionId) {
+  if (!userBackgroundJobs.has(sessionId)) {
+    userBackgroundJobs.set(sessionId, {
+      isRunning: false,
+      isPaused: false,
+      rateLimited: false,
+      progress: { current: 0, total: 0, uniqueLinks: 0 },
+      uniqueLinks: new Set(),
+      waitTime: 0,
+    });
   }
-  console.log('[Socket.IO] Emitting progress:', data);
+  return userBackgroundJobs.get(sessionId);
+}
+
+// Emit progress to specific user session
+function emitProgressUpdateToUser(sessionId, extraLog) {
+  const userBackgroundJob = getUserBackgroundJob(sessionId);
+  const data = {
+    progress: userBackgroundJob.progress,
+    waitTime: userBackgroundJob.waitTime,
+    isRunning: userBackgroundJob.isRunning,
+    isPaused: userBackgroundJob.isPaused,
+    rateLimited: userBackgroundJob.rateLimited
+  };
+  
+  const userSocket = userSockets.get(sessionId);
+  if (userSocket) {
+    userSocket.emit('progress', data);
+    if (extraLog) {
+      userSocket.emit('progressLog', extraLog);
+      console.log(`[Socket.IO] Emitting progressLog to session ${sessionId}:`, extraLog);
+    }
+    console.log(`[Socket.IO] Emitting progress to session ${sessionId}:`, data);
+  }
 }
 
 // YouTube configuration
@@ -301,10 +383,11 @@ app.post('/discogsAuth', async (req, res) => {
       let headers = { 'User-Agent': USER_AGENT };
 
       // If user is signed in, include OAuth header
-      if (discogsAuth.accessToken) {
+      const userDiscogsAuth = getUserDiscogsAuth(req);
+      if (userDiscogsAuth.accessToken) {
         console.log("🔑 User is authenticated. Adding OAuth headers.");
-        const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
-        headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        const oauthSignature = `${discogsConsumerSecret}&${userDiscogsAuth.accessTokenSecret}`;
+        headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${userDiscogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
       } else {
         console.log("🔓 User is not authenticated. Proceeding without OAuth headers.");
       }
@@ -360,9 +443,10 @@ app.post('/discogsSearch', async (req, res) => {
             
             const headers = { 'User-Agent': USER_AGENT };
 
-            if (discogsAuth.accessToken) {
-                const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
-                headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+            const userDiscogsAuth = getUserDiscogsAuth(req);
+            if (userDiscogsAuth.accessToken) {
+                const oauthSignature = `${discogsConsumerSecret}&${userDiscogsAuth.accessTokenSecret}`;
+                headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${userDiscogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
             }
 
             // Fetch artist/label info with retry
@@ -381,8 +465,8 @@ app.post('/discogsSearch', async (req, res) => {
 
             // Fetch all release IDs
             const releaseIds = type === 'artist' 
-                ? await fetchReleaseIds(id, isDevMode)
-                : await fetchLabelReleaseIds(id, isDevMode);
+                ? await fetchReleaseIds(id, isDevMode, userDiscogsAuth)
+                : await fetchLabelReleaseIds(id, isDevMode, userDiscogsAuth);
             
             console.log(`🎵 Found ${releaseIds.length} releases to process`);
             io.emit('progressLog', `🎵 Found ${releaseIds.length} releases to process`);
@@ -474,64 +558,70 @@ app.post('/discogsSearch', async (req, res) => {
     }
 });
 
-async function startBackgroundJob({ artistId, labelId, isDevMode, artistName }) {
-    if (backgroundJob.isRunning) {
-        throw new Error('A job is already running.');
+async function startBackgroundJob({ artistId, labelId, isDevMode, artistName, sessionId, userDiscogsAuth }) {
+    const userBackgroundJob = getUserBackgroundJob(sessionId);
+    
+    if (userBackgroundJob.isRunning) {
+        throw new Error('A job is already running for this user.');
     }
 
-    backgroundJob.isRunning = true;
-    backgroundJob.isPaused = false;
-    backgroundJob.artistId = artistId || null;
-    backgroundJob.labelId = labelId || null;
-    backgroundJob.artistName = artistName || null; // Store artist/label name
-    backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
-    backgroundJob.uniqueLinks.clear();
-    backgroundJob.waitTime = 0;
+    userBackgroundJob.isRunning = true;
+    userBackgroundJob.isPaused = false;
+    userBackgroundJob.artistId = artistId || null;
+    userBackgroundJob.labelId = labelId || null;
+    userBackgroundJob.artistName = artistName || null; // Store artist/label name
+    userBackgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
+    userBackgroundJob.uniqueLinks.clear();
+    userBackgroundJob.waitTime = 0;
 
-    emitProgressUpdate();
+    emitProgressUpdateToUser(sessionId);
     const processReleases = async () => {
         try {
             const releaseIds = artistId
-                ? await fetchReleaseIds(artistId, isDevMode)
-                : await fetchLabelReleaseIds(labelId, isDevMode);
+                ? await fetchReleaseIds(artistId, isDevMode, userDiscogsAuth, sessionId)
+                : await fetchLabelReleaseIds(labelId, isDevMode, userDiscogsAuth, sessionId);
 
-            backgroundJob.progress.total = releaseIds.length;
-            emitProgressUpdate();
+            userBackgroundJob.progress.total = releaseIds.length;
+            emitProgressUpdateToUser(sessionId);
 
             for (let i = 0; i < releaseIds.length; i++) {
-                if (!backgroundJob.isRunning) break;
-                while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
-                    emitProgressUpdate();
+                if (!userBackgroundJob.isRunning) break;
+                while (userBackgroundJob.isPaused || userBackgroundJob.waitTime > 0) {
+                    emitProgressUpdateToUser(sessionId);
                     await new Promise((resolve) => setTimeout(resolve, 1000));
-                    if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
+                    if (userBackgroundJob.waitTime > 0) userBackgroundJob.waitTime -= 1000;
                 }
 
                 const releaseId = releaseIds[i];
                 try {
                     const videos = await fetchVideoIds(releaseId);
-                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video));
-                    backgroundJob.progress.current = i + 1;
-                    backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
-                    backgroundJob.waitTime = 0;
-                    const logMsg = `Processed release ${i + 1}/${releaseIds.length}: Release ID ${releaseId}, Found ${videos.length} videos, Total unique: ${backgroundJob.progress.uniqueLinks}`;
-                    emitProgressUpdate(logMsg);
+                    videos.forEach((video) => userBackgroundJob.uniqueLinks.add(video));
+                    userBackgroundJob.progress.current = i + 1;
+                    userBackgroundJob.progress.uniqueLinks = userBackgroundJob.uniqueLinks.size;
+                    userBackgroundJob.waitTime = 0;
+                    userBackgroundJob.rateLimited = false; // Clear rate limit status on success
+                    const logMsg = `Processed release ${i + 1}/${releaseIds.length}: Release ID ${releaseId}, Found ${videos.length} videos, Total unique: ${userBackgroundJob.progress.uniqueLinks}`;
+                    emitProgressUpdateToUser(sessionId, logMsg);
                 } catch (error) {
                     if (error.response?.status === 429) {
-                        backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
-                        emitProgressUpdate('Rate limit hit. Waiting...');
+                        userBackgroundJob.waitTime = userBackgroundJob.waitTime > 0 ? userBackgroundJob.waitTime + 5000 : 5000;
+                        userBackgroundJob.rateLimited = true; // Set rate limit status
+                        emitProgressUpdateToUser(sessionId, `⏳ Rate limit hit. Waiting ${userBackgroundJob.waitTime / 1000} seconds...`);
                     } else {
                         throw error;
                     }
                 }
                 if (isDevMode) break;
             }
-            backgroundJob.progress.current = backgroundJob.progress.total;
-            backgroundJob.isRunning = false;
-            emitProgressUpdate('Background job completed.');
+            userBackgroundJob.progress.current = userBackgroundJob.progress.total;
+            userBackgroundJob.isRunning = false;
+            userBackgroundJob.rateLimited = false; // Clear rate limit status on completion
+            emitProgressUpdateToUser(sessionId, 'Background job completed.');
         } catch (error) {
-            backgroundJob.isRunning = false;
-            backgroundJob.error = error.message;
-            emitProgressUpdate('Background job error: ' + error.message);
+            userBackgroundJob.isRunning = false;
+            userBackgroundJob.rateLimited = false; // Clear rate limit status on error
+            userBackgroundJob.error = error.message;
+            emitProgressUpdateToUser(sessionId, 'Background job error: ' + error.message);
         }
     };
     processReleases();
@@ -539,90 +629,42 @@ async function startBackgroundJob({ artistId, labelId, isDevMode, artistName }) 
 
 app.post('/startBackgroundJob', async (req, res) => {
     const { artistId, labelId, isDevMode, taskId, artistName } = req.body;
-    if (backgroundJob.isRunning) {
-        return res.status(400).json({ error: 'A job is already running.' });
+    const sessionId = req.session.id;
+    const userBackgroundJob = getUserBackgroundJob(sessionId);
+    const userDiscogsAuth = getUserDiscogsAuth(req);
+    
+    if (userBackgroundJob.isRunning) {
+        return res.status(400).json({ error: 'A job is already running for this user.' });
     }
-    backgroundJob.isRunning = true;
-    backgroundJob.isPaused = false;
-    backgroundJob.artistId = artistId || null;
-    backgroundJob.labelId = labelId || null;
-    backgroundJob.artistName = artistName || null; // Store artist/label name
-    backgroundJob.progress = { current: 0, total: 0, uniqueLinks: 0 };
-    backgroundJob.uniqueLinks.clear();
-    backgroundJob.waitTime = 0;
-
-    const processReleases = async () => {
-        try {
-            const releaseIds = artistId
-                ? await fetchReleaseIds(artistId, isDevMode)
-                : await fetchLabelReleaseIds(labelId, isDevMode);
-
-            backgroundJob.progress.total = releaseIds.length;
-            console.log(`🎵 Total releases to process: ${releaseIds.length}`);
-
-            for (let i = 0; i < releaseIds.length; i++) {
-                if (!backgroundJob.isRunning) break;
-                while (backgroundJob.isPaused || backgroundJob.waitTime > 0) {
-                    // Update status when paused or rate-limited
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
-                    if (backgroundJob.waitTime > 0) backgroundJob.waitTime -= 1000;
-                }
-
-                const releaseId = releaseIds[i];
-                console.log(`🎧 Processing release ${i + 1} of ${releaseIds.length}: Release ID ${releaseId}`);
-
-                try {
-                    const videos = await fetchVideoIds(releaseId);
-                    videos.forEach((video) => backgroundJob.uniqueLinks.add(video));
-                    backgroundJob.progress.current = i + 1;
-                    backgroundJob.progress.uniqueLinks = backgroundJob.uniqueLinks.size;
-                    console.log(`🎥 Found ${videos.length} videos for release ${releaseId}. Total unique videos: ${backgroundJob.progress.uniqueLinks}`);
-                    backgroundJob.waitTime = 0; // Reset wait time on success
-                } catch (error) {
-                    if (error.response?.status === 429) {
-                        backgroundJob.waitTime = backgroundJob.waitTime > 0 ? backgroundJob.waitTime + 5000 : 5000;
-                        console.error(`⏳ Rate limit hit. Retrying in ${backgroundJob.waitTime / 1000} seconds...`);
-                    } else {
-                        throw error;
-                    }
-                }
-
-                if (isDevMode) {
-                    console.log('🛠 Dev mode enabled: Skipping pagination.');
-                    break; // Skip pagination in Dev Mode
-                }
-            }
-
-            console.log('✅ Background job completed.');
-            // Ensure final stats are preserved
-            backgroundJob.progress.current = backgroundJob.progress.total;
-            backgroundJob.isRunning = false;
-        } catch (error) {
-            console.error('❌ Error processing releases:', error.message);
-            backgroundJob.isRunning = false;
-            backgroundJob.error = error.message;
-        }
-    };
-
-    processReleases();
-    // Add SSE update after state changes
-    emitProgressUpdate();
-    res.status(200).json({ message: 'Background job started.' });
+    
+    try {
+        await startBackgroundJob({ 
+            artistId, 
+            labelId, 
+            isDevMode, 
+            artistName, 
+            sessionId,
+            userDiscogsAuth
+        });
+        res.status(200).json({ message: 'Background job started.' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
 });
 
-async function fetchReleaseIds(artistId, isDevMode) {
+async function fetchReleaseIds(artistId, isDevMode, userDiscogsAuth = null, sessionId = null) {
     const url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
-    const releases = await makeDiscogsRequest(url, isDevMode);
+    const releases = await makeDiscogsRequest(url, isDevMode, userDiscogsAuth, sessionId);
     return releases.map((release) => release.main_release || release.id);
 }
 
-async function fetchLabelReleaseIds(labelId, isDevMode) {
+async function fetchLabelReleaseIds(labelId, isDevMode, userDiscogsAuth = null, sessionId = null) {
     const url = `${DISCOGS_API_URL}/labels/${labelId}/releases`;
-    const releases = await makeDiscogsRequest(url, isDevMode);
+    const releases = await makeDiscogsRequest(url, isDevMode, userDiscogsAuth, sessionId);
     return releases.map((release) => release.id);
 }
 
-async function makeDiscogsRequest(url, isDevMode) {
+async function makeDiscogsRequest(url, isDevMode, userDiscogsAuth = null, sessionId = null) {
     console.log(`makeDiscogsRequest: ${url}`);
     let allData = [];
     let retryCount = 0;
@@ -630,8 +672,16 @@ async function makeDiscogsRequest(url, isDevMode) {
     try {
         while (url) {
             try {
+                const headers = { 'User-Agent': USER_AGENT };
+                
+                // Add authentication if available
+                if (userDiscogsAuth && userDiscogsAuth.accessToken) {
+                    const oauthSignature = `${discogsConsumerSecret}&${userDiscogsAuth.accessTokenSecret}`;
+                    headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${userDiscogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+                }
+                
                 const response = await axios.get(url, {
-                    headers: { 'User-Agent': USER_AGENT },
+                    headers: headers,
                 });
                 allData = allData.concat(response.data.releases || []);
                 if (isDevMode) {
@@ -644,10 +694,28 @@ async function makeDiscogsRequest(url, isDevMode) {
                 if (error.response?.status === 429) {
                     retryCount++;
                     const waitTime = Math.pow(2, retryCount) * 1000;
-                    const logMsg = `⏳ Rate limit hit. Retrying in ${waitTime / 1000} seconds... (attempt ${retryCount})`;
+                    const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}/15. Waiting ${waitTime / 1000} seconds...`;
                     console.error(logMsg);
-                    io.emit('progressLog', logMsg); // Send logMsg to frontend
+                    
+                    // Set rate limit status if sessionId is available
+                    if (sessionId) {
+                        const userBackgroundJob = getUserBackgroundJob(sessionId);
+                        userBackgroundJob.rateLimited = true;
+                        userBackgroundJob.waitTime = waitTime;
+                        emitProgressUpdateToUser(sessionId, logMsg);
+                    } else {
+                        // Fallback to global emit for backward compatibility
+                        io.emit('progressLog', logMsg);
+                    }
+                    
                     await new Promise((resolve) => setTimeout(resolve, waitTime));
+                    
+                    // Clear rate limit status after wait
+                    if (sessionId) {
+                        const userBackgroundJob = getUserBackgroundJob(sessionId);
+                        userBackgroundJob.rateLimited = false;
+                        userBackgroundJob.waitTime = 0;
+                    }
                 } else {
                     throw error;
                 }
@@ -857,7 +925,13 @@ app.get('/discogs/generateURL', ensureSecretsInitialized, async (req, res) => {
   }
 });
 
-let discogsAuth = { accessToken: null, accessTokenSecret: null }; // Store Discogs auth tokens
+// Get or create Discogs auth for a user session
+function getUserDiscogsAuth(req) {
+  if (!req.session.discogsAuth) {
+    req.session.discogsAuth = { accessToken: null, accessTokenSecret: null };
+  }
+  return req.session.discogsAuth;
+}
 
 // Handle the Discogs OAuth callback
 app.get('/listogs/callback/discogs', ensureSecretsInitialized, async (req, res) => {
@@ -908,8 +982,10 @@ app.get('/listogs/callback/discogs', ensureSecretsInitialized, async (req, res) 
     // Optionally remove the used request token secret from storage
     delete discogsRequestTokens[oauth_token];
 
-    // Store the tokens (for example, in a global variable or database)
-    discogsAuth = { accessToken, accessTokenSecret };
+    // Store the tokens in user session
+    const userDiscogsAuth = getUserDiscogsAuth(req);
+    userDiscogsAuth.accessToken = accessToken;
+    userDiscogsAuth.accessTokenSecret = accessTokenSecret;
 
     console.log('Authentication successful');
     console.log('================================\n');
@@ -929,7 +1005,8 @@ app.get('/listogs/callback/discogs', ensureSecretsInitialized, async (req, res) 
 // Endpoint to check Discogs authentication status
 app.get('/discogs/authStatus', (req, res) => {
   console.log("✅ [GET /discogs/authStatus] Hit");
-  const isAuthenticated = !!discogsAuth.accessToken;
+  const userDiscogsAuth = getUserDiscogsAuth(req);
+  const isAuthenticated = !!userDiscogsAuth.accessToken;
   res.status(200).json({ isAuthenticated });
 });
 
@@ -937,7 +1014,12 @@ app.get('/discogs/authStatus', (req, res) => {
 app.post('/signOut', (req, res) => {
   console.log("🚪 [POST /signOut] Hit");
   authStatus.isAuthenticated = false;
-  discogsAuth = { accessToken: null, accessTokenSecret: null };
+  
+  // Clear user session data
+  const userDiscogsAuth = getUserDiscogsAuth(req);
+  userDiscogsAuth.accessToken = null;
+  userDiscogsAuth.accessTokenSecret = null;
+  
   if (oauth2Client) {
     oauth2Client.setCredentials(null); // Clear YouTube credentials
     console.log("YouTube credentials cleared.");
@@ -1433,28 +1515,66 @@ app.get('/', (req, res) => {
   res.status(200).send('hello world');
 });
 
-// Simplify background job object
-let backgroundJob = {
-    isRunning: false,
-    isPaused: false,
-    progress: { current: 0, total: 0, uniqueLinks: 0 },
-    uniqueLinks: new Set(),
-    waitTime: 0,
-};
-
 // Keep core endpoints
 app.get('/backgroundJobStatus', (req, res) => {
+    const sessionId = req.session.id;
+    const userBackgroundJob = getUserBackgroundJob(sessionId);
+    
     res.status(200).json({
-        progress: backgroundJob.progress,
-        error: backgroundJob.error || null,
-        waitTime: backgroundJob.waitTime,
-        isRunning: backgroundJob.isRunning,
-        isPaused: backgroundJob.isPaused
+        progress: userBackgroundJob.progress,
+        error: userBackgroundJob.error || null,
+        waitTime: userBackgroundJob.waitTime,
+        isRunning: userBackgroundJob.isRunning,
+        isPaused: userBackgroundJob.isPaused,
+        rateLimited: userBackgroundJob.rateLimited
     });
 });
 
+// Pause background job endpoint
+app.post('/pauseBackgroundJob', (req, res) => {
+    const sessionId = req.session.id;
+    const userBackgroundJob = getUserBackgroundJob(sessionId);
+    
+    if (!userBackgroundJob.isRunning) {
+        return res.status(400).json({ error: 'No job is currently running for this user.' });
+    }
+    
+    userBackgroundJob.isPaused = !userBackgroundJob.isPaused;
+    const action = userBackgroundJob.isPaused ? 'paused' : 'resumed';
+    
+    emitProgressUpdateToUser(sessionId, `Background job ${action}.`);
+    
+    res.status(200).json({ 
+        message: `Background job ${action}.`,
+        isPaused: userBackgroundJob.isPaused
+    });
+});
+
+// Stop background job endpoint
+app.post('/stopBackgroundJob', (req, res) => {
+    const sessionId = req.session.id;
+    const userBackgroundJob = getUserBackgroundJob(sessionId);
+    
+    if (!userBackgroundJob.isRunning) {
+        return res.status(400).json({ error: 'No job is currently running for this user.' });
+    }
+    
+    // Stop the job
+    userBackgroundJob.isRunning = false;
+    userBackgroundJob.isPaused = false;
+    userBackgroundJob.rateLimited = false;
+    userBackgroundJob.waitTime = 0;
+    
+    emitProgressUpdateToUser(sessionId, 'Background job stopped by user.');
+    
+    res.status(200).json({ message: 'Background job stopped.' });
+});
+
 app.get('/backgroundJobLinks', (req, res) => {
-    res.status(200).json({ links: Array.from(backgroundJob.uniqueLinks) });
+    const sessionId = req.session.id;
+    const userBackgroundJob = getUserBackgroundJob(sessionId);
+    
+    res.status(200).json({ links: Array.from(userBackgroundJob.uniqueLinks) });
 });
 
 // Create images directory if it doesn't exist
