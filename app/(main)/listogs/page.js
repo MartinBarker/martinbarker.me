@@ -5,12 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { socket, useSocketStatus, useYoutubeLinks, useYoutubeResults } from './socket'; // <-- Import useSocketStatus hook
 
-// Create axios instance with credentials support for session-based authentication
-const apiClient = axios.create({
-  withCredentials: true, // Include cookies in requests
-});
-
-const loggedAxios = apiClient;
+const loggedAxios = axios;
 
 export default function Discogs2Youtube() {
   const [authStatus, setAuthStatus] = useState(false);
@@ -30,7 +25,6 @@ export default function Discogs2Youtube() {
   const [backgroundJobStatus, setBackgroundJobStatus] = useState({
       isRunning: false,
       isPaused: false,
-      rateLimited: false,
       progress: { current: 0, total: 0, uniqueLinks: 0 },
   });
   const [backgroundJobError, setBackgroundJobError] = useState(null);
@@ -50,8 +44,7 @@ export default function Discogs2Youtube() {
     progress: { current: 0, total: 0, uniqueLinks: 0 },
     waitTime: 0,
     isRunning: false,
-    isPaused: false,
-    rateLimited: false
+    isPaused: false
   });
   const [progressLogs, setProgressLogs] = useState([]);
   const logsEndRef = useRef(null);
@@ -723,29 +716,32 @@ export default function Discogs2Youtube() {
   //const displayProgress = taskCompleted ? finalTaskStats : backgroundJobStatus.progress;
 
   const handleExtractImages = async () => {
-    // Extract images functionality is currently disabled
-    console.log('Extract images functionality is currently disabled');
-  };
-
-  // Pause/Resume current background job
-  const handlePauseCurrentJob = async () => {
     try {
-      const response = await loggedAxios.post(`${apiUrl}/pauseBackgroundJob`);
-      console.log('Background job pause/resume:', response.data.message);
-    } catch (error) {
-      console.error('Error pausing/resuming background job:', error.message);
-    }
-  };
+        const response = await loggedAxios.post(`${apiUrl}/getDiscogsImgs`, {
+            query: extractImgsQuery,
+            enablePagination: true // Disable pagination for testing
+        });
+        console.log('handleExtractImages() response:', response);
+        setExtractImgsResult(`Success: ${response.data.paginationSummary}`);
 
-  // Stop current background job
-  const handleStopCurrentJob = async () => {
-    try {
-      const response = await loggedAxios.post(`${apiUrl}/stopBackgroundJob`);
-      console.log('Background job stopped:', response.data.message);
+        // Try to get the first release info for title suggestions
+        let release = null;
+        if (response.data.item_release) {
+          release = response.data.item_release;
+        } else if (response.data.releases_info && Array.isArray(response.data.releases_info) && response.data.releases_info.length > 0) {
+          release = response.data.releases_info[0];
+        }
+        if (release) {
+          setVideoTitleSuggestions(generateVideoTitleSuggestions(release));
+        } else {
+          setVideoTitleSuggestions([]);
+        }
     } catch (error) {
-      console.error('Error stopping background job:', error.message);
+        setExtractImgsResult('Error extracting images.');
+        setVideoTitleSuggestions([]);
+        console.log('error=', error);
     }
-  };
+};
 
  // Helper to generate video title recommendations
 function generateVideoTitleSuggestions(release) {
@@ -974,9 +970,7 @@ function generateVideoTitleSuggestions(release) {
                 : progress.isRunning
                   ? progress.isPaused
                     ? 'Paused'
-                    : progress.rateLimited
-                      ? 'Waiting for Rate Limit...'
-                      : 'Running'
+                    : 'Running'
                   : (progress.progress.current === 0 && progress.progress.total === 0)
                     ? 'Idle'
                     : 'Completed'}
@@ -996,32 +990,9 @@ function generateVideoTitleSuggestions(release) {
               </div>
             )}
             
-            {/* Background Job Controls */}
-            {/* {progress.isRunning && (
-              <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                <button 
-                  onClick={handlePauseCurrentJob}
-                  className={styles.button}
-                  style={{ 
-                    backgroundColor: progress.isPaused ? '#28a745' : '#ffc107',
-                    color: progress.isPaused ? 'white' : '#212529'
-                  }}
-                >
-                  {progress.isPaused ? 'Resume' : 'Pause'}
-                </button>
-                <button 
-                  onClick={handleStopCurrentJob}
-                  className={styles.button}
-                  style={{ backgroundColor: '#dc3545', color: 'white' }}
-                >
-                  Stop
-                </button>
-              </div>
-            )} */}
-            
             {/* Progress log output */}
-            <div><strong>Progress Log:</strong></div>
-            <div style={{ marginTop: 8, background: "#222", color: "#fff", padding: 8, borderRadius: 4, maxHeight: 120, overflowY: "auto", fontSize: 13 }}>
+            <div style={{ marginTop: 16, background: "#222", color: "#fff", padding: 8, borderRadius: 4, maxHeight: 120, overflowY: "auto", fontSize: 13 }}>
+              <div><strong>Progress Log:</strong></div>
               {progressLogs.length === 0 ? (
                 <div style={{fontStyle: 'italic', color: '#999'}}>No logs yet</div>
               ) : (
