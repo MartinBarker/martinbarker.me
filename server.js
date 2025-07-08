@@ -134,6 +134,13 @@ function getDiscogsRediurectUrl() {
   return 'https://jermasearch.com/internal-api/listogs/callback/discogs';
 }
 
+function getDiscogsFrontendRedirectUrl() {
+  if (isLocal) {
+    return 'http://localhost:3001/listogs?discogsAuth=success';
+  }
+  return 'https://jermasearch.com/listogs?discogsAuth=success';
+}
+
 // Centralized function to initialize the OAuth2 client
 function initializeOAuthClient(clientId, clientSecret) {
   const redirectUri = getRedirectUrl(); 
@@ -940,8 +947,7 @@ app.get('/listogs/callback/discogs', async (req, res) => {
     console.log('================================\n');
 
     // ✅ THIS LINE IS CRUCIAL
-    // Redirect to the /listogs route, using only the path (works for both dev and prod)
-    res.redirect('/listogs?discogsAuth=success');
+    res.redirect(getDiscogsFrontendRedirectUrl());
   } catch (error) {
     console.error('❌ Error during Discogs callback processing:', error);
     res.status(500).send('Error during Discogs authentication.');
