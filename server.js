@@ -940,7 +940,8 @@ app.get('/listogs/callback/discogs', async (req, res) => {
     console.log('================================\n');
 
     // ✅ THIS LINE IS CRUCIAL
-    res.redirect('http://localhost:3001/listogs?discogsAuth=success');
+    // Redirect to the /listogs route, using only the path (works for both dev and prod)
+    res.redirect('/listogs?discogsAuth=success');
   } catch (error) {
     console.error('❌ Error during Discogs callback processing:', error);
     res.status(500).send('Error during Discogs authentication.');
