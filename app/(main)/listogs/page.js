@@ -55,9 +55,11 @@ export default function Discogs2Youtube() {
 useEffect(() => {
   const params = new URLSearchParams(window.location.search);
   if (params.get('discogsAuth') === 'success') {
+    console.log('🧭 [Auth Debug] Redirect contains discogsAuth=success');
     localStorage.setItem('discogsRecentlyAuthenticated', 'true');
-    // Clean up the URL so it doesn't keep the query param
     window.history.replaceState({}, document.title, window.location.pathname);
+  } else {
+    console.log('🧭 [Auth Debug] No discogsAuth=success in URL');
   }
 }, []);
 
@@ -169,31 +171,7 @@ useEffect(() => {
       fetchDiscogsAuthUrl();
   }, [apiUrl]);
 
-  // Add console logs to debug auth status
-  useEffect(() => {
-      const fetchDiscogsAuthStatus = async () => {
-          try {
-              const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`, { withCredentials: true });
-              console.log('🔍 Discogs Auth Status:', response.data.isAuthenticated);
-              setDiscogsAuthStatus(response.data.isAuthenticated);
 
-              if (response.data.isAuthenticated) {
-                localStorage.removeItem('discogsRecentlyAuthenticated');
-              }
-          } catch (error) {
-              console.error('Error fetching Discogs auth status:', error.message);
-              setDiscogsAuthStatus(false);
-          }
-      };
-
-      if (typeof window !== 'undefined') {
-          const flag = localStorage.getItem('discogsRecentlyAuthenticated');
-          if (flag === 'true') {
-              console.log('👀 Detected recent Discogs login, forcing auth recheck');
-              fetchDiscogsAuthStatus();
-          }
-      }
-  }, [apiUrl, discogsAccessToken]);
 
   useEffect(() => {
       let interval;
@@ -232,30 +210,33 @@ useEffect(() => {
       }
   }, [backgroundJobStatus.isRunning, backgroundJobStatus.isPaused, apiUrl]);
 
-  useEffect(() => {
-      const fetchDiscogsAuthStatus = async () => {
-          try {
-              const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`, { withCredentials: true });
-              console.log('🔍 Discogs Auth Status:', response.data.isAuthenticated);
-              setDiscogsAuthStatus(response.data.isAuthenticated);
+useEffect(() => {
+  const fetchDiscogsAuthStatus = async () => {
+    console.log('🚨 [Auth Debug] Calling /discogs/authStatus...');
+    try {
+      const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`, { withCredentials: true });
+      console.log('🔍 [Auth Debug] Discogs Auth Status response:', response.data);
+      setDiscogsAuthStatus(response.data.isAuthenticated);
 
-              if (response.data.isAuthenticated) {
-                localStorage.removeItem('discogsRecentlyAuthenticated');
-              }
-          } catch (error) {
-              console.error('Error fetching Discogs auth status:', error.message);
-              setDiscogsAuthStatus(false);
-          }
-      };
-
-      if (typeof window !== 'undefined') {
-          const flag = localStorage.getItem('discogsRecentlyAuthenticated');
-          if (flag === 'true') {
-              console.log('👀 Detected recent Discogs login, forcing auth recheck');
-              fetchDiscogsAuthStatus();
-          }
+      if (response.data.isAuthenticated) {
+        console.log('✅ [Auth Debug] Auth success — clearing flag');
+        localStorage.removeItem('discogsRecentlyAuthenticated');
       }
-  }, [apiUrl, discogsAccessToken]);
+    } catch (error) {
+      console.error('❌ [Auth Debug] Error fetching Discogs auth status:', error.message);
+      setDiscogsAuthStatus(false);
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    const flag = localStorage.getItem('discogsRecentlyAuthenticated');
+    console.log('🧠 [Auth Debug] localStorage flag =', flag);
+    if (flag === 'true') {
+      console.log('👀 Detected recent Discogs login, forcing auth recheck');
+      fetchDiscogsAuthStatus();
+    }
+  }
+}, [apiUrl, discogsAccessToken]);
 
   // Track if the task is completed and the final progress
   const [isTaskCompleted, setIsTaskCompleted] = useState(false);
