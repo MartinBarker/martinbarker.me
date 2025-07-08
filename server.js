@@ -25,7 +25,10 @@ const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET || 'keyboard cat',
   resave: false,
   saveUninitialized: true,
-  cookie: { secure: false }
+  cookie: {
+    secure: true, // IMPORTANT for HTTPS
+    sameSite: 'lax', // Allow session cookie for redirects within same site
+  }
 });
 app.use(sessionMiddleware);
 
