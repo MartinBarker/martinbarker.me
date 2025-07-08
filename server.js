@@ -15,10 +15,20 @@ const querystring = require('querystring'); // For query string manipulation
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const session = require('express-session');
+const sharedSession = require('express-socket.io-session');
 
 // --- Application initialization ---
 const app = express();
 app.use(express.json());
+const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET || 'keyboard cat',
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: false }
+});
+app.use(sessionMiddleware);
+
 const port = 3030;
 
 // Define allowed origins for both local and production
@@ -54,16 +64,22 @@ const io = new Server(server, {
 });
 
 // --- Socket.IO connection logic ---
-io.on('connection', (socket) => {
-  console.log('[Socket.IO] Client connected:', socket.id);
+io.use(sharedSession(sessionMiddleware, { autoSave: true }));
 
-  // Send initial progress state
-  socket.emit('progress', {
-    progress: backgroundJob.progress,
-    waitTime: backgroundJob.waitTime,
-    isRunning: backgroundJob.isRunning,
-    isPaused: backgroundJob.isPaused
-  });
+
+io.on('connection', (socket) => {
+  const sessionID = socket.handshake.sessionID || socket.handshake.session.id;
+  console.log('[Socket.IO] Connected:', socket.id, 'SessionID:', sessionID);
+
+  const sess = socket.handshake.session;
+  const job = sess.backgroundJob || {
+    isRunning: false,
+    isPaused: false,
+    progress: { current: 0, total: 0, uniqueLinks: 0 },
+    waitTime: 0,
+  };
+
+  socket.emit('progress', job);
 
   socket.on('disconnect', () => {
     console.log('[Socket.IO] Client disconnected:', socket.id);
@@ -301,7 +317,8 @@ app.post('/discogsAuth', async (req, res) => {
       let headers = { 'User-Agent': USER_AGENT };
 
       // If user is signed in, include OAuth header
-      if (discogsAuth.accessToken) {
+      const discogsAuth = req.session?.discogsAuth;
+      if (discogsAuth?.accessToken) {
         console.log("🔑 User is authenticated. Adding OAuth headers.");
         const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
         headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
@@ -360,7 +377,8 @@ app.post('/discogsSearch', async (req, res) => {
             
             const headers = { 'User-Agent': USER_AGENT };
 
-            if (discogsAuth.accessToken) {
+            const discogsAuth = req.session?.discogsAuth;
+      if (discogsAuth?.accessToken) {
                 const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
                 headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
             }
@@ -857,79 +875,82 @@ app.get('/discogs/generateURL', ensureSecretsInitialized, async (req, res) => {
   }
 });
 
-let discogsAuth = { accessToken: null, accessTokenSecret: null }; // Store Discogs auth tokens
 
-// Handle the Discogs OAuth callback
-app.get('/listogs/callback/discogs', ensureSecretsInitialized, async (req, res) => {
-  console.log("🎸 [GET /listogs/callback/discogs] Hit", req.originalUrl);
-  const details = {
-    full_url: req.protocol + '://' + req.get('host') + req.originalUrl,
-    query_params: req.query
-  };
+// --- Discogs OAuth: Exchange request token for access token ---
+async function getAccessToken(oauth_token, oauth_verifier) {
+  // Find the request token secret from our in-memory store
+  const oauth_token_secret = discogsRequestTokens[oauth_token];
+  if (!oauth_token_secret) {
+    throw new Error('Request token secret not found for provided oauth_token.');
+  }
+
+  const oauth_nonce = generateNonce();
+  const oauth_timestamp = Math.floor(Date.now() / 1000);
+
+  // PLAINTEXT signature: consumer_secret&token_secret
+  const oauth_signature = `${discogsConsumerSecret}&${oauth_token_secret}`;
+
+  const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${oauth_token}", oauth_signature_method="PLAINTEXT", oauth_signature="${oauth_signature}", oauth_timestamp="${oauth_timestamp}", oauth_nonce="${oauth_nonce}", oauth_verifier="${oauth_verifier}"`;
+
+  const url = 'https://api.discogs.com/oauth/access_token';
 
   try {
-    console.log('\n=== Discogs OAuth Flow ===');
-    const { oauth_token, oauth_verifier } = req.query;
-
-    if (!oauth_token || !oauth_verifier) {
-      throw new Error('Missing oauth_token or oauth_verifier in request');
-    }
-
-    console.log('Received tokens:');
-    console.log('OAuth Token:', oauth_token);
-    console.log('OAuth Verifier:', oauth_verifier);
-
-    // Retrieve the stored oauth_token_secret using the oauth_token
-    const storedTokenSecret = discogsRequestTokens[oauth_token];
-    if (!storedTokenSecret) {
-      throw new Error('No matching token secret found for this oauth_token');
-    }
-
-    const oauthNonce = generateNonce();
-    const oauthTimestamp = Math.floor(Date.now() / 1000);
-    const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_token="${oauth_token}", oauth_signature="${discogsConsumerSecret}&${storedTokenSecret}", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_verifier="${oauth_verifier}"`;
-
-    console.log('\nMaking request to Discogs for access token...');
-    const DISCOGS_ACCESS_TOKEN_URL = "https://api.discogs.com/oauth/access_token";
-    
-    const response = await axios.post(DISCOGS_ACCESS_TOKEN_URL, null, {
+    const response = await axios.post(url, null, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: authHeader,
+        'Authorization': authHeader,
         'User-Agent': USER_AGENT,
-      },
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
+    // Parse response: oauth_token=...&oauth_token_secret=...
+    const parsed = querystring.parse(response.data);
+    if (!parsed.oauth_token || !parsed.oauth_token_secret) {
+      throw new Error('Invalid response from Discogs access_token endpoint.');
+    }
+    return {
+      accessToken: parsed.oauth_token,
+      accessTokenSecret: parsed.oauth_token_secret
+    };
+  } catch (error) {
+    throw new Error('Failed to obtain Discogs access token: ' + (error.response?.data || error.message));
+  }
+}
 
-    const { oauth_token: accessToken, oauth_token_secret: accessTokenSecret } = querystring.parse(response.data);
+// Handle the Discogs OAuth callback
+app.get('/listogs/callback/discogs', async (req, res) => {
+  console.log(`🎸 [GET /listogs/callback/discogs] Hit ${req.url}`);
+
+  const { oauth_token, oauth_verifier } = req.query;
+
+  console.log('\n=== Discogs OAuth Flow ===');
+  console.log('Received tokens:');
+  console.log('OAuth Token:', oauth_token);
+  console.log('OAuth Verifier:', oauth_verifier);
+
+  console.log('\nMaking request to Discogs for access token...');
+
+  try {
+    const { accessToken, accessTokenSecret } = await getAccessToken(oauth_token, oauth_verifier);
+    req.session.discogsAuth = { accessToken, accessTokenSecret };
+    req.session.save();
 
     console.log('\nAccess token received!');
     console.log('Storing tokens and redirecting user...');
-    
-    // Optionally remove the used request token secret from storage
-    delete discogsRequestTokens[oauth_token];
-
-    // Store the tokens (for example, in a global variable or database)
-    discogsAuth = { accessToken, accessTokenSecret };
-
     console.log('Authentication successful');
     console.log('================================\n');
 
-    // Dynamically set the redirect URL based on the environment
-    const redirectUrl = isLocal ? 'http://localhost:3001/listogs' : 'https://jermasearch.com/listogs';
-    res.redirect(redirectUrl);
+    // ✅ THIS LINE IS CRUCIAL
+    res.redirect('http://localhost:3001/listogs?discogsAuth=success');
   } catch (error) {
-    logError('Discogs OAuth Flow', error, details);
-    
-    // Redirect to error page or main page with error param
-    const errorRedirectUrl = isLocal ? 'http://localhost:3001/listogs' : 'https://jermasearch.com/listogs';
-    res.redirect(`${errorRedirectUrl}?error=${encodeURIComponent(error.message)}`);
+    console.error('❌ Error during Discogs callback processing:', error);
+    res.status(500).send('Error during Discogs authentication.');
   }
 });
 
 // Endpoint to check Discogs authentication status
 app.get('/discogs/authStatus', (req, res) => {
   console.log("✅ [GET /discogs/authStatus] Hit");
-  const isAuthenticated = !!discogsAuth.accessToken;
+  const isAuthenticated = !!(req.session?.discogsAuth?.accessToken);
   res.status(200).json({ isAuthenticated });
 });
 
@@ -937,7 +958,7 @@ app.get('/discogs/authStatus', (req, res) => {
 app.post('/signOut', (req, res) => {
   console.log("🚪 [POST /signOut] Hit");
   authStatus.isAuthenticated = false;
-  discogsAuth = { accessToken: null, accessTokenSecret: null };
+  if (req.session) req.session.discogsAuth = null;
   if (oauth2Client) {
     oauth2Client.setCredentials(null); // Clear YouTube credentials
     console.log("YouTube credentials cleared.");

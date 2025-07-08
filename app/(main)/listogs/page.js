@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { socket, useSocketStatus, useYoutubeLinks, useYoutubeResults } from './socket'; // <-- Import useSocketStatus hook
 
+axios.defaults.withCredentials = true;
 const loggedAxios = axios;
 
 export default function Discogs2Youtube() {
@@ -49,7 +50,18 @@ export default function Discogs2Youtube() {
   const [progressLogs, setProgressLogs] = useState([]);
   const logsEndRef = useRef(null);
   
-  // Add socket connection status
+  
+// Detect post-auth redirect and store temporary auth flag
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('discogsAuth') === 'success') {
+    localStorage.setItem('discogsRecentlyAuthenticated', 'true');
+    // Clean up the URL so it doesn't keep the query param
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}, []);
+
+// Add socket connection status
   const { status: socketStatus, hasMounted } = useSocketStatus();
 
   const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
@@ -161,16 +173,26 @@ export default function Discogs2Youtube() {
   useEffect(() => {
       const fetchDiscogsAuthStatus = async () => {
           try {
-              const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`);
+              const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`, { withCredentials: true });
               console.log('🔍 Discogs Auth Status:', response.data.isAuthenticated);
               setDiscogsAuthStatus(response.data.isAuthenticated);
+
+              if (response.data.isAuthenticated) {
+                localStorage.removeItem('discogsRecentlyAuthenticated');
+              }
           } catch (error) {
               console.error('Error fetching Discogs auth status:', error.message);
-              setDiscogsAuthStatus(false); // Explicitly set to false on error
+              setDiscogsAuthStatus(false);
           }
       };
 
-      fetchDiscogsAuthStatus();
+      if (typeof window !== 'undefined') {
+          const flag = localStorage.getItem('discogsRecentlyAuthenticated');
+          if (flag === 'true') {
+              console.log('👀 Detected recent Discogs login, forcing auth recheck');
+              fetchDiscogsAuthStatus();
+          }
+      }
   }, [apiUrl, discogsAccessToken]);
 
   useEffect(() => {
@@ -213,16 +235,26 @@ export default function Discogs2Youtube() {
   useEffect(() => {
       const fetchDiscogsAuthStatus = async () => {
           try {
-              const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`);
+              const response = await loggedAxios.get(`${apiUrl}/discogs/authStatus`, { withCredentials: true });
               console.log('🔍 Discogs Auth Status:', response.data.isAuthenticated);
               setDiscogsAuthStatus(response.data.isAuthenticated);
+
+              if (response.data.isAuthenticated) {
+                localStorage.removeItem('discogsRecentlyAuthenticated');
+              }
           } catch (error) {
               console.error('Error fetching Discogs auth status:', error.message);
-              setDiscogsAuthStatus(false); // Explicitly set to false on error
+              setDiscogsAuthStatus(false);
           }
       };
 
-      fetchDiscogsAuthStatus();
+      if (typeof window !== 'undefined') {
+          const flag = localStorage.getItem('discogsRecentlyAuthenticated');
+          if (flag === 'true') {
+              console.log('👀 Detected recent Discogs login, forcing auth recheck');
+              fetchDiscogsAuthStatus();
+          }
+      }
   }, [apiUrl, discogsAccessToken]);
 
   // Track if the task is completed and the final progress
