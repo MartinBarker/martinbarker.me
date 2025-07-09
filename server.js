@@ -1812,34 +1812,15 @@ app.get('/listogs/callback/discogs', async (req, res) => {
 });
 
 // Helper to make Discogs API requests, using OAuth if tokens are provided
-async function newDiscogsAPIRequest(discogsType, discogsId, oauthToken, oauthVerifier) {
-  let url = '';
-  if (discogsType === 'release') {
-    url = `https://api.discogs.com/releases/${discogsId}`;
-  } else if (discogsType === 'artist') {
-    url = `https://api.discogs.com/artists/${discogsId}`;
-  } else if (discogsType === 'label') {
-    url = `https://api.discogs.com/labels/${discogsId}`;
-  } else if (discogsType === 'master') {
-    url = `https://api.discogs.com/masters/${discogsId}`;
-  } else if (discogsType === 'list') {
-    url = `https://api.discogs.com/lists/${discogsId}`;
-  } else {
-    throw new Error('Invalid discogsType');
-  }
-
-  // Build headers
+async function newDiscogsAPIRequest(discogsURL, oauthToken) {
   const headers = {
     'User-Agent': USER_AGENT
   };
 
-  // If oauthToken is provided, use PLAINTEXT OAuth1 header (Discogs style)
   if (oauthToken) {
-    // Note: This is a minimal example. For full OAuth1, you should use all tokens and secrets.
-    // Here, we use PLAINTEXT signature with only the consumer secret.
     const oauth_nonce = crypto.randomBytes(16).toString('hex');
     const oauth_timestamp = Math.floor(Date.now() / 1000);
-    const oauth_signature = `${discogsConsumerSecret}&`; // No token secret available here
+    const oauth_signature = `${discogsConsumerSecret}&`;
     headers['Authorization'] =
       `OAuth oauth_consumer_key="${discogsConsumerKey}",` +
       ` oauth_token="${oauthToken}",` +
@@ -1849,22 +1830,128 @@ async function newDiscogsAPIRequest(discogsType, discogsId, oauthToken, oauthVer
       ` oauth_nonce="${oauth_nonce}"`;
   }
 
-  try {
-    const response = await axios.get(url, { headers });
-    return response.data;
-  } catch (err) {
-    throw new Error(`Discogs API error: ${err.response?.data?.message || err.message}`);
+  let retryCount = 0;
+  let rateLimitStart = null;
+  while (true) {
+    try {
+      const response = await axios.get(discogsURL, { headers });
+      if (rateLimitStart !== null) {
+        const seconds = ((Date.now() - rateLimitStart) / 1000).toFixed(1);
+        const msg = `✅ Rate limit recovery: ${seconds} seconds since last 429 to first success.`;
+        console.log(msg);
+        if (typeof io !== "undefined") io.emit('progressLog', msg);
+        rateLimitStart = null;
+      }
+      return response.data;
+    } catch (err) {
+      if (err.response?.status === 429) {
+        retryCount++;
+        if (rateLimitStart === null) rateLimitStart = Date.now();
+        const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
+        const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}. Waiting ${waitTime / 1000} seconds...`;
+        console.warn(logMsg);
+        if (typeof io !== "undefined") io.emit('progressLog', logMsg);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+      throw new Error(`Discogs API error: ${err.response?.data?.message || err.message}`);
+    }
   }
+}
+
+async function getAllDiscogsArtistReleases(artistId, oauthToken, oauthVerifier) {
+  try {
+    console.log(`[getAllDiscogsArtistReleases] Start: artistId=${artistId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
+    let allReleases = [];
+    let url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
+    let retryCount = 0;
+
+    try {
+      console.log(`[getAllDiscogsArtistReleases] Fetching: ${url}`);
+      const response = await newDiscogsAPIRequest(url, oauthToken);
+
+      if (response && response.releases) {
+        console.log(`[getAllDiscogsArtistReleases] Fetched ${response.releases.length} releases from current page.`);
+        allReleases = allReleases.concat(response.releases);
+      } else {
+        console.log(`[getAllDiscogsArtistReleases] No releases found in response.`);
+      }
+
+      url = response.pagination?.urls?.next || null;
+      if (url) {
+        console.log(`[getAllDiscogsArtistReleases] Next page URL: ${url}`);
+      } else {
+        console.log(`[getAllDiscogsArtistReleases] No more pages.`);
+      }
+      retryCount = 0;
+    } catch (error) {
+      console.error(`[getAllDiscogsArtistReleases] Error: ${error.message}`);
+      throw error;
+    }
+    console.log(`[getAllDiscogsArtistReleases] Done. Total releases fetched: ${allReleases.length}`);
+    return allReleases;
+  } catch (err) {
+    console.error('[getAllDiscogsArtistReleases] error:', err.message);
+    return [];
+  }
+}
+async function getAllReleaseVideos(artistReleases, oauthToken) {
+  // Process releases sequentially, not in parallel
+  const allVideos = [];
+  for (const release of artistReleases) {
+    console.log(`[getAllReleaseVideos] Fetching videos for release index ${artistReleases.indexOf(release)} (release ID: ${release.main_release || release.id})`);
+    try {
+      const releaseId = release.main_release || release.id;
+      if (!releaseId) continue;
+
+      const releaseUrl = `${DISCOGS_API_URL}/releases/${releaseId}`;
+      const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken);
+
+      if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
+        const videos = releaseData.videos.map(video => ({
+          releaseId,
+          releaseTitle: releaseData.title,
+          artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
+          year: releaseData.year || '',
+          discogsUrl: releaseData.uri || `https://www.discogs.com/release/${releaseId}`,
+          videoId: video.uri.split("v=")[1],
+          fullUrl: video.uri,
+          title: video.title,
+        }));
+        allVideos.push(...videos);
+      }
+    } catch (err) {
+      console.error(`[getAllReleaseVideos] Error fetching release ${release.id}: ${err.message}`);
+      throw err;
+    }
+  }
+  return allVideos;
 }
 
 // Endpoint that receives discogs api request (requestId and auth info) from the frontend and returns results
 app.post('/discogs/api', async (req, res) => {
-  console.log("[POST /discogs/api] Hit", req.body);
+  console.log("[POST /discogs/api] Hit: ", req.body);
   const { discogsType, discogsId, oauthToken, oauthVerifier } = req.body;
 
   try {
+    console.log(`[discogs/api] Params: discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
+
+    // assume discogsID is an artist ID, call a method which will get every single discogs artist release and return it
+    let artistReleases = [];
+    console.log(`[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`);
+    artistReleases = await getAllDiscogsArtistReleases(artistId = discogsId, oauthToken, oauthVerifier);
+    console.log(`[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`);
+
+    let artistVideos = [];
+    try {
+      artistVideos = await getAllReleaseVideos(artistReleases, oauthToken);
+    } catch (error) {
+      console.error(`[discogs/api] Error fetching artist videos: ${error.message}`);
+    }
+    console.log(`[discogs/api] Fetched artist videos: ${Array.isArray(artistVideos) ? artistVideos.length : 'unknown'} videos`);
+
     // Use the fetchDiscogsData helper for all Discogs API calls
-    const discogsApiResponse = await newDiscogsAPIRequest(discogsType, discogsId, oauthToken, oauthVerifier);
+    // const discogsApiResponse = await newDiscogsAPIRequest(discogsType, discogsId, oauthToken, oauthVerifier);
 
     res.status(200).json({
       received: {
@@ -1873,10 +1960,12 @@ app.post('/discogs/api', async (req, res) => {
         oauthToken,
         oauthVerifier
       },
-      discogsApiResponse,
+      artistVideos: artistVideos,
       message: "Test Discogs Auth request received successfully."
     });
+    console.log("[discogs/api] Response sent successfully.");
   } catch (err) {
+    console.error("[discogs/api] Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
