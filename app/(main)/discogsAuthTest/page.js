@@ -1,8 +1,8 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-export default function DiscogsAuthTestPage() {
+function DiscogsAuthTestPageInner() {
   const params = useSearchParams();
   const router = useRouter();
   const oauthToken = params.get('oauth_token');
@@ -108,8 +108,8 @@ export default function DiscogsAuthTestPage() {
           : 'https://www.jermasearch.com/internal-api';
 
       // Example values; you can make these dynamic if needed
-      const discogsType = 'release';
-      const discogsId = '9857986';
+      const discogsType = 'artist';
+      const discogsId = '542436';
       const oauthToken = discogsAuthStatus.token;
       const oauthVerifier = discogsAuthStatus.verifier;
 
@@ -191,5 +191,13 @@ expires_at    = ${discogsAuthStatus.expiresAt ? formatDate(discogsAuthStatus.exp
         </div>
       )}
     </div>
+  );
+}
+
+export default function DiscogsAuthTestPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <DiscogsAuthTestPageInner />
+    </Suspense>
   );
 }
