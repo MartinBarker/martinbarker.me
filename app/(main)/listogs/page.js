@@ -57,6 +57,7 @@ useEffect(() => {
   if (params.get('discogsAuth') === 'success') {
     console.log('🧭 [Auth Debug] Redirect contains discogsAuth=success');
     localStorage.setItem('discogsRecentlyAuthenticated', 'true');
+    // No need to extract discogsToken for session-based auth
     window.history.replaceState({}, document.title, window.location.pathname);
   } else {
     console.log('🧭 [Auth Debug] No discogsAuth=success in URL');
