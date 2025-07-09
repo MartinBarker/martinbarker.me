@@ -26,8 +26,9 @@ const sessionMiddleware = session({
   resave: false,
   saveUninitialized: true,
   cookie: {
-    secure: true, // IMPORTANT for HTTPS
-    sameSite: 'lax', // Allow session cookie for redirects within same site
+    secure: process.env.NODE_ENV === 'production', // Only secure in prod
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-site cookies in prod
+    domain: process.env.NODE_ENV === 'production' ? '.jermasearch.com' : undefined, // Set domain for prod
   }
 });
 app.use(sessionMiddleware);
@@ -835,6 +836,33 @@ app.post('/discogsFetch', async (req, res) => {
   }
 });
 
+// DEBUG_generateDiscogsAuthUrl: returns the Discogs auth URL (no session logic, just for debug)
+function DEBUG_generateDiscogsAuthUrl() {
+  const oauthNonce = crypto.randomBytes(16).toString('hex');
+  const oauthTimestamp = Math.floor(Date.now() / 1000);
+  const callbackUrl = getDiscogsRediurectUrl();
+  const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_signature="${discogsConsumerSecret}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
+  return axios.get(DISCOGS_REQUEST_TOKEN_URL, {
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: authHeader,
+      'User-Agent': USER_AGENT,
+    },
+  });
+}
+
+// DEBUG_discogsAuthUrl endpoint for frontend test page
+app.get('/DEBUG_discogsAuthUrl', async (req, res) => {
+  try {
+    const response = await DEBUG_generateDiscogsAuthUrl();
+    const { oauth_token } = querystring.parse(response.data);
+    const url = `${DISCOGS_AUTHORIZE_URL}?oauth_token=${oauth_token}`;
+    res.status(200).json({ url });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate Discogs auth URL.' });
+  }
+});
+
 // Generate a random string for OAuth nonce
 function generateNonce() {
   return crypto.randomBytes(16).toString('hex');
@@ -928,7 +956,10 @@ async function getAccessToken(oauth_token, oauth_verifier) {
 
 // Handle the Discogs OAuth callback
 app.get('/listogs/callback/discogs', async (req, res) => {
+  // Log session ID and session object for debugging
   console.log(`🎸 [GET /listogs/callback/discogs] Hit ${req.url}`);
+  console.log('Session ID:', req.sessionID);
+  console.log('Session before:', req.session);
 
   const { oauth_token, oauth_verifier } = req.query;
 
@@ -942,15 +973,14 @@ app.get('/listogs/callback/discogs', async (req, res) => {
   try {
     const { accessToken, accessTokenSecret } = await getAccessToken(oauth_token, oauth_verifier);
     req.session.discogsAuth = { accessToken, accessTokenSecret };
-    req.session.save();
-
-    console.log('\nAccess token received!');
-    console.log('Storing tokens and redirecting user...');
-    console.log('Authentication successful');
-    console.log('================================\n');
-
-    // ✅ THIS LINE IS CRUCIAL
-    res.redirect(getDiscogsFrontendRedirectUrl());
+    req.session.save(() => {
+      // Log session after saving
+      console.log('Session after:', req.session);
+      // Option 1: Standard redirect (session-based)
+      res.redirect(getDiscogsFrontendRedirectUrl());
+      // Option 2: If you want to pass the token to the frontend for localStorage (uncomment below)
+      // res.redirect(getDiscogsFrontendRedirectUrl() + `&discogsToken=${accessToken}`);
+    });
   } catch (error) {
     console.error('❌ Error during Discogs callback processing:', error);
     res.status(500).send('Error during Discogs authentication.');
@@ -959,7 +989,10 @@ app.get('/listogs/callback/discogs', async (req, res) => {
 
 // Endpoint to check Discogs authentication status
 app.get('/discogs/authStatus', (req, res) => {
+  // Log session ID and session object for debugging
   console.log("✅ [GET /discogs/authStatus] Hit");
+  console.log('Session ID:', req.sessionID);
+  console.log('Session:', req.session);
   const isAuthenticated = !!(req.session?.discogsAuth?.accessToken);
   res.status(200).json({ isAuthenticated });
 });
