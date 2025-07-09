@@ -1751,6 +1751,8 @@ app.post('/getDiscogsImgs', async (req, res) => {
   }
 });
 
+
+
 // ###################################################################################################
 // Discogs Auth Test routes:
 // ###################################################################################################
@@ -1809,6 +1811,52 @@ app.get('/listogs/callback/discogs', async (req, res) => {
   }
 });
 
+// Helper to make Discogs API requests, using OAuth if tokens are provided
+async function newDiscogsAPIRequest(discogsType, discogsId, oauthToken, oauthVerifier) {
+  let url = '';
+  if (discogsType === 'release') {
+    url = `https://api.discogs.com/releases/${discogsId}`;
+  } else if (discogsType === 'artist') {
+    url = `https://api.discogs.com/artists/${discogsId}`;
+  } else if (discogsType === 'label') {
+    url = `https://api.discogs.com/labels/${discogsId}`;
+  } else if (discogsType === 'master') {
+    url = `https://api.discogs.com/masters/${discogsId}`;
+  } else if (discogsType === 'list') {
+    url = `https://api.discogs.com/lists/${discogsId}`;
+  } else {
+    throw new Error('Invalid discogsType');
+  }
+
+  // Build headers
+  const headers = {
+    'User-Agent': USER_AGENT
+  };
+
+  // If oauthToken is provided, use PLAINTEXT OAuth1 header (Discogs style)
+  if (oauthToken) {
+    // Note: This is a minimal example. For full OAuth1, you should use all tokens and secrets.
+    // Here, we use PLAINTEXT signature with only the consumer secret.
+    const oauth_nonce = crypto.randomBytes(16).toString('hex');
+    const oauth_timestamp = Math.floor(Date.now() / 1000);
+    const oauth_signature = `${discogsConsumerSecret}&`; // No token secret available here
+    headers['Authorization'] =
+      `OAuth oauth_consumer_key="${discogsConsumerKey}",` +
+      ` oauth_token="${oauthToken}",` +
+      ` oauth_signature_method="PLAINTEXT",` +
+      ` oauth_signature="${oauth_signature}",` +
+      ` oauth_timestamp="${oauth_timestamp}",` +
+      ` oauth_nonce="${oauth_nonce}"`;
+  }
+
+  try {
+    const response = await axios.get(url, { headers });
+    return response.data;
+  } catch (err) {
+    throw new Error(`Discogs API error: ${err.response?.data?.message || err.message}`);
+  }
+}
+
 // Endpoint that receives discogs api request (requestId and auth info) from the frontend and returns results
 app.post('/discogs/api', async (req, res) => {
   console.log("[POST /discogs/api] Hit", req.body);
@@ -1816,7 +1864,7 @@ app.post('/discogs/api', async (req, res) => {
 
   try {
     // Use the fetchDiscogsData helper for all Discogs API calls
-    const discogsApiResponse = await fetchDiscogsData(discogsType, discogsId);
+    const discogsApiResponse = await newDiscogsAPIRequest(discogsType, discogsId, oauthToken, oauthVerifier);
 
     res.status(200).json({
       received: {
