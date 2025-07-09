@@ -1,17 +1,46 @@
 'use client';
 import React, { useState } from 'react';
+import { useEffect } from 'react';
 
-export default function DiscogsAuthTest() {
+export default function DiscogsAuthTestPage({ testString }) {
+
+  console.log('testString:', testString);
+
+  // Run this effect when urlVars changes
+  useEffect(() => {
+      console.log('testString: ', testString);
+      //console.log('urlVars:', urlVars);
+  }, [testString]);
+
   const [authUrl, setAuthUrl] = useState('');
 
   // DEBUG_fetchDiscogsAuthUrl: fetches the Discogs auth URL from backend
   const DEBUG_fetchDiscogsAuthUrl = async () => {
     try {
-      const res = await fetch('/internal-api/DEBUG_discogsAuthUrl');
+        console.log('💚 DEBUG_fetchDiscogsAuthUrl()');
+        
+      var apiBaseURL = "";
+      
+      var isDev = process.env.NODE_ENV === 'development';
+      console.log('💚 isDev=',isDev)
+      if(isDev){
+        apiBaseURL = 'http://localhost:3030';
+      }else{
+        apiBaseURL = 'https://www.jermasearch.com/internal-api';
+      }
+      console.log('💚 apiBaseURL=',apiBaseURL)
+
+      var requestUrl = `${apiBaseURL}/listogs/discogs/getURL`
+      console.log('💚 requestUrl=', requestUrl)
+
+      const res = await fetch(requestUrl);
+      
       const data = await res.json();
+      console.log('💚 response = ',data)
+
       setAuthUrl(data.url || '');
     } catch (err) {
-      setAuthUrl('Error fetching URL');
+      setAuthUrl('💚 Error fetching URL');
     }
   };
 
