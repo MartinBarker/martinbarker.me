@@ -151,7 +151,7 @@ function DiscogsAuthTestPageInner() {
     };
   }, []);
 
-  // Handler for test discogs auth request (refactored for style)
+  // Handler for test discogs auth request (with timer)
   const handleTestDiscogsAuth = async () => {
     try {
       setLogLines([]); // Clear logs before each request
@@ -170,6 +170,8 @@ function DiscogsAuthTestPageInner() {
       const requestUrl = `${apiBaseURL}/discogs/api`;
       console.log('💚 requestUrl=', requestUrl);
 
+      const startTime = Date.now();
+
       const res = await fetch(requestUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -184,11 +186,13 @@ function DiscogsAuthTestPageInner() {
       });
 
       const data = await res.json();
-      console.log('💚 response = ', data);
-      setTestDiscogsAuthResult(data);
+      const elapsedMs = Date.now() - startTime;
+      console.log(`💚 response = `, data, `(${elapsedMs} ms)`);
+      setTestDiscogsAuthResult({ ...data, elapsedMs });
     } catch (err) {
-      console.log('💚 handleTestDiscogsAuth() error = ', err);
-      setTestDiscogsAuthResult({ error: err.message });
+      const elapsedMs = Date.now() - startTime;
+      console.log('💚 handleTestDiscogsAuth() error = ', err, `(${elapsedMs} ms)`);
+      setTestDiscogsAuthResult({ error: err.message, elapsedMs });
     }
   };
 
