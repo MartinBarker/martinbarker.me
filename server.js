@@ -1826,7 +1826,7 @@ app.get('/listogs/callback/discogs', async (req, res) => {
 });
 
 // Helper to make Discogs API requests, using OAuth if tokens are provided
-async function newDiscogsAPIRequest(discogsURL, oauthToken) {
+async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
   const headers = {
     'User-Agent': USER_AGENT
   };
@@ -1852,6 +1852,7 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken) {
       if (rateLimitStart !== null) {
         const seconds = ((Date.now() - rateLimitStart) / 1000).toFixed(1);
         const msg = `✅ Rate limit recovery: ${seconds} seconds since last 429 to first success.`;
+        sendLogMessageToSession(msg, socketId);
         console.log(msg);
         if (typeof io !== "undefined") io.emit('progressLog', msg);
         rateLimitStart = null;
@@ -1864,10 +1865,14 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken) {
         const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
         const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}. Waiting ${waitTime / 1000} seconds...`;
         console.warn(logMsg);
+        sendLogMessageToSession(logMsg, socketId);
+
         if (typeof io !== "undefined") io.emit('progressLog', logMsg);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
       }
+      
+      sendLogMessageToSession(`Discogs API error: ${err.response?.data?.message || err.message}`, socketId);
       throw new Error(`Discogs API error: ${err.response?.data?.message || err.message}`);
     }
   }
@@ -1882,7 +1887,7 @@ async function getAllDiscogsArtistReleases(artistId, oauthToken, oauthVerifier, 
 
     try {
       console.log(`[getAllDiscogsArtistReleases] Fetching: ${url}`);
-      const response = await newDiscogsAPIRequest(url, oauthToken);
+      const response = await newDiscogsAPIRequest(url, oauthToken, socketId);
 
       if (response && response.releases) {
         console.log(`[getAllDiscogsArtistReleases] Fetched ${response.releases.length} releases from current page.`);
@@ -1922,7 +1927,7 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
       if (!releaseId) continue;
 
       const releaseUrl = `${DISCOGS_API_URL}/releases/${releaseId}`;
-      const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken);
+      const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId);
 
       if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
         const videos = releaseData.videos.map(video => ({
@@ -1939,6 +1944,8 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
       }
     } catch (err) {
       console.error(`[getAllReleaseVideos] Error fetching release ${release.id}: ${err.message}`);
+      sendLogMessageToSession(`[getAllReleaseVideos] Error fetching release ${release.id}: ${err.message}`, socketId);
+    
       throw err;
     }
   }
@@ -1966,17 +1973,25 @@ app.post('/discogs/api', async (req, res) => {
   sessionLog(req, `[discogs/api] Request received: type=${discogsType}, id=${discogsId}`);
 
   try {
-    sessionLog(req, `[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`);
+    sendLogMessageToSession(`[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`, socketId);
+
     let artistReleases = [];
+    try{
     artistReleases = await getAllDiscogsArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
-    sessionLog(req, `[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`);
+    sendLogMessageToSession(`[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
+    } catch (error) {
+      sendLogMessageToSession(`[discogs/api] Error fetching artist releases: ${error.message}`, socketId);
+      return res.status(500).json({ error: error.message });
+    }
 
     let artistVideos = [];
     try {
       artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
-      sessionLog(req, `[discogs/api] Fetched artist videos: ${Array.isArray(artistVideos) ? artistVideos.length : 'unknown'} videos`);
+      sendLogMessageToSession( `[discogs/api] Fetched artist videos: ${Array.isArray(artistVideos) ? artistVideos.length : 'unknown'} videos`, socketId);
+
     } catch (error) {
       sessionLog(req, `[discogs/api] Error fetching artist videos: ${error.message}`);
+      sendLogMessageToSession( `[discogs/api] Error fetching artist videos: ${error.message}`, socketId);
     }
 
     res.status(200).json({
@@ -1992,6 +2007,7 @@ app.post('/discogs/api', async (req, res) => {
     sessionLog(req, "[discogs/api] Response sent successfully.");
   } catch (err) {
     sessionLog(req, `[discogs/api] Error: ${err.message}`);
+      sendLogMessageToSession(`[discogs/api] Error: ${err.message}`, socketId);
     res.status(500).json({ error: err.message });
   }
 });
