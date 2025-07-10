@@ -106,21 +106,38 @@ function DiscogsAuthTestPageInner() {
 
   useEffect(() => {
     // Connect to socket.io server
-    const sock = io(
-      process.env.NODE_ENV === 'development'
-        ? 'http://localhost:3030'
-        : 'https://www.jermasearch.com/internal-api/',
-      { withCredentials: true }
-    );
+    const isDev = process.env.NODE_ENV === 'development';
+    const socketUrl = isDev
+      ? 'http://localhost:3030'
+      : 'https://www.jermasearch.com';
+    const socketPath = isDev
+      ? '/socket.io'
+      : '/internal-api/socket.io';
+
+    console.log('[Socket.IO] Connecting to', socketUrl, 'with path', socketPath);
+
+    const sock = io(socketUrl, {
+      withCredentials: true,
+      path: socketPath
+    });
     setSocket(sock);
+
+    let errorCount = 0;
+    const MAX_ERRORS = 5;
 
     sock.on('connect', () => {
       console.log('[Socket.IO] Connected:', sock.id);
       setSocketId(sock.id);
+      errorCount = 0; // reset on successful connect
     });
 
     sock.on('connect_error', (err) => {
-      console.error('[Socket.IO] connect_error →', err.message);
+      errorCount++;
+      console.error('[Socket.IO] connect_error →', err.message, `(errorCount=${errorCount})`);
+      if (errorCount >= MAX_ERRORS) {
+        console.error(`[Socket.IO] Too many connection errors (${errorCount}), disconnecting socket and stopping retries.`);
+        sock.disconnect();
+      }
     });
 
     // Listen for session log events (per-session)
