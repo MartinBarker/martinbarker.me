@@ -11,6 +11,7 @@ const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
 const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const session = require('express-session');
@@ -89,7 +90,6 @@ io.on('connection', (socket) => {
     }
     sessionSocketMap.get(sessionID).add(socket);
   }
-
   console.log('[Socket.IO] connect  id=%s  sid=%s', socket.id, sessionID);
   socket.emit('sessionLog', `[server] ✅ socket connected (id=${socket.id}  sid=${sessionID})`);
 
@@ -110,13 +110,6 @@ io.on('connection', (socket) => {
 });
 // --- Socket.IO connection logic end---
 
-// Helper to emit log messages to the current user's session socket
-function sessionLog(req, msg) {
-  const sockets = sessionSocketMap.get(req.sessionID);
-  if (!sockets) return;
-  sockets.forEach(sock => sock.emit('sessionLog', msg));
-  console.log('[sessionLog helper]', msg);
-}
 
 // Emit progress to all connected clients and log to server console
 function emitProgressUpdate(extraLog) {
@@ -434,6 +427,7 @@ app.post('/discogsSearch', async (req, res) => {
         progress: { current: 0, total: 0, uniqueLinks: 0 }
       };
 
+
       // Fetch all release IDs
       const releaseIds = type === 'artist'
         ? await fetchReleaseIds(id, isDevMode)
@@ -445,6 +439,7 @@ app.post('/discogsSearch', async (req, res) => {
       // Update progress total
       progressData.progress.total = releaseIds.length;
       io.emit('progress', progressData);
+
 
       // Fetch YouTube links for all releases with better error handling
       const allVideos = [];
@@ -1066,6 +1061,18 @@ server.listen(port, async () => {
     console.log(`Server is running on port ${port} (with initialization errors)`);
   }
 });
+
+// Set global agent timeouts for HTTP and HTTPS (e.g., 10 minutes)
+http.globalAgent.keepAlive = true;
+http.globalAgent.timeout = 10 * 60 * 1000; // 10 minutes
+https.globalAgent.keepAlive = true;
+https.globalAgent.timeout = 10 * 60 * 1000; // 10 minutes
+
+// Set server timeout (socket idle timeout) to 10 minutes
+server.setTimeout(10 * 60 * 1000); // 10 minutes
+
+// For all axios requests, set a default timeout (e.g., 8 minutes)
+axios.defaults.timeout = 8 * 60 * 1000; // 8 minutes
 
 // Fetch AWS secret
 async function getAwsSecret(secretName) {
@@ -1825,6 +1832,25 @@ app.get('/listogs/callback/discogs', async (req, res) => {
   }
 });
 
+
+function sendLogMessageToSession(message, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sessionLog', `${socketId} |${message}`);       // talk straight to that socket
+  } else {
+    console.warn('[sendLogMessageToSession] No target socket found for socketId:', socketId);
+  }
+}
+
+function sendResultsToSession(results, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sessionResults', results);
+  } else {
+    console.warn('[sendResultsToSession] No target socket found for socketId:', socketId);
+  }
+}
+
 // Helper to make Discogs API requests, using OAuth if tokens are provided
 async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
   const headers = {
@@ -1968,8 +1994,12 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
       throw err;
     }
   }
+
+  sendResultsToSession(allVideos, socketId)
   return allVideos;
 }
+
+
 
 function sendLogMessageToSession(message, socketId) {
   const target = socketId && io.sockets.sockets.get(socketId);
@@ -1980,14 +2010,14 @@ function sendLogMessageToSession(message, socketId) {
   }
 }
 
+
 // Endpoint that receives discogs api request (requestId and auth info) from the frontend and returns results
 app.post('/discogs/api', async (req, res) => {
   console.log("[POST /discogs/api] Hit: ", req.body);
   const { discogsType, discogsId, oauthToken, oauthVerifier, socketId } = req.body;
   console.log(`[discogs/api] discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
 
-  // Emit log to this user's session
-  sessionLog(req, `[discogs/api] Request received: type=${discogsType}, id=${discogsId}`);
+
 
   try {
     sendLogMessageToSession(`[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`, socketId);
@@ -2007,7 +2037,7 @@ app.post('/discogs/api', async (req, res) => {
       sendLogMessageToSession( `[discogs/api] Fetched artist videos: ${Array.isArray(artistVideos) ? artistVideos.length : 'unknown'} videos`, socketId);
 
     } catch (error) {
-      sessionLog(req, `[discogs/api] Error fetching artist videos: ${error.message}`);
+
       sendLogMessageToSession( `[discogs/api] Error fetching artist videos: ${error.message}`, socketId);
     }
 
@@ -2021,9 +2051,9 @@ app.post('/discogs/api', async (req, res) => {
       artistVideos: artistVideos,
       message: "Test Discogs Auth request received successfully."
     });
-    sessionLog(req, "[discogs/api] Response sent successfully.");
+
   } catch (err) {
-    sessionLog(req, `[discogs/api] Error: ${err.message}`);
+
       sendLogMessageToSession(`[discogs/api] Error: ${err.message}`, socketId);
     res.status(500).json({ error: err.message });
   }
