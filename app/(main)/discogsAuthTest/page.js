@@ -109,7 +109,7 @@ function DiscogsAuthTestPageInner() {
     const sock = io(
       process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.jermasearch.com',
+        : 'https://www.jermasearch.com/internal-api/',
       { withCredentials: true }
     );
     setSocket(sock);
