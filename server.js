@@ -2016,8 +2016,10 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
       throw err;
     }
   }
+
   // Add total addedCount of videos to allVideos object
   allVideos['totalVideoCount'] = addedCount
+
   return allVideos;
 }
 
@@ -2031,6 +2033,7 @@ function sendLogMessageToSession(message, socketId) {
     sessionLog(req, message);                 // fall back to whole session
   }
 }
+
 
 async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId) {
   let artistReleases = [];
@@ -2059,6 +2062,7 @@ app.post('/discogs/api', async (req, res) => {
   const { discogsType, discogsId, oauthToken, oauthVerifier, socketId } = req.body;
   console.log(`[discogs/api] discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
 
+
   try {
     sendLogMessageToSession(`[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`, socketId);
 
@@ -2066,9 +2070,10 @@ app.post('/discogs/api', async (req, res) => {
 
     res.status(200).json({ status: 'Processing started' });
 
-  } catch (err) {
+
 
     sendLogMessageToSession(`[discogs/api] Error: ${err.message}`, socketId);
+
     res.status(500).json({ error: err.message });
   }
 });
