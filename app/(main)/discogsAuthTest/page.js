@@ -86,7 +86,7 @@ function DiscogsAuthTestPageInner() {
       const data = await res.json();
       setAuthUrl(data.url || '');
     } catch (err) {
-      setAuthUrl('💚 Error fetching URL');
+      setAuthUrl('💚 Error fetching URL: ', err);
     }
   };
 
