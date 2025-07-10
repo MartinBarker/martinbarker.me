@@ -34,9 +34,9 @@ const sessionMiddleware = session({
   resave: false,
   saveUninitialized: true,
   cookie: {
-    secure: !process.env.NODE_ENV || process.env.NODE_ENV !== 'development', // Only secure in prod
-    sameSite: !process.env.NODE_ENV || process.env.NODE_ENV !== 'development' ? 'none' : 'lax', // 'none' for cross-site cookies in prod
-    domain: !process.env.NODE_ENV || process.env.NODE_ENV !== 'development' ? '.jermasearch.com' : undefined, // Set domain for prod
+    secure: process.env.NODE_ENV === 'production', // Only secure in prod
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-site cookies in prod
+    domain: process.env.NODE_ENV === 'production' ? '.jermasearch.com' : undefined, // Set domain for prod
   }
 });
 app.use(sessionMiddleware);
@@ -72,8 +72,7 @@ const io = new Server(server, {
     credentials: true
   },
   allowEIO3: true,
-  transports: ['websocket', 'polling'],
-  path: (!process.env.NODE_ENV || process.env.NODE_ENV !== 'development') ? '/internal-api/socket.io' : '/socket.io'
+  transports: ['websocket', 'polling']
 });
 
 // --- Socket.IO connection logic start ---
@@ -152,21 +151,21 @@ function getRedirectUri() {
 
 // Function to determine the redirect URL based on the environment
 function getRedirectUrl() {
-  if (process.env.NODE_ENV === 'development') {
+  if (isDev) {
     return 'http://localhost:3030/listogs/youtube/callback'; // Updated local redirect URL
   }
   return 'https://jermasearch.com/internal-api/listogs/youtube/callback'; // Updated production redirect URL
 }
 
 function getDiscogsRediurectUrl() {
-  if (process.env.NODE_ENV === 'development') {
+  if (isDev) {
     return 'http://localhost:3030/listogs/callback/discogs';
   }
   return 'https://jermasearch.com/internal-api/listogs/callback/discogs';
 }
 
 function getDiscogsFrontendRedirectUrl() {
-  if (process.env.NODE_ENV === 'development') {
+  if (isDev) {
     return 'http://localhost:3001/listogs?discogsAuth=success';
   }
   return 'https://jermasearch.com/listogs?discogsAuth=success';
