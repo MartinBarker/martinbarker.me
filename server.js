@@ -90,7 +90,6 @@ io.on('connection', (socket) => {
     }
     sessionSocketMap.get(sessionID).add(socket);
   }
-
   console.log('[Socket.IO] connect  id=%s  sid=%s', socket.id, sessionID);
   socket.emit('sessionLog', `[server] ✅ socket connected (id=${socket.id}  sid=${sessionID})`);
 
@@ -110,6 +109,7 @@ io.on('connection', (socket) => {
   });
 });
 // --- Socket.IO connection logic end---
+
 
 // Emit progress to all connected clients and log to server console
 function emitProgressUpdate(extraLog) {
@@ -427,6 +427,7 @@ app.post('/discogsSearch', async (req, res) => {
         progress: { current: 0, total: 0, uniqueLinks: 0 }
       };
 
+
       // Fetch all release IDs
       const releaseIds = type === 'artist'
         ? await fetchReleaseIds(id, isDevMode)
@@ -438,6 +439,7 @@ app.post('/discogsSearch', async (req, res) => {
       // Update progress total
       progressData.progress.total = releaseIds.length;
       io.emit('progress', progressData);
+
 
       // Fetch YouTube links for all releases with better error handling
       const allVideos = [];
@@ -1803,7 +1805,7 @@ function DEBUG_generateDiscogsAuthUrl() {
   });
 }
 
-// Endpoint to handle Discogs OAuth callback, parse vars, and redirect to /discogsAuthTest route
+// Endpoint to handle Discogs OAuth callback, parse vars, and redirect to /listogs route
 app.get('/listogs/callback/discogs', async (req, res) => {
   try {
     const { oauth_token, oauth_verifier } = req.query;
@@ -1816,9 +1818,9 @@ app.get('/listogs/callback/discogs', async (req, res) => {
     // Use isDev for environment
     let redirectBaseURL;
     if (isDev) {
-      redirectBaseURL = 'http://localhost:3001/discogsAuthTest';
+      redirectBaseURL = 'http://localhost:3001/listogs';
     } else {
-      redirectBaseURL = 'https://jermasearch.com/discogsAuthTest';
+      redirectBaseURL = 'https://jermasearch.com/listogs';
     }
 
     const redirectUrl = `${redirectBaseURL}?oauth_token=${encodeURIComponent(oauth_token)}&oauth_verifier=${encodeURIComponent(oauth_verifier)}`;
@@ -1829,6 +1831,7 @@ app.get('/listogs/callback/discogs', async (req, res) => {
     res.status(500).send('Caught error: ' + err.message);
   }
 });
+
 
 function sendLogMessageToSession(message, socketId) {
   const target = socketId && io.sockets.sockets.get(socketId);
@@ -1952,48 +1955,103 @@ async function getAllDiscogsArtistReleases(artistId, oauthToken, oauthVerifier, 
     return [];
   }
 }
+
+// Fetch all videos for a Discogs artist's releases, make requests using oauthToken, and send updates to the frontend via socketId
 async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
+
+  // Map all videos by releaseId and videoId 
+  const allVideos = {};
+  let addedCount = 0;
+
   // Process releases sequentially, not in parallel
-  const allVideos = [];
   for (const release of artistReleases) {
-    console.log(`[getAllReleaseVideos] Fetching videos for release index ${artistReleases.indexOf(release)} (release ID: ${release.main_release || release.id})`);
-    
-    sendLogMessageToSession(`[getAllReleaseVideos] Fetching videos for release index ${artistReleases.indexOf(release)} (release ID: ${release.main_release || release.id})`, socketId);
-    
+    sendLogMessageToSession(`${artistReleases.indexOf(release) + 1}/${artistReleases.length} Fetching videos for release ${release.main_release || release.id})`, socketId);
+
     try {
+      // get release ID
       const releaseId = release.main_release || release.id;
       if (!releaseId) continue;
 
+      // get release URL and data
       const releaseUrl = `${DISCOGS_API_URL}/releases/${releaseId}`;
       const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId);
 
+      // If release has videos, process them
       if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
-        const videos = releaseData.videos.map(video => ({
-          releaseId,
-          releaseTitle: releaseData.title,
-          artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
-          year: releaseData.year || '',
-          discogsUrl: releaseData.uri || `https://www.discogs.com/release/${releaseId}`,
-          videoId: video.uri.split("v=")[1],
-          fullUrl: video.uri,
-          title: video.title,
-        }));
-        sendLogMessageToSession(`[getAllReleaseVideos] Found Videos: ${videos.length}`, socketId);
-    
-        allVideos.push(...videos);
-      }else{
-        sendLogMessageToSession(`[getAllReleaseVideos] No videos found`, socketId);
+
+        // If releaseId is not already in allVideos, create it
+        if (!allVideos[releaseId]) {
+          allVideos[releaseId] = {};
+        }
+
+        // Loop through each video in the release
+        for (const video of releaseData.videos) {
+          // Extract videoId from the video URI
+          const videoId = video.uri.split("v=")[1];
+
+          // Only add if this videoId is not already present for this release
+          if (!allVideos[releaseId][videoId]) {
+            allVideos[releaseId][videoId] = {
+              releaseId,
+              releaseTitle: releaseData.title,
+              artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
+              year: releaseData.year || '',
+              discogsUrl: releaseData.uri || `https://www.discogs.com/release/${releaseId}`,
+              videoId,
+              fullUrl: video.uri,
+              title: video.title,
+            };
+            addedCount++;
+          }
+        }
+
+        sendLogMessageToSession(`[getAllReleaseVideos] Found ${addedCount} new videos for ${releaseId}`, socketId);
+      } else {
+        sendLogMessageToSession(`[getAllReleaseVideos] Found 0 videos for ${releaseId}`, socketId);
       }
+
     } catch (err) {
       console.error(`[getAllReleaseVideos] Error fetching release ${release.id}: ${err}`);
-      sendLogMessageToSession(`[getAllReleaseVideos] Error fetching release ${release.id}: ${err.message}`, socketId);
-    
+      sendLogMessageToSession(`Error fetching release ${release.id}: ${err.message}`, socketId);
       throw err;
     }
   }
-  sendResultsToSession(allVideos, socketId)
+  // Add total addedCount of videos to allVideos object
+  allVideos['totalVideoCount'] = addedCount
   return allVideos;
 }
+
+
+
+function sendLogMessageToSession(message, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sessionLog', `${socketId} |${message}`);       // talk straight to that socket
+  } else {
+    sessionLog(req, message);                 // fall back to whole session
+  }
+}
+
+async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId) {
+  let artistReleases = [];
+  try {
+    artistReleases = await getAllDiscogsArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
+    sendLogMessageToSession(`[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
+  } catch (error) {
+    sendLogMessageToSession(`[discogs/api] Error fetching artist releases: ${error.message}`, socketId);
+    return res.status(500).json({ error: error.message });
+  }
+
+  let artistVideos = [];
+  try {
+    artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
+    sendLogMessageToSession(`[discogs/api] Fetched artist videos: ${artistVideos['totalVideoCount']} videos`, socketId);
+  } catch (error) {
+    sendLogMessageToSession(`[discogs/api] Error fetching artist videos: ${error.message}`, socketId);
+  }
+  sendResultsToSession(artistVideos, socketId);
+}
+
 
 // Endpoint that receives discogs api request (requestId and auth info) from the frontend and returns results
 app.post('/discogs/api', async (req, res) => {
@@ -2001,40 +2059,16 @@ app.post('/discogs/api', async (req, res) => {
   const { discogsType, discogsId, oauthToken, oauthVerifier, socketId } = req.body;
   console.log(`[discogs/api] discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
 
-
   try {
     sendLogMessageToSession(`[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`, socketId);
 
-    let artistReleases = [];
-    try{
-    artistReleases = await getAllDiscogsArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
-    sendLogMessageToSession(`[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
-    } catch (error) {
-      sendLogMessageToSession(`[discogs/api] Error fetching artist releases: ${error.message}`, socketId);
-      return res.status(500).json({ error: error.message });
-    }
+    getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
 
-    let artistVideos = [];
-    try {
-      artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
-      sendLogMessageToSession( `[discogs/api] Fetched artist videos: ${Array.isArray(artistVideos) ? artistVideos.length : 'unknown'} videos`, socketId);
+    res.status(200).json({ status: 'Processing started' });
 
-    } catch (error) {
-      sendLogMessageToSession( `[discogs/api] Error fetching artist videos: ${error.message}`, socketId);
-    }
-
-    res.status(200).json({
-      received: {
-        discogsType,
-        discogsId,
-        oauthToken,
-        oauthVerifier
-      },
-      artistVideos: artistVideos,
-      message: "Test Discogs Auth request received successfully."
-    });
   } catch (err) {
-      sendLogMessageToSession(`[discogs/api] Error: ${err.message}`, socketId);
+
+    sendLogMessageToSession(`[discogs/api] Error: ${err.message}`, socketId);
     res.status(500).json({ error: err.message });
   }
 });
