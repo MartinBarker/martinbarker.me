@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
 
 function DiscogsAuthTestPageInner() {
+  const [results, setResults] = useState([]);
   const params = useSearchParams();
   const router = useRouter();
   const oauthToken = params.get('oauth_token');
@@ -28,7 +29,7 @@ function DiscogsAuthTestPageInner() {
   useEffect(() => {
     if (oauthToken && oauthVerifier) {
       storeDiscogsTokens(oauthToken, oauthVerifier);
-      // Redirect to /discogsAuthTest without query params
+      // Redirect to /listogs without query params
       router.replace('/discogsAuthTest');
     }
     // Only run on mount or when params change
@@ -74,21 +75,28 @@ function DiscogsAuthTestPageInner() {
   };
 
   const [authUrl, setAuthUrl] = useState('');
-  const DEBUG_fetchDiscogsAuthUrl = async () => {
+  const getDiscogsURL = async () => {
     try {
-      console.log('💚 DEBUG_fetchDiscogsAuthUrl()');
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
           : 'https://www.jermasearch.com/internal-api';
 
-      const res = await fetch(`${apiBaseURL}/listogs/discogs/getURL`);
+      var queryUrl = `${apiBaseURL}/listogs/discogs/getURL`;
+      console.log('querying for discogs auth URL:', queryUrl);
+      const res = await fetch(queryUrl);
       const data = await res.json();
       setAuthUrl(data.url || '');
     } catch (err) {
-      setAuthUrl('💚 Error fetching URL: ', err);
+      console.log('error fetching url:', err);
+      setAuthUrl(`Error fetching URL: ${err.message}`);
     }
   };
+
+  // Call getDiscogsURL on initial mount
+  useEffect(() => {
+    getDiscogsURL();
+  }, []);
 
   // Helper to format expiry date
   function formatDate(ts) {
@@ -106,49 +114,33 @@ function DiscogsAuthTestPageInner() {
 
   useEffect(() => {
     // Connect to socket.io server
-    const isDev = process.env.NODE_ENV === 'development';
-    const socketUrl = isDev
-      ? 'http://localhost:3030'
-      : 'https://www.jermasearch.com';
-    const socketPath = isDev
-      ? '/socket.io'
-      : '/internal-api/socket.io';
-
-    console.log('[Socket.IO] Connecting to', socketUrl, 'with path', socketPath);
-
-    const sock = io(socketUrl, {
-      withCredentials: true,
-      path: socketPath
-    });
+    const sock = io(
+      process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.jermasearch.com/internal-api/',
+      { withCredentials: true }
+    );
     setSocket(sock);
 
-    let errorCount = 0;
-    const MAX_ERRORS = 5;
-
     sock.on('connect', () => {
-      console.log('[Socket.IO] Connected:', sock.id);
+      //console.log('[Socket.IO] Connected:', sock.id);
       setSocketId(sock.id);
-      errorCount = 0; // reset on successful connect
     });
 
     sock.on('connect_error', (err) => {
-      errorCount++;
-      console.error('[Socket.IO] connect_error →', err.message, `(errorCount=${errorCount})`);
-      if (errorCount >= MAX_ERRORS) {
-        console.error(`[Socket.IO] Too many connection errors (${errorCount}), disconnecting socket and stopping retries.`);
-        sock.disconnect();
-      }
+      console.error('[Socket.IO] connect_error →', err.message);
     });
 
     // Listen for session log events (per-session)
     sock.on('sessionLog', (msg) => {
-      console.log('[sessionLog]', msg);            // shows in DevTools
-      setLogLines(prev => [...prev, msg]);         // shows in the page
+      //console.log('[sessionLog]', msg);            
+      setLogLines(prev => [...prev, msg]);      
     });
 
     // Listen for session results
     sock.on('sessionResults', (result) => {
       console.log('[sessionResults]', result);
+      setResults(result);
     });
 
     return () => {
@@ -156,24 +148,29 @@ function DiscogsAuthTestPageInner() {
     };
   }, []);
 
-  // Handler for test discogs auth request (refactored for style)
-  const handleTestDiscogsAuth = async () => {
+  // Query /discogs/api endpoint with Discogs type, discogs id, oauthToken, and socketId
+  const discogsApiQuery = async (discogsType, discogsId) => {
     try {
       setLogLines([]); // Clear logs before each request
-      console.log('💚 handleTestDiscogsAuth() socketId = ', socketId);
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
           : 'https://www.jermasearch.com/internal-api';
 
-      // Example values; you can make these dynamic if needed
-      const discogsType = 'artist';
-      const discogsId = '542436';
+      if (!discogsType || !discogsId) {
+        console.error('discogsApiQuery() - discogsType or discogsId is missing');
+        return;
+      }
       const oauthToken = discogsAuthStatus.token;
       const oauthVerifier = discogsAuthStatus.verifier;
+      if (!oauthToken || !oauthVerifier) {
+        console.error('discogsApiQuery() - Missing oauthToken or oauthVerifier');
+        setTestDiscogsAuthResult({ error: 'Missing oauthToken or oauthVerifier' });
+        return;
+      }
 
       const requestUrl = `${apiBaseURL}/discogs/api`;
-      console.log('💚 requestUrl=', requestUrl);
+      console.log('Calling requestUrl for discogs api query =', requestUrl);
 
       const res = await fetch(requestUrl, {
         method: 'POST',
@@ -189,17 +186,123 @@ function DiscogsAuthTestPageInner() {
       });
 
       const data = await res.json();
-      console.log('💚 response = ', data);
+      console.log('discogsapi response = ', data);
       setTestDiscogsAuthResult(data);
     } catch (err) {
-      console.log('💚 Error :', err);
+      console.log('discogsapi💚 Error :', err);
       setTestDiscogsAuthResult({ error: err.message });
     }
   };
 
+  // --- Discogs URL Submit Form State ---
+  const [discogsInput, setDiscogsInput] = useState('');
+  const [extractedId, setExtractedId] = useState('');
+  const [selectedType, setSelectedType] = useState(null);
+  const [inputError, setInputError] = useState('');
+  const [discogsResponse, setDiscogsResponse] = useState('');
+
+  // Discogs input change handler (copied logic)
+  const handleInputChange = (value) => {
+    setDiscogsInput(value);
+    setInputError('');
+    setExtractedId('');
+    setSelectedType(null);
+
+    // Try matching URLs first
+    const artistMatch = value.match(/discogs\.com\/artist\/(\d+)/);
+    if (artistMatch && artistMatch[1]) {
+      setExtractedId(artistMatch[1]);
+      setSelectedType('artist');
+      return;
+    }
+
+    const labelMatch = value.match(/discogs\.com\/label\/(\d+)/);
+    if (labelMatch && labelMatch[1]) {
+      setExtractedId(labelMatch[1]);
+      setSelectedType('label');
+      return;
+    }
+
+    const listMatch = value.match(/discogs\.com\/lists\/.*-(\d+)/);
+    if (listMatch && listMatch[1]) {
+      setExtractedId(listMatch[1]);
+      setSelectedType('list');
+      return;
+    }
+    const listMatchSimple = value.match(/discogs\.com\/lists\/(\d+)/);
+    if (listMatchSimple && listMatchSimple[1]) {
+      setExtractedId(listMatchSimple[1]);
+      setSelectedType('list');
+      return;
+    }
+
+    // Try matching bracket format
+    const bracketArtistMatch = value.match(/^\[a(\d+)\]$/);
+    if (bracketArtistMatch && bracketArtistMatch[1]) {
+      setExtractedId(bracketArtistMatch[1]);
+      setSelectedType('artist');
+      return;
+    }
+
+    const bracketLabelMatch = value.match(/^\[l(\d+)\]$/);
+    if (bracketLabelMatch && bracketLabelMatch[1]) {
+      setExtractedId(bracketLabelMatch[1]);
+      setSelectedType('label');
+      return;
+    }
+
+    // If only numbers, assume it *could* be an ID, but don't set type yet
+    if (/^\d+$/.test(value)) {
+      setExtractedId(value);
+      // Don't set selectedType here, let the user choose via radio buttons
+    }
+  };
+
+  // Discogs search submit handler (mocked, just sets a response)
+  const handleSearchClick = () => {
+    if (!selectedType) {
+      setInputError('Please select a type (Artist, Label, or List).');
+      return;
+    }
+    if (!discogsInput.trim() || !extractedId) {
+      setInputError(`Please enter a valid Discogs ${selectedType} URL.`);
+      return;
+    }
+    setInputError('');
+    discogsApiQuery(selectedType, extractedId);
+  };
+
   return (
-    <div style={{ padding: 32 }}>
-      <h2>Discogs Auth Test (DEBUG)</h2>
+    <div >
+      {/* --- Discogs URL Submit Form --- */}
+      <div style={{ marginBottom: 24, padding: 16, border: '1px solid #ccc', borderRadius: 8 }}>
+        <h3>Discogs URL Submit Form</h3>
+        {/* Removed Artist/Label/List radio selection */}
+        {/* <div style={{ marginBottom: 8 }}>
+          ...radio buttons...
+        </div> */}
+        <input
+          type="text"
+          value={discogsInput}
+          onChange={e => handleInputChange(e.target.value)}
+          placeholder="Enter Discogs URL or ID"
+          style={{ width: '90%', padding: 8, marginBottom: 8, fontSize: 16 }}
+        />
+        <button
+          onClick={handleSearchClick}
+          style={{ padding: '8px 16px', fontSize: 16, }}
+          disabled={!extractedId || !selectedType}
+        >
+          Submit
+        </button>
+        {extractedId && (
+          <div style={{ marginTop: 8, fontSize: 14 }}>
+            Detected ID: <b>{extractedId}</b> {selectedType ? `(Type: ${selectedType})` : ''}
+          </div>
+        )}
+        {inputError && <div style={{ color: 'red', marginTop: 8 }}>{inputError}</div>}
+        {discogsResponse && <pre style={{ color: 'green', marginTop: 8 }}>{discogsResponse}</pre>}
+      </div>
 
       {/* Discogs Auth Status UI */}
       <div style={{ marginBottom: 24 }}>
@@ -235,33 +338,45 @@ expires_at    = ${discogsAuthStatus.expiresAt ? formatDate(discogsAuthStatus.exp
         </pre>
       </div>
 
-      {/* New button for test discogs auth request */}
-      <button
-        onClick={handleTestDiscogsAuth}
-        style={{ padding: 8, fontSize: 16, marginBottom: 16 }}
-        disabled={!discogsAuthStatus.exists}
-      >
-        make test discogs auth request
-      </button>
-      {testDiscogsAuthResult && (
-        <pre style={{ background: '#222', color: '#fff', padding: 8, marginTop: 8 }}>
-          {JSON.stringify(testDiscogsAuthResult, null, 2)}
-        </pre>
-      )}
-
-      <button onClick={DEBUG_fetchDiscogsAuthUrl} style={{ padding: 8, fontSize: 16 }}>
-        Get Discogs Auth URL
-      </button>
-
       {authUrl && (
         <div style={{ marginTop: 24 }}>
-          <a href={authUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'blue', fontWeight: 'bold' }}>
-            {authUrl}
-          </a>
+          <button
+            style={{
+              color: 'white',
+              background: '#007bff',
+              fontWeight: 'bold',
+              padding: '10px 24px',
+              border: 'none',
+              borderRadius: 6,
+              fontSize: 18,
+              cursor: 'pointer',
+              transition: 'background 0.2s, box-shadow 0.2s',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.07)'
+            }}
+            onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}
+            onMouseOver={e => {
+              e.currentTarget.style.background = '#339dff';
+              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,123,255,0.18)';
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = '#007bff';
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
+            }}
+          >
+            Authorize Discogs
+          </button>
         </div>
       )}
 
-
+      {/* Display results */}
+      <div style={{ marginTop: 32 }}>
+        <h3>Results</h3>
+        <pre style={{ background: '#222', color: '#fff', padding: 8, minHeight: 80, maxHeight: 400, overflowY: 'auto' }}>
+          {results && Object.keys(results).length > 0
+            ? JSON.stringify(results, null, 2)
+            : 'No results yet.'}
+        </pre>
+      </div>
     </div>
   );
 }
