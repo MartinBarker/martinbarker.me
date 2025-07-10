@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import io from 'socket.io-client';
 
 function DiscogsAuthTestPageInner() {
   const params = useSearchParams();
@@ -30,7 +31,7 @@ function DiscogsAuthTestPageInner() {
       // Redirect to /discogsAuthTest without query params
       router.replace('/discogsAuthTest');
     }
-  // Only run on mount or when params change
+    // Only run on mount or when params change
   }, [oauthToken, oauthVerifier, router]);
 
   // Discogs Auth Status state
@@ -98,10 +99,46 @@ function DiscogsAuthTestPageInner() {
 
   const [testDiscogsAuthResult, setTestDiscogsAuthResult] = useState(null);
 
+  // Socket.io log state
+  const [logLines, setLogLines] = useState([]);
+  const [socket, setSocket] = useState(null);
+  const [socketId, setSocketId] = useState(null);
+
+  useEffect(() => {
+    // Connect to socket.io server
+    const sock = io(
+      process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.jermasearch.com',
+      { withCredentials: true }
+    );
+    setSocket(sock);
+
+    sock.on('connect', () => {
+      console.log('[Socket.IO] Connected:', sock.id);
+      setSocketId(sock.id);
+    });
+
+    sock.on('connect_error', (err) => {
+      console.error('[Socket.IO] connect_error →', err.message);
+    });
+
+    // Listen for session log events (per-session)
+    sock.on('sessionLog', (msg) => {
+      console.log('[sessionLog]', msg);            // shows in DevTools
+      setLogLines(prev => [...prev, msg]);         // shows in the page
+    });
+
+    return () => {
+      sock.disconnect();
+    };
+  }, []);
+
   // Handler for test discogs auth request (refactored for style)
   const handleTestDiscogsAuth = async () => {
     try {
-      console.log('💚 handleTestDiscogsAuth()');
+      setLogLines([]); // Clear logs before each request
+      console.log('💚 handleTestDiscogsAuth() socketId = ', socketId);
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
@@ -119,11 +156,13 @@ function DiscogsAuthTestPageInner() {
       const res = await fetch(requestUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', 
         body: JSON.stringify({
           discogsType,
           discogsId,
           oauthToken,
-          oauthVerifier
+          oauthVerifier,
+          socketId
         })
       });
 
@@ -165,6 +204,14 @@ expires_at    = ${discogsAuthStatus.expiresAt ? formatDate(discogsAuthStatus.exp
         </button>
       </div>
 
+      {/* Socket.io log output */}
+      <div style={{ marginTop: 32 }}>
+        <h3>Socket.io Session Log Output</h3>
+        <pre style={{ background: '#111', color: '#0ff', padding: 8, minHeight: 80, maxHeight: 200, overflowY: 'auto' }}>
+          {logLines.length === 0 ? 'No logs yet.' : logLines.join('\n')}
+        </pre>
+      </div>
+
       {/* New button for test discogs auth request */}
       <button
         onClick={handleTestDiscogsAuth}
@@ -190,6 +237,8 @@ expires_at    = ${discogsAuthStatus.expiresAt ? formatDate(discogsAuthStatus.exp
           </a>
         </div>
       )}
+
+
     </div>
   );
 }
