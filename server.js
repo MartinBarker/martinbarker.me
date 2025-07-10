@@ -75,35 +75,48 @@ const io = new Server(server, {
   transports: ['websocket', 'polling']
 });
 
-// --- Socket.IO connection logic ---
+// --- Socket.IO connection logic start ---
+const sessionSocketMap = new Map();
+
 io.use(sharedSession(sessionMiddleware, { autoSave: true }));
 
 io.on('connection', (socket) => {
-  const sessionID = socket.handshake.sessionID || socket.handshake.session.id;
-  console.log('[Socket.IO] Connected:', socket.id, 'SessionID:', sessionID);
+  const { sessionID } = socket.handshake;
 
-  const sess = socket.handshake.session;
-  const job = sess.backgroundJob || {
-    isRunning: false,
-    isPaused: false,
-    progress: { current: 0, total: 0, uniqueLinks: 0 },
-    waitTime: 0,
-  };
+  if (sessionID) {
+    if (!sessionSocketMap.has(sessionID)) {
+      sessionSocketMap.set(sessionID, new Set());
+    }
+    sessionSocketMap.get(sessionID).add(socket);
+  }
 
-  socket.emit('progress', job);
+  console.log('[Socket.IO] connect  id=%s  sid=%s', socket.id, sessionID);
+  socket.emit('sessionLog', `[server] ✅ socket connected (id=${socket.id}  sid=${sessionID})`);
+
+  if (sessionID) {
+    if (!sessionSocketMap.has(sessionID)) sessionSocketMap.set(sessionID, new Set());
+    sessionSocketMap.get(sessionID).add(socket);
+  }
+  console.log('[Socket.IO] connect  id=%s  sid=%s', socket.id, sessionID);
 
   socket.on('disconnect', () => {
-    console.log('[Socket.IO] Client disconnected:', socket.id);
+    if (sessionID && sessionSocketMap.has(sessionID)) {
+      const set = sessionSocketMap.get(sessionID);
+      set.delete(socket);
+      if (set.size === 0) sessionSocketMap.delete(sessionID);
+    }
+    console.log('[Socket.IO] disconnect id=%s sid=%s', socket.id, sessionID);
   });
 });
+// --- Socket.IO connection logic end---
 
-
-
-///////////////////////////////////////////////////////////////////////////////////////////
-// un-tested below
-///////////////////////////////////////////////////////////////////////////////////////////
-
-
+// Helper to emit log messages to the current user's session socket
+function sessionLog(req, msg) {
+  const sockets = sessionSocketMap.get(req.sessionID);
+  if (!sockets) return;
+  sockets.forEach(sock => sock.emit('sessionLog', msg));
+  console.log('[sessionLog helper]', msg);
+}
 
 // Emit progress to all connected clients and log to server console
 function emitProgressUpdate(extraLog) {
@@ -1769,6 +1782,7 @@ app.get('/listogs/discogs/getURL', async (req, res) => {
   }
 });
 
+
 // Method to fetch and return Discogs sign-in URL to the frontend
 function DEBUG_generateDiscogsAuthUrl() {
   const oauthNonce = crypto.randomBytes(16).toString('hex');
@@ -1859,7 +1873,7 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken) {
   }
 }
 
-async function getAllDiscogsArtistReleases(artistId, oauthToken, oauthVerifier) {
+async function getAllDiscogsArtistReleases(artistId, oauthToken, oauthVerifier, socketId) {
   try {
     console.log(`[getAllDiscogsArtistReleases] Start: artistId=${artistId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
     let allReleases = [];
@@ -1895,11 +1909,14 @@ async function getAllDiscogsArtistReleases(artistId, oauthToken, oauthVerifier) 
     return [];
   }
 }
-async function getAllReleaseVideos(artistReleases, oauthToken) {
+async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
   // Process releases sequentially, not in parallel
   const allVideos = [];
   for (const release of artistReleases) {
     console.log(`[getAllReleaseVideos] Fetching videos for release index ${artistReleases.indexOf(release)} (release ID: ${release.main_release || release.id})`);
+    
+    sendLogMessageToSession(`[getAllReleaseVideos] Fetching videos for release index ${artistReleases.indexOf(release)} (release ID: ${release.main_release || release.id})`, socketId);
+    
     try {
       const releaseId = release.main_release || release.id;
       if (!releaseId) continue;
@@ -1928,30 +1945,39 @@ async function getAllReleaseVideos(artistReleases, oauthToken) {
   return allVideos;
 }
 
+function sendLogMessageToSession(message, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sessionLog', `${socketId} | ${message}`);       // talk straight to that socket
+  } else {
+    sessionLog(req, message);                 // fall back to whole session
+  }
+}
+
 // Endpoint that receives discogs api request (requestId and auth info) from the frontend and returns results
 app.post('/discogs/api', async (req, res) => {
   console.log("[POST /discogs/api] Hit: ", req.body);
-  const { discogsType, discogsId, oauthToken, oauthVerifier } = req.body;
+  const { discogsType, discogsId, oauthToken, oauthVerifier, socketId } = req.body;
+  console.log(`[discogs/api] discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
+
+  sendLogMessageToSession("here is a test message sent to my session", socketId);
+
+  // Emit log to this user's session
+  sessionLog(req, `[discogs/api] Request received: type=${discogsType}, id=${discogsId}`);
 
   try {
-    console.log(`[discogs/api] Params: discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
-
-    // assume discogsID is an artist ID, call a method which will get every single discogs artist release and return it
+    sessionLog(req, `[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`);
     let artistReleases = [];
-    console.log(`[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`);
-    artistReleases = await getAllDiscogsArtistReleases(artistId = discogsId, oauthToken, oauthVerifier);
-    console.log(`[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`);
+    artistReleases = await getAllDiscogsArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
+    sessionLog(req, `[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`);
 
     let artistVideos = [];
     try {
-      artistVideos = await getAllReleaseVideos(artistReleases, oauthToken);
+      artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
+      sessionLog(req, `[discogs/api] Fetched artist videos: ${Array.isArray(artistVideos) ? artistVideos.length : 'unknown'} videos`);
     } catch (error) {
-      console.error(`[discogs/api] Error fetching artist videos: ${error.message}`);
+      sessionLog(req, `[discogs/api] Error fetching artist videos: ${error.message}`);
     }
-    console.log(`[discogs/api] Fetched artist videos: ${Array.isArray(artistVideos) ? artistVideos.length : 'unknown'} videos`);
-
-    // Use the fetchDiscogsData helper for all Discogs API calls
-    // const discogsApiResponse = await newDiscogsAPIRequest(discogsType, discogsId, oauthToken, oauthVerifier);
 
     res.status(200).json({
       received: {
@@ -1963,9 +1989,9 @@ app.post('/discogs/api', async (req, res) => {
       artistVideos: artistVideos,
       message: "Test Discogs Auth request received successfully."
     });
-    console.log("[discogs/api] Response sent successfully.");
+    sessionLog(req, "[discogs/api] Response sent successfully.");
   } catch (err) {
-    console.error("[discogs/api] Error:", err.message);
+    sessionLog(req, `[discogs/api] Error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
