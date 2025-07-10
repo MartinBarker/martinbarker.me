@@ -129,6 +129,11 @@ function DiscogsAuthTestPageInner() {
       setLogLines(prev => [...prev, msg]);         // shows in the page
     });
 
+    // Listen for session results
+    sock.on('sessionResults', (result) => {
+      console.log('[sessionResults]', result);
+    });
+
     return () => {
       sock.disconnect();
     };
@@ -170,6 +175,7 @@ function DiscogsAuthTestPageInner() {
       console.log('💚 response = ', data);
       setTestDiscogsAuthResult(data);
     } catch (err) {
+      console.log('💚 Error :', err);
       setTestDiscogsAuthResult({ error: err.message });
     }
   };
