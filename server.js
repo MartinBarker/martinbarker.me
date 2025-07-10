@@ -11,6 +11,7 @@ const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
 const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const session = require('express-session');
@@ -1066,6 +1067,18 @@ server.listen(port, async () => {
     console.log(`Server is running on port ${port} (with initialization errors)`);
   }
 });
+
+// Set global agent timeouts for HTTP and HTTPS (e.g., 10 minutes)
+http.globalAgent.keepAlive = true;
+http.globalAgent.timeout = 10 * 60 * 1000; // 10 minutes
+https.globalAgent.keepAlive = true;
+https.globalAgent.timeout = 10 * 60 * 1000; // 10 minutes
+
+// Set server timeout (socket idle timeout) to 10 minutes
+server.setTimeout(10 * 60 * 1000); // 10 minutes
+
+// For all axios requests, set a default timeout (e.g., 8 minutes)
+axios.defaults.timeout = 8 * 60 * 1000; // 8 minutes
 
 // Fetch AWS secret
 async function getAwsSecret(secretName) {

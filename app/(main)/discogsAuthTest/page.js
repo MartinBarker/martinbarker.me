@@ -187,6 +187,7 @@ function DiscogsAuthTestPageInner() {
       console.log('💚 response = ', data);
       setTestDiscogsAuthResult(data);
     } catch (err) {
+      console.log('💚 handleTestDiscogsAuth() error = ', err);
       setTestDiscogsAuthResult({ error: err.message });
     }
   };
