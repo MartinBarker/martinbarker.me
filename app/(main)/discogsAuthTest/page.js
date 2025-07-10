@@ -106,12 +106,18 @@ function DiscogsAuthTestPageInner() {
 
   useEffect(() => {
     // Connect to socket.io server
-    const sock = io(
-      process.env.NODE_ENV === 'development'
-        ? 'http://localhost:3030'
-        : 'https://www.jermasearch.com',
-      { withCredentials: true }
-    );
+    const isDev = process.env.NODE_ENV === 'development';
+    const socketUrl = isDev
+      ? 'http://localhost:3030'
+      : 'https://www.jermasearch.com';
+    const socketPath = isDev
+      ? '/socket.io'
+      : '/internal-api/socket.io';
+
+    const sock = io(socketUrl, {
+      withCredentials: true,
+      path: socketPath
+    });
     setSocket(sock);
 
     sock.on('connect', () => {
@@ -139,8 +145,9 @@ function DiscogsAuthTestPageInner() {
     try {
       setLogLines([]); // Clear logs before each request
       console.log('💚 handleTestDiscogsAuth() socketId = ', socketId);
+      const isDev = process.env.NODE_ENV === 'development';
       const apiBaseURL =
-        process.env.NODE_ENV === 'development'
+        isDev
           ? 'http://localhost:3030'
           : 'https://www.jermasearch.com/internal-api';
 
