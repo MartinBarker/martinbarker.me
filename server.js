@@ -91,7 +91,7 @@ io.on('connection', (socket) => {
     sessionSocketMap.get(sessionID).add(socket);
   }
   console.log('[Socket.IO] connect  id=%s  sid=%s', socket.id, sessionID);
-  socket.emit('sessionLog', `[server] ✅ socket connected (id=${socket.id}  sid=${sessionID})`);
+  socket.emit('sessionLog', `✅ Ready `);
 
   if (sessionID) {
     if (!sessionSocketMap.has(sessionID)) sessionSocketMap.set(sessionID, new Set());
@@ -1805,7 +1805,7 @@ function DEBUG_generateDiscogsAuthUrl() {
   });
 }
 
-// Endpoint to handle Discogs OAuth callback, parse vars, and redirect to /discogsAuthTest route
+// Endpoint to handle Discogs OAuth callback, parse vars, and redirect to /listogs route
 app.get('/listogs/callback/discogs', async (req, res) => {
   try {
     const { oauth_token, oauth_verifier } = req.query;
@@ -1818,9 +1818,9 @@ app.get('/listogs/callback/discogs', async (req, res) => {
     // Use isDev for environment
     let redirectBaseURL;
     if (isDev) {
-      redirectBaseURL = 'http://localhost:3001/discogsAuthTest';
+      redirectBaseURL = 'http://localhost:3001/listogs';
     } else {
-      redirectBaseURL = 'https://jermasearch.com/discogsAuthTest';
+      redirectBaseURL = 'https://jermasearch.com/listogs';
     }
 
     const redirectUrl = `${redirectBaseURL}?oauth_token=${encodeURIComponent(oauth_token)}&oauth_verifier=${encodeURIComponent(oauth_verifier)}`;
@@ -1836,7 +1836,7 @@ app.get('/listogs/callback/discogs', async (req, res) => {
 function sendLogMessageToSession(message, socketId) {
   const target = socketId && io.sockets.sockets.get(socketId);
   if (target) {
-    target.emit('sessionLog', `${socketId} |${message}`);       // talk straight to that socket
+    target.emit('sessionLog', message);       // talk straight to that socket
   } else {
     console.warn('[sendLogMessageToSession] No target socket found for socketId:', socketId);
   }
@@ -1851,7 +1851,34 @@ function sendResultsToSession(results, socketId) {
   }
 }
 
-// Helper to make Discogs API requests, using OAuth if tokens are provided
+function sendVideosToSession(videos, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sessionVideos', videos);
+  } else {
+    console.warn('[sendVideosToSession] No target socket found for socketId:', socketId);
+  }
+}
+
+function sendStatusToSession(status, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sessionStatus', status);
+  } else {
+    console.warn('[sendStatusToSession] No target socket found for socketId:', socketId);
+  }
+}
+
+function sendLogMessageToSession(message, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sessionLog', `${socketId} |${message}`);       // talk straight to that socket
+  } else {
+    sessionLog(req, message);                 // fall back to whole session
+  }
+}
+
+// Make discogs api request with pagination
 async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
   const headers = {
     'User-Agent': USER_AGENT
@@ -1875,9 +1902,17 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
   let error500Count = 0;
   const max500Retries = 3;
 
-  while (true) {
+  // Pagination logic
+  let url = discogsURL;
+  let allReleases = [];
+  let pageCount = 0;
+  let firstResponse = null;
+  let totalPages = 0;
+
+  while (url) {
     try {
-      const response = await axios.get(discogsURL, { headers });
+      const response = await axios.get(url, { headers });
+      if (!firstResponse) firstResponse = response.data;
       if (rateLimitStart !== null) {
         const seconds = ((Date.now() - rateLimitStart) / 1000).toFixed(1);
         const msg = `✅ Rate limit recovery: ${seconds} seconds since last 429 to first success.`;
@@ -1886,7 +1921,26 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
         if (typeof io !== "undefined") io.emit('progressLog', msg);
         rateLimitStart = null;
       }
-      return response.data;
+      // If paginated, collect all releases/items
+      if (response.data && Array.isArray(response.data.releases)) {
+        allReleases = allReleases.concat(response.data.releases);
+        pageCount++;
+        totalPages = response.data?.pagination?.pages || totalPages;
+        // Send status update
+        sendStatusToSession({
+          status: "In progress",
+          progress: { currentIndex: pageCount, total: totalPages }
+        }, socketId);
+
+        if (response.data?.pagination?.page && response.data?.pagination?.pages) {
+          sendLogMessageToSession(`[newDiscogsAPIRequest] Page ${response.data.pagination.page}/${response.data.pagination.pages} fetched (${allReleases.length} releases so far)`, socketId);
+        }
+        url = response.data?.pagination?.urls?.next || null;
+      } else {
+        // Not paginated, just return the data
+        url = null;
+      }
+      retryCount = 0;
     } catch (err) {
       // Handle 429 (rate limit)
       if (err.response?.status === 429) {
@@ -1896,6 +1950,17 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
         const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}. Waiting ${waitTime / 1000} seconds...`;
         console.warn(logMsg);
         sendLogMessageToSession(logMsg, socketId);
+
+        // Send waiting status
+        // If waiting for rate limit, keep the last pageCount and totalPages values unchanged
+        sendStatusToSession({
+          status: "Waiting for rate limit",
+          progress: { 
+            currentIndex: pageCount, 
+            total: totalPages 
+          }
+          
+        }, socketId);
 
         if (typeof io !== "undefined") io.emit('progressLog', logMsg);
         await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -1908,6 +1973,13 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
         const logMsg = `⏳ Discogs 500 error. Retry ${error500Count}/${max500Retries}. Waiting ${waitTime / 1000} seconds...`;
         console.warn(logMsg);
         sendLogMessageToSession(logMsg, socketId);
+
+        // Still in progress, but could also send a special status if desired
+        sendStatusToSession({
+          status: "In progress",
+          progress: { currentIndex: pageCount, total: totalPages }
+        }, socketId);
+
         if (typeof io !== "undefined") io.emit('progressLog', logMsg);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         continue;
@@ -1917,46 +1989,77 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
       throw new Error(`Discogs API error: ${err.response?.data?.message || err.message}`);
     }
   }
+
+  // If we paginated, return all releases as an array
+  if (allReleases.length > 0) {
+    // Final status update (done)
+    sendStatusToSession({
+      status: "in progress",
+      progress: { currentIndex: totalPages, total: totalPages }
+    }, socketId);
+    return { releases: allReleases };
+  }
+  // Otherwise, return the first response (non-paginated)
+  return firstResponse;
 }
 
-async function getAllDiscogsArtistReleases(artistId, oauthToken, oauthVerifier, socketId) {
+async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId) {
+  let artistReleases = [];
   try {
-    console.log(`[getAllDiscogsArtistReleases] Start: artistId=${artistId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
+    artistReleases = await getAllArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
+    sendLogMessageToSession(`[discogs/api] getAllArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
+  } catch (error) {
+    sendLogMessageToSession(`[discogs/api] Error fetching artist releases: ${error.message}`, socketId);
+    return res.status(500).json({ error: error.message });
+  }
+
+  let artistVideos = [];
+  try {
+    artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
+    sendLogMessageToSession(`[discogs/api] Fetched artist videos: ${artistVideos['totalVideoCount']} videos`, socketId);
+  } catch (error) {
+    sendLogMessageToSession(`[discogs/api] Error fetching artist videos: ${error.message}`, socketId);
+  }
+  sendResultsToSession(artistVideos, socketId);
+}
+
+async function getAllArtistReleases(artistId, oauthToken, oauthVerifier, socketId) {
+  try {
+    console.log(`[getAllArtistReleases] Start: artistId=${artistId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
     let allReleases = [];
     let url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
     let retryCount = 0;
 
     try {
-      console.log(`[getAllDiscogsArtistReleases] Fetching: ${url}`);
+      console.log(`[getAllArtistReleases] Fetching: ${url}`);
       const response = await newDiscogsAPIRequest(url, oauthToken, socketId);
 
       if (response && response.releases) {
-        console.log(`[getAllDiscogsArtistReleases] Fetched ${response.releases.length} releases from current page.`);
+        console.log(`[getAllArtistReleases] Fetched ${response.releases.length} releases from current page.`);
         allReleases = allReleases.concat(response.releases);
       } else {
-        console.log(`[getAllDiscogsArtistReleases] No releases found in response.`);
+        console.log(`[getAllArtistReleases] No releases found in response.`);
       }
 
       url = response.pagination?.urls?.next || null;
       if (url) {
-        console.log(`[getAllDiscogsArtistReleases] Next page URL: ${url}`);
+        console.log(`[getAllArtistReleases] Next page URL: ${url}`);
       } else {
-        console.log(`[getAllDiscogsArtistReleases] No more pages.`);
+        console.log(`[getAllArtistReleases] No more pages.`);
       }
       retryCount = 0;
     } catch (error) {
-      console.error(`[getAllDiscogsArtistReleases] Error: ${error.message}`);
+      console.error(`[getAllArtistReleases] Error: ${error.message}`);
       throw error;
     }
-    console.log(`[getAllDiscogsArtistReleases] Done. Total releases fetched: ${allReleases.length}`);
+    console.log(`[getAllArtistReleases] Done. Total releases fetched: ${allReleases.length}`);
     return allReleases;
   } catch (err) {
-    console.error('[getAllDiscogsArtistReleases] error:', err.message);
+    console.error('[getAllArtistReleases] error:', err.message);
     return [];
   }
 }
 
-// Fetch all videos for a Discogs artist's releases, make requests using oauthToken, and send updates to the frontend via socketId
 async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
 
   // Map all videos by releaseId and videoId 
@@ -1964,8 +2067,19 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
   let addedCount = 0;
 
   // Process releases sequentially, not in parallel
-  for (const release of artistReleases) {
-    sendLogMessageToSession(`${artistReleases.indexOf(release) + 1}/${artistReleases.length} Fetching videos for release ${release.main_release || release.id})`, socketId);
+  for (let i = 0; i < artistReleases.length; i++) {
+    const release = artistReleases[i];
+    sendLogMessageToSession(`${i + 1}/${artistReleases.length} Fetching videos for release ${release.main_release || release.id}`, socketId);
+
+    // Send status update before fetching videos for this release
+    sendStatusToSession({
+      status: "In progress",
+      progress: {
+        currentVideoIndex: i + 1,
+        totalVideoPages: artistReleases.length,
+        videos: addedCount
+      }
+    }, socketId);
 
     try {
       // get release ID
@@ -2002,6 +2116,8 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
               title: video.title,
             };
             addedCount++;
+            // Send updated allVideos to session after each addition
+            sendVideosToSession(allVideos, socketId);
           }
         }
 
@@ -2017,42 +2133,53 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
     }
   }
 
+  // Final status update after all releases processed
+  sendStatusToSession({
+    status: "Done",
+    progress: {
+      currentVideoIndex: artistReleases.length,
+      totalVideoPages: artistReleases.length,
+      videos: addedCount
+    }
+  }, socketId);
+
   // Add total addedCount of videos to allVideos object
   allVideos['totalVideoCount'] = addedCount
+
+  // Send final allVideos object to session
+  sendVideosToSession(allVideos, socketId);
 
   return allVideos;
 }
 
-
-
-function sendLogMessageToSession(message, socketId) {
-  const target = socketId && io.sockets.sockets.get(socketId);
-  if (target) {
-    target.emit('sessionLog', `${socketId} |${message}`);       // talk straight to that socket
-  } else {
-    sessionLog(req, message);                 // fall back to whole session
-  }
-}
-
-
-async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId) {
-  let artistReleases = [];
+async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId){
+  // Get all releases from the label
+  let labelReleases = [];
   try {
-    artistReleases = await getAllDiscogsArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
-    sendLogMessageToSession(`[discogs/api] getAllDiscogsArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
+    labelReleases = await getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId);
+    sendLogMessageToSession(`[discogs/api] getAllDiscogsLabelReleases returned ${Array.isArray(labelReleases) ? labelReleases.length : 'unknown'} releases`, socketId);
   } catch (error) {
-    sendLogMessageToSession(`[discogs/api] Error fetching artist releases: ${error.message}`, socketId);
+    sendLogMessageToSession(`[discogs/api] Error fetching label releases: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
   }
-
-  let artistVideos = [];
+  
+  // Get all videos from all label releases
+  let labelVideos = [];
   try {
-    artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
-    sendLogMessageToSession(`[discogs/api] Fetched artist videos: ${artistVideos['totalVideoCount']} videos`, socketId);
+    labelVideos = await getAllReleaseVideos(labelReleases, oauthToken, socketId);
+    sendLogMessageToSession(`[discogs/api] Fetched label videos: ${labelVideos['totalVideoCount']} videos`, socketId);
   } catch (error) {
-    sendLogMessageToSession(`[discogs/api] Error fetching artist videos: ${error.message}`, socketId);
+    sendLogMessageToSession(`[discogs/api] Error fetching label videos: ${error.message}`, socketId);
+    return res.status(500).json({ error: error.message });
   }
-  sendResultsToSession(artistVideos, socketId);
+  sendResultsToSession(labelVideos, socketId);
+} 
+
+async function getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId) {
+  const apiUrl = `https://api.discogs.com/labels/${discogsId}/releases`;
+  const response = await newDiscogsAPIRequest(apiUrl, oauthToken, socketId);
+  // Always return the releases array if present, otherwise fallback to response
+  return response && Array.isArray(response.releases) ? response.releases : response;
 }
 
 
@@ -2063,10 +2190,13 @@ app.post('/discogs/api', async (req, res) => {
   console.log(`[discogs/api] discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
 
   try {
-    sendLogMessageToSession(`[discogs/api] Calling getAllDiscogsArtistReleases with artistId=${discogsId}`, socketId);
-    getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
+    if (discogsType == 'artist') {
+      sendLogMessageToSession(`[discogs/api] Calling getAllArtistReleases with artistId=${discogsId}`, socketId);
+      getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
+    } else if (discogsType == 'label') {
+      getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
+    }
     res.status(200).json({ status: 'Processing started' });
-
 
   } catch (err) {
     sendLogMessageToSession(`[discogs/api] Error: ${err.message}`, socketId);
