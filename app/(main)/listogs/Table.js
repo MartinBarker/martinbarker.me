@@ -21,7 +21,12 @@ function flattenVideoData(videoData) {
 
 export default function VideoTable({ videoData }) {
   const [search, setSearch] = useState('');
-  // Flatten and filter data
+  const [pagination, setPagination] = useState({
+    pageIndex: 0,
+    pageSize: 4, // Show 4 rows by default
+  });
+
+  // Memoize rawData so reference is stable
   const rawData = useMemo(() => flattenVideoData(videoData), [videoData]);
   const data = useMemo(() => {
     if (!search) return rawData;
@@ -77,11 +82,6 @@ export default function VideoTable({ videoData }) {
     []
   );
 
-  const [pagination, setPagination] = useState({
-    pageIndex: 0,
-    pageSize: 4, // Show 4 rows by default
-  });
-
   const table = useReactTable({
     data,
     columns,
@@ -89,6 +89,8 @@ export default function VideoTable({ videoData }) {
     getPaginationRowModel: getPaginationRowModel(),
     onPaginationChange: setPagination,
     state: { pagination },
+    autoResetPageIndex: false,
+    autoResetExpanded: false,
   });
 
   return (

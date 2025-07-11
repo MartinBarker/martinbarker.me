@@ -239,7 +239,17 @@ function DiscogsAuthTestPageInner() {
     // Listen for videos 
     sock.on('sessionVideos', (videos) => {
       console.log('sessionVideos = ', videos);
-      setResults(videos);
+      setResults(prev => {
+        // If prev is empty, just set videos
+        if (!prev || prev.length === 0) return videos;
+        // Merge new videos into prev (append releases)
+        // If videos is an array, just append; if it's an object, merge keys
+        if (Array.isArray(videos)) {
+          return [...prev, ...videos];
+        }
+        // If object, merge keys (assuming releases as keys)
+        return { ...prev, ...videos };
+      });
     });
 
     // Listen for status updates 
