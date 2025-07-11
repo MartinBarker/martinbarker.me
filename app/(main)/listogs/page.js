@@ -239,16 +239,69 @@ function DiscogsAuthTestPageInner() {
     // Listen for videos 
     sock.on('sessionVideos', (videos) => {
       console.log('sessionVideos = ', videos);
+      // --- Remove duplicate videoIds ---
+      let uniqueVideos;
+      if (Array.isArray(videos)) {
+        const seen = new Set();
+        uniqueVideos = videos.filter(v => {
+          if (!v.videoId) return true;
+          if (seen.has(v.videoId)) return false;
+          seen.add(v.videoId);
+          return true;
+        });
+      } else if (typeof videos === 'object' && videos !== null) {
+        // If videos is an object of releases, deduplicate within all releases
+        const seen = new Set();
+        uniqueVideos = {};
+        Object.entries(videos).forEach(([releaseKey, releaseVideos]) => {
+          if (Array.isArray(releaseVideos)) {
+            uniqueVideos[releaseKey] = releaseVideos.filter(v => {
+              if (!v.videoId) return true;
+              if (seen.has(v.videoId)) return false;
+              seen.add(v.videoId);
+              return true;
+            });
+          } else {
+            // If not array, just assign
+            uniqueVideos[releaseKey] = releaseVideos;
+          }
+        });
+      } else {
+        uniqueVideos = videos;
+      }
       setResults(prev => {
-        // If prev is empty, just set videos
-        if (!prev || prev.length === 0) return videos;
+        // If prev is empty, just set uniqueVideos
+        if (!prev || prev.length === 0) return uniqueVideos;
         // Merge new videos into prev (append releases)
-        // If videos is an array, just append; if it's an object, merge keys
-        if (Array.isArray(videos)) {
-          return [...prev, ...videos];
+        if (Array.isArray(uniqueVideos)) {
+          // Merge and deduplicate with previous results
+          const seen = new Set();
+          const allVideos = [...prev, ...uniqueVideos].filter(v => {
+            if (!v.videoId) return true;
+            if (seen.has(v.videoId)) return false;
+            seen.add(v.videoId);
+            return true;
+          });
+          return allVideos;
         }
         // If object, merge keys (assuming releases as keys)
-        return { ...prev, ...videos };
+        if (typeof uniqueVideos === 'object' && uniqueVideos !== null) {
+          // Merge releases, deduplicate videoIds across all releases
+          const merged = { ...prev, ...uniqueVideos };
+          const seen = new Set();
+          Object.keys(merged).forEach(releaseKey => {
+            if (Array.isArray(merged[releaseKey])) {
+              merged[releaseKey] = merged[releaseKey].filter(v => {
+                if (!v.videoId) return true;
+                if (seen.has(v.videoId)) return false;
+                seen.add(v.videoId);
+                return true;
+              });
+            }
+          });
+          return merged;
+        }
+        return uniqueVideos;
       });
     });
 
@@ -338,12 +391,21 @@ function DiscogsAuthTestPageInner() {
       return;
     }
 
-    const listMatch = value.match(/discogs\.com\/lists\/.*-(\d+)/);
+    const releaseMatch = value.match(/discogs\.com\/release\/(\d+)/);
+    if (releaseMatch && releaseMatch[1]) {
+      setExtractedId(releaseMatch[1]);
+      setSelectedType('release');
+      return;
+    }
+
+    // Improved list URL detection: match /lists/.../<id> at end of URL
+    const listMatch = value.match(/discogs\.com\/lists\/[^\/]+\/(\d+)/);
     if (listMatch && listMatch[1]) {
       setExtractedId(listMatch[1]);
       setSelectedType('list');
       return;
     }
+    // Also match /lists/<id> (simple form)
     const listMatchSimple = value.match(/discogs\.com\/lists\/(\d+)/);
     if (listMatchSimple && listMatchSimple[1]) {
       setExtractedId(listMatchSimple[1]);
@@ -363,6 +425,14 @@ function DiscogsAuthTestPageInner() {
     if (bracketLabelMatch && bracketLabelMatch[1]) {
       setExtractedId(bracketLabelMatch[1]);
       setSelectedType('label');
+      return;
+    }
+
+    // Try matching release bracket format
+    const bracketReleaseMatch = value.match(/^\[r(\d+)\]$/);
+    if (bracketReleaseMatch && bracketReleaseMatch[1]) {
+      setExtractedId(bracketReleaseMatch[1]);
+      setSelectedType('release');
       return;
     }
 
@@ -464,6 +534,26 @@ function DiscogsAuthTestPageInner() {
 
   return (
     <div >
+      {/* --- Listogs Info Section --- */}
+      <div style={{
+        background: '#f5f7fa',
+        border: '1px solid #e3e8ee',
+        borderRadius: 8,
+        padding: '24px 20px',
+        marginBottom: 32,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+      }}>
+        <p style={{ fontSize: 17, marginBottom: 8 }}>
+          <strong>Listogs</strong> is a tool for converting <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer">Discogs</a> artist, label, or list pages into YouTube playlists.
+        </p>
+        <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
+          <li>Authenticate with Discogs to access your lists and releases.</li>
+          <li>Paste a Discogs URL (artist, label, or list) and submit.</li>
+          <li>Listogs will find YouTube videos for each release and generate playlists and tables.</li>
+          <li>Export results to CSV or copy all YouTube video IDs for use elsewhere.</li>
+        </ul>
+     
+      </div>
       {/* Discogs Auth Status and Button (combined in one line) */}
       <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
         {discogsAuthStatus.exists ? (
@@ -548,11 +638,19 @@ function DiscogsAuthTestPageInner() {
           style={{ padding: '8px 16px', fontSize: 16, }}
           disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
         >
-          Submit
+          {(!extractedId || !selectedType || !discogsAuthStatus.exists)
+            ? "Authenticate with discogs before submitting"
+            : "Submit"}
         </button>
         {extractedId && (
           <div style={{ marginTop: 8, fontSize: 14 }}>
             Detected ID: <b>{extractedId}</b> {selectedType ? `(Type: ${selectedType})` : ''}
+          </div>
+        )}
+        {/* Show invalid URL message if input is non-empty and no type detected */}
+        {discogsInput && !selectedType && (
+          <div style={{ color: 'red', marginTop: 8 }}>
+            Not a valid Discogs artist, label, or list URL.
           </div>
         )}
         {inputError && <div style={{ color: 'red', marginTop: 8 }}>{inputError}</div>}
