@@ -30,7 +30,7 @@ function DiscogsAuthTestPageInner() {
     if (oauthToken && oauthVerifier) {
       storeDiscogsTokens(oauthToken, oauthVerifier);
       // Redirect to /listogs without query params
-      router.replace('/discogsAuthTest');
+      router.replace('/listogs');
     }
     // Only run on mount or when params change
   }, [oauthToken, oauthVerifier, router]);
@@ -75,8 +75,10 @@ function DiscogsAuthTestPageInner() {
   };
 
   const [authUrl, setAuthUrl] = useState('');
+  const [authUrlLoading, setAuthUrlLoading] = useState(false);
   const getDiscogsURL = async () => {
     try {
+      setAuthUrlLoading(true);
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
@@ -90,6 +92,8 @@ function DiscogsAuthTestPageInner() {
     } catch (err) {
       console.log('error fetching url:', err);
       setAuthUrl(`Error fetching URL: ${err.message}`);
+    } finally {
+      setAuthUrlLoading(false);
     }
   };
 
@@ -357,21 +361,26 @@ expires_at    = ${discogsAuthStatus.expiresAt ? formatDate(discogsAuthStatus.exp
               border: 'none',
               borderRadius: 6,
               fontSize: 18,
-              cursor: 'pointer',
+              cursor: authUrlLoading ? 'not-allowed' : 'pointer',
               transition: 'background 0.2s, box-shadow 0.2s',
               boxShadow: '0 2px 8px rgba(0,0,0,0.07)'
             }}
-            onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}
+            onClick={() => { if (!authUrlLoading) window.location.href = authUrl; }}
             onMouseOver={e => {
-              e.currentTarget.style.background = '#339dff';
-              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,123,255,0.18)';
+              if (!authUrlLoading) {
+                e.currentTarget.style.background = '#339dff';
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,123,255,0.18)';
+              }
             }}
             onMouseOut={e => {
-              e.currentTarget.style.background = '#007bff';
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
+              if (!authUrlLoading) {
+                e.currentTarget.style.background = '#007bff';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
+              }
             }}
+            disabled={authUrlLoading}
           >
-            Authorize Discogs
+            {authUrlLoading ? 'Fetching Discogs URL...' : 'Authorize Discogs'}
           </button>
         </div>
       )}
