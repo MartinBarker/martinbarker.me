@@ -53,11 +53,20 @@ export default function Home() {
                     <h2>Details</h2>
                     <div className={styles.detailItem}>
                         <span className={styles.detailLabel}>Name:</span>
-                        <span>Martin Anthony Barker</span>
+                        <span>Martin Barker</span>
                     </div>
                     <div className={styles.detailItem}>
                         <span className={styles.detailLabel}>Age:</span>
-                        <span>27 years</span>
+                        <span>{(() => {
+                                const birthDate = new Date(1997, 8, 1); // September is month 8 (0-indexed)
+                                const today = new Date();
+                                let age = today.getFullYear() - birthDate.getFullYear();
+                                const m = today.getMonth() - birthDate.getMonth();
+                                if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+                                    age--;
+                                }
+                                return `${age} years`;
+                            })()}</span>
                     </div>
                     <div className={styles.detailItem}>
                         <span className={styles.detailLabel}>Location:</span>
@@ -69,7 +78,7 @@ export default function Home() {
 
             {/* Projects Note */}
             <div className={styles.projectNote}>
-                👉 Check out all my projects in the sidebar! From music digitization tools to web applications, 
+                👈 Check out all my projects in the sidebar! From music digitization tools to web applications, 
                 there&apos;s something for everyone interested in software and music preservation.
             </div>
 
