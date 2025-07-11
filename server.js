@@ -2182,6 +2182,137 @@ async function getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, 
   return response && Array.isArray(response.releases) ? response.releases : response;
 }
 
+async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) {
+  try {
+    // Fetch the list data from Discogs API
+    const listUrl = `https://api.discogs.com/lists/${discogsId}`;
+    const headers = { 'User-Agent': USER_AGENT };
+    const response = await axios.get(listUrl, { headers });
+    const listData = response.data;
+
+    if (!listData.items || !Array.isArray(listData.items)) {
+      sendLogMessageToSession(`No items found in list ${discogsId}`, socketId);
+      sendVideosToSession({}, socketId);
+      return {};
+    }
+
+    // Prepare to collect all videos
+    const allVideos = {};
+    let addedCount = 0;
+
+    // Iterate over each item in the list
+    for (let i = 0; i < listData.items.length; i++) {
+      const item = listData.items[i];
+      if (item.type === 'release' && item.id) {
+        sendLogMessageToSession(`Fetching videos for release ${item.id} (${item.display_title})`, socketId);
+
+        // Fetch release data
+        try {
+          const releaseUrl = `https://api.discogs.com/releases/${item.id}`;
+          const releaseRes = await axios.get(releaseUrl, { headers });
+          const releaseData = releaseRes.data;
+
+          // If release has videos, process them
+          if (releaseData.videos && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
+            if (!allVideos[item.id]) {
+              allVideos[item.id] = {};
+            }
+            for (const video of releaseData.videos) {
+              const videoId = video.uri.split("v=")[1];
+              if (!allVideos[item.id][videoId]) {
+                allVideos[item.id][videoId] = {
+                  releaseId: item.id,
+                  releaseTitle: releaseData.title,
+                  artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
+                  year: releaseData.year || '',
+                  discogsUrl: releaseData.uri || item.uri,
+                  videoId,
+                  fullUrl: video.uri,
+                  title: video.title,
+                };
+                addedCount++;
+              }
+            }
+            sendLogMessageToSession(`Found ${releaseData.videos.length} videos for release ${item.id}`, socketId);
+          } else {
+            sendLogMessageToSession(`No videos found for release ${item.id}`, socketId);
+          }
+        } catch (err) {
+          sendLogMessageToSession(`Error fetching release ${item.id}: ${err.message}`, socketId);
+        }
+      }
+      // Emit progress status
+      sendStatusToSession({
+        status: "In progress",
+        progress: {
+          currentVideoIndex: i + 1,
+          totalVideoPages: listData.items.length,
+          videos: addedCount
+        }
+      }, socketId);
+      // Emit intermediate results
+      sendVideosToSession(allVideos, socketId);
+    }
+
+    // Final status update
+    sendStatusToSession({
+      status: "Done",
+      progress: {
+        currentVideoIndex: listData.items.length,
+        totalVideoPages: listData.items.length,
+        videos: addedCount
+      }
+    }, socketId);
+
+    // Add totalVideoCount to allVideos object
+    allVideos['totalVideoCount'] = addedCount;
+    sendVideosToSession(allVideos, socketId);
+
+    return allVideos;
+  } catch (err) {
+    sendLogMessageToSession(`Error fetching list videos: ${err.message}`, socketId);
+    sendVideosToSession({}, socketId);
+    return {};
+  }
+}
+
+// Fetch all videos from a single release
+      async function fetchReleaseVideos(releaseId, oauthToken, socketId) {
+        try {
+          sendLogMessageToSession(`Fetching videos for release ${releaseId}`, socketId);
+
+          // Fetch release data from Discogs API
+          const releaseUrl = `${DISCOGS_API_URL}/releases/${releaseId}`;
+          const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId);
+
+          const videos = [];
+          if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
+        for (const video of releaseData.videos) {
+          const videoId = video.uri.split("v=")[1];
+          videos.push({
+            releaseId,
+            releaseTitle: releaseData.title,
+            artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
+            year: releaseData.year || '',
+            discogsUrl: releaseData.uri || `https://www.discogs.com/release/${releaseId}`,
+            videoId,
+            fullUrl: video.uri,
+            title: video.title,
+          });
+        }
+        sendLogMessageToSession(`Found ${videos.length} videos for release ${releaseId}`, socketId);
+          } else {
+        sendLogMessageToSession(`No videos found for release ${releaseId}`, socketId);
+          }
+
+          sendVideosToSession({ [releaseId]: videos, totalVideoCount: videos.length }, socketId);
+          return videos;
+        } catch (err) {
+          sendLogMessageToSession(`Error fetching release ${releaseId}: ${err.message}`, socketId);
+          sendVideosToSession({ [releaseId]: [], totalVideoCount: 0 }, socketId);
+          return [];
+        }
+      }
 
 // Endpoint that receives discogs api request (requestId and auth info) from the frontend and returns results
 app.post('/discogs/api', async (req, res) => {
@@ -2195,6 +2326,13 @@ app.post('/discogs/api', async (req, res) => {
       getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
     } else if (discogsType == 'label') {
       getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
+    }else if(discogsType == 'release'){
+      
+
+      // Call the fetchReleaseVideos method
+      fetchReleaseVideos(discogsId, oauthToken, socketId);
+    }else if (discogsType == 'list'){
+      getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId);
     }
     res.status(200).json({ status: 'Processing started' });
 

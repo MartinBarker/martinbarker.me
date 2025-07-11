@@ -1,5 +1,5 @@
 "use client";
-
+import { useSearchParams, useRouter } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './Tagger.module.css';
 import FileDrop from '../FileDrop/FileDrop';
@@ -27,6 +27,12 @@ function logDiscogsRequest({ route, payload, response }) {
 }
 
 export default function TaggerPage({ initialUrl }) {
+
+
+  const params = useSearchParams();
+  console.log('tagger url routes: ', params)
+
+
   const { colors } = useColorContext();
   const urlInputContainerRef = useRef(null);
   const [isStacked, setIsStacked] = useState(false);
@@ -235,7 +241,7 @@ export default function TaggerPage({ initialUrl }) {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    
+
     if (h > 0) {
       // Format as hh:mm:ss if there are hours
       return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
@@ -466,13 +472,13 @@ export default function TaggerPage({ initialUrl }) {
           body: JSON.stringify(discogsInfo)
         });
         const data = await res.json();
-        
+
         // Check if any track has credits
-        const hasCredits = data.tracklist?.some(track => 
+        const hasCredits = data.tracklist?.some(track =>
           track.extraartists && track.extraartists.length > 0
         );
         setHasTrackCredits(hasCredits);
-        
+
         setDiscogsResponse(data); // Save to state
         setDiscogsData(data); // Store for video title refresh
         logDiscogsRequest({ route, payload: discogsInfo, response: data });
@@ -554,8 +560,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return title;
-            if (item.value === 'dash' ) return '-';
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
             return '';
@@ -581,8 +587,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return track.title || '';
-            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -613,8 +619,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return title;
-            if (item.value === 'dash' ) return '-';
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return '';
             return '';
@@ -639,8 +645,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return track.title || '';
-            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -879,8 +885,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return title;
-            if (item.value === 'dash' ) return '-';
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -920,8 +926,8 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title' ) return track.title || '';
-            if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return (!artistDisabled && artistName) ? '-' : '';
             if (item.value === 'artist') return artistName;
             return '';
@@ -1542,8 +1548,8 @@ export default function TaggerPage({ initialUrl }) {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
-                          if (item2.value === 'title' ) return title;
-                          if (item2.value === 'dash' ) return '-';
+                          if (item2.value === 'title') return title;
+                          if (item2.value === 'dash') return '-';
                           if (item2.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
                           if (item2.value === 'artist') return '';
                           return '';
@@ -1569,8 +1575,8 @@ export default function TaggerPage({ initialUrl }) {
                           if (item2.value === 'blank') return '';
                           if (item2.value === 'startTime') return start;
                           if (item2.value === 'endTime') return end;
-                          if (item.value === 'title' ) return track.title || '';
-                          if (item.value === 'dash' ) return '-'; // Fixed: removed extra quote
+                          if (item.value === 'title') return track.title || '';
+                          if (item.value === 'dash') return '-'; // Fixed: removed extra quote
                           if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
                           if (item.value === 'artist') return artistName;
                           return '';
@@ -1718,26 +1724,26 @@ export default function TaggerPage({ initialUrl }) {
             : `Copy ${(inputValue ? (`Timestamps generated by https://tagger.site:\n${inputValue}`) : '').length} chars to clipboard`}
         </button>
 
-      <button
-        type="button"
-        onClick={handleReset}
-        style={{
-          margin: '1rem 0 1rem 0',
-          background: '#f6f6f6',
-          border: '1px solid #ccc',
-          borderRadius: 4,
-          padding: '0.5rem 1.2rem',
-          fontWeight: 600,
-          fontSize: '1em',
-          cursor: 'pointer',
-          color: '#222',
-          display: 'block',
-          width: '100%',
-          transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
-        }}
-      >
-        Clear / Reset 
-      </button>
+        <button
+          type="button"
+          onClick={handleReset}
+          style={{
+            margin: '1rem 0 1rem 0',
+            background: '#f6f6f6',
+            border: '1px solid #ccc',
+            borderRadius: 4,
+            padding: '0.5rem 1.2rem',
+            fontWeight: 600,
+            fontSize: '1em',
+            cursor: 'pointer',
+            color: '#222',
+            display: 'block',
+            width: '100%',
+            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
+          }}
+        >
+          Clear / Reset
+        </button>
 
 
         {/* Formatting Suggestion Popup */}
@@ -1791,7 +1797,7 @@ export default function TaggerPage({ initialUrl }) {
                 display: 'block',
                 transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
               }}
-             
+
               onMouseEnter={e => {
                 e.currentTarget.style.background = '#ffd700';
                 e.currentTarget.style.color = '#000';
