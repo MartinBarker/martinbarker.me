@@ -1,5 +1,4 @@
 "use client";
-import { useSearchParams, useRouter } from 'next/navigation';
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './Tagger.module.css';
 import FileDrop from '../FileDrop/FileDrop';
@@ -27,10 +26,6 @@ function logDiscogsRequest({ route, payload, response }) {
 }
 
 export default function TaggerPage({ initialUrl }) {
-
-
-  const params = useSearchParams();
-  console.log('tagger url routes: ', params)
 
 
   const { colors } = useColorContext();
