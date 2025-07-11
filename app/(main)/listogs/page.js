@@ -629,7 +629,7 @@ function DiscogsAuthTestPageInner() {
           type="text"
           value={discogsInput}
           onChange={e => handleInputChange(e.target.value)}
-          placeholder="Enter a Discogs URL (artist, label, or list)"
+          placeholder="Enter a Discogs URL (artist, label, release, or list)"
           style={{ width: '90%', padding: 8, marginBottom: 8, fontSize: 16 }}
           disabled={!discogsAuthStatus.exists}
         />
