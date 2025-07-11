@@ -115,13 +115,33 @@ export default function VideoTable({ videoData }) {
         </thead>
         <tbody>
           {table.getRowModel().rows.map(row => (
-            <tr key={row.id}>
-              {row.getVisibleCells().map(cell => (
-                <td key={cell.id} style={{ padding: '8px', borderBottom: '1px solid #eee' }}>
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            <React.Fragment key={row.id}>
+              <tr>
+                {row.getVisibleCells().map(cell => (
+                  <td key={cell.id} style={{ padding: '8px', borderBottom: '1px solid #eee' }}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td colSpan={row.getVisibleCells().length} style={{ padding: 0, background: '#fafafa' }}>
+                  {row.original.videoId && (
+                    <div style={{ padding: '12px 0', textAlign: 'center' }}>
+                      <iframe
+                        width="360"
+                        height="203"
+                        src={`https://www.youtube.com/embed/${row.original.videoId}`}
+                        title="YouTube video"
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}
+                      />
+                    </div>
+                  )}
                 </td>
-              ))}
-            </tr>
+              </tr>
+            </React.Fragment>
           ))}
         </tbody>
       </table>
