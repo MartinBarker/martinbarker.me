@@ -2,6 +2,31 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
+import VideoTable from './Table';
+
+// Helper to flatten videoData object to array
+function flattenVideoData(videoData) {
+  const rows = [];
+  if (!videoData) return rows;
+  Object.values(videoData).forEach(releaseObj => {
+    Object.values(releaseObj).forEach(video => {
+      rows.push(video);
+    });
+  });
+  return rows;
+}
+
+// Helper to get all video IDs from results
+function getAllVideoIds(videoData) {
+  const ids = [];
+  if (!videoData) return ids;
+  Object.values(videoData).forEach(releaseObj => {
+    Object.values(releaseObj).forEach(video => {
+      if (video.videoId) ids.push(video.videoId);
+    });
+  });
+  return ids;
+}
 
 function DiscogsAuthTestPageInner() {
   const [results, setResults] = useState([]);
@@ -214,7 +239,17 @@ function DiscogsAuthTestPageInner() {
     // Listen for videos 
     sock.on('sessionVideos', (videos) => {
       console.log('sessionVideos = ', videos);
-      setResults(videos);
+      setResults(prev => {
+        // If prev is empty, just set videos
+        if (!prev || prev.length === 0) return videos;
+        // Merge new videos into prev (append releases)
+        // If videos is an array, just append; if it's an object, merge keys
+        if (Array.isArray(videos)) {
+          return [...prev, ...videos];
+        }
+        // If object, merge keys (assuming releases as keys)
+        return { ...prev, ...videos };
+      });
     });
 
     // Listen for status updates 
@@ -353,23 +388,84 @@ function DiscogsAuthTestPageInner() {
     discogsApiQuery(selectedType, extractedId);
   };
 
+  // --- Display results ---
+  const videoCount = flattenVideoData(results).length;
+
+  // --- YouTube Playlist Links ---
+  const videoIds = getAllVideoIds(results);
+  const playlistLinks = [];
+  for (let i = 0; i < videoIds.length; i += 50) {
+    const batch = videoIds.slice(i, i + 50);
+    const url = `https://www.youtube.com/watch_videos?video_ids=${batch.join(',')}`;
+    playlistLinks.push(url);
+  }
+
+  // --- All video IDs as comma separated string ---
+  const allVideoIdsString = videoIds.join(',');
+
+  // --- Copy to clipboard handler ---
+  const handleCopyIds = () => {
+    navigator.clipboard.writeText(allVideoIdsString);
+  };
+
+  // --- ExportCSVButton component ---
+  const ExportCSVButton = ({ data, fileName, headers }) => {
+    const handleExport = () => {
+      const generateCsvContent = (data, headers) => {
+        const headerRow = headers.join(",");
+        const dataRows = data
+          .map((row) =>
+            headers
+              .map((header) => {
+                let value = row[header];
+                if (typeof value === "string" && (value.includes(",") || value.includes('"'))) {
+                  value = `"${value.replace(/"/g, '""')}"`;
+                }
+                return value ?? "";
+              })
+              .join(",")
+          )
+          .join("\n");
+        return `${headerRow}\n${dataRows}`;
+      };
+
+      const csvContent = generateCsvContent(data, headers);
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", fileName || "videos.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
+    return (
+      <button
+        onClick={handleExport}
+        style={{
+          padding: '8px 16px',
+          fontSize: 16,
+          background: '#007bff',
+          color: 'white',
+          border: 'none',
+          borderRadius: 6,
+          cursor: 'pointer',
+          marginTop: 8
+        }}
+        disabled={!data || data.length === 0}
+      >
+        Export Table to CSV
+      </button>
+    );
+  };
+
   return (
     <div >
-      {/* Discogs Auth Status UI (moved to top) */}
-      <div style={{ marginBottom: 24 }}>
-        <strong>Discogs Auth Status:</strong>{' '}
-        {discogsAuthStatus.exists ? (
-          <span style={{ color: 'green' }}>
-            Signed In
-
-          </span>
-        ) : (
-          <span style={{ color: 'red' }}>Not signed in</span>
-        )}
-      </div>
-
-      {/* --- Auth Button Area --- */}
-      <div style={{ marginTop: 0, marginBottom: 24 }}>
+      {/* Discogs Auth Status and Button (combined in one line) */}
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
         {discogsAuthStatus.exists ? (
           <button
             style={{
@@ -422,10 +518,18 @@ function DiscogsAuthTestPageInner() {
               : 'Authorize Discogs'}
           </button>
         )}
+        <strong>Discogs Auth Status:</strong>{' '}
+        {discogsAuthStatus.exists ? (
+          <span style={{ color: 'green' }}>
+            Signed In
+          </span>
+        ) : (
+          <span style={{ color: 'red' }}>Not signed in</span>
+        )}
       </div>
 
       {/* --- Discogs URL Submit Form --- */}
-      <div style={{ marginBottom: 24, padding: 16, border: '1px solid #ccc', borderRadius: 8 }}>
+      <div style={{ padding: 16, border: '1px solid #ccc', borderRadius: 8 }}>
         <h3 style={{ marginTop: 0 }}>Discogs URL Submit Form</h3>
         {/* Removed Artist/Label/List radio selection */}
         {/* <div style={{ marginBottom: 8 }}>
@@ -456,22 +560,28 @@ function DiscogsAuthTestPageInner() {
       </div>
 
       {/* Socket.io log output */}
-      <div style={{ marginTop: 32 }}>
-        <h3>Progress:</h3>
-        <pre
+      <div style={{  }}>
+        <h3 style={{ marginTop: 0 }}>Progress:</h3>
+        <textarea
           ref={logRef}
           onScroll={handleLogScroll}
+          value={logLines.length === 0 ? 'Setting up socket.io..' : logLines.join('\n')}
+          readOnly
           style={{
             background: '#111',
             color: '#0ff',
             padding: 8,
-            minHeight: 80,
+            minHeight: 10,
             maxHeight: 200,
-            overflowY: 'auto'
+            width: '100%',
+            fontFamily: 'monospace',
+            fontSize: 14,
+            resize: 'vertical',
+            overflowY: 'auto',
+            borderRadius: 6,
+            border: '1px solid #333'
           }}
-        >
-          {logLines.length === 0 ? 'No logs yet.' : logLines.join('\n')}
-        </pre>
+        />
         {/* Display session status */}
         {sessionStatus && (
           <div style={{ marginTop: 12, padding: 8, background: '#222', color: '#fff', borderRadius: 6 }}>
@@ -518,15 +628,81 @@ function DiscogsAuthTestPageInner() {
         )}
       </div>
 
+      {/* YouTube Playlist Links Section */}
+      {playlistLinks.length > 0 && (
+        <div style={{ marginTop: 32, marginBottom: 16 }}>
+          <h3>YouTube Playlists:</h3>
+          <ul style={{ paddingLeft: 20 }}>
+            {playlistLinks.map((url, idx) => (
+              <li key={url}>
+                <a href={url} target="_blank" rel="noopener noreferrer">
+                  {`YouTube Playlist ${idx + 1} (${Math.min(50, videoIds.length - idx * 50)} videos)`}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Display results */}
       <div style={{ marginTop: 32 }}>
-        <h3>Results:</h3>
-        <pre style={{ background: '#222', color: '#fff', padding: 8, minHeight: 80, maxHeight: 400, overflowY: 'auto' }}>
-          {results && Object.keys(results).length > 0
-            ? JSON.stringify(results, null, 2)
-            : 'No results yet, authenticate Discogs and submit a URL to see results!'}
-        </pre>
+        <h3>
+          {videoCount > 0 ? `Videos Table: ${videoCount} videos Found:` : 'Results:'}
+        </h3>
+        <VideoTable videoData={results} />
+        {/* Export Table to CSV button directly under the table */}
+        <div style={{ marginTop: 16 }}>
+          <ExportCSVButton
+            data={flattenVideoData(results)}
+            fileName="videos.csv"
+            headers={[
+              "releaseTitle",
+              "artist",
+              "year",
+              "title",
+              "videoId",
+              "fullUrl",
+              "discogsUrl"
+            ]}
+          />
+          <div style={{ fontSize: 14, color: '#555', marginTop: 8 }}>
+            Exports all video rows currently loaded in the table.
+          </div>
+        </div>
       </div>
+
+      {/* All YouTube Video IDs Section (bottom of page) */}
+      {videoIds.length > 0 && (
+        <div style={{ marginTop: 32, marginBottom: 32 }}>
+          <h3>All YouTube Video IDs (comma separated):</h3>
+          <textarea
+            value={allVideoIdsString}
+            readOnly
+            rows={Math.min(6, Math.ceil(allVideoIdsString.length / 80))}
+            style={{
+              width: '100%',
+              fontSize: 14,
+              padding: 8,
+              marginBottom: 8,
+              resize: 'vertical'
+            }}
+          />
+          <button
+            onClick={handleCopyIds}
+            style={{
+              padding: '8px 16px',
+              fontSize: 16,
+              background: '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer'
+            }}
+          >
+            Copy to Clipboard
+          </button>
+        </div>
+      )}
     </div>
   );
 }

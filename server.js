@@ -1872,7 +1872,7 @@ function sendStatusToSession(status, socketId) {
 function sendLogMessageToSession(message, socketId) {
   const target = socketId && io.sockets.sockets.get(socketId);
   if (target) {
-    target.emit('sessionLog', `${socketId} |${message}`);       // talk straight to that socket
+    target.emit('sessionLog', `${message}`);       // talk straight to that socket
   } else {
     sessionLog(req, message);                 // fall back to whole session
   }
@@ -1933,7 +1933,7 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
         }, socketId);
 
         if (response.data?.pagination?.page && response.data?.pagination?.pages) {
-          sendLogMessageToSession(`[newDiscogsAPIRequest] Page ${response.data.pagination.page}/${response.data.pagination.pages} fetched (${allReleases.length} releases so far)`, socketId);
+          sendLogMessageToSession(`Page ${response.data.pagination.page}/${response.data.pagination.pages} fetched (${allReleases.length} releases so far)`, socketId);
         }
         url = response.data?.pagination?.urls?.next || null;
       } else {
@@ -2007,18 +2007,18 @@ async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, s
   let artistReleases = [];
   try {
     artistReleases = await getAllArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
-    sendLogMessageToSession(`[discogs/api] getAllArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
+    sendLogMessageToSession(`getAllArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
   } catch (error) {
-    sendLogMessageToSession(`[discogs/api] Error fetching artist releases: ${error.message}`, socketId);
+    sendLogMessageToSession(`Error fetching artist releases: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
   }
 
   let artistVideos = [];
   try {
     artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
-    sendLogMessageToSession(`[discogs/api] Fetched artist videos: ${artistVideos['totalVideoCount']} videos`, socketId);
+    sendLogMessageToSession(`Fetched artist videos: ${artistVideos['totalVideoCount']} videos`, socketId);
   } catch (error) {
-    sendLogMessageToSession(`[discogs/api] Error fetching artist videos: ${error.message}`, socketId);
+    sendLogMessageToSession(`Error fetching artist videos: ${error.message}`, socketId);
   }
   sendResultsToSession(artistVideos, socketId);
 }
@@ -2121,9 +2121,9 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
           }
         }
 
-        sendLogMessageToSession(`[getAllReleaseVideos] Found ${addedCount} new videos for ${releaseId}`, socketId);
+        sendLogMessageToSession(`Found ${addedCount} new videos for ${releaseId}`, socketId);
       } else {
-        sendLogMessageToSession(`[getAllReleaseVideos] Found 0 videos for ${releaseId}`, socketId);
+        sendLogMessageToSession(`[Found 0 videos for ${releaseId}`, socketId);
       }
 
     } catch (err) {
@@ -2157,9 +2157,9 @@ async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, so
   let labelReleases = [];
   try {
     labelReleases = await getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId);
-    sendLogMessageToSession(`[discogs/api] getAllDiscogsLabelReleases returned ${Array.isArray(labelReleases) ? labelReleases.length : 'unknown'} releases`, socketId);
+    sendLogMessageToSession(`getAllDiscogsLabelReleases returned ${Array.isArray(labelReleases) ? labelReleases.length : 'unknown'} releases`, socketId);
   } catch (error) {
-    sendLogMessageToSession(`[discogs/api] Error fetching label releases: ${error.message}`, socketId);
+    sendLogMessageToSession(`Error fetching label releases: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
   }
   
@@ -2167,9 +2167,9 @@ async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, so
   let labelVideos = [];
   try {
     labelVideos = await getAllReleaseVideos(labelReleases, oauthToken, socketId);
-    sendLogMessageToSession(`[discogs/api] Fetched label videos: ${labelVideos['totalVideoCount']} videos`, socketId);
+    sendLogMessageToSession(`Fetched label videos: ${labelVideos['totalVideoCount']} videos`, socketId);
   } catch (error) {
-    sendLogMessageToSession(`[discogs/api] Error fetching label videos: ${error.message}`, socketId);
+    sendLogMessageToSession(`Error fetching label videos: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
   }
   sendResultsToSession(labelVideos, socketId);
@@ -2187,11 +2187,11 @@ async function getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, 
 app.post('/discogs/api', async (req, res) => {
   console.log("[POST /discogs/api] Hit: ", req.body);
   const { discogsType, discogsId, oauthToken, oauthVerifier, socketId } = req.body;
-  console.log(`[discogs/api] discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
+  console.log(`discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
 
   try {
     if (discogsType == 'artist') {
-      sendLogMessageToSession(`[discogs/api] Calling getAllArtistReleases with artistId=${discogsId}`, socketId);
+      sendLogMessageToSession(`Calling getAllArtistReleases with artistId=${discogsId}`, socketId);
       getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
     } else if (discogsType == 'label') {
       getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
@@ -2199,7 +2199,7 @@ app.post('/discogs/api', async (req, res) => {
     res.status(200).json({ status: 'Processing started' });
 
   } catch (err) {
-    sendLogMessageToSession(`[discogs/api] Error: ${err.message}`, socketId);
+    sendLogMessageToSession(`Error: ${err.message}`, socketId);
 
     res.status(500).json({ error: err.message });
   }
