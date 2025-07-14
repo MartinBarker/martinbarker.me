@@ -23,7 +23,7 @@ console.log('isDev = ', isDev);
 /*
 Difference between dev and prod:
   In dev we can access api route directly on port 3030 such as 'http://localhost:3030/listogs/discogs/getURL'
-  In prod we access the api route through the main domain but with '/internal-api/' such as 'https://jermasearch.com/internal-api/listogs/discogs/getURL'
+  In prod we access the api route through the main domain but with '/internal-api/' such as 'https://martinbarker.me/internal-api/listogs/discogs/getURL'
 */
 
 // --- Start up express server on port 3030 ---
@@ -37,7 +37,7 @@ const sessionMiddleware = session({
   cookie: {
     secure: process.env.NODE_ENV === 'production', // Only secure in prod
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-site cookies in prod
-    domain: process.env.NODE_ENV === 'production' ? '.jermasearch.com' : undefined, // Set domain for prod
+    domain: process.env.NODE_ENV === 'production' ? '.martinbarker.me' : undefined, // Set domain for prod
   }
 });
 app.use(sessionMiddleware);
@@ -47,8 +47,8 @@ const allowedOrigins = [
   'http://localhost:3030',
   'http://localhost:3000',
   'http://localhost:3001',
-  'https://jermasearch.com',
-  'https://www.jermasearch.com'
+  'https://martinbarker.me',
+  'https://www.martinbarker.me'
 ];
 
 // Use dynamic CORS middleware
@@ -147,21 +147,21 @@ function getRedirectUrl() {
   if (isDev) {
     return 'http://localhost:3030/listogs/youtube/callback'; // Updated local redirect URL
   }
-  return 'https://jermasearch.com/internal-api/listogs/youtube/callback'; // Updated production redirect URL
+  return 'https://martinbarker.me/internal-api/listogs/youtube/callback'; // Updated production redirect URL
 }
 
 function getDiscogsRediurectUrl() {
   if (isDev) {
     return 'http://localhost:3030/listogs/callback/discogs';
   }
-  return 'https://jermasearch.com/internal-api/listogs/callback/discogs';
+  return 'https://martinbarker.me/internal-api/listogs/callback/discogs';
 }
 
 function getDiscogsFrontendRedirectUrl() {
   if (isDev) {
     return 'http://localhost:3001/listogs?discogsAuth=success';
   }
-  return 'https://jermasearch.com/listogs?discogsAuth=success';
+  return 'https://martinbarker.me/listogs?discogsAuth=success';
 }
 
 // Centralized function to initialize the OAuth2 client
@@ -265,7 +265,7 @@ app.get('/listogs/youtube/callback', async (req, res) => {
     authStatus.isAuthenticated = true;
 
     // Redirect to the frontend route
-    const redirectUrl = isDev ? 'http://localhost:3001/listogs' : 'https://jermasearch.com/listogs';
+    const redirectUrl = isDev ? 'http://localhost:3001/listogs' : 'https://martinbarker.me/listogs';
     res.redirect(redirectUrl);
   } catch (error) {
     console.error('\nError during YouTube authentication:', error.message);
@@ -1820,7 +1820,7 @@ app.get('/listogs/callback/discogs', async (req, res) => {
     if (isDev) {
       redirectBaseURL = 'http://localhost:3001/listogs';
     } else {
-      redirectBaseURL = 'https://jermasearch.com/listogs';
+      redirectBaseURL = 'https://martinbarker.me/listogs';
     }
 
     const redirectUrl = `${redirectBaseURL}?oauth_token=${encodeURIComponent(oauth_token)}&oauth_verifier=${encodeURIComponent(oauth_verifier)}`;

@@ -107,7 +107,7 @@ function DiscogsAuthTestPageInner() {
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
-          : 'https://www.jermasearch.com/internal-api';
+          : 'https://www.martinbarker.me/internal-api';
 
       var queryUrl = `${apiBaseURL}/listogs/discogs/getURL`;
       console.log('querying for discogs auth URL:', queryUrl);
@@ -204,7 +204,7 @@ function DiscogsAuthTestPageInner() {
     const isDev = process.env.NODE_ENV === 'development';
     const socketUrl = isDev
       ? 'http://localhost:3030'
-      : 'https://www.jermasearch.com';
+      : 'https://www.martinbarker.me';
     const socketPath = isDev
       ? '/socket.io'
       : '/internal-api/socket.io';
@@ -323,7 +323,7 @@ function DiscogsAuthTestPageInner() {
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
-          : 'https://www.jermasearch.com/internal-api';
+          : 'https://www.martinbarker.me/internal-api';
 
       if (!discogsType || !discogsId) {
         console.error('discogsApiQuery() - discogsType or discogsId is missing');
@@ -638,9 +638,7 @@ function DiscogsAuthTestPageInner() {
           style={{ padding: '8px 16px', fontSize: 16, }}
           disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
         >
-          {(!extractedId || !selectedType || !discogsAuthStatus.exists)
-            ? "Authenticate with discogs before submitting"
-            : "Submit"}
+          Enter a URL and click to submit
         </button>
         {extractedId && (
           <div style={{ marginTop: 8, fontSize: 14 }}>
