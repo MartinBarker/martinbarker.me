@@ -638,9 +638,7 @@ function DiscogsAuthTestPageInner() {
           style={{ padding: '8px 16px', fontSize: 16, }}
           disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
         >
-          {(!extractedId || !selectedType || !discogsAuthStatus.exists)
-            ? "Authenticate with discogs before submitting"
-            : "Submit"}
+          Enter a URL and click to submit
         </button>
         {extractedId && (
           <div style={{ marginTop: 8, fontSize: 14 }}>
