@@ -291,11 +291,11 @@ export default function RootLayout({ children }) {
                 label="tagger.site"
               />
 
-              <ProjectLink
+              {/* <ProjectLink
                 to="/ffmpegwasm"
                 icon={FileMusicIcon}
                 label="ffmpeg wasm"
-              />
+              /> */}
 
               <ProjectLink
                 to="/listogs"
