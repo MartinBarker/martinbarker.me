@@ -1,11 +1,11 @@
 export const metadata = {
   metadataBase: new URL('https://martinbarker.me'),
   title: 'Listogs – Discogs List Generator | Martin Barker',
-  description: 'Generate and manage Discogs lists easily with Listogs. Perfect for collectors, DJs, and music enthusiasts who want to organize their Discogs collections.',
+  description: 'Extract every YouTube video from a Discogs artist, label, release, or List URL, with multiple output format options 💥💥💥',
   keywords: 'Discogs list, music collection, list generator, DJ tools, music organization, Discogs management',
   openGraph: {
     title: 'Listogs – Discogs List Generator',
-    description: 'Generate and manage Discogs lists easily. Perfect for collectors, DJs, and music enthusiasts.',
+    description: 'Extract every YouTube video from a Discogs artist, label, release, or List URL, with multiple output format options 💥💥💥',
     url: 'https://martinbarker.me/listogs',
     siteName: 'Martin Barker Portfolio',
     images: [
@@ -22,7 +22,7 @@ export const metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'Listogs – Discogs List Generator',
-    description: 'Generate and manage Discogs lists easily. Perfect for collectors and DJs.',
+    description: 'Extract every YouTube video from a Discogs artist, label, release, or List URL, with multiple output format options 💥💥💥',
     images: ['https://martinbarker.me/images/listogs_previewCard.jpeg'],
   },
 };
