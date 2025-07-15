@@ -109,7 +109,7 @@ export default function Home() {
                     {
                         company: "Allen Institute",
                         date: "November 2024 - Present",
-                        location: "Seattle, WA | Philips",
+                        location: "Seattle, WA",
                         title: "Software Engineer II",
                         responsibilities: [
                             "As a contract worker at the Allen Institute, my role involves working closely with the Office of the CTO to support and advance technology initiatives in the bioscience field. I focus on developing and implementing APIs and cloud-native applications, integrating cutting-edge AI technologies to enhance biological research. My responsibilities include full-stack development, cloud infrastructure management, and ensuring robust, scalable solutions in a collaborative, multi-disciplinary team environment.",
@@ -118,7 +118,7 @@ export default function Home() {
                     {
                         company: "Philips Ultrasound",
                         date: "February 2022 - May 2024",
-                        location: "Bothell, WA | Philips",
+                        location: "Bothell, WA",
                         title: "Senior DevOps Engineer",
                         responsibilities: [
                             "Developed .NET applications in C# / C++, integrating GitHub API and SQL databases, enhancing functionality and efficiency of Ultrasound developer applications.",
@@ -130,7 +130,7 @@ export default function Home() {
                     {
                         company: "Alaska Airlines",
                         date: "September 2021 - November 2021",
-                        location: "Seattle, WA | Alaska Airlines",
+                        location: "Seattle, WA",
                         title: "Software Developer Contractor",
                         responsibilities: [
                             "Developed and maintained the E-Commerce suite of web and mobile products.",
@@ -140,7 +140,7 @@ export default function Home() {
                     {
                         company: "Bungee Tech",
                         date: "January 2020 - August 2021",
-                        location: "Seattle, WA | Bungee Tech",
+                        location: "Seattle, WA",
                         title: "Software Engineer",
                         responsibilities: [
                             "Added front-end features to websites displaying millions of rows of data.",
@@ -152,7 +152,7 @@ export default function Home() {
                     {
                         company: "Zume, Inc",
                         date: "September 2019 - January 2020",
-                        location: "Seattle, WA | Zume, Inc",
+                        location: "Seattle, WA",
                         title: "DevOps Engineer (Software Engineer I)",
                         responsibilities: [
                             "Created Kubernetes clusters in Google Cloud Platform and installed Helm.",
@@ -163,7 +163,7 @@ export default function Home() {
                     {
                         company: "MoxiWorks",
                         date: "June 2018 - August 2019",
-                        location: "Seattle, WA | moxiworks.com",
+                        location: "Seattle, WA",
                         title: "Quality Assurance Engineer Intern",
                         responsibilities: [
                             "Wrote automated testing software in Java covering web products and APIs.",
@@ -174,7 +174,7 @@ export default function Home() {
                     {
                         company: "KBVR FM / TV",
                         date: "September 2016 - April 2018",
-                        location: "Corvallis, OR | orangemedianetwork.com",
+                        location: "Corvallis, OR",
                         title: "Student Engineer",
                         responsibilities: [
                             "Learned and taught state-of-the-art media software and hardware.",

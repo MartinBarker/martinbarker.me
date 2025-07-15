@@ -1359,7 +1359,7 @@ export default function TaggerPage({ initialUrl }) {
             }}
           >
             <small>
-              Supported URLs: Discogs, Bandcamp
+              Supported URLs: Discogs
             </small>
           </div>
         </div>

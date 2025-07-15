@@ -347,12 +347,12 @@ export default function RootLayout({ children }) {
               />
               */}
               
-              <ProjectLink
+              {/* <ProjectLink
                 to="/popularify"
                 icon={BarChart}
                 label="Popularify"
               />
-              
+               */}
               {/* Contact Submenu */}
               <li className={`${styles.navbarItem} ${styles.contactSection}`}>
                 <button className={styles.contactToggle} onClick={handleContactClick} style={{ color: sidebarTextColor }}>
