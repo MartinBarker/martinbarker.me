@@ -556,6 +556,8 @@ export default function TaggerPage({ initialUrl }) {
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + (durationsRef.current[idx] || 0));
         const title = file.name.replace(/\.[^/.]+$/, '');
+        // Unique log for this context
+        console.log(`[TaggerPage/useEffect:formatOrder] Processing file: ${file.name}, duration: ${durationsRef.current[idx]}s, start: ${start}, end: ${end}`);
         currentTime += durationsRef.current[idx] || 0;
         return formatOrder
           .map((item) => {
@@ -579,6 +581,8 @@ export default function TaggerPage({ initialUrl }) {
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + durationSec);
         currentTime += durationSec;
+        // Unique log for this context
+        console.log(`[TaggerPage/useEffect:formatOrder] Processing track: ${track.title}, duration: ${durationSec}s, start: ${start}, end: ${end}`);
         // Get artist name for this track if present
         let artistName = '';
         if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
@@ -616,6 +620,8 @@ export default function TaggerPage({ initialUrl }) {
         const end = formatTime(currentTime + (durationsRef.current[idx] || 0));
         const title = file.name.replace(/\.[^/.]+$/, '');
         currentTime += durationsRef.current[idx] || 0;
+        // Unique log for this context
+        console.log(`[TaggerPage/useEffect:formatOrder+artistDisabled+inputSource] Processing file: ${file.name}, duration: ${durationsRef.current[idx]}s, start: ${start}, end: ${end}`);
         return formatOrder
           .map((item) => {
             if (item.value === 'blank') return '';
@@ -638,6 +644,8 @@ export default function TaggerPage({ initialUrl }) {
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + durationSec);
         currentTime += durationSec;
+        // Unique log for this context
+        console.log(`[TaggerPage/useEffect:formatOrder+artistDisabled+inputSource] Processing track: ${track.title}, duration: ${durationSec}s, start: ${start}, end: ${end}`);
         let artistName = '';
         if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
           artistName = track.artists.map(a => a.name).join(', ');
@@ -834,7 +842,8 @@ export default function TaggerPage({ initialUrl }) {
       timingData = {
         type: 'url',
         tracks: urlSource.data.tracklist,
-        durations: urlSource.data.durations
+        // Use the durations and times from discogsDurationsRef, which are set by the main useEffect
+        durations: discogsDurationsRef.current
       };
     }
 
@@ -862,7 +871,8 @@ export default function TaggerPage({ initialUrl }) {
         const duration = timingData.durations[idx] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + duration);
-
+        // Unique log for this context
+        console.log(`[TaggerPage/generateCombinedTimestamps:files] Processing file: ${file.name}, duration: ${duration}s, start: ${start}, end: ${end}`);
         let title = '';
         let artistName = '';
 
@@ -913,10 +923,12 @@ export default function TaggerPage({ initialUrl }) {
       });
     } else if (timingData.type === 'url') {
       timingData.tracks.forEach((track, idx) => {
-        const duration = timingData.durations[idx] || 0;
+        // Use durations from discogsDurationsRef.current, which matches the main useEffect
+        const duration = discogsDurationsRef.current[idx] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + duration);
-        currentTime += duration;
+        // Unique log for this context
+        console.log(`[TaggerPage/generateCombinedTimestamps:url] Processing track: ${track.title}, duration: ${duration}s, start: ${start}, end: ${end}`);
         // Get artist name for this track if present
         let artistName = '';
         if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
@@ -1544,6 +1556,8 @@ export default function TaggerPage({ initialUrl }) {
                       const start = formatTime(currentTime);
                       const end = formatTime(currentTime + (durationsRef.current[idx2] || 0));
                       const title = file.name.replace(/\.[^/.]+$/, '');
+                      // Unique log for this context
+                      console.log(`[TaggerPage/useEffect:formatOrder+artistDisabled+inputSource] Processing file: ${file.name}, duration: ${durationsRef.current[idx2]}s, start: ${start}, end: ${end}`);
                       currentTime += durationsRef.current[idx2] || 0;
                       return newFormatOrder
                         .map((item2) => {
@@ -1567,6 +1581,8 @@ export default function TaggerPage({ initialUrl }) {
                       const start = formatTime(currentTime);
                       const end = formatTime(currentTime + durationSec);
                       currentTime += durationSec;
+                      // Unique log for this context
+                      console.log(`[TaggerPage/useEffect:formatOrder+artistDisabled+inputSource] Processing track: ${track.title}, duration: ${durationSec}s, start: ${start}, end: ${end}`);
                       // Get artist name for this track if present
                       let artistName = '';
                       if (Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name) {
