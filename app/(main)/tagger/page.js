@@ -459,7 +459,14 @@ export default function TaggerPage({ initialUrl }) {
     // Discogs URL logic
     const discogsInfo = parseDiscogsUrl(urlToSubmit);
     if (discogsInfo) {
-      const route = 'http://localhost:3030/discogsFetch';
+
+      const apiBaseURL =
+        process.env.NODE_ENV === 'development'
+          ? 'http://localhost:3030'
+          : 'https://www.martinbarker.me/internal-api';
+
+      var route = `${apiBaseURL}/discogsFetch`;
+      
       try {
         const res = await fetch(route, {
           method: 'POST',
