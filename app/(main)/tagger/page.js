@@ -31,6 +31,7 @@ export default function TaggerPage({ initialUrl }) {
   const { colors } = useColorContext();
   const urlInputContainerRef = useRef(null);
   const [isStacked, setIsStacked] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState(null);
@@ -362,86 +363,88 @@ export default function TaggerPage({ initialUrl }) {
   }
 
   // Handle files: get durations, build tracklist, update debug
-  const handleFilesSelected = async (files) => {
-    setIsLoadingFiles(true);
-    const fileArr = Array.from(files);
-    setDebugInfo(prev => ({
-      ...prev,
-      files: fileArr.map(f => f.name)
-    }));
+  const handleFilesSelected = async (fileArr) => {
+    setProcessing(true);
+    setInputValue('');
 
-    // Only process audio files
-    const audioFiles = fileArr.filter(f =>
-      f.type.startsWith('audio/') ||
-      /\.(mp3|wav|aiff|flac)$/i.test(f.name)
-    );
+    // Check for .cue file and parse it
+    const cueFile = Array.from(fileArr).find(f => f.name.toLowerCase().endsWith('.cue'));
+    if (cueFile) {
+      const cueText = await cueFile.text();
+      console.log('📄 Raw CUE contents:\n', cueText);
 
-    // Get durations for each file
-    const durations = await Promise.all(audioFiles.map(async (file) => {
-      try {
-        const duration = await getAudioDuration(file);
-        return duration;
-      } catch {
-        return 0;
+      const lines = cueText.split(/\r?\n/).map(l => l.trim());
+      const tracks = [];
+      let currentTrack = null;
+      let cueFileName = '';
+
+      for (const line of lines) {
+        if (line.startsWith('FILE')) {
+          const match = line.match(/FILE\s+"(.+?)"/i);
+          if (match) cueFileName = match[1];
+        } else if (line.startsWith('TRACK')) {
+          // Start a new track object
+          const parts = line.split(/\s+/);
+          currentTrack = {
+            number: parts[1],
+            type: parts[2],
+            file: cueFileName,
+            title: '',
+            artist: '',
+            startSeconds: undefined,
+            endSeconds: undefined
+          };
+          tracks.push(currentTrack);
+        } else if (line.startsWith('TITLE')) {
+          const titleMatch = line.match(/TITLE\s+"(.+?)"/i);
+          if (titleMatch && currentTrack) currentTrack.title = titleMatch[1];
+        } else if (line.startsWith('PERFORMER')) {
+          const performerMatch = line.match(/PERFORMER\s+"(.+?)"/i);
+          if (performerMatch && currentTrack) currentTrack.artist = performerMatch[1];
+        } else if (line.startsWith('INDEX 01')) {
+          const timeMatch = line.match(/INDEX\s+01\s+(\d+):(\d{2}):(\d{2})/);
+          console.log('timeMatch = ', timeMatch)
+          if (timeMatch && currentTrack) {
+            const mm = parseInt(timeMatch[1], 10);
+            const ss = parseInt(timeMatch[2], 10);
+            const ff = parseInt(timeMatch[3], 10);
+            currentTrack.startSeconds = mm * 60 + ss + ff / 75;
+          }
+        }
       }
-    }));
 
-    // Store for later use in dropdown changes
-    audioFilesRef.current = audioFiles;
-    durationsRef.current = durations;
-    discogsTracksRef.current = [];
-    discogsDurationsRef.current = [];
-    setInputSource('files');
-
-    // Update input sources state
-    setInputSources(prev => ({
-      ...prev,
-      files: {
-        ...prev.files,
-        data: {
-          files: audioFiles,
-          durations: durations
-        },
-        label: `${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''}`
+      // Calculate end times for each track
+      for (let i = 0; i < tracks.length; i++) {
+        if (i < tracks.length - 1) {
+          tracks[i].endSeconds = tracks[i + 1].startSeconds;
+        }
       }
-    }));
 
-    // Generate combined timestamps
-    setTimeout(generateCombinedTimestamps, 0);
-
-    // ✅ Auto-populate tags, hashtags, titles
-    if (discogsData) {
-      processDiscogsResponseToTags(discogsData);
-      const videoTitles = generateVideoTitleRecommendations(discogsData, videoTitleVariation);
-      setVideoTitleRecommendations(videoTitles);
-    } else {
-      // Basic tag fallback using filenames
-      const filenameTags = audioFiles.map(file =>
-        file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]/g, ' ').trim()
-      );
-
-      const fallbackTags = {
-        artists: [],
-        album: [],
-        tracklist: [],
-        combinations: [],
-        credits: [],
-        filenames: filenameTags
+      // Format timestamped tracklist
+      const formatTime = (sec) => {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = Math.floor(sec % 60);
+        return `${h.toString().padStart(2, '0')}:${m
+          .toString()
+          .padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
       };
 
-      setParsedTags(prev => ({
-        ...prev,
-        filenames: filenameTags
-      }));
+      const timestampedLines = tracks.map((track) => {
+        const start = track.startSeconds !== undefined ? formatTime(track.startSeconds) : '';
+        const end = track.endSeconds !== undefined ? formatTime(track.endSeconds) : '';
+        return `${start}${end ? ` - ${end}` : ''} ${track.title || ''}${track.artist ? ` - ${track.artist}` : ''}`;
+      });
 
-      // Create a single tag pool from filenames
-      setTagsValue(filenameTags.join(', '));
-      updateHashtagsValue(filenameTags.join(', '));
-      setVideoTitleRecommendations([]);
+      setInputValue(timestampedLines.join('\n'));
+      setProcessing(false);
+      return;
     }
 
-    setIsLoadingFiles(false);
+    // fallback: normal file/audio handling continues here if needed
+    setProcessing(false);
   };
+
 
 
   // Handle URL submission
@@ -466,7 +469,7 @@ export default function TaggerPage({ initialUrl }) {
           : 'https://www.martinbarker.me/internal-api';
 
       var route = `${apiBaseURL}/discogsFetch`;
-      
+
       try {
         const res = await fetch(route, {
           method: 'POST',
@@ -927,6 +930,7 @@ export default function TaggerPage({ initialUrl }) {
         const duration = discogsDurationsRef.current[idx] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + duration);
+        currentTime += duration;
         // Unique log for this context
         console.log(`[TaggerPage/generateCombinedTimestamps:url] Processing track: ${track.title}, duration: ${duration}s, start: ${start}, end: ${end}`);
         // Get artist name for this track if present
