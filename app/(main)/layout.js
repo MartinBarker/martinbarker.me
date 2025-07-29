@@ -238,6 +238,7 @@ export default function RootLayout({ children }) {
           <title>{pageTitle}</title>
           <link rel="icon" href={pageIcon} />
           <link rel="shortcut icon" href={pageIcon} />
+          <meta name="google-site-verification" content="gDJG6R2M9ZdQ8t8SHYpzGW8Pq433BC0D-JlwXkvurxE" />
         </head>
         <body  style={{ margin: '0px' }}>
         <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
