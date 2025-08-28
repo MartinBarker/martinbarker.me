@@ -50,7 +50,9 @@ export default function TaggerPage({ initialUrl }) {
     artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
     album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
     tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
-    combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
+    combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+    credits: { enabled: false, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+    filenames: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
   });
   const [selectAllTags, setSelectAllTags] = useState(true);
   // Add hydration state
@@ -63,7 +65,9 @@ export default function TaggerPage({ initialUrl }) {
     artists: [],
     album: [],
     tracklist: [],
-    combinations: []
+    combinations: [],
+    credits: [],
+    filenames: []
   });  // Add state for video title recommendations
   const [videoTitleRecommendations, setVideoTitleRecommendations] = useState([]);
   const [videoTitleCopyStates, setVideoTitleCopyStates] = useState({}); // Change from single state to an object tracking each button
@@ -80,6 +84,12 @@ export default function TaggerPage({ initialUrl }) {
       data: null,
       metadata: true,
       times: true,
+      label: ''
+    },
+    alsFilenames: {
+      data: null,
+      metadata: true,
+      times: false,
       label: ''
     }
   });
@@ -509,6 +519,16 @@ export default function TaggerPage({ initialUrl }) {
           const xmlDoc = parser.parseFromString(decompressed, 'text/xml');
           
           const extractedMarkers = [];
+          const extractedFilenames = [];
+          
+          // Extract filenames from EffectiveName elements
+          const effectiveNameElements = xmlDoc.querySelectorAll('EffectiveName');
+          effectiveNameElements.forEach(element => {
+            const value = element.getAttribute('Value');
+            if (value && value.trim()) {
+              extractedFilenames.push(value.trim());
+            }
+          });
           
           // Method 1: Look for Locators (this is what dawtool actually does!)
           const locatorsElements = xmlDoc.querySelectorAll('Locators > Locator');
@@ -634,8 +654,46 @@ export default function TaggerPage({ initialUrl }) {
                   file: alsFile
                 },
                 label: `ALS: ${filteredMarkers.length} markers from ${alsFile.name}`
+              },
+              alsFilenames: {
+                ...prev.alsFilenames,
+                data: {
+                  type: 'als',
+                  filenames: extractedFilenames,
+                  file: alsFile
+                },
+                label: `ALS: ${extractedFilenames.length} filenames from ${alsFile.name}`
               }
             }));
+
+            // Auto-populate tags from ALS data including filenames
+            const alsTags = [];
+            if (extractedFilenames.length > 0) {
+              alsTags.push(...extractedFilenames);
+            }
+            filteredMarkers.forEach(marker => {
+              if (marker.name) alsTags.push(marker.name);
+            });
+
+            const fallbackTags = {
+              artists: [],
+              album: [],
+              tracklist: [],
+              combinations: [],
+              credits: [],
+              filenames: alsTags
+            };
+
+            setParsedTags(prev => ({
+              ...prev,
+              ...fallbackTags
+            }));
+
+            // Only set tags if ALS filenames metadata is enabled
+            if (inputSources.alsFilenames.metadata) {
+              setTagsValue(alsTags.join(', '));
+              updateHashtagsValue(alsTags.join(', '));
+            }
 
             setIsLoadingFiles(false);
             return;
@@ -1276,13 +1334,32 @@ export default function TaggerPage({ initialUrl }) {
 
   // Handler for input source checkbox changes
   const handleInputSourceChange = (sourceType, field, value) => {
-    setInputSources(prev => ({
-      ...prev,
-      [sourceType]: {
-        ...prev[sourceType],
-        [field]: value
+    setInputSources(prev => {
+      const newSources = { ...prev };
+      
+      // If this is a filenames checkbox being enabled, disable others
+      if (field === 'metadata' && value === true) {
+        // Disable other filenames sources
+        if (sourceType === 'url') {
+          newSources.files.metadata = false;
+          newSources.alsFilenames.metadata = false;
+        } else if (sourceType === 'files') {
+          newSources.url.metadata = false;
+          newSources.alsFilenames.metadata = false;
+        } else if (sourceType === 'alsFilenames') {
+          newSources.url.metadata = false;
+          newSources.files.metadata = false;
+        }
       }
-    }));
+      
+      // Update the current source
+      newSources[sourceType] = {
+        ...newSources[sourceType],
+        [field]: value
+      };
+      
+      return newSources;
+    });
 
     // Regenerate timestamps when settings change
     generateCombinedTimestamps();
@@ -1292,12 +1369,14 @@ export default function TaggerPage({ initialUrl }) {
   const generateCombinedTimestamps = () => {
     const urlSource = inputSources.url;
     const filesSource = inputSources.files;
+    const alsFilenamesSource = inputSources.alsFilenames;
 
     // Determine which source to use for times and metadata
     const useUrlTimes = urlSource.data && urlSource.times;
     const useFileTimes = filesSource.data && filesSource.times;
     const useUrlMetadata = urlSource.data && urlSource.metadata;
     const useFileMetadata = filesSource.data && filesSource.metadata;
+    const useAlsFilenamesMetadata = alsFilenamesSource.data && alsFilenamesSource.metadata;
 
     // Priority: if both sources have times enabled, prefer files for timing accuracy
     let timingData = null;
@@ -1333,7 +1412,13 @@ export default function TaggerPage({ initialUrl }) {
       };
     }
 
-    if (useUrlMetadata && urlSource.data) {
+    // Priority: ALS filenames > URL metadata > File metadata
+    if (useAlsFilenamesMetadata && alsFilenamesSource.data) {
+      metadataSource = {
+        type: 'alsFilenames',
+        filenames: alsFilenamesSource.data.filenames
+      };
+    } else if (useUrlMetadata && urlSource.data) {
       metadataSource = {
         type: 'url',
         data: urlSource.data
@@ -1361,13 +1446,19 @@ export default function TaggerPage({ initialUrl }) {
           ? timingData.markers[index + 1].formattedTime 
           : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
         
+        // Use ALS filenames if available, otherwise use marker name
+        let title = marker.name;
+        if (metadataSource && metadataSource.type === 'alsFilenames' && metadataSource.filenames[index]) {
+          title = metadataSource.filenames[index];
+        }
+        
         // Build line based on format order
         const lineData = formatOrder
           .map(item => {
             if (item.value === 'blank') return '';
             if (item.value === 'startTime') return start;
             if (item.value === 'endTime') return end;
-            if (item.value === 'title') return marker.name;
+            if (item.value === 'title') return title;
             if (item.value === 'dash') return '-';
             if (item.value === 'dash-artist') return '';
             if (item.value === 'artist') return '';
@@ -1414,6 +1505,26 @@ export default function TaggerPage({ initialUrl }) {
         let artistName = '';
 
         if (metadataSource && metadataSource.type === 'url') {
+          // Use Discogs metadata if available
+          const track = metadataSource.data.tracklist?.[idx];
+          if (track) {
+            title = track.title || file.name.replace(/\.[^/.]+$/, '');
+            if (track.artists && track.artists.length > 0) {
+              artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
+            }
+          } else {
+            title = file.name.replace(/\.[^/.]+$/, '');
+          }
+        } else if (metadataSource && metadataSource.type === 'alsFilenames') {
+          // Use ALS filenames if available
+          const filename = metadataSource.filenames[idx];
+          if (filename) {
+            title = filename;
+          } else {
+            // Use filename as title
+            title = file.name.replace(/\.[^/.]+$/, '');
+          }
+        } else if (metadataSource && metadataSource.type === 'url') {
           // Use Discogs metadata if available
           const track = metadataSource.data.tracklist?.[idx];
           if (track) {
@@ -1504,7 +1615,7 @@ export default function TaggerPage({ initialUrl }) {
   };
   // Helper function to update combined timestamps when format changes
   useEffect(() => {
-    if (inputSources.url.data || inputSources.files.data) {
+    if (inputSources.url.data || inputSources.files.data || inputSources.alsFilenames.data) {
       generateCombinedTimestamps();
     }
   }, [formatOrder, artistDisabled, inputSources, includeTrackCredits]);
@@ -1531,12 +1642,17 @@ export default function TaggerPage({ initialUrl }) {
       artists: [],
       album: [],
       tracklist: [],
-      combinations: []
-    }); setTagFilters({
+      combinations: [],
+      credits: [],
+      filenames: []
+    });
+    setTagFilters({
       artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
-      combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
+      combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+      credits: { enabled: false, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+      filenames: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
     });
     setVideoTitleRecommendations([]);
     setVideoTitleCopyStates({});
@@ -1556,6 +1672,12 @@ export default function TaggerPage({ initialUrl }) {
         metadata: true,
         times: true,
         label: ''
+      },
+      alsFilenames: {
+        data: null,
+        metadata: true,
+        times: false,
+        label: ''
       }
     });
   }; const processDiscogsResponseToTags = (response) => {
@@ -1566,7 +1688,8 @@ export default function TaggerPage({ initialUrl }) {
       album: new Set(),
       tracklist: new Set(),
       combinations: new Set(),
-      credits: new Set() // NEW: for credits
+      credits: new Set(), // NEW: for credits
+      filenames: new Set() // NEW: for filenames
     };
 
     // Clean function to remove Discogs suffixes and slashes
@@ -1699,7 +1822,8 @@ export default function TaggerPage({ initialUrl }) {
       album: Array.from(tagCategories.album),
       tracklist: Array.from(tagCategories.tracklist),
       combinations: Array.from(tagCategories.combinations),
-      credits: Array.from(tagCategories.credits) // NEW
+      credits: Array.from(tagCategories.credits), // NEW
+      filenames: Array.from(tagCategories.filenames || []) // NEW
     };
 
     setParsedTags(processedTags);
@@ -1718,7 +1842,8 @@ export default function TaggerPage({ initialUrl }) {
       album: calculateStats(processedTags.album),
       tracklist: calculateStats(processedTags.tracklist),
       combinations: calculateStats(processedTags.combinations),
-      credits: calculateStats(processedTags.credits) // NEW
+      credits: calculateStats(processedTags.credits), // NEW
+      filenames: calculateStats(processedTags.filenames) // NEW
     });
 
     // Generate initial tags value with all categories (including credits if enabled)
@@ -1727,7 +1852,8 @@ export default function TaggerPage({ initialUrl }) {
       album: { enabled: true, sliderValue: 100 },
       tracklist: { enabled: true, sliderValue: 100 },
       combinations: { enabled: true, sliderValue: 100 },
-      credits: { enabled: includeTrackCredits, sliderValue: 100 } // NEW
+      credits: { enabled: includeTrackCredits, sliderValue: 100 }, // NEW
+      filenames: { enabled: true, sliderValue: 100 } // NEW
     });
   };
   // Helper function to update tags value based on filters and sliders
@@ -1754,6 +1880,11 @@ export default function TaggerPage({ initialUrl }) {
     if (filters.credits && filters.credits.enabled && tags.credits && tags.credits.length > 0) {
       const count = Math.ceil((tags.credits.length * (filters.credits.sliderValue || 100)) / 100);
       tags.credits.slice(0, count).forEach(tag => allSelectedTags.add(tag));
+    }
+    // NEW: Add filenames if enabled
+    if (filters.filenames && filters.filenames.enabled && tags.filenames && tags.filenames.length > 0) {
+      const count = Math.ceil((tags.filenames.length * (filters.filenames.sliderValue || 100)) / 100);
+      tags.filenames.slice(0, count).forEach(tag => allSelectedTags.add(tag));
     }
     setTagsValue(Array.from(allSelectedTags).join(', ')); // No ellipsis or truncation marker
   };
@@ -1947,14 +2078,18 @@ export default function TaggerPage({ initialUrl }) {
           }}>
             <thead>
               <tr style={{ backgroundColor: '#f5f5f5' }}>
-                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '40%' }}>Source</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Metadata</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Times</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '35%' }}>Source</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Filenames</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Times</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '15%' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {inputSources.url.data && (
-                <tr>
+                <tr style={{
+                  backgroundColor: inputSources.url.metadata ? '#f0f8ff' : 'transparent',
+                  transition: 'background-color 0.3s ease'
+                }}>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
                     <strong>URL:</strong> {inputSources.url.label}
                   </td>
@@ -1963,6 +2098,11 @@ export default function TaggerPage({ initialUrl }) {
                       type="checkbox"
                       checked={inputSources.url.metadata}
                       onChange={e => handleInputSourceChange('url', 'metadata', e.target.checked)}
+                      title="Use Discogs track titles as filenames"
+                      style={{
+                        transform: inputSources.url.metadata ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'transform 0.2s ease'
+                      }}
                     />
                   </td>
                   <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
@@ -1972,10 +2112,72 @@ export default function TaggerPage({ initialUrl }) {
                       onChange={e => handleInputSourceChange('url', 'times', e.target.checked)}
                     />
                   </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <button
+                      onClick={() => {
+                        setInputSources(prev => ({
+                          ...prev,
+                          url: {
+                            data: null,
+                            metadata: true,
+                            times: true,
+                            label: ''
+                          }
+                        }));
+                        setDiscogsResponse(null);
+                        setDiscogsData(null);
+                        setInputSource(null);
+                        setInputValue('');
+                        setParsedTags({
+                          artists: [],
+                          album: [],
+                          tracklist: [],
+                          combinations: [],
+                          credits: [],
+                          filenames: []
+                        });
+                        setTagsValue('');
+                        setHashtagsValue('');
+                        setVideoTitleRecommendations([]);
+                      }}
+                      style={{
+                        background: '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                      }}
+                      title="Clear URL input"
+                      onMouseEnter={e => { 
+                        e.currentTarget.style.background = '#ff5252';
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                      }}
+                      onMouseLeave={e => { 
+                        e.currentTarget.style.background = '#ff6b6b';
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                      }}
+                    >
+                      ×
+                    </button>
+                  </td>
                 </tr>
               )}
               {inputSources.files.data && (
-                <tr>
+                <tr style={{
+                  backgroundColor: inputSources.files.metadata ? '#f0f8ff' : 'transparent',
+                  transition: 'background-color 0.3s ease'
+                }}>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
                     <strong>Files:</strong> {inputSources.files.label}
                   </td>
@@ -1984,6 +2186,11 @@ export default function TaggerPage({ initialUrl }) {
                       type="checkbox"
                       checked={inputSources.files.metadata}
                       onChange={e => handleInputSourceChange('files', 'metadata', e.target.checked)}
+                      title="Use audio file names as filenames"
+                      style={{
+                        transform: inputSources.files.metadata ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'transform 0.2s ease'
+                      }}
                     />
                   </td>
                   <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
@@ -1992,6 +2199,154 @@ export default function TaggerPage({ initialUrl }) {
                       checked={inputSources.files.times}
                       onChange={e => handleInputSourceChange('files', 'times', e.target.checked)}
                     />
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <button
+                      onClick={() => {
+                        setInputSources(prev => ({
+                          ...prev,
+                          files: {
+                            data: null,
+                            metadata: true,
+                            times: true,
+                            label: ''
+                          }
+                        }));
+                        setInputSource(null);
+                        setInputValue('');
+                        audioFilesRef.current = [];
+                        durationsRef.current = [];
+                        setParsedTags({
+                          artists: [],
+                          album: [],
+                          tracklist: [],
+                          combinations: [],
+                          credits: [],
+                          filenames: []
+                        });
+                        setTagsValue('');
+                        setHashtagsValue('');
+                        setVideoTitleRecommendations([]);
+                      }}
+                      style={{
+                        background: '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                      }}
+                      title="Clear files input"
+                      onMouseEnter={e => { 
+                        e.currentTarget.style.background = '#ff5252';
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                      }}
+                      onMouseLeave={e => { 
+                        e.currentTarget.style.background = '#ff6b6b';
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                      }}
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {inputSources.alsFilenames.data && (
+                <tr style={{
+                  backgroundColor: inputSources.alsFilenames.metadata ? '#f0f8ff' : 'transparent',
+                  transition: 'background-color 0.3s ease'
+                }}>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <strong>ALS Filenames:</strong> {inputSources.alsFilenames.label}
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.alsFilenames.metadata}
+                      onChange={e => handleInputSourceChange('alsFilenames', 'metadata', e.target.checked)}
+                      title="Use ALS EffectiveName values as filenames"
+                      style={{
+                        transform: inputSources.alsFilenames.metadata ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'transform 0.2s ease'
+                      }}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.alsFilenames.times}
+                      onChange={e => handleInputSourceChange('alsFilenames', 'times', e.target.checked)}
+                      disabled={true}
+                      title="ALS filenames don't have timing information"
+                      style={{
+                        opacity: 0.4,
+                        cursor: 'not-allowed',
+                        filter: 'grayscale(100%)'
+                      }}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <button
+                      onClick={() => {
+                        setInputSources(prev => ({
+                          ...prev,
+                          alsFilenames: {
+                            data: null,
+                            metadata: true,
+                            times: false,
+                            label: ''
+                          }
+                        }));
+                        // Clear filenames from parsedTags
+                        setParsedTags(prev => ({
+                          ...prev,
+                          filenames: []
+                        }));
+                        // Regenerate tags without filenames
+                        if (parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0)) {
+                          updateTagsValue(parsedTags, tagFilters);
+                        }
+                      }}
+                      style={{
+                        background: '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                      }}
+                      title="Clear ALS filenames input"
+                      onMouseEnter={e => { 
+                        e.currentTarget.style.background = '#ff5252';
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                      }}
+                      onMouseLeave={e => { 
+                        e.currentTarget.style.background = '#ff6b6b';
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                      }}
+                    >
+                      ×
+                    </button>
                   </td>
                 </tr>
               )}
@@ -2587,7 +2942,7 @@ export default function TaggerPage({ initialUrl }) {
       </div>
 
       {/* Tags Type Table */}
-      {(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0)) && (
+      {(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0) || parsedTags.filenames.length > 0) && (
         <>
           <table style={{
             width: '100%',
@@ -2849,6 +3204,55 @@ export default function TaggerPage({ initialUrl }) {
                   </td>
                 </tr>
               )}
+              {parsedTags.filenames.length > 0 && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.filenames && tagFilters.filenames.enabled}
+                      onChange={e => setTagFilters(prev => {
+                        const newFilters = {
+                          ...prev,
+                          filenames: { ...prev.filenames, enabled: e.target.checked }
+                        };
+                        updateTagsValue(parsedTags, newFilters);
+                        return newFilters;
+                      })}
+                    />
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                    <strong>Filenames</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                      {parsedTags.filenames.length} total filenames
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tagFilters.filenames ? tagFilters.filenames.sliderValue : 100}
+                        onChange={e => {
+                          const newValue = parseInt(e.target.value);
+                          setTagFilters(prev => ({
+                            ...prev,
+                            filenames: { ...prev.filenames, sliderValue: newValue }
+                          }));
+                          updateTagsValue(parsedTags, {
+                            ...tagFilters,
+                            filenames: { ...tagFilters.filenames, sliderValue: newValue }
+                          });
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        {tagFilters.filenames ? tagFilters.filenames.sliderValue : 100}% ({Math.ceil((parsedTags.filenames.length * (tagFilters.filenames ? tagFilters.filenames.sliderValue : 100)) / 100)} filenames)
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </>
@@ -2945,6 +3349,10 @@ export default function TaggerPage({ initialUrl }) {
             if (tagFilters.combinations.enabled) {
               const count = Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100);
               enabledTags.push(...parsedTags.combinations.slice(0, count));
+            }
+            if (tagFilters.filenames && tagFilters.filenames.enabled) {
+              const count = Math.ceil((parsedTags.filenames.length * tagFilters.filenames.sliderValue) / 100);
+              enabledTags.push(...parsedTags.filenames.slice(0, count));
             }
 
             // Remove duplicates using Set, then join with commas and spaces
