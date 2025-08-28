@@ -7,8 +7,8 @@ export const routeInfo = {
     icon: "/ico/martinbarker.ico"
   },
   "/tagger": {
-    title: "tagger.site",
-    subtitle: "Generate timestamped tracklists and comma separated tags from audio files or URLs",
+    title: "Tagger.site",
+    subtitle: "Multi-format timestamp extractor: Upload .als (Ableton), .cue files, or paste Discogs URLs to generate formatted tracklists, timestamps, and tags for DJ mixes, podcasts, and audio content",
     icon: "/ico/martinbarker.ico"
   },
   "/listogs": {
@@ -19,6 +19,9 @@ export const routeInfo = {
   "/ffmpegwasm": {
     title: "FFMPEG WASM",
     subtitle: "Browser-based audio encoding with FFMPEG WebAssembly",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/ALS2CUE": {
     icon: "/ico/martinbarker.ico"
   },
   "/popularify": {

@@ -159,6 +159,9 @@ export default function TaggerPage({ initialUrl }) {
 
   // Set artist dropdown disabled by default
   const [artistDisabled, setArtistDisabled] = useState(true);
+  // const [artistFormat, setArtistFormat] = useState('artist'); // Remove this line
+  // const [includeHashtags, setIncludeHashtags] = useState(false); // Remove this line
+  // const [hashtagFormat, setHashtagFormat] = useState('basic'); // Remove this line
 
   // Formatting suggestion state
   const [formatSuggestion, setFormatSuggestion] = useState(null);
@@ -262,6 +265,122 @@ export default function TaggerPage({ initialUrl }) {
       });
     });
   }
+
+  // Helper to parse CUE file content
+  function parseCueFile(cueText) {
+    const lines = cueText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    const result = {
+      title: '',
+      performer: '',
+      tracks: []
+    };
+
+    let currentTrack = null;
+
+    for (const line of lines) {
+      // Parse TITLE (album title)
+      if (line.startsWith('TITLE ')) {
+        const match = line.match(/TITLE\s+"([^"]+)"/);
+        if (match) {
+          result.title = match[1];
+        }
+      }
+      // Parse PERFORMER (artist)
+      else if (line.startsWith('PERFORMER ')) {
+        const match = line.match(/PERFORMER\s+"([^"]+)"/);
+        if (match) {
+          result.performer = match[1];
+        }
+      }
+      // Parse TRACK entries
+      else if (line.startsWith('TRACK ')) {
+        if (currentTrack) {
+          result.tracks.push(currentTrack);
+        }
+        currentTrack = {
+          number: 0,
+          title: '',
+          performer: '',
+          startTime: 0,
+          formattedTime: '00:00'
+        };
+        
+        const trackMatch = line.match(/TRACK\s+(\d+)/);
+        if (trackMatch) {
+          currentTrack.number = parseInt(trackMatch[1]);
+        }
+      }
+      // Parse track TITLE
+      else if (line.startsWith('TITLE ') && currentTrack) {
+        const match = line.match(/TITLE\s+"([^"]+)"/);
+        if (match) {
+          currentTrack.title = match[1];
+        }
+      }
+      // Parse track PERFORMER
+      else if (line.startsWith('PERFORMER ') && currentTrack) {
+        const match = line.match(/PERFORMER\s+"([^"]+)"/);
+        if (match) {
+          currentTrack.performer = match[1];
+        }
+      }
+      // Parse INDEX 01 (start time)
+      else if (line.startsWith('INDEX 01 ') && currentTrack) {
+        const match = line.match(/INDEX\s+01\s+(\d{2}):(\d{2}):(\d{2})/);
+        if (match) {
+          const minutes = parseInt(match[1]);
+          const seconds = parseInt(match[2]);
+          const frames = parseInt(match[3]);
+          
+          // Convert to seconds (frames are typically 1/75th of a second)
+          const startTime = (minutes * 60) + seconds + (frames / 75);
+          currentTrack.startTime = startTime;
+          currentTrack.formattedTime = formatTime(startTime);
+        }
+      }
+    }
+
+    // Add the last track
+    if (currentTrack) {
+      result.tracks.push(currentTrack);
+    }
+
+    return result;
+  }
+
+  // Function to calculate readable text color based on background color
+  const getReadableTextColor = (backgroundColor) => {
+    if (!backgroundColor) return '#000000';
+    
+    // Remove "#" and parse hex color values
+    const color = backgroundColor.replace('#', '');
+    const r = parseInt(color.substr(0, 2), 16);
+    const g = parseInt(color.substr(2, 2), 16);
+    const b = parseInt(color.substr(4, 2), 16);
+    
+    // Convert to relative luminance (WCAG 2.1 formula)
+    const rsRGB = r / 255;
+    const gsRGB = g / 255;
+    const bsRGB = b / 255;
+    
+    const rL = rsRGB <= 0.03928 ? rsRGB / 12.92 : Math.pow((rsRGB + 0.055) / 1.055, 2.4);
+    const gL = gsRGB <= 0.03928 ? gsRGB / 12.92 : Math.pow((gsRGB + 0.055) / 1.055, 2.4);
+    const bL = bsRGB <= 0.03928 ? bsRGB / 12.92 : Math.pow((bsRGB + 0.055) / 1.055, 2.4);
+    
+    const luminance = 0.2126 * rL + 0.7152 * gL + 0.0722 * bL;
+    
+    // Calculate contrast ratios for both black and white text
+    const blackContrast = (luminance + 0.05) / (0 + 0.05);
+    const whiteContrast = (1 + 0.05) / (luminance + 0.05);
+    
+    // Choose the color with the highest contrast ratio
+    if (blackContrast > whiteContrast) {
+      return '#000000'; // Black text
+    } else {
+      return '#ffffff'; // White text
+    }
+  };
+
   // Helper function to generate video title recommendations for full album uploads
   function generateVideoTitleRecommendations(discogsData, variation = 0) {
     if (!discogsData) return [];
@@ -370,7 +489,263 @@ export default function TaggerPage({ initialUrl }) {
       files: fileArr.map(f => f.name)
     }));
 
-    // Only process audio files
+    // Check if any of the files are ALS files
+    const alsFiles = fileArr.filter(f => f.name.endsWith('.als'));
+    if (alsFiles.length > 0) {
+      // Process ALS file(s) to extract markers
+      try {
+        const alsFile = alsFiles[0]; // Process first ALS file
+        const arrayBuffer = await alsFile.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        // Check if it's a gzipped file (ALS files are gzipped)
+        if (uint8Array[0] === 0x1f && uint8Array[1] === 0x8b) {
+          // Decompress using pako
+          const pako = await import('pako');
+          const decompressed = pako.inflate(uint8Array, { to: 'string' });
+          
+          // Parse the XML
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(decompressed, 'text/xml');
+          
+          const extractedMarkers = [];
+          
+          // Method 1: Look for Locators (this is what dawtool actually does!)
+          const locatorsElements = xmlDoc.querySelectorAll('Locators > Locator');
+          
+          if (locatorsElements.length > 0) {
+            locatorsElements.forEach((locator, index) => {
+              // Get the Time attribute value (this is in beats, not seconds)
+              const timeElement = locator.querySelector('Time');
+              const nameElement = locator.querySelector('Name');
+              
+              if (timeElement && nameElement) {
+                const beatTime = timeElement.getAttribute('Value');
+                const markerName = nameElement.getAttribute('Value');
+                
+                if (beatTime && !isNaN(parseFloat(beatTime)) && markerName) {
+                  // Convert beat time to seconds (assuming 120 BPM for now)
+                  const bpm = 120; // Default BPM
+                  const startTime = (parseFloat(beatTime) * 60) / bpm;
+                  
+                  extractedMarkers.push({
+                    name: markerName,
+                    startTime,
+                    formattedTime: formatTime(startTime)
+                  });
+                }
+              }
+            });
+          }
+
+          // Method 2: If no locators found, look for any element with Time and Name attributes
+          if (extractedMarkers.length === 0) {
+            const timeNameElements = xmlDoc.querySelectorAll('[Time][Name]');
+            
+            timeNameElements.forEach((element, index) => {
+              const timeValue = element.getAttribute('Time');
+              const nameValue = element.getAttribute('Name');
+              
+              if (timeValue && nameValue && !isNaN(parseFloat(timeValue))) {
+                const startTime = parseFloat(timeValue);
+                const name = nameValue;
+                
+                extractedMarkers.push({
+                  name,
+                  startTime,
+                  formattedTime: formatTime(startTime)
+                });
+              }
+            });
+          }
+
+          // Method 3: Look for any element with a Time attribute that might be a marker
+          if (extractedMarkers.length === 0) {
+            const timeElements = xmlDoc.querySelectorAll('[Time]');
+            
+            // Filter for reasonable time values (between 0 and 3600 seconds = 1 hour)
+            timeElements.forEach((element, index) => {
+              const timeValue = element.getAttribute('Time');
+              if (timeValue && !isNaN(parseFloat(timeValue))) {
+                const startTime = parseFloat(timeValue);
+                if (startTime >= 0 && startTime <= 3600) {
+                  const name = element.tagName + ' ' + (index + 1);
+                  
+                  extractedMarkers.push({
+                    name,
+                    startTime,
+                    formattedTime: formatTime(startTime)
+                  });
+                }
+              }
+            });
+          }
+
+          // Filter out duplicates and sort by time
+          const filteredMarkers = [];
+          const seenTimes = new Set();
+          
+          extractedMarkers.forEach((marker) => {
+            // Skip if we've already seen this time (within 1 second tolerance)
+            const timeKey = Math.floor(marker.startTime);
+            if (seenTimes.has(timeKey)) return;
+            
+            seenTimes.add(timeKey);
+            filteredMarkers.push(marker);
+          });
+          
+          // Sort by start time
+          filteredMarkers.sort((a, b) => a.startTime - b.startTime);
+
+          if (filteredMarkers.length > 0) {
+            // Use ALS markers for timestamps
+            const lines = filteredMarkers.map((marker, index) => {
+              const start = marker.formattedTime;
+              const end = index < filteredMarkers.length - 1 
+                ? filteredMarkers[index + 1].formattedTime 
+                : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+              
+              return formatOrder
+                .map((item) => {
+                  if (item.value === 'blank') return '';
+                  if (item.value === 'startTime') return start;
+                  if (item.value === 'endTime') return end;
+                  if (item.value === 'title') return marker.name;
+                  if (item.value === 'dash') return '-';
+                  if (item.value === 'dash-artist') return '';
+                  if (item.value === 'artist') return '';
+                  return '';
+                })
+                .filter(Boolean)
+                .join(' ');
+            });
+
+            setInputValue(lines.join('\n'));
+            setInputSource('als');
+            
+            // Update input sources state
+            setInputSources(prev => ({
+              ...prev,
+              files: {
+                ...prev.files,
+                data: {
+                  type: 'als',
+                  markers: filteredMarkers,
+                  file: alsFile
+                },
+                label: `ALS: ${filteredMarkers.length} markers from ${alsFile.name}`
+              }
+            }));
+
+            setIsLoadingFiles(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Error processing ALS file:', err);
+        // Fall through to audio file processing
+      }
+    }
+
+    // Check if any of the files are CUE files
+    const cueFiles = fileArr.filter(f => f.name.endsWith('.cue'));
+    if (cueFiles.length > 0) {
+      try {
+        const cueFile = cueFiles[0]; // Process first CUE file
+        const cueText = await cueFile.text();
+        
+        // Parse CUE file content
+        const cueData = parseCueFile(cueText);
+        
+        if (cueData.tracks.length > 0) {
+          // Use CUE tracks for timestamps
+          const lines = cueData.tracks.map((track, index) => {
+            const start = track.formattedTime;
+            const end = index < cueData.tracks.length - 1 
+              ? cueData.tracks[index + 1].formattedTime 
+              : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+            
+            return formatOrder
+              .map((item) => {
+                if (item.value === 'blank') return '';
+                if (item.value === 'startTime') return start;
+                if (item.value === 'endTime') return end;
+                if (item.value === 'title') return track.title;
+                if (item.value === 'dash') return '-';
+                if (item.value === 'dash-artist') return '';
+                if (item.value === 'artist') return cueData.performer || '';
+                return '';
+              })
+              .filter(Boolean)
+              .join(' ');
+          });
+
+          setInputValue(lines.join('\n'));
+          setInputSource('cue');
+          
+          // Update input sources state
+          setInputSources(prev => ({
+            ...prev,
+            files: {
+              ...prev.files,
+              data: {
+                type: 'cue',
+                tracks: cueData.tracks,
+                title: cueData.title,
+                performer: cueData.performer,
+                file: cueFile
+              },
+              label: `CUE: ${cueData.tracks.length} tracks from ${cueData.title || cueFile.name}`
+            }
+          }));
+
+          // Auto-populate tags from CUE data
+          const cueTags = [];
+          if (cueData.title) cueTags.push(cueData.title);
+          if (cueData.performer) cueTags.push(cueData.performer);
+          cueData.tracks.forEach(track => {
+            if (track.title) cueTags.push(track.title);
+          });
+
+          const fallbackTags = {
+            artists: cueData.performer ? [cueData.performer] : [],
+            album: cueData.title ? [cueData.title] : [],
+            tracklist: cueData.tracks.map(t => t.title).filter(Boolean),
+            combinations: [],
+            credits: [],
+            filenames: cueTags
+          };
+
+          setParsedTags(prev => ({
+            ...prev,
+            ...fallbackTags
+          }));
+
+          setTagsValue(cueTags.join(', '));
+          updateHashtagsValue(cueTags.join(', '));
+
+          // Generate video title recommendations from CUE data
+          if (cueData.title && cueData.performer) {
+            const videoTitles = [
+              `${cueData.title} - ${cueData.performer} | Full Album`,
+              `${cueData.performer} - ${cueData.title} | Complete Album`,
+              `${cueData.title} by ${cueData.performer} - Full LP`,
+              `${cueData.performer}: ${cueData.title} | Full Album`,
+              `${cueData.title} (${cueData.performer}) | Complete Album`
+            ];
+            setVideoTitleRecommendations(videoTitles);
+          }
+
+          setIsLoadingFiles(false);
+          return;
+        }
+      } catch (err) {
+        console.error('Error processing CUE file:', err);
+        // Fall through to audio file processing
+      }
+    }
+
+    // Only process audio files if no ALS file was processed
     const audioFiles = fileArr.filter(f =>
       f.type.startsWith('audio/') ||
       /\.(mp3|wav|aiff|flac)$/i.test(f.name)
@@ -576,8 +951,8 @@ export default function TaggerPage({ initialUrl }) {
       setInputValue(lines.join('\n'));
     } else if (inputSource === 'discogs' && discogsTracksRef.current.length > 0) {
       let currentTime = 0;
-      const lines = discogsTracksRef.current.map((track, idx) => {
-        const durationSec = discogsDurationsRef.current[idx] || 0;
+      const lines = discogsTracksRef.current.map((track, index) => {
+        const durationSec = discogsDurationsRef.current[index] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + durationSec);
         currentTime += durationSec;
@@ -597,6 +972,54 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'dash') return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(lines.join('\n'));
+    } else if (inputSource === 'als' && inputSources.files.data && inputSources.files.data.type === 'als') {
+      // Handle ALS file markers
+      const markers = inputSources.files.data.markers;
+      const lines = markers.map((marker, index) => {
+        const start = marker.formattedTime;
+        const end = index < markers.length - 1 
+          ? markers[index + 1].formattedTime 
+          : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return marker.name;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(lines.join('\n'));
+    } else if (inputSource === 'cue' && inputSources.files.data && inputSources.files.data.type === 'cue') {
+      // Handle CUE file tracks
+      const tracks = inputSources.files.data.tracks;
+      const lines = tracks.map((track, index) => {
+        const start = track.formattedTime;
+        const end = index < tracks.length - 1 
+          ? tracks[index + 1].formattedTime 
+          : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return track.performer || '';
             return '';
           })
           .filter(Boolean)
@@ -659,6 +1082,54 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'dash') return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(newLines.join('\n'));
+    } else if (inputSource === 'als' && inputSources.files.data && inputSources.files.data.type === 'als') {
+      // Handle ALS file markers
+      const markers = inputSources.files.data.markers;
+      const newLines = markers.map((marker, index) => {
+        const start = marker.formattedTime;
+        const end = index < markers.length - 1 
+          ? markers[index + 1].formattedTime 
+          : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return marker.name;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(newLines.join('\n'));
+    } else if (inputSource === 'cue' && inputSources.files.data && inputSources.files.data.type === 'cue') {
+      // Handle CUE file tracks
+      const tracks = inputSources.files.data.tracks;
+      const newLines = tracks.map((track, index) => {
+        const start = track.formattedTime;
+        const end = index < tracks.length - 1 
+          ? tracks[index + 1].formattedTime 
+          : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return track.performer || '';
             return '';
           })
           .filter(Boolean)
@@ -833,11 +1304,26 @@ export default function TaggerPage({ initialUrl }) {
     let metadataSource = null;
 
     if (useFileTimes && filesSource.data) {
-      timingData = {
-        type: 'files',
-        files: filesSource.data.files,
-        durations: filesSource.data.durations
-      };
+      if (filesSource.data.type === 'als') {
+        // Handle ALS file data
+        timingData = {
+          type: 'als',
+          markers: filesSource.data.markers
+        };
+      } else if (filesSource.data.type === 'cue') {
+        // Handle CUE file data
+        timingData = {
+          type: 'cue',
+          tracks: filesSource.data.tracks
+        };
+      } else {
+        // Handle regular audio files
+        timingData = {
+          type: 'files',
+          files: filesSource.data.files,
+          durations: filesSource.data.durations
+        };
+      }
     } else if (useUrlTimes && urlSource.data) {
       timingData = {
         type: 'url',
@@ -866,7 +1352,58 @@ export default function TaggerPage({ initialUrl }) {
     // Generate timestamps based on combined sources
     let currentTime = 0;
     const lines = [];
-    if (timingData.type === 'files') {
+    
+    if (timingData.type === 'als') {
+      // Handle ALS markers
+      timingData.markers.forEach((marker, index) => {
+        const start = marker.formattedTime;
+        const end = index < timingData.markers.length - 1 
+          ? timingData.markers[index + 1].formattedTime 
+          : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+        
+        // Build line based on format order
+        const lineData = formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return marker.name;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+
+        lines.push(lineData);
+      });
+    } else if (timingData.type === 'cue') {
+      // Handle CUE file tracks
+      timingData.tracks.forEach((track, index) => {
+        const start = track.formattedTime;
+        const end = index < timingData.tracks.length - 1 
+          ? timingData.tracks[index + 1].formattedTime 
+          : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+        
+        // Build line based on format order
+        const lineData = formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return track.performer || '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+
+        lines.push(lineData);
+      });
+    } else if (timingData.type === 'files') {
       timingData.files.forEach((file, idx) => {
         const duration = timingData.durations[idx] || 0;
         const start = formatTime(currentTime);
@@ -1273,7 +1810,11 @@ export default function TaggerPage({ initialUrl }) {
 
   return (
     <div>
-      <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+      <div className={styles.taggerText} style={{ 
+        fontSize: '1.1rem', 
+        marginBottom: '0.5rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+      }}>
         <strong>Input:</strong>
       </div>
       <div
@@ -1320,52 +1861,53 @@ export default function TaggerPage({ initialUrl }) {
             <label
               htmlFor="url-input"
               className={styles.taggerText}
-              style={{ marginBottom: 0, marginRight: '0.5rem' }}
+              style={{ 
+                marginBottom: 0, 
+                marginRight: '0.5rem',
+                color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+              }}
             >
               URL:
             </label>
-            <div style={{ display: 'flex', flex: 1, width: '100%' }}>
-              <input
-                id="url-input"
-                type="text"
-                placeholder="Paste a supported URL"
-                value={urlInput}
-                onChange={e => setUrlInput(e.target.value)}
-                style={{
-                  padding: '0.5rem',
-                  borderRadius: '4px 0 0 4px',
-                  border: '1px solid #fafafa',
-                  borderRight: 'none',
-                  color: '#222',
-                  background: '#fff',
-                  flex: 1,
-                  minWidth: 0,
-                  width: '100%',
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    handleUrlSubmit(e);
-                  }
-                }}
-              />
-              <button
-                type="submit"
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '0 4px 4px 0',
-                  border: '1px solid #ccc',
-                  borderLeft: 'none',
-                  background: '#eee',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
-                  width: 'auto',
-                  flexShrink: 0
-                }}
-              >
-                Submit
-              </button>
-            </div>
+            <input
+              id="url-input"
+              type="text"
+              placeholder="Paste a supported URL"
+              value={urlInput}
+              onChange={e => setUrlInput(e.target.value)}
+              style={{
+                padding: '0.5rem',
+                borderRadius: '4px 0 0 4px',
+                border: '1px solid #fafafa',
+                borderRight: 'none',
+                color: '#222',
+                background: '#fff',
+                flex: 1,
+                minWidth: 0,
+                width: '100%',
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  handleUrlSubmit(e);
+                }
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: '0.5rem 1rem',
+                borderRadius: '0 4px 4px 0',
+                border: '1px solid #ccc',
+                background: '#eee',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
+                width: 'auto',
+                flexShrink: 0
+              }}
+            >
+              Submit
+            </button>
           </form>
           <div
             className={styles.taggerText}
@@ -1374,7 +1916,8 @@ export default function TaggerPage({ initialUrl }) {
               maxWidth: '100%',
               wordBreak: 'break-word',
               overflowWrap: 'break-word',
-              fontSize: '0.95em'
+              fontSize: '0.95em',
+              color: getReadableTextColor(colors?.LightMuted || '#ffffff')
             }}
           >
             <small>
@@ -1388,7 +1931,11 @@ export default function TaggerPage({ initialUrl }) {
       {(inputSources.url.data || inputSources.files.data) && (
         <>
           {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
-          <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+          <div className={styles.taggerText} style={{ 
+            fontSize: '1.1rem', 
+            marginBottom: '0.5rem',
+            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+          }}>
             <strong>Input Sources:</strong>
           </div>
           <table style={{
@@ -1453,12 +2000,17 @@ export default function TaggerPage({ initialUrl }) {
         </>
       )}
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
-      <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+      <div className={styles.taggerText} style={{ 
+        fontSize: '1.1rem', 
+        marginBottom: '0.5rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+      }}>
         <strong>Timestamps:</strong>
       </div>
 
       {/* --- Timestamp Formatting Dropdowns & Drag-and-Drop --- */}
       <div
+        className="timestamp-format-container"
         style={{
           width: '100%',
           display: 'flex',
@@ -1467,7 +2019,6 @@ export default function TaggerPage({ initialUrl }) {
           alignItems: 'stretch',
           height: '2.5rem',
         }}
-        className="timestamp-format-container"
       >
         {formatOrder.map((item, idx) => (
           <div
@@ -1603,6 +2154,54 @@ export default function TaggerPage({ initialUrl }) {
                         .join(' ');
                     });
                     setInputValue(lines.join('\n'));
+                  } else if (inputSource === 'als' && inputSources.files.data && inputSources.files.data.type === 'als') {
+                    // Handle ALS file markers
+                    const markers = inputSources.files.data.markers;
+                    const lines = markers.map((marker, index) => {
+                      const start = marker.formattedTime;
+                      const end = index < markers.length - 1 
+                        ? markers[index + 1].formattedTime 
+                        : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+                      
+                      return newFormatOrder
+                        .map((item2) => {
+                          if (item2.value === 'blank') return '';
+                          if (item2.value === 'startTime') return start;
+                          if (item2.value === 'endTime') return end;
+                          if (item2.value === 'title') return marker.name;
+                          if (item2.value === 'dash') return '-';
+                          if (item2.value === 'dash-artist') return '';
+                          if (item2.value === 'artist') return '';
+                          return '';
+                        })
+                        .filter(Boolean)
+                        .join(' ');
+                    });
+                    setInputValue(lines.join('\n'));
+                  } else if (inputSource === 'cue' && inputSources.files.data && inputSources.files.data.type === 'cue') {
+                    // Handle CUE file tracks
+                    const tracks = inputSources.files.data.tracks;
+                    const lines = tracks.map((track, index) => {
+                      const start = track.formattedTime;
+                      const end = index < tracks.length - 1 
+                        ? tracks[index + 1].formattedTime 
+                        : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+                      
+                      return newFormatOrder
+                        .map((item2) => {
+                          if (item2.value === 'blank') return '';
+                          if (item2.value === 'startTime') return start;
+                          if (item2.value === 'endTime') return end;
+                          if (item2.value === 'title') return track.title || '';
+                          if (item2.value === 'dash') return '-';
+                          if (item2.value === 'dash-artist') return '';
+                          if (item2.value === 'artist') return track.performer || '';
+                          return '';
+                        })
+                        .filter(Boolean)
+                        .join(' ');
+                    });
+                    setInputValue(lines.join('\n'));
                   }
                 }
               }, 0);
@@ -1725,15 +2324,16 @@ export default function TaggerPage({ initialUrl }) {
         <button
           style={{
             width: '100%',
+            marginBottom: '0.25rem',
             padding: '0.5rem',
             borderRadius: '4px',
             border: '1px solid #ccc',
             background: copyState === 'copied' ? '#ffe156' : '#eee',
             fontWeight: 600,
             cursor: 'pointer',
-            marginBottom: '0.25rem',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
             display: 'block',
-            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
           }}
           onClick={handleCopy}
         >
@@ -1862,7 +2462,10 @@ export default function TaggerPage({ initialUrl }) {
         )}
 
         <div style={{ margin: '0.5rem 0' }}>
-          <label style={{ fontSize: '0.95rem', color: '#333' }}>
+          <label style={{ 
+            fontSize: '0.95rem', 
+            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+          }}>
             <input
               type="checkbox"
               checked={includeTrackCredits}
@@ -1885,7 +2488,11 @@ export default function TaggerPage({ initialUrl }) {
             />
             Include track credits
             {!hasTrackCredits && (
-              <span style={{ marginLeft: '0.5rem', fontSize: '0.85rem', color: '#333' }}>
+              <span style={{ 
+                marginLeft: '0.5rem', 
+                fontSize: '0.85rem', 
+                color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+              }}>
                 (disabled because no track credit info was found)
               </span>
             )}
@@ -1898,7 +2505,11 @@ export default function TaggerPage({ initialUrl }) {
         <>
           {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: 0 }}>
+            <div className={styles.taggerText} style={{ 
+              fontSize: '1.1rem', 
+              marginBottom: 0,
+              color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+            }}>
               <strong>Video Title Recommendations:</strong>
             </div>
             <button
@@ -1937,7 +2548,7 @@ export default function TaggerPage({ initialUrl }) {
                   style={{
                     flex: 1,
                     fontSize: '0.95rem',
-                    color: '#333',
+                    color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
                     wordBreak: 'break-word',
                     marginRight: '0.5rem'
                   }}
@@ -1967,7 +2578,11 @@ export default function TaggerPage({ initialUrl }) {
       )}
 
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
-      <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+      <div className={styles.taggerText} style={{ 
+        fontSize: '1.1rem', 
+        marginBottom: '0.5rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+      }}>
         <strong>Tags:</strong>
       </div>
 
@@ -2352,7 +2967,10 @@ export default function TaggerPage({ initialUrl }) {
         </button>
 
         {optimizeStatus && (
-          <span style={{ fontSize: '0.9rem', color: '#666' }}>
+          <span style={{ 
+            fontSize: '0.9rem', 
+            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+          }}>
             {optimizeStatus}
           </span>
         )}
@@ -2361,7 +2979,7 @@ export default function TaggerPage({ initialUrl }) {
       {/* Hashtags Section */}
       <div>
         <h3 style={{
-          color: colors.primaryText,
+          color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
           marginBottom: '1rem',
           fontSize: '1.2rem',
           fontWeight: 600
@@ -2411,6 +3029,12 @@ export default function TaggerPage({ initialUrl }) {
             : `Copy ${hashtagsValue.length} chars to clipboard`}
         </button>
       </div>
+
+      {/* --- Tags Section --- */}
+      {/* Removed problematic Tags section */}
+
+      {/* --- Video Title Recommendations --- */}
+      {/* Removed problematic Video Title Recommendations section */}
     </div>
   );
 }

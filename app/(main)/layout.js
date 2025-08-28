@@ -304,6 +304,12 @@ export default function RootLayout({ children }) {
                 label="Listogs"
               />
 
+              <ProjectLink
+                to="/ALS2CUE"
+                icon={FileMusicIcon}
+                label="ALS to CUE"
+              />
+
               {/* 
               <ProjectLink
                 to="/retro-roulette"
@@ -461,16 +467,18 @@ export default function RootLayout({ children }) {
             style={{ background: colors.LightMuted }}
           >
             <div className={styles.contentWrapper}>
-              <div className={styles.titleCard}
-                style={{ background: colors.Muted }}
-              >
-                <h1 className={styles.pageTitle}>
-                  <strong>{pageTitle}</strong>
-                </h1>
-                {pageSubTitle && (
-                  <p className={styles.pageSubTitle}>{pageSubTitle}</p>
-                )}
-              </div>
+              {pageTitle && (
+                <div className={styles.titleCard}
+                  style={{ background: colors.Muted }}
+                >
+                  <h1 className={styles.pageTitle}>
+                    <strong>{pageTitle}</strong>
+                  </h1>
+                  {pageSubTitle && (
+                    <p className={styles.pageSubTitle}>{pageSubTitle}</p>
+                  )}
+                </div>
+              )}
               <div className={styles.contentBody}>{children}</div>
             </div>
           </main>
