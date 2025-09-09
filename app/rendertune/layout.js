@@ -34,7 +34,7 @@ export default function RenderTuneLayout({ children }) {
         <title>RenderTune</title>
         <link rel="icon" href={logo} />
       </head>
-      <body style={{ margin: '0px', 'background-color': '#1c1c1c' }}>
+      <body style={{ margin: '0px', backgroundColor: '#1c1c1c' }}>
         <div className={styles.wrapper}>
           <header className={styles.header}>
             {/* Make the entire logo container link to /rendertune */}

@@ -53,6 +53,9 @@ export default function Home() {
 
   const gradientBackground = createDynamicGradient();
   const textColor = colors ? getReadableTextColor(colors.Vibrant || '#667eea') : '#ffffff';
+  
+  // Determine if background is light (for white glow effect)
+  const isLightBackground = colors ? getReadableTextColor(colors.Vibrant || '#667eea') === '#000' : false;
 
   return (
     <div className={styles.homeContent}>
@@ -64,7 +67,12 @@ export default function Home() {
                 color: textColor
               }}
             >
-                <h1 className={styles.heroTitle}>Martin Barker</h1>
+                <h1 
+                  className={styles.heroTitle}
+                  data-light-background={isLightBackground}
+                >
+                  Martin Barker
+                </h1>
                 <p className={styles.heroSubtitle}>Software Developer</p>
             </div>
 
