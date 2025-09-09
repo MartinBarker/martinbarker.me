@@ -27,7 +27,6 @@ function logDiscogsRequest({ route, payload, response }) {
 
 export default function TaggerPage({ initialUrl }) {
 
-
   const { colors } = useColorContext();
   const urlInputContainerRef = useRef(null);
   const [isStacked, setIsStacked] = useState(false);
@@ -50,7 +49,9 @@ export default function TaggerPage({ initialUrl }) {
     artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
     album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
     tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
-    combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
+    combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+    credits: { enabled: false, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+    filenames: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
   });
   const [selectAllTags, setSelectAllTags] = useState(true);
   // Add hydration state
@@ -63,7 +64,9 @@ export default function TaggerPage({ initialUrl }) {
     artists: [],
     album: [],
     tracklist: [],
-    combinations: []
+    combinations: [],
+    credits: [],
+    filenames: []
   });  // Add state for video title recommendations
   const [videoTitleRecommendations, setVideoTitleRecommendations] = useState([]);
   const [videoTitleCopyStates, setVideoTitleCopyStates] = useState({}); // Change from single state to an object tracking each button
@@ -80,6 +83,12 @@ export default function TaggerPage({ initialUrl }) {
       data: null,
       metadata: true,
       times: true,
+      label: ''
+    },
+    alsFilenames: {
+      data: null,
+      metadata: true,
+      times: false,
       label: ''
     }
   });
@@ -159,6 +168,9 @@ export default function TaggerPage({ initialUrl }) {
 
   // Set artist dropdown disabled by default
   const [artistDisabled, setArtistDisabled] = useState(true);
+  // const [artistFormat, setArtistFormat] = useState('artist'); // Remove this line
+  // const [includeHashtags, setIncludeHashtags] = useState(false); // Remove this line
+  // const [hashtagFormat, setHashtagFormat] = useState('basic'); // Remove this line
 
   // Formatting suggestion state
   const [formatSuggestion, setFormatSuggestion] = useState(null);
@@ -262,6 +274,122 @@ export default function TaggerPage({ initialUrl }) {
       });
     });
   }
+
+  // Helper to parse CUE file content
+  function parseCueFile(cueText) {
+    const lines = cueText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    const result = {
+      title: '',
+      performer: '',
+      tracks: []
+    };
+
+    let currentTrack = null;
+
+    for (const line of lines) {
+      // Parse TITLE (album title)
+      if (line.startsWith('TITLE ')) {
+        const match = line.match(/TITLE\s+"([^"]+)"/);
+        if (match) {
+          result.title = match[1];
+        }
+      }
+      // Parse PERFORMER (artist)
+      else if (line.startsWith('PERFORMER ')) {
+        const match = line.match(/PERFORMER\s+"([^"]+)"/);
+        if (match) {
+          result.performer = match[1];
+        }
+      }
+      // Parse TRACK entries
+      else if (line.startsWith('TRACK ')) {
+        if (currentTrack) {
+          result.tracks.push(currentTrack);
+        }
+        currentTrack = {
+          number: 0,
+          title: '',
+          performer: '',
+          startTime: 0,
+          formattedTime: '00:00'
+        };
+        
+        const trackMatch = line.match(/TRACK\s+(\d+)/);
+        if (trackMatch) {
+          currentTrack.number = parseInt(trackMatch[1]);
+        }
+      }
+      // Parse track TITLE
+      else if (line.startsWith('TITLE ') && currentTrack) {
+        const match = line.match(/TITLE\s+"([^"]+)"/);
+        if (match) {
+          currentTrack.title = match[1];
+        }
+      }
+      // Parse track PERFORMER
+      else if (line.startsWith('PERFORMER ') && currentTrack) {
+        const match = line.match(/PERFORMER\s+"([^"]+)"/);
+        if (match) {
+          currentTrack.performer = match[1];
+        }
+      }
+      // Parse INDEX 01 (start time)
+      else if (line.startsWith('INDEX 01 ') && currentTrack) {
+        const match = line.match(/INDEX\s+01\s+(\d{2}):(\d{2}):(\d{2})/);
+        if (match) {
+          const minutes = parseInt(match[1]);
+          const seconds = parseInt(match[2]);
+          const frames = parseInt(match[3]);
+          
+          // Convert to seconds (frames are typically 1/75th of a second)
+          const startTime = (minutes * 60) + seconds + (frames / 75);
+          currentTrack.startTime = startTime;
+          currentTrack.formattedTime = formatTime(startTime);
+        }
+      }
+    }
+
+    // Add the last track
+    if (currentTrack) {
+      result.tracks.push(currentTrack);
+    }
+
+    return result;
+  }
+
+  // Function to calculate readable text color based on background color
+  const getReadableTextColor = (backgroundColor) => {
+    if (!backgroundColor) return '#000000';
+    
+    // Remove "#" and parse hex color values
+    const color = backgroundColor.replace('#', '');
+    const r = parseInt(color.substr(0, 2), 16);
+    const g = parseInt(color.substr(2, 2), 16);
+    const b = parseInt(color.substr(4, 2), 16);
+    
+    // Convert to relative luminance (WCAG 2.1 formula)
+    const rsRGB = r / 255;
+    const gsRGB = g / 255;
+    const bsRGB = b / 255;
+    
+    const rL = rsRGB <= 0.03928 ? rsRGB / 12.92 : Math.pow((rsRGB + 0.055) / 1.055, 2.4);
+    const gL = gsRGB <= 0.03928 ? gsRGB / 12.92 : Math.pow((gsRGB + 0.055) / 1.055, 2.4);
+    const bL = bsRGB <= 0.03928 ? bsRGB / 12.92 : Math.pow((bsRGB + 0.055) / 1.055, 2.4);
+    
+    const luminance = 0.2126 * rL + 0.7152 * gL + 0.0722 * bL;
+    
+    // Calculate contrast ratios for both black and white text
+    const blackContrast = (luminance + 0.05) / (0 + 0.05);
+    const whiteContrast = (1 + 0.05) / (luminance + 0.05);
+    
+    // Choose the color with the highest contrast ratio
+    if (blackContrast > whiteContrast) {
+      return '#000000'; // Black text
+    } else {
+      return '#ffffff'; // White text
+    }
+  };
+
   // Helper function to generate video title recommendations for full album uploads
   function generateVideoTitleRecommendations(discogsData, variation = 0) {
     if (!discogsData) return [];
@@ -370,7 +498,311 @@ export default function TaggerPage({ initialUrl }) {
       files: fileArr.map(f => f.name)
     }));
 
-    // Only process audio files
+    // Check if any of the files are ALS files
+    const alsFiles = fileArr.filter(f => f.name.endsWith('.als'));
+    if (alsFiles.length > 0) {
+      // Process ALS file(s) to extract markers
+      try {
+        const alsFile = alsFiles[0]; // Process first ALS file
+        const arrayBuffer = await alsFile.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        // Check if it's a gzipped file (ALS files are gzipped)
+        if (uint8Array[0] === 0x1f && uint8Array[1] === 0x8b) {
+          // Decompress using pako
+          const pako = await import('pako');
+          const decompressed = pako.inflate(uint8Array, { to: 'string' });
+          
+          // Parse the XML
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(decompressed, 'text/xml');
+          
+          const extractedMarkers = [];
+          const extractedFilenames = [];
+          
+          // Extract filenames from EffectiveName elements
+          const effectiveNameElements = xmlDoc.querySelectorAll('EffectiveName');
+          effectiveNameElements.forEach(element => {
+            const value = element.getAttribute('Value');
+            if (value && value.trim()) {
+              extractedFilenames.push(value.trim());
+            }
+          });
+          
+          // Method 1: Look for Locators (this is what dawtool actually does!)
+          const locatorsElements = xmlDoc.querySelectorAll('Locators > Locator');
+          
+          if (locatorsElements.length > 0) {
+            locatorsElements.forEach((locator, index) => {
+              // Get the Time attribute value (this is in beats, not seconds)
+              const timeElement = locator.querySelector('Time');
+              const nameElement = locator.querySelector('Name');
+              
+              if (timeElement && nameElement) {
+                const beatTime = timeElement.getAttribute('Value');
+                const markerName = nameElement.getAttribute('Value');
+                
+                if (beatTime && !isNaN(parseFloat(beatTime)) && markerName) {
+                  // Convert beat time to seconds (assuming 120 BPM for now)
+                  const bpm = 120; // Default BPM
+                  const startTime = (parseFloat(beatTime) * 60) / bpm;
+                  
+                  extractedMarkers.push({
+                    name: markerName,
+                    startTime,
+                    formattedTime: formatTime(startTime)
+                  });
+                }
+              }
+            });
+          }
+
+          // Method 2: If no locators found, look for any element with Time and Name attributes
+          if (extractedMarkers.length === 0) {
+            const timeNameElements = xmlDoc.querySelectorAll('[Time][Name]');
+            
+            timeNameElements.forEach((element, index) => {
+              const timeValue = element.getAttribute('Time');
+              const nameValue = element.getAttribute('Name');
+              
+              if (timeValue && nameValue && !isNaN(parseFloat(timeValue))) {
+                const startTime = parseFloat(timeValue);
+                const name = nameValue;
+                
+                extractedMarkers.push({
+                  name,
+                  startTime,
+                  formattedTime: formatTime(startTime)
+                });
+              }
+            });
+          }
+
+          // Method 3: Look for any element with a Time attribute that might be a marker
+          if (extractedMarkers.length === 0) {
+            const timeElements = xmlDoc.querySelectorAll('[Time]');
+            
+            // Filter for reasonable time values (between 0 and 3600 seconds = 1 hour)
+            timeElements.forEach((element, index) => {
+              const timeValue = element.getAttribute('Time');
+              if (timeValue && !isNaN(parseFloat(timeValue))) {
+                const startTime = parseFloat(timeValue);
+                if (startTime >= 0 && startTime <= 3600) {
+                  const name = element.tagName + ' ' + (index + 1);
+                  
+                  extractedMarkers.push({
+                    name,
+                    startTime,
+                    formattedTime: formatTime(startTime)
+                  });
+                }
+              }
+            });
+          }
+
+          // Filter out duplicates and sort by time
+          const filteredMarkers = [];
+          const seenTimes = new Set();
+          
+          extractedMarkers.forEach((marker) => {
+            // Skip if we've already seen this time (within 1 second tolerance)
+            const timeKey = Math.floor(marker.startTime);
+            if (seenTimes.has(timeKey)) return;
+            
+            seenTimes.add(timeKey);
+            filteredMarkers.push(marker);
+          });
+          
+          // Sort by start time
+          filteredMarkers.sort((a, b) => a.startTime - b.startTime);
+
+          if (filteredMarkers.length > 0) {
+            // Use ALS markers for timestamps
+            const lines = filteredMarkers.map((marker, index) => {
+              const start = marker.formattedTime;
+              const end = index < filteredMarkers.length - 1 
+                ? filteredMarkers[index + 1].formattedTime 
+                : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+              
+              return formatOrder
+                .map((item) => {
+                  if (item.value === 'blank') return '';
+                  if (item.value === 'startTime') return start;
+                  if (item.value === 'endTime') return end;
+                  if (item.value === 'title') return marker.name;
+                  if (item.value === 'dash') return '-';
+                  if (item.value === 'dash-artist') return '';
+                  if (item.value === 'artist') return '';
+                  return '';
+                })
+                .filter(Boolean)
+                .join(' ');
+            });
+
+            setInputValue(lines.join('\n'));
+            setInputSource('als');
+            
+            // Update input sources state
+            setInputSources(prev => ({
+              ...prev,
+              files: {
+                ...prev.files,
+                data: {
+                  type: 'als',
+                  markers: filteredMarkers,
+                  file: alsFile
+                },
+                label: `ALS: ${filteredMarkers.length} markers from ${alsFile.name}`
+              },
+              alsFilenames: {
+                ...prev.alsFilenames,
+                data: {
+                  type: 'als',
+                  filenames: extractedFilenames,
+                  file: alsFile
+                },
+                label: `ALS: ${extractedFilenames.length} filenames from ${alsFile.name}`
+              }
+            }));
+
+            // Auto-populate tags from ALS data including filenames
+            const alsTags = [];
+            if (extractedFilenames.length > 0) {
+              alsTags.push(...extractedFilenames);
+            }
+            filteredMarkers.forEach(marker => {
+              if (marker.name) alsTags.push(marker.name);
+            });
+
+            const fallbackTags = {
+              artists: [],
+              album: [],
+              tracklist: [],
+              combinations: [],
+              credits: [],
+              filenames: alsTags
+            };
+
+            setParsedTags(prev => ({
+              ...prev,
+              ...fallbackTags
+            }));
+
+            // Only set tags if ALS filenames metadata is enabled
+            if (inputSources.alsFilenames.metadata) {
+              setTagsValue(alsTags.join(', '));
+              updateHashtagsValue(alsTags.join(', '));
+            }
+
+            setIsLoadingFiles(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Error processing ALS file:', err);
+        // Fall through to audio file processing
+      }
+    }
+
+    // Check if any of the files are CUE files
+    const cueFiles = fileArr.filter(f => f.name.endsWith('.cue'));
+    if (cueFiles.length > 0) {
+      try {
+        const cueFile = cueFiles[0]; // Process first CUE file
+        const cueText = await cueFile.text();
+        
+        // Parse CUE file content
+        const cueData = parseCueFile(cueText);
+        
+        if (cueData.tracks.length > 0) {
+          // Use CUE tracks for timestamps
+          const lines = cueData.tracks.map((track, index) => {
+            const start = track.formattedTime;
+            const end = index < cueData.tracks.length - 1 
+              ? cueData.tracks[index + 1].formattedTime 
+              : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+            
+            return formatOrder
+              .map((item) => {
+                if (item.value === 'blank') return '';
+                if (item.value === 'startTime') return start;
+                if (item.value === 'endTime') return end;
+                if (item.value === 'title') return track.title;
+                if (item.value === 'dash') return '-';
+                if (item.value === 'dash-artist') return '';
+                if (item.value === 'artist') return cueData.performer || '';
+                return '';
+              })
+              .filter(Boolean)
+              .join(' ');
+          });
+
+          setInputValue(lines.join('\n'));
+          setInputSource('cue');
+          
+          // Update input sources state
+          setInputSources(prev => ({
+            ...prev,
+            files: {
+              ...prev.files,
+              data: {
+                type: 'cue',
+                tracks: cueData.tracks,
+                title: cueData.title,
+                performer: cueData.performer,
+                file: cueFile
+              },
+              label: `CUE: ${cueData.tracks.length} tracks from ${cueData.title || cueFile.name}`
+            }
+          }));
+
+          // Auto-populate tags from CUE data
+          const cueTags = [];
+          if (cueData.title) cueTags.push(cueData.title);
+          if (cueData.performer) cueTags.push(cueData.performer);
+          cueData.tracks.forEach(track => {
+            if (track.title) cueTags.push(track.title);
+          });
+
+          const fallbackTags = {
+            artists: cueData.performer ? [cueData.performer] : [],
+            album: cueData.title ? [cueData.title] : [],
+            tracklist: cueData.tracks.map(t => t.title).filter(Boolean),
+            combinations: [],
+            credits: [],
+            filenames: cueTags
+          };
+
+          setParsedTags(prev => ({
+            ...prev,
+            ...fallbackTags
+          }));
+
+          setTagsValue(cueTags.join(', '));
+          updateHashtagsValue(cueTags.join(', '));
+
+          // Generate video title recommendations from CUE data
+          if (cueData.title && cueData.performer) {
+            const videoTitles = [
+              `${cueData.title} - ${cueData.performer} | Full Album`,
+              `${cueData.performer} - ${cueData.title} | Complete Album`,
+              `${cueData.title} by ${cueData.performer} - Full LP`,
+              `${cueData.performer}: ${cueData.title} | Full Album`,
+              `${cueData.title} (${cueData.performer}) | Complete Album`
+            ];
+            setVideoTitleRecommendations(videoTitles);
+          }
+
+          setIsLoadingFiles(false);
+          return;
+        }
+      } catch (err) {
+        console.error('Error processing CUE file:', err);
+        // Fall through to audio file processing
+      }
+    }
+
+    // Only process audio files if no ALS file was processed
     const audioFiles = fileArr.filter(f =>
       f.type.startsWith('audio/') ||
       /\.(mp3|wav|aiff|flac)$/i.test(f.name)
@@ -576,8 +1008,8 @@ export default function TaggerPage({ initialUrl }) {
       setInputValue(lines.join('\n'));
     } else if (inputSource === 'discogs' && discogsTracksRef.current.length > 0) {
       let currentTime = 0;
-      const lines = discogsTracksRef.current.map((track, idx) => {
-        const durationSec = discogsDurationsRef.current[idx] || 0;
+      const lines = discogsTracksRef.current.map((track, index) => {
+        const durationSec = discogsDurationsRef.current[index] || 0;
         const start = formatTime(currentTime);
         const end = formatTime(currentTime + durationSec);
         currentTime += durationSec;
@@ -597,6 +1029,54 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'dash') return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(lines.join('\n'));
+    } else if (inputSource === 'als' && inputSources.files.data && inputSources.files.data.type === 'als') {
+      // Handle ALS file markers
+      const markers = inputSources.files.data.markers;
+      const lines = markers.map((marker, index) => {
+        const start = marker.formattedTime;
+        const end = index < markers.length - 1 
+          ? markers[index + 1].formattedTime 
+          : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return marker.name;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(lines.join('\n'));
+    } else if (inputSource === 'cue' && inputSources.files.data && inputSources.files.data.type === 'cue') {
+      // Handle CUE file tracks
+      const tracks = inputSources.files.data.tracks;
+      const lines = tracks.map((track, index) => {
+        const start = track.formattedTime;
+        const end = index < tracks.length - 1 
+          ? tracks[index + 1].formattedTime 
+          : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return track.performer || '';
             return '';
           })
           .filter(Boolean)
@@ -659,6 +1139,54 @@ export default function TaggerPage({ initialUrl }) {
             if (item.value === 'dash') return '-'; // Fixed: removed extra quote
             if (item.value === 'dash-artist') return dashArtistEnabled ? '-' : '';
             if (item.value === 'artist') return artistName;
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(newLines.join('\n'));
+    } else if (inputSource === 'als' && inputSources.files.data && inputSources.files.data.type === 'als') {
+      // Handle ALS file markers
+      const markers = inputSources.files.data.markers;
+      const newLines = markers.map((marker, index) => {
+        const start = marker.formattedTime;
+        const end = index < markers.length - 1 
+          ? markers[index + 1].formattedTime 
+          : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return marker.name;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+      });
+      setInputValue(newLines.join('\n'));
+    } else if (inputSource === 'cue' && inputSources.files.data && inputSources.files.data.type === 'cue') {
+      // Handle CUE file tracks
+      const tracks = inputSources.files.data.tracks;
+      const newLines = tracks.map((track, index) => {
+        const start = track.formattedTime;
+        const end = index < tracks.length - 1 
+          ? tracks[index + 1].formattedTime 
+          : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+        
+        return formatOrder
+          .map((item) => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return track.performer || '';
             return '';
           })
           .filter(Boolean)
@@ -805,13 +1333,32 @@ export default function TaggerPage({ initialUrl }) {
 
   // Handler for input source checkbox changes
   const handleInputSourceChange = (sourceType, field, value) => {
-    setInputSources(prev => ({
-      ...prev,
-      [sourceType]: {
-        ...prev[sourceType],
-        [field]: value
+    setInputSources(prev => {
+      const newSources = { ...prev };
+      
+      // If this is a filenames checkbox being enabled, disable others
+      if (field === 'metadata' && value === true) {
+        // Disable other filenames sources
+        if (sourceType === 'url') {
+          newSources.files.metadata = false;
+          newSources.alsFilenames.metadata = false;
+        } else if (sourceType === 'files') {
+          newSources.url.metadata = false;
+          newSources.alsFilenames.metadata = false;
+        } else if (sourceType === 'alsFilenames') {
+          newSources.url.metadata = false;
+          newSources.files.metadata = false;
+        }
       }
-    }));
+      
+      // Update the current source
+      newSources[sourceType] = {
+        ...newSources[sourceType],
+        [field]: value
+      };
+      
+      return newSources;
+    });
 
     // Regenerate timestamps when settings change
     generateCombinedTimestamps();
@@ -821,23 +1368,40 @@ export default function TaggerPage({ initialUrl }) {
   const generateCombinedTimestamps = () => {
     const urlSource = inputSources.url;
     const filesSource = inputSources.files;
+    const alsFilenamesSource = inputSources.alsFilenames;
 
     // Determine which source to use for times and metadata
     const useUrlTimes = urlSource.data && urlSource.times;
     const useFileTimes = filesSource.data && filesSource.times;
     const useUrlMetadata = urlSource.data && urlSource.metadata;
     const useFileMetadata = filesSource.data && filesSource.metadata;
+    const useAlsFilenamesMetadata = alsFilenamesSource.data && alsFilenamesSource.metadata;
 
     // Priority: if both sources have times enabled, prefer files for timing accuracy
     let timingData = null;
     let metadataSource = null;
 
     if (useFileTimes && filesSource.data) {
-      timingData = {
-        type: 'files',
-        files: filesSource.data.files,
-        durations: filesSource.data.durations
-      };
+      if (filesSource.data.type === 'als') {
+        // Handle ALS file data
+        timingData = {
+          type: 'als',
+          markers: filesSource.data.markers
+        };
+      } else if (filesSource.data.type === 'cue') {
+        // Handle CUE file data
+        timingData = {
+          type: 'cue',
+          tracks: filesSource.data.tracks
+        };
+      } else {
+        // Handle regular audio files
+        timingData = {
+          type: 'files',
+          files: filesSource.data.files,
+          durations: filesSource.data.durations
+        };
+      }
     } else if (useUrlTimes && urlSource.data) {
       timingData = {
         type: 'url',
@@ -847,7 +1411,13 @@ export default function TaggerPage({ initialUrl }) {
       };
     }
 
-    if (useUrlMetadata && urlSource.data) {
+    // Priority: ALS filenames > URL metadata > File metadata
+    if (useAlsFilenamesMetadata && alsFilenamesSource.data) {
+      metadataSource = {
+        type: 'alsFilenames',
+        filenames: alsFilenamesSource.data.filenames
+      };
+    } else if (useUrlMetadata && urlSource.data) {
       metadataSource = {
         type: 'url',
         data: urlSource.data
@@ -866,7 +1436,64 @@ export default function TaggerPage({ initialUrl }) {
     // Generate timestamps based on combined sources
     let currentTime = 0;
     const lines = [];
-    if (timingData.type === 'files') {
+    
+    if (timingData.type === 'als') {
+      // Handle ALS markers
+      timingData.markers.forEach((marker, index) => {
+        const start = marker.formattedTime;
+        const end = index < timingData.markers.length - 1 
+          ? timingData.markers[index + 1].formattedTime 
+          : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+        
+        // Use ALS filenames if available, otherwise use marker name
+        let title = marker.name;
+        if (metadataSource && metadataSource.type === 'alsFilenames' && metadataSource.filenames[index]) {
+          title = metadataSource.filenames[index];
+        }
+        
+        // Build line based on format order
+        const lineData = formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return title;
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+
+        lines.push(lineData);
+      });
+    } else if (timingData.type === 'cue') {
+      // Handle CUE file tracks
+      timingData.tracks.forEach((track, index) => {
+        const start = track.formattedTime;
+        const end = index < timingData.tracks.length - 1 
+          ? timingData.tracks[index + 1].formattedTime 
+          : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+        
+        // Build line based on format order
+        const lineData = formatOrder
+          .map(item => {
+            if (item.value === 'blank') return '';
+            if (item.value === 'startTime') return start;
+            if (item.value === 'endTime') return end;
+            if (item.value === 'title') return track.title || '';
+            if (item.value === 'dash') return '-';
+            if (item.value === 'dash-artist') return '';
+            if (item.value === 'artist') return track.performer || '';
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+
+        lines.push(lineData);
+      });
+    } else if (timingData.type === 'files') {
       timingData.files.forEach((file, idx) => {
         const duration = timingData.durations[idx] || 0;
         const start = formatTime(currentTime);
@@ -877,6 +1504,26 @@ export default function TaggerPage({ initialUrl }) {
         let artistName = '';
 
         if (metadataSource && metadataSource.type === 'url') {
+          // Use Discogs metadata if available
+          const track = metadataSource.data.tracklist?.[idx];
+          if (track) {
+            title = track.title || file.name.replace(/\.[^/.]+$/, '');
+            if (track.artists && track.artists.length > 0) {
+              artistName = track.artists.map(a => a.name.replace(/\s+\(\d+\)$/, '')).join(', ');
+            }
+          } else {
+            title = file.name.replace(/\.[^/.]+$/, '');
+          }
+        } else if (metadataSource && metadataSource.type === 'alsFilenames') {
+          // Use ALS filenames if available
+          const filename = metadataSource.filenames[idx];
+          if (filename) {
+            title = filename;
+          } else {
+            // Use filename as title
+            title = file.name.replace(/\.[^/.]+$/, '');
+          }
+        } else if (metadataSource && metadataSource.type === 'url') {
           // Use Discogs metadata if available
           const track = metadataSource.data.tracklist?.[idx];
           if (track) {
@@ -967,7 +1614,7 @@ export default function TaggerPage({ initialUrl }) {
   };
   // Helper function to update combined timestamps when format changes
   useEffect(() => {
-    if (inputSources.url.data || inputSources.files.data) {
+    if (inputSources.url.data || inputSources.files.data || inputSources.alsFilenames.data) {
       generateCombinedTimestamps();
     }
   }, [formatOrder, artistDisabled, inputSources, includeTrackCredits]);
@@ -994,12 +1641,17 @@ export default function TaggerPage({ initialUrl }) {
       artists: [],
       album: [],
       tracklist: [],
-      combinations: []
-    }); setTagFilters({
+      combinations: [],
+      credits: [],
+      filenames: []
+    });
+    setTagFilters({
       artists: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       album: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
       tracklist: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
-      combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
+      combinations: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+      credits: { enabled: false, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 },
+      filenames: { enabled: true, percentage: 100, count: 0, totalChars: 0, sliderValue: 100 }
     });
     setVideoTitleRecommendations([]);
     setVideoTitleCopyStates({});
@@ -1019,6 +1671,12 @@ export default function TaggerPage({ initialUrl }) {
         metadata: true,
         times: true,
         label: ''
+      },
+      alsFilenames: {
+        data: null,
+        metadata: true,
+        times: false,
+        label: ''
       }
     });
   }; const processDiscogsResponseToTags = (response) => {
@@ -1029,7 +1687,8 @@ export default function TaggerPage({ initialUrl }) {
       album: new Set(),
       tracklist: new Set(),
       combinations: new Set(),
-      credits: new Set() // NEW: for credits
+      credits: new Set(), // NEW: for credits
+      filenames: new Set() // NEW: for filenames
     };
 
     // Clean function to remove Discogs suffixes and slashes
@@ -1162,7 +1821,8 @@ export default function TaggerPage({ initialUrl }) {
       album: Array.from(tagCategories.album),
       tracklist: Array.from(tagCategories.tracklist),
       combinations: Array.from(tagCategories.combinations),
-      credits: Array.from(tagCategories.credits) // NEW
+      credits: Array.from(tagCategories.credits), // NEW
+      filenames: Array.from(tagCategories.filenames || []) // NEW
     };
 
     setParsedTags(processedTags);
@@ -1181,7 +1841,8 @@ export default function TaggerPage({ initialUrl }) {
       album: calculateStats(processedTags.album),
       tracklist: calculateStats(processedTags.tracklist),
       combinations: calculateStats(processedTags.combinations),
-      credits: calculateStats(processedTags.credits) // NEW
+      credits: calculateStats(processedTags.credits), // NEW
+      filenames: calculateStats(processedTags.filenames) // NEW
     });
 
     // Generate initial tags value with all categories (including credits if enabled)
@@ -1190,7 +1851,8 @@ export default function TaggerPage({ initialUrl }) {
       album: { enabled: true, sliderValue: 100 },
       tracklist: { enabled: true, sliderValue: 100 },
       combinations: { enabled: true, sliderValue: 100 },
-      credits: { enabled: includeTrackCredits, sliderValue: 100 } // NEW
+      credits: { enabled: includeTrackCredits, sliderValue: 100 }, // NEW
+      filenames: { enabled: true, sliderValue: 100 } // NEW
     });
   };
   // Helper function to update tags value based on filters and sliders
@@ -1217,6 +1879,11 @@ export default function TaggerPage({ initialUrl }) {
     if (filters.credits && filters.credits.enabled && tags.credits && tags.credits.length > 0) {
       const count = Math.ceil((tags.credits.length * (filters.credits.sliderValue || 100)) / 100);
       tags.credits.slice(0, count).forEach(tag => allSelectedTags.add(tag));
+    }
+    // NEW: Add filenames if enabled
+    if (filters.filenames && filters.filenames.enabled && tags.filenames && tags.filenames.length > 0) {
+      const count = Math.ceil((tags.filenames.length * (filters.filenames.sliderValue || 100)) / 100);
+      tags.filenames.slice(0, count).forEach(tag => allSelectedTags.add(tag));
     }
     setTagsValue(Array.from(allSelectedTags).join(', ')); // No ellipsis or truncation marker
   };
@@ -1273,15 +1940,41 @@ export default function TaggerPage({ initialUrl }) {
 
   return (
     <div>
-      <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-        <strong>Input:</strong>
+      {/* Tagger Info Section */}
+      <div style={{
+        background: '#f5f7fa',
+        border: '1px solid #e3e8ee',
+        borderRadius: 8,
+        padding: '24px 20px',
+        marginBottom: 32,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+      }}>
+        <p style={{ fontSize: 17, marginBottom: 8 }}>
+          <strong>Tagger.site</strong> is a tool for automatically generating music metadata and tracklists from audio files, Ableton .als files, and Discogs data.
+        </p>
+        <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
+          <li>Upload audio files, Ableton .als files, or paste a Discogs URL to get metadata and track information.</li>
+          <li>Generate formatted tracklists with timestamps, artist names, and track titles.</li>
+          <li>Create optimized tags and hashtags for social media and music platforms.</li>
+          <li>Export results in various formats including CUE files, text, and CSV.</li>
+        </ul>
+      </div>
+
+      {/* Input Section Header */}
+      <div className={styles.taggerText} style={{ 
+        fontSize: '1.4rem', 
+        marginBottom: '1rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        fontWeight: '600'
+      }}>
+        Get Started
       </div>
       <div
         style={{
           display: 'flex',
           alignItems: 'flex-start',
-          gap: '1rem',
-          marginBottom: '1rem',
+          gap: '1.5rem',
+          marginBottom: '2rem',
           flexWrap: 'wrap'
         }}
       >
@@ -1290,7 +1983,11 @@ export default function TaggerPage({ initialUrl }) {
             flex: '1 1 300px',
             minWidth: 0,
             width: '100%',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '8px',
+            padding: '1rem',
+            border: '1px solid rgba(255,255,255,0.1)'
           }}
         >
           <FileDrop onFilesSelected={handleFilesSelected} />
@@ -1304,12 +2001,16 @@ export default function TaggerPage({ initialUrl }) {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-start',
-            height: '100%'
+            height: '100%',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '8px',
+            padding: '1rem',
+            border: '1px solid rgba(255,255,255,0.1)'
           }}
         >
           <form
             style={{
-              marginBottom: '0.25rem',
+              marginBottom: '1rem',
               display: 'flex',
               alignItems: 'center',
               gap: 0,
@@ -1320,65 +2021,80 @@ export default function TaggerPage({ initialUrl }) {
             <label
               htmlFor="url-input"
               className={styles.taggerText}
-              style={{ marginBottom: 0, marginRight: '0.5rem' }}
+              style={{ 
+                marginBottom: 0, 
+                marginRight: '0.5rem',
+                color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+              }}
             >
               URL:
             </label>
-            <div style={{ display: 'flex', flex: 1, width: '100%' }}>
-              <input
-                id="url-input"
-                type="text"
-                placeholder="Paste a supported URL"
-                value={urlInput}
-                onChange={e => setUrlInput(e.target.value)}
-                style={{
-                  padding: '0.5rem',
-                  borderRadius: '4px 0 0 4px',
-                  border: '1px solid #fafafa',
-                  borderRight: 'none',
-                  color: '#222',
-                  background: '#fff',
-                  flex: 1,
-                  minWidth: 0,
-                  width: '100%',
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    handleUrlSubmit(e);
-                  }
-                }}
-              />
-              <button
-                type="submit"
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '0 4px 4px 0',
-                  border: '1px solid #ccc',
-                  borderLeft: 'none',
-                  background: '#eee',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
-                  width: 'auto',
-                  flexShrink: 0
-                }}
-              >
-                Submit
-              </button>
-            </div>
+            <input
+              id="url-input"
+              type="text"
+              placeholder="Paste a Discogs URL here..."
+              value={urlInput}
+              onChange={e => setUrlInput(e.target.value)}
+              style={{
+                padding: '0.75rem',
+                borderRadius: '6px 0 0 6px',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRight: 'none',
+                color: '#222',
+                background: '#fff',
+                flex: 1,
+                minWidth: 0,
+                width: '100%',
+                fontSize: '1rem',
+                transition: 'all 0.2s ease'
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  handleUrlSubmit(e);
+                }
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: '0.75rem 1.5rem',
+                borderRadius: '0 6px 6px 0',
+                border: '1px solid #ccc',
+                background: 'white',
+                color: 'black',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                width: 'auto',
+                flexShrink: 0,
+                fontSize: '1rem'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            >
+              Submit
+            </button>
           </form>
           <div
             className={styles.taggerText}
             style={{
-              marginBottom: '0.25rem',
+              marginBottom: '0.5rem',
               maxWidth: '100%',
               wordBreak: 'break-word',
               overflowWrap: 'break-word',
-              fontSize: '0.95em'
+              fontSize: '0.9em',
+              color: 'rgba(255,255,255,0.8)',
+              textAlign: 'center'
             }}
           >
             <small>
-              Supported URLs: Discogs
+              💡 <strong>Tip:</strong> Paste any Discogs release or master URL to automatically fetch track information
             </small>
           </div>
         </div>
@@ -1388,8 +2104,13 @@ export default function TaggerPage({ initialUrl }) {
       {(inputSources.url.data || inputSources.files.data) && (
         <>
           {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
-          <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-            <strong>Input Sources:</strong>
+          <div className={styles.taggerText} style={{ 
+            fontSize: '1.4rem', 
+            marginBottom: '1rem',
+            color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+            fontWeight: '600'
+          }}>
+            Input Sources
           </div>
           <table style={{
             width: '100%',
@@ -1400,14 +2121,18 @@ export default function TaggerPage({ initialUrl }) {
           }}>
             <thead>
               <tr style={{ backgroundColor: '#f5f5f5' }}>
-                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '40%' }}>Source</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Metadata</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '30%' }}>Times</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '35%' }}>Source</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Filenames</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Times</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '15%' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {inputSources.url.data && (
-                <tr>
+                <tr style={{
+                  backgroundColor: inputSources.url.metadata ? '#f0f8ff' : 'transparent',
+                  transition: 'background-color 0.3s ease'
+                }}>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
                     <strong>URL:</strong> {inputSources.url.label}
                   </td>
@@ -1416,6 +2141,11 @@ export default function TaggerPage({ initialUrl }) {
                       type="checkbox"
                       checked={inputSources.url.metadata}
                       onChange={e => handleInputSourceChange('url', 'metadata', e.target.checked)}
+                      title="Use Discogs track titles as filenames"
+                      style={{
+                        transform: inputSources.url.metadata ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'transform 0.2s ease'
+                      }}
                     />
                   </td>
                   <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
@@ -1425,10 +2155,72 @@ export default function TaggerPage({ initialUrl }) {
                       onChange={e => handleInputSourceChange('url', 'times', e.target.checked)}
                     />
                   </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <button
+                      onClick={() => {
+                        setInputSources(prev => ({
+                          ...prev,
+                          url: {
+                            data: null,
+                            metadata: true,
+                            times: true,
+                            label: ''
+                          }
+                        }));
+                        setDiscogsResponse(null);
+                        setDiscogsData(null);
+                        setInputSource(null);
+                        setInputValue('');
+                        setParsedTags({
+                          artists: [],
+                          album: [],
+                          tracklist: [],
+                          combinations: [],
+                          credits: [],
+                          filenames: []
+                        });
+                        setTagsValue('');
+                        setHashtagsValue('');
+                        setVideoTitleRecommendations([]);
+                      }}
+                      style={{
+                        background: '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                      }}
+                      title="Clear URL input"
+                      onMouseEnter={e => { 
+                        e.currentTarget.style.background = '#ff5252';
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                      }}
+                      onMouseLeave={e => { 
+                        e.currentTarget.style.background = '#ff6b6b';
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                      }}
+                    >
+                      ×
+                    </button>
+                  </td>
                 </tr>
               )}
               {inputSources.files.data && (
-                <tr>
+                <tr style={{
+                  backgroundColor: inputSources.files.metadata ? '#f0f8ff' : 'transparent',
+                  transition: 'background-color 0.3s ease'
+                }}>
                   <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
                     <strong>Files:</strong> {inputSources.files.label}
                   </td>
@@ -1437,6 +2229,11 @@ export default function TaggerPage({ initialUrl }) {
                       type="checkbox"
                       checked={inputSources.files.metadata}
                       onChange={e => handleInputSourceChange('files', 'metadata', e.target.checked)}
+                      title="Use audio file names as filenames"
+                      style={{
+                        transform: inputSources.files.metadata ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'transform 0.2s ease'
+                      }}
                     />
                   </td>
                   <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
@@ -1446,6 +2243,154 @@ export default function TaggerPage({ initialUrl }) {
                       onChange={e => handleInputSourceChange('files', 'times', e.target.checked)}
                     />
                   </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <button
+                      onClick={() => {
+                        setInputSources(prev => ({
+                          ...prev,
+                          files: {
+                            data: null,
+                            metadata: true,
+                            times: true,
+                            label: ''
+                          }
+                        }));
+                        setInputSource(null);
+                        setInputValue('');
+                        audioFilesRef.current = [];
+                        durationsRef.current = [];
+                        setParsedTags({
+                          artists: [],
+                          album: [],
+                          tracklist: [],
+                          combinations: [],
+                          credits: [],
+                          filenames: []
+                        });
+                        setTagsValue('');
+                        setHashtagsValue('');
+                        setVideoTitleRecommendations([]);
+                      }}
+                      style={{
+                        background: '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                      }}
+                      title="Clear files input"
+                      onMouseEnter={e => { 
+                        e.currentTarget.style.background = '#ff5252';
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                      }}
+                      onMouseLeave={e => { 
+                        e.currentTarget.style.background = '#ff6b6b';
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                      }}
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {inputSources.alsFilenames.data && (
+                <tr style={{
+                  backgroundColor: inputSources.alsFilenames.metadata ? '#f0f8ff' : 'transparent',
+                  transition: 'background-color 0.3s ease'
+                }}>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <strong>ALS Filenames:</strong> {inputSources.alsFilenames.label}
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.alsFilenames.metadata}
+                      onChange={e => handleInputSourceChange('alsFilenames', 'metadata', e.target.checked)}
+                      title="Use ALS EffectiveName values as filenames"
+                      style={{
+                        transform: inputSources.alsFilenames.metadata ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'transform 0.2s ease'
+                      }}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <input
+                      type="checkbox"
+                      checked={inputSources.alsFilenames.times}
+                      onChange={e => handleInputSourceChange('alsFilenames', 'times', e.target.checked)}
+                      disabled={true}
+                      title="ALS filenames don't have timing information"
+                      style={{
+                        opacity: 0.4,
+                        cursor: 'not-allowed',
+                        filter: 'grayscale(100%)'
+                      }}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                    <button
+                      onClick={() => {
+                        setInputSources(prev => ({
+                          ...prev,
+                          alsFilenames: {
+                            data: null,
+                            metadata: true,
+                            times: false,
+                            label: ''
+                          }
+                        }));
+                        // Clear filenames from parsedTags
+                        setParsedTags(prev => ({
+                          ...prev,
+                          filenames: []
+                        }));
+                        // Regenerate tags without filenames
+                        if (parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0)) {
+                          updateTagsValue(parsedTags, tagFilters);
+                        }
+                      }}
+                      style={{
+                        background: '#ff6b6b',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '18px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                      }}
+                      title="Clear ALS filenames input"
+                      onMouseEnter={e => { 
+                        e.currentTarget.style.background = '#ff5252';
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                      }}
+                      onMouseLeave={e => { 
+                        e.currentTarget.style.background = '#ff6b6b';
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+                      }}
+                    >
+                      ×
+                    </button>
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -1453,12 +2398,18 @@ export default function TaggerPage({ initialUrl }) {
         </>
       )}
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
-      <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-        <strong>Timestamps:</strong>
+      <div className={styles.taggerText} style={{ 
+        fontSize: '1.4rem', 
+        marginBottom: '1rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        fontWeight: '600'
+      }}>
+        Timestamps
       </div>
 
       {/* --- Timestamp Formatting Dropdowns & Drag-and-Drop --- */}
       <div
+        className="timestamp-format-container"
         style={{
           width: '100%',
           display: 'flex',
@@ -1467,7 +2418,6 @@ export default function TaggerPage({ initialUrl }) {
           alignItems: 'stretch',
           height: '2.5rem',
         }}
-        className="timestamp-format-container"
       >
         {formatOrder.map((item, idx) => (
           <div
@@ -1603,6 +2553,54 @@ export default function TaggerPage({ initialUrl }) {
                         .join(' ');
                     });
                     setInputValue(lines.join('\n'));
+                  } else if (inputSource === 'als' && inputSources.files.data && inputSources.files.data.type === 'als') {
+                    // Handle ALS file markers
+                    const markers = inputSources.files.data.markers;
+                    const lines = markers.map((marker, index) => {
+                      const start = marker.formattedTime;
+                      const end = index < markers.length - 1 
+                        ? markers[index + 1].formattedTime 
+                        : formatTime(marker.startTime + 60); // Default 1 minute duration for last track
+                      
+                      return newFormatOrder
+                        .map((item2) => {
+                          if (item2.value === 'blank') return '';
+                          if (item2.value === 'startTime') return start;
+                          if (item2.value === 'endTime') return end;
+                          if (item2.value === 'title') return marker.name;
+                          if (item2.value === 'dash') return '-';
+                          if (item2.value === 'dash-artist') return '';
+                          if (item2.value === 'artist') return '';
+                          return '';
+                        })
+                        .filter(Boolean)
+                        .join(' ');
+                    });
+                    setInputValue(lines.join('\n'));
+                  } else if (inputSource === 'cue' && inputSources.files.data && inputSources.files.data.type === 'cue') {
+                    // Handle CUE file tracks
+                    const tracks = inputSources.files.data.tracks;
+                    const lines = tracks.map((track, index) => {
+                      const start = track.formattedTime;
+                      const end = index < tracks.length - 1 
+                        ? tracks[index + 1].formattedTime 
+                        : formatTime(track.startTime + 60); // Default 1 minute duration for last track
+                      
+                      return newFormatOrder
+                        .map((item2) => {
+                          if (item2.value === 'blank') return '';
+                          if (item2.value === 'startTime') return start;
+                          if (item2.value === 'endTime') return end;
+                          if (item2.value === 'title') return track.title || '';
+                          if (item2.value === 'dash') return '-';
+                          if (item2.value === 'dash-artist') return '';
+                          if (item2.value === 'artist') return track.performer || '';
+                          return '';
+                        })
+                        .filter(Boolean)
+                        .join(' ');
+                    });
+                    setInputValue(lines.join('\n'));
                   }
                 }
               }, 0);
@@ -1725,15 +2723,16 @@ export default function TaggerPage({ initialUrl }) {
         <button
           style={{
             width: '100%',
+            marginBottom: '0.25rem',
             padding: '0.5rem',
             borderRadius: '4px',
             border: '1px solid #ccc',
             background: copyState === 'copied' ? '#ffe156' : '#eee',
             fontWeight: 600,
             cursor: 'pointer',
-            marginBottom: '0.25rem',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
             display: 'block',
-            transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
           }}
           onClick={handleCopy}
         >
@@ -1862,7 +2861,10 @@ export default function TaggerPage({ initialUrl }) {
         )}
 
         <div style={{ margin: '0.5rem 0' }}>
-          <label style={{ fontSize: '0.95rem', color: '#333' }}>
+          <label style={{ 
+            fontSize: '0.95rem', 
+            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+          }}>
             <input
               type="checkbox"
               checked={includeTrackCredits}
@@ -1885,7 +2887,11 @@ export default function TaggerPage({ initialUrl }) {
             />
             Include track credits
             {!hasTrackCredits && (
-              <span style={{ marginLeft: '0.5rem', fontSize: '0.85rem', color: '#333' }}>
+              <span style={{ 
+                marginLeft: '0.5rem', 
+                fontSize: '0.85rem', 
+                color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+              }}>
                 (disabled because no track credit info was found)
               </span>
             )}
@@ -1898,7 +2904,11 @@ export default function TaggerPage({ initialUrl }) {
         <>
           {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: 0 }}>
+            <div className={styles.taggerText} style={{ 
+              fontSize: '1.1rem', 
+              marginBottom: 0,
+              color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+            }}>
               <strong>Video Title Recommendations:</strong>
             </div>
             <button
@@ -1937,7 +2947,7 @@ export default function TaggerPage({ initialUrl }) {
                   style={{
                     flex: 1,
                     fontSize: '0.95rem',
-                    color: '#333',
+                    color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
                     wordBreak: 'break-word',
                     marginRight: '0.5rem'
                   }}
@@ -1967,12 +2977,17 @@ export default function TaggerPage({ initialUrl }) {
       )}
 
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
-      <div className={styles.taggerText} style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-        <strong>Tags:</strong>
+      <div className={styles.taggerText} style={{ 
+        fontSize: '1.4rem', 
+        marginBottom: '1rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        fontWeight: '600'
+      }}>
+        Tags
       </div>
 
       {/* Tags Type Table */}
-      {(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0)) && (
+      {(parsedTags.artists.length > 0 || parsedTags.album.length > 0 || parsedTags.tracklist.length > 0 || parsedTags.combinations.length > 0 || (includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0) || parsedTags.filenames.length > 0) && (
         <>
           <table style={{
             width: '100%',
@@ -2234,6 +3249,55 @@ export default function TaggerPage({ initialUrl }) {
                   </td>
                 </tr>
               )}
+              {parsedTags.filenames.length > 0 && (
+                <tr>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <input
+                      type="checkbox"
+                      checked={tagFilters.filenames && tagFilters.filenames.enabled}
+                      onChange={e => setTagFilters(prev => {
+                        const newFilters = {
+                          ...prev,
+                          filenames: { ...prev.filenames, enabled: e.target.checked }
+                        };
+                        updateTagsValue(parsedTags, newFilters);
+                        return newFilters;
+                      })}
+                    />
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                    <strong>Filenames</strong>
+                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                      {parsedTags.filenames.length} total filenames
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tagFilters.filenames ? tagFilters.filenames.sliderValue : 100}
+                        onChange={e => {
+                          const newValue = parseInt(e.target.value);
+                          setTagFilters(prev => ({
+                            ...prev,
+                            filenames: { ...prev.filenames, sliderValue: newValue }
+                          }));
+                          updateTagsValue(parsedTags, {
+                            ...tagFilters,
+                            filenames: { ...tagFilters.filenames, sliderValue: newValue }
+                          });
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                        {tagFilters.filenames ? tagFilters.filenames.sliderValue : 100}% ({Math.ceil((parsedTags.filenames.length * (tagFilters.filenames ? tagFilters.filenames.sliderValue : 100)) / 100)} filenames)
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </>
@@ -2331,6 +3395,10 @@ export default function TaggerPage({ initialUrl }) {
               const count = Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100);
               enabledTags.push(...parsedTags.combinations.slice(0, count));
             }
+            if (tagFilters.filenames && tagFilters.filenames.enabled) {
+              const count = Math.ceil((parsedTags.filenames.length * tagFilters.filenames.sliderValue) / 100);
+              enabledTags.push(...parsedTags.filenames.slice(0, count));
+            }
 
             // Remove duplicates using Set, then join with commas and spaces
             const uniqueTags = Array.from(new Set(enabledTags));
@@ -2352,7 +3420,10 @@ export default function TaggerPage({ initialUrl }) {
         </button>
 
         {optimizeStatus && (
-          <span style={{ fontSize: '0.9rem', color: '#666' }}>
+          <span style={{ 
+            fontSize: '0.9rem', 
+            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+          }}>
             {optimizeStatus}
           </span>
         )}
@@ -2361,12 +3432,12 @@ export default function TaggerPage({ initialUrl }) {
       {/* Hashtags Section */}
       <div>
         <h3 style={{
-          color: colors.primaryText,
+          color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
           marginBottom: '1rem',
-          fontSize: '1.2rem',
-          fontWeight: 600
+          fontSize: '1.4rem',
+          fontWeight: '600'
         }}>
-          Hashtags:
+          Hashtags
         </h3>
 
         <textarea
@@ -2411,6 +3482,12 @@ export default function TaggerPage({ initialUrl }) {
             : `Copy ${hashtagsValue.length} chars to clipboard`}
         </button>
       </div>
+
+      {/* --- Tags Section --- */}
+      {/* Removed problematic Tags section */}
+
+      {/* --- Video Title Recommendations --- */}
+      {/* Removed problematic Video Title Recommendations section */}
     </div>
   );
 }

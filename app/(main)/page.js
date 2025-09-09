@@ -1,37 +1,73 @@
+'use client'
 /* eslint-disable @next/next/no-img-element */
+import React, { useContext } from 'react';
 import styles from './page.module.css';
+import { ColorContext } from './ColorContext';
 // remove the broken import
 // instead reference the public asset by its URL:
 const headshot = '/images/headshot.jpg';
 
-export const metadata = {
-  title: 'Martin Barker – Software Developer Portfolio',
-  description: 'Seattle-based software developer Martin Barker creates open-source music applications and web tools. Explore projects like RenderTune, Popularify, and more.',
-  keywords: 'Martin Barker, software developer, open source, music applications, Seattle developer, portfolio, web development',  openGraph: {
-    title: 'Martin Barker – Software Developer Portfolio',
-    description: 'Seattle-based software developer creating open-source music applications and innovative web tools. Check out my portfolio of projects and experience.',    url: 'https://martinbarker.me/',
-    siteName: 'Martin Barker Portfolio',    images: [
-      {
-        url: '/images/headshot.jpg',
-        width: 800,
-        height: 600,
-        alt: 'Martin Barker Profile Photo',
-      },
-    ],
-    locale: 'en_US',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Martin Barker – Software Developer Portfolio',
-    description: 'Seattle-based software developer creating open-source music applications and innovative web tools.',
-    images: ['/images/headshot.jpg'],
-  },
-};
+// Metadata is now handled in layout.js since this is a client component
 
 export default function Home() {
+  const { colors } = useContext(ColorContext);
+
+  // Function to darken a color (similar to Vibrant.js)
+  const darkenColor = (color, amount = 0.3) => {
+    const hex = color.replace('#', '');
+    const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - Math.floor(255 * amount));
+    const g = Math.max(0, parseInt(hex.substr(2, 2), 16) - Math.floor(255 * amount));
+    const b = Math.max(0, parseInt(hex.substr(4, 2), 16) - Math.floor(255 * amount));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  };
+
+  // Function to calculate readable text color based on background color
+  const getReadableTextColor = (backgroundColor) => {
+    const color = backgroundColor.replace('#', '');
+    const r = parseInt(color.substr(0, 2), 16);
+    const g = parseInt(color.substr(2, 2), 16);
+    const b = parseInt(color.substr(4, 2), 16);
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness > 125 ? '#000' : '#fff';
+  };
+
+  // Create dynamic gradient from ColorContext colors
+  const createDynamicGradient = () => {
+    if (!colors) {
+      // Fallback gradient if colors aren't available
+      return 'linear-gradient(45deg, #667eea, #764ba2, #f093fb, #f5576c, #4facfe, #00f2fe)';
+    }
+
+    // Create gradient using the available colors with different darkening levels
+    const colorArray = [
+      colors.Vibrant || '#667eea',
+      darkenColor(colors.DarkVibrant || '#764ba2', 0.2),
+      colors.LightVibrant || '#f093fb',
+      darkenColor(colors.Muted || '#f5576c', 0.1),
+      colors.LightMuted || '#4facfe',
+      darkenColor(colors.DarkMuted || '#00f2fe', 0.3)
+    ];
+
+    return `linear-gradient(45deg, ${colorArray.join(', ')})`;
+  };
+
+  const gradientBackground = createDynamicGradient();
+  const textColor = colors ? getReadableTextColor(colors.Vibrant || '#667eea') : '#ffffff';
+
   return (
     <div className={styles.homeContent}>
+            {/* Hero Title Section */}
+            <div 
+              className={styles.heroSection}
+              style={{
+                '--gradient-colors': gradientBackground.replace('linear-gradient(45deg, ', '').replace(')', ''),
+                color: textColor
+              }}
+            >
+                <h1 className={styles.heroTitle}>Martin Barker</h1>
+                <p className={styles.heroSubtitle}>Software Developer</p>
+            </div>
+
             {/* Top Section - 3 Column Layout */}
             <div className={styles.topSection}>
 
@@ -103,28 +139,32 @@ export default function Home() {
             </section>
 
             {/* Career Section */}
-            <section className={styles.section}>
-                <h2>Careers</h2>
+            <div className={styles.careerSection}>
+                <h2 className={styles.sectionTitle}>Careers</h2>
                 {[
                     {
                         company: "Allen Institute",
                         date: "November 2024 - Present",
                         location: "Seattle, WA",
-                        title: "Software Engineer II",
+                        title: "Software Developer III / Contractor",
                         responsibilities: [
-                            "As a contract worker at the Allen Institute, my role involves working closely with the Office of the CTO to support and advance technology initiatives in the bioscience field. I focus on developing and implementing APIs and cloud-native applications, integrating cutting-edge AI technologies to enhance biological research. My responsibilities include full-stack development, cloud infrastructure management, and ensuring robust, scalable solutions in a collaborative, multi-disciplinary team environment.",
+                            "Developed Rhapso, a Python package for stitching petabyte-scale microscopy data using Ray distributed computing, AWS, and Zarr storage format",
+                            "Built configurable pipelines for interest point detection and dataset splitting, integrated with Fiji and BigStitcher, processing datasets exceeding 1PB",
+                            "Presented Rhapso project progress to cross-functional teams, mentoring junior developers and driving collaboration on distributed systems",
+                            "Working for the office of the CTO developing petabyte-scale microscopy image stitching programs for biological research",
                         ],
                     },
                     {
                         company: "Philips Ultrasound",
                         date: "February 2022 - May 2024",
                         location: "Bothell, WA",
-                        title: "Senior DevOps Engineer",
+                        title: "Senior DevOps / Software Developer",
                         responsibilities: [
-                            "Developed .NET applications in C# / C++, integrating GitHub API and SQL databases, enhancing functionality and efficiency of Ultrasound developer applications.",
-                            "Wrote a Python script to lead the migration from IBM RTC to Azure DevOps for over 107,000 work items, attachments, parent/child relations, and comments.",
-                            "Managed the NuGet/Artifactory package and release process, integrated into .NET applications.",
-                            "Implemented GitHub Actions for CI/CD pipelines, enhancing deployment automation and reliability.",
+                            "Developed .NET applications in C# integrating front-end UIs with backend GitHub and SQL APIs",
+                            "Led the migration of 117,000+ work items from IBM RTC to Azure DevOps, released open-source migration tools",
+                            "Designed HIPAA-compliant tools for logging and testing ultrasound systems, improving reliability and regulatory compliance",
+                            "Managed NuGet/Artifactory packaging, ensuring efficient build/test/release of .NET applications",
+                            "Implemented GitHub Actions for CI/CD pipelines, enhancing deployment automation and reliability",
                         ],
                     },
                     {
@@ -133,8 +173,8 @@ export default function Home() {
                         location: "Seattle, WA",
                         title: "Software Developer Contractor",
                         responsibilities: [
-                            "Developed and maintained the E-Commerce suite of web and mobile products.",
-                            "Increased accessibility score for Alaska Airlines web/mobile web products.",
+                            "Developed and maintained web and mobile products, improving user experience and functionality",
+                            "Increased accessibility score for alaskaairlines.com by 30% for screen readers and navigation devices",
                         ],
                     },
                     {
@@ -143,10 +183,10 @@ export default function Home() {
                         location: "Seattle, WA",
                         title: "Software Engineer",
                         responsibilities: [
-                            "Added front-end features to websites displaying millions of rows of data.",
-                            "Handled week-long on-call rotations resolving infrastructure and DevOps issues.",
-                            "Wrote PostgreSQL queries, set up and managed databases for data health monitoring.",
-                            "Responded to client feedback and bug reports.",
+                            "Implemented front-end retail analytics graphs and tables, enabling sorting millions of rows of data",
+                            "Designed JavaScript web scrapers in Node.js with Puppeteer to gather metadata for retail analytics",
+                            "Continuously deployed and monitored performance in Amazon Web Services and AWS Lambda",
+                            "Managed PostgreSQL databases, integrated new front-end features for filtering / querying data",
                         ],
                     },
                     {
@@ -155,9 +195,7 @@ export default function Home() {
                         location: "Seattle, WA",
                         title: "DevOps Engineer (Software Engineer I)",
                         responsibilities: [
-                            "Created Kubernetes clusters in Google Cloud Platform and installed Helm.",
-                            "Wrote Helm charts, Dockerfiles, and automated deployments using Spinnaker pipelines.",
-                            "Set up alert monitoring and handled cluster authorization with a security mindset.",
+                            "Automated CI/CD build pipelines in Google Cloud Platform with Docker / Terraform / Kubernetes",
                         ],
                     },
                     {
@@ -166,9 +204,7 @@ export default function Home() {
                         location: "Seattle, WA",
                         title: "Quality Assurance Engineer Intern",
                         responsibilities: [
-                            "Wrote automated testing software in Java covering web products and APIs.",
-                            "Strengthened programming habits for writing scalable, reusable code.",
-                            "Collaborated with a team using agile development practices.",
+                            "Strengthened customer experiences by writing full coverage testing suites in Java Groovy",
                         ],
                     },
                     {
@@ -196,7 +232,7 @@ export default function Home() {
                             ))}                        </ul>
                     </div>
                 ))}
-            </section>
+            </div>
         </div>
 );
 }

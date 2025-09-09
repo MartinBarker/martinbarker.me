@@ -28,6 +28,7 @@
     "next": "^15.3.1",
     "node-vibrant": "^4.0.3",
     "nodemon": "^3.1.10",
+    "pako": "^2.1.0",
     "querystring": "^0.2.1",
     "react": "^19.0.0",
     "react-beautiful-dnd": "^13.1.1",

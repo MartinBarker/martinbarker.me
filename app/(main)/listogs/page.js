@@ -635,7 +635,15 @@ function DiscogsAuthTestPageInner() {
         />
         <button
           onClick={handleSearchClick}
-          style={{ padding: '8px 16px', fontSize: 16, }}
+          style={{ 
+            padding: '8px 16px', 
+            fontSize: 16,
+            background: 'white',
+            color: 'black',
+            border: '1px solid #ccc',
+            borderRadius: 6,
+            cursor: 'pointer'
+          }}
           disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
         >
           Enter a URL and click to submit

@@ -36,7 +36,7 @@ export default function FileDrop({ onFilesSelected }) {
 
   return (
     <div
-      className={`${styles.fileDrop} ${isDragging ? styles.dragging : ''}`}
+      className={`${styles.fileDrop} ${styles.enhancedFileDrop} ${isDragging ? styles.dragging : ''}`}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -54,7 +54,7 @@ export default function FileDrop({ onFilesSelected }) {
       />
       <span>Drag &amp; drop files here, or <u>click to choose</u></span>
       <div style={{ marginTop: '0.5rem', fontSize: '0.95em' }}>
-        <small>Supported files: mp3, wav, aiff, flac, cue</small>
+        <small>Supported files: mp3, wav, aiff, flac, cue, als</small>
       </div>
     </div>
   );

@@ -1,62 +1,766 @@
-.processingIndicator {
-  background: #f0f9ff;
-  border: 1px solid #0ea5e9;
-  border-radius: 4px;
+/* Tagger page styles */
+.taggerText {
+  color: #1e293b;
+  font-weight: 500;
+  line-height: 1.6;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Basic styling for the page */
+.taggerContainer {
+  padding: 1rem;
+  max-width: 100vw;
+  width: 100%;
+  margin: 0 auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* Input section styling */
+.inputSection {
+  margin-bottom: 1.5rem;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Card styling */
+.enhancedCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
   padding: 1rem;
   margin-bottom: 1rem;
-  text-align: center;
-  animation: pulse 2s infinite;
-}
-
-.processingTitle {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  color: #0369a1;
-}
-
-.processingProgress {
-  font-size: 1rem;
-  color: #0369a1;
-  margin-bottom: 0.5rem;
-}
-
-.progressBar {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   width: 100%;
-  height: 8px;
-  background-color: #e0f2fe;
-  border-radius: 4px;
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
-  margin-top: 0.5rem;
 }
 
-.progressBarFill {
-  height: 100%;
-  background-color: #0ea5e9;
-  transition: width 0.3s ease;
-  border-radius: 4px;
+/* Button styling */
+.enhancedButton {
+  background: #0070f3;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
-.partiallyLoadedIndicator {
-  padding: 0.5rem;
-  background: #f8fafc;
+.enhancedButton:hover {
+  background: #0051cc;
+  transform: translateY(-1px);
+}
+
+/* Input styling */
+.enhancedInput {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 1rem;
+  transition: border-color 0.2s ease;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.enhancedInput:focus {
+  outline: none;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Textarea styling */
+.enhancedTextarea {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 120px;
+  transition: border-color 0.2s ease;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.enhancedTextarea:focus {
+  outline: none;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Dropdown styling */
+.enhancedDropdown {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 1rem;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.enhancedDropdown:focus {
+  outline: none;
+  border-color: #0070f3;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Table styling */
+.enhancedTable {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
   border: 1px solid #e2e8f0;
-  border-top: none;
-  border-radius: 0 0 4px 4px;
-  font-size: 0.9rem;
-  color: #64748b;
-  text-align: center;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
+.enhancedTable th,
+.enhancedTable td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  max-width: 150px;
+  min-width: 80px;
+  box-sizing: border-box;
+}
+
+.enhancedTable th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #374151;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.enhancedTable tr:hover {
+  background: #f9fafb;
+}
+
+/* Checkbox styling */
+.enhancedCheckbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.enhancedCheckbox:checked {
+  background: #0070f3;
+  border-color: #0070f3;
+}
+
+/* Range slider styling */
+.enhancedRange {
+  width: 100%;
+  max-width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e2e8f0;
+  outline: none;
+  cursor: pointer;
+  min-width: 80px;
+  box-sizing: border-box;
+}
+
+.enhancedRange::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #0070f3;
+  cursor: pointer;
+}
+
+.enhancedRange::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #0070f3;
+  cursor: pointer;
+  border: none;
+}
+
+/* Section header styling */
+.sectionHeader {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: #1e293b;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive container */
+.responsiveContainer {
+  max-width: 100vw;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 1rem;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* Responsive flexbox container */
+.responsiveFlexContainer {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive grid */
+.responsiveGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive text */
+.responsiveText {
+  font-size: 1rem;
+  line-height: 1.6;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive heading */
+.responsiveHeading {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1.25rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive overflow */
+.responsiveOverflow {
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Responsive touch target */
+.responsiveTouchTarget {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Responsive shadows */
+.responsiveShadow {
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.06),
+    0 4px 16px rgba(0, 0, 0, 0.03);
+}
+
+/* Responsive spacing */
+.responsiveSpacing {
+  margin: 1.5rem 0;
+}
+
+.responsivePadding {
+  padding: 1.5rem;
+}
+
+.responsiveMargin {
+  margin: 1.5rem 0;
+}
+
+/* Responsive tables */
+.responsiveTable,
+.responsiveInputSourcesTable,
+.responsiveTagsTable {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 20px;
+  box-shadow: 
+    0 12px 40px rgba(0, 0, 0, 0.08),
+    0 6px 20px rgba(0, 0, 0, 0.04);
+  box-sizing: border-box;
+}
+
+.responsiveTable table,
+.responsiveInputSourcesTable table,
+.responsiveTagsTable table {
+  min-width: 400px;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Responsive video titles */
+.responsiveVideoTitles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.responsiveVideoTitleItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive button group */
+.responsiveButtonGroup {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive form */
+.responsiveForm {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive flex wrap */
+.responsiveFlexWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Ultra-thin window handling */
+@media (max-width: 600px) {
+  .taggerContainer {
+    padding: 0.5rem;
   }
-  50% {
-    opacity: 0.8;
+  
+  .responsiveContainer {
+    padding: 0 0.5rem;
+  }
+  
+  .responsiveGrid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
+  .responsiveFlexContainer {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .responsiveFlexContainer > div {
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  .enhancedTable th,
+  .enhancedTable td {
+    padding: 0.4rem;
+    font-size: 0.85rem;
+    max-width: 120px;
+    min-width: 60px;
+  }
+  
+  .responsiveTable table,
+  .responsiveInputSourcesTable table,
+  .responsiveTagsTable table {
+    min-width: 300px;
+    font-size: 0.85rem;
+  }
+  
+  .enhancedButton {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+    width: 100%;
+    text-align: center;
+  }
+  
+  .enhancedInput,
+  .enhancedTextarea,
+  .enhancedDropdown {
+    padding: 0.6rem;
+    font-size: 0.9rem;
+  }
+  
+  .sectionHeader {
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .responsiveHeading {
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
   }
 }
 
-.taggerText {
-  /* existing styles if any */
+/* Sidebar-aware responsive breakpoints */
+@media (max-width: 1400px) {
+  .responsiveGrid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+  
+  .responsiveFlexContainer {
+    gap: 0.75rem;
+  }
+  
+  .responsiveTable table,
+  .responsiveInputSourcesTable table,
+  .responsiveTagsTable table {
+    min-width: 450px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .responsiveGrid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+  }
+  
+  .responsiveContainer {
+    padding: 0 0.75rem;
+  }
+  
+  .responsiveTable table,
+  .responsiveInputSourcesTable table,
+  .responsiveTagsTable table {
+    min-width: 400px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .responsiveGrid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+  
+  .responsiveFlexContainer {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .responsiveFlexContainer > div {
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  .responsiveTable table,
+  .responsiveInputSourcesTable table,
+  .responsiveTagsTable table {
+    min-width: 350px;
+  }
+}
+
+@media (max-width: 768px) {
+  .taggerContainer {
+    padding: 0.75rem;
+  }
+  
+  .responsiveContainer {
+    padding: 0 0.5rem;
+  }
+  
+  .responsiveGrid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
+  .responsiveForm {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  
+  .responsiveForm > div {
+    width: 100%;
+  }
+  
+  .responsiveForm input,
+  .responsiveForm button {
+    width: 100%;
+    border-radius: 8px !important;
+  }
+  
+  .responsiveButtonGroup {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .responsiveButtonGroup > * {
+    width: 100%;
+  }
+  
+  .responsiveFlexWrap {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .responsiveFlexWrap > * {
+    width: 100%;
+  }
+  
+  .responsiveVideoTitleItem {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  
+  .responsiveVideoTitleItem > div {
+    width: 100%;
+  }
+  
+  .responsiveVideoTitleItem button {
+    width: 100%;
+    border-radius: 8px;
+  }
+  
+  .responsiveTouchTarget {
+    min-height: 40px;
+    min-width: 40px;
+  }
+  
+  .responsiveShadow {
+    box-shadow: 
+      0 6px 24px rgba(0, 0, 0, 0.08),
+      0 3px 12px rgba(0, 0, 0, 0.04);
+  }
+  
+  .responsiveSpacing {
+    margin: 1rem 0;
+  }
+  
+  .responsivePadding {
+    padding: 1rem;
+  }
+  
+  .responsiveMargin {
+    margin: 1rem 0;
+  }
+  
+  .responsiveText {
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  
+  .responsiveHeading {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+  
+  .responsiveTable table,
+  .responsiveInputSourcesTable table,
+  .responsiveTagsTable table {
+    min-width: 320px;
+    font-size: 0.9rem;
+  }
+  
+  .enhancedTable th,
+  .enhancedTable td {
+    padding: 0.5rem;
+    font-size: 0.9rem;
+    max-width: 130px;
+    min-width: 70px;
+  }
+}
+
+@media (max-width: 480px) {
+  .taggerContainer {
+    padding: 0.5rem;
+  }
+  
+  .responsiveContainer {
+    padding: 0 0.25rem;
+  }
+  
+  .responsiveTouchTarget {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  
+  .responsiveShadow {
+    box-shadow: 
+      0 4px 16px rgba(0, 0, 0, 0.1),
+      0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  
+  .responsiveSpacing {
+    margin: 0.75rem 0;
+  }
+  
+  .responsivePadding {
+    padding: 0.75rem;
+  }
+  
+  .responsiveMargin {
+    margin: 0.75rem 0;
+  }
+  
+  .responsiveText {
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+  
+  .responsiveHeading {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .responsiveGrid {
+    gap: 0.75rem;
+  }
+  
+  .responsiveFlexWrap {
+    gap: 0.75rem;
+  }
+  
+  .responsiveTable table,
+  .responsiveInputSourcesTable table,
+  .responsiveTagsTable table {
+    min-width: 250px;
+    font-size: 0.85rem;
+  }
+  
+  .enhancedTable th,
+  .enhancedTable td {
+    padding: 0.4rem;
+    font-size: 0.85rem;
+    max-width: 100px;
+    min-width: 50px;
+  }
+  
+  .enhancedButton {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+  }
+  
+  .enhancedInput,
+  .enhancedTextarea,
+  .enhancedDropdown {
+    padding: 0.6rem;
+    font-size: 0.9rem;
+  }
+}
+
+/* Ultra-wide screen support */
+@media (min-width: 1600px) {
+  .taggerContainer {
+    max-width: 1400px;
+  }
+  
+  .responsiveContainer {
+    max-width: 1400px;
+  }
+  
+  .responsiveGrid {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+  }
+}
+
+/* Landscape orientation adjustments */
+@media (max-height: 600px) and (orientation: landscape) {
+  .taggerContainer {
+    padding: 0.5rem;
+  }
+  
+  .responsiveSpacing {
+    margin: 0.75rem 0;
+  }
+  
+  .responsivePadding {
+    padding: 0.75rem;
+  }
+  
+  .enhancedTextarea {
+    min-height: 80px;
+  }
+}
+
+/* Print styles */
+@media print {
+  .taggerContainer {
+    padding: 0;
+    max-width: none;
+  }
+  
+  .enhancedButton,
+  .enhancedInput,
+  .enhancedTextarea,
+  .enhancedDropdown {
+    border: 1px solid #000;
+    background: white;
+    color: black;
+  }
+  
+  .responsiveTable,
+  .responsiveInputSourcesTable,
+  .responsiveTagsTable {
+    box-shadow: none;
+    border: 1px solid #000;
+  }
 }
