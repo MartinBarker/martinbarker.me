@@ -27,7 +27,6 @@ function logDiscogsRequest({ route, payload, response }) {
 
 export default function TaggerPage({ initialUrl }) {
 
-
   const { colors } = useColorContext();
   const urlInputContainerRef = useRef(null);
   const [isStacked, setIsStacked] = useState(false);
@@ -1941,19 +1940,41 @@ export default function TaggerPage({ initialUrl }) {
 
   return (
     <div>
-      <div className={styles.taggerText} style={{ 
-        fontSize: '1.1rem', 
-        marginBottom: '0.5rem',
-        color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+      {/* Tagger Info Section */}
+      <div style={{
+        background: '#f5f7fa',
+        border: '1px solid #e3e8ee',
+        borderRadius: 8,
+        padding: '24px 20px',
+        marginBottom: 32,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
       }}>
-        <strong>Input:</strong>
+        <p style={{ fontSize: 17, marginBottom: 8 }}>
+          <strong>Tagger.site</strong> is a tool for automatically generating music metadata and tracklists from audio files, Ableton .als files, and Discogs data.
+        </p>
+        <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
+          <li>Upload audio files, Ableton .als files, or paste a Discogs URL to get metadata and track information.</li>
+          <li>Generate formatted tracklists with timestamps, artist names, and track titles.</li>
+          <li>Create optimized tags and hashtags for social media and music platforms.</li>
+          <li>Export results in various formats including CUE files, text, and CSV.</li>
+        </ul>
+      </div>
+
+      {/* Input Section Header */}
+      <div className={styles.taggerText} style={{ 
+        fontSize: '1.4rem', 
+        marginBottom: '1rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        fontWeight: '600'
+      }}>
+        Get Started
       </div>
       <div
         style={{
           display: 'flex',
           alignItems: 'flex-start',
-          gap: '1rem',
-          marginBottom: '1rem',
+          gap: '1.5rem',
+          marginBottom: '2rem',
           flexWrap: 'wrap'
         }}
       >
@@ -1962,7 +1983,11 @@ export default function TaggerPage({ initialUrl }) {
             flex: '1 1 300px',
             minWidth: 0,
             width: '100%',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '8px',
+            padding: '1rem',
+            border: '1px solid rgba(255,255,255,0.1)'
           }}
         >
           <FileDrop onFilesSelected={handleFilesSelected} />
@@ -1976,12 +2001,16 @@ export default function TaggerPage({ initialUrl }) {
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-start',
-            height: '100%'
+            height: '100%',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '8px',
+            padding: '1rem',
+            border: '1px solid rgba(255,255,255,0.1)'
           }}
         >
           <form
             style={{
-              marginBottom: '0.25rem',
+              marginBottom: '1rem',
               display: 'flex',
               alignItems: 'center',
               gap: 0,
@@ -2003,19 +2032,21 @@ export default function TaggerPage({ initialUrl }) {
             <input
               id="url-input"
               type="text"
-              placeholder="Paste a supported URL"
+              placeholder="Paste a Discogs URL here..."
               value={urlInput}
               onChange={e => setUrlInput(e.target.value)}
               style={{
-                padding: '0.5rem',
-                borderRadius: '4px 0 0 4px',
-                border: '1px solid #fafafa',
+                padding: '0.75rem',
+                borderRadius: '6px 0 0 6px',
+                border: '1px solid rgba(255,255,255,0.2)',
                 borderRight: 'none',
                 color: '#222',
                 background: '#fff',
                 flex: 1,
                 minWidth: 0,
                 width: '100%',
+                fontSize: '1rem',
+                transition: 'all 0.2s ease'
               }}
               onKeyDown={e => {
                 if (e.key === 'Enter') {
@@ -2026,15 +2057,25 @@ export default function TaggerPage({ initialUrl }) {
             <button
               type="submit"
               style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '0 4px 4px 0',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '0 6px 6px 0',
                 border: '1px solid #ccc',
-                background: '#eee',
-                fontWeight: 600,
+                background: 'white',
+                color: 'black',
+                fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
+                transition: 'all 0.2s ease',
                 width: 'auto',
-                flexShrink: 0
+                flexShrink: 0,
+                fontSize: '1rem'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
               }}
             >
               Submit
@@ -2043,16 +2084,17 @@ export default function TaggerPage({ initialUrl }) {
           <div
             className={styles.taggerText}
             style={{
-              marginBottom: '0.25rem',
+              marginBottom: '0.5rem',
               maxWidth: '100%',
               wordBreak: 'break-word',
               overflowWrap: 'break-word',
-              fontSize: '0.95em',
-              color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+              fontSize: '0.9em',
+              color: 'rgba(255,255,255,0.8)',
+              textAlign: 'center'
             }}
           >
             <small>
-              Supported URLs: Discogs
+              💡 <strong>Tip:</strong> Paste any Discogs release or master URL to automatically fetch track information
             </small>
           </div>
         </div>
@@ -2063,11 +2105,12 @@ export default function TaggerPage({ initialUrl }) {
         <>
           {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div className={styles.taggerText} style={{ 
-            fontSize: '1.1rem', 
-            marginBottom: '0.5rem',
-            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+            fontSize: '1.4rem', 
+            marginBottom: '1rem',
+            color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+            fontWeight: '600'
           }}>
-            <strong>Input Sources:</strong>
+            Input Sources
           </div>
           <table style={{
             width: '100%',
@@ -2356,11 +2399,12 @@ export default function TaggerPage({ initialUrl }) {
       )}
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
       <div className={styles.taggerText} style={{ 
-        fontSize: '1.1rem', 
-        marginBottom: '0.5rem',
-        color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+        fontSize: '1.4rem', 
+        marginBottom: '1rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        fontWeight: '600'
       }}>
-        <strong>Timestamps:</strong>
+        Timestamps
       </div>
 
       {/* --- Timestamp Formatting Dropdowns & Drag-and-Drop --- */}
@@ -2934,11 +2978,12 @@ export default function TaggerPage({ initialUrl }) {
 
       {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
       <div className={styles.taggerText} style={{ 
-        fontSize: '1.1rem', 
-        marginBottom: '0.5rem',
-        color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+        fontSize: '1.4rem', 
+        marginBottom: '1rem',
+        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        fontWeight: '600'
       }}>
-        <strong>Tags:</strong>
+        Tags
       </div>
 
       {/* Tags Type Table */}
@@ -3389,10 +3434,10 @@ export default function TaggerPage({ initialUrl }) {
         <h3 style={{
           color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
           marginBottom: '1rem',
-          fontSize: '1.2rem',
-          fontWeight: 600
+          fontSize: '1.4rem',
+          fontWeight: '600'
         }}>
-          Hashtags:
+          Hashtags
         </h3>
 
         <textarea

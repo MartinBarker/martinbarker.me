@@ -4,29 +4,51 @@ export const routeInfo = {
   "/": {
     title: "Martin Barker",
     subtitle: "Software Developer Portfolio",
+    tabTitle: "Martin Barker - Software Developer Portfolio",
     icon: "/ico/martinbarker.ico"
   },
   "/tagger": {
-    title: "Tagger.site",
-    subtitle: "Multi-format timestamp extractor: Upload .als (Ableton), .cue files, or paste Discogs URLs to generate formatted tracklists, timestamps, and tags for DJ mixes, podcasts, and audio content",
+    tabTitle: "tagger.site - Music Metadata Tool",
     icon: "/ico/martinbarker.ico"
   },
   "/listogs": {
     title: "Listogs",
     subtitle: "Convert Discogs releases to playlists",
-    icon: "/ico/martinbarker.ico"
-  },
-  "/ffmpegwasm": {
-    title: "FFMPEG WASM",
-    subtitle: "Browser-based audio encoding with FFMPEG WebAssembly",
+    tabTitle: "Listogs - Convert Discogs to Playlists",
     icon: "/ico/martinbarker.ico"
   },
   "/ALS2CUE": {
+    tabTitle: "ALS2CUE - Ableton to CUE Converter",
     icon: "/ico/martinbarker.ico"
   },
   "/popularify": {
     title: "Popularify",
     subtitle: "Get a spotify artist's entire discography sorted by popularity",
+    tabTitle: "Popularify - Spotify Discography Sorter",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/vibrant": {
+    title: "Vibrant.js Demo",
+    subtitle: "Extract colors from images using Vibrant.js",
+    tabTitle: "Vibrant.js Demo - Color Extraction",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/discord2playlist": {
+    title: "",
+    subtitle: "",
+    tabTitle: "Discord2Playlist - Convert Discord Music to Playlists",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/ffmpegwasm": {
+    title: "FFMPEG WASM",
+    subtitle: "Browser-based audio encoding with FFMPEG WebAssembly",
+    tabTitle: "FFMPEG WASM - Browser Audio Processing",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/vinyl2digital": {
+    title: "Vinyl2Digital",
+    subtitle: "Batch render Audacity audio tracks with Discogs metadata",
+    tabTitle: "Vinyl2Digital - Vinyl Digitization Tool",
     icon: "/ico/martinbarker.ico"
   }
 };
@@ -34,6 +56,7 @@ export const routeInfo = {
 export const defaultInfo = {
   title: "",
   subtitle: "",
+  tabTitle: "",
   icon: "/ico/martinbarker.ico"
 };
 

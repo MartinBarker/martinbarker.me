@@ -254,105 +254,27 @@ function CombineImageAudioExample() {
 export default function Home() {
   return (
     <main className={styles["ffmpeg-main"]}>
-      <section className={styles["hero-section"]}>
-        <h1>FFmpeg.wasm - Video Processing in the Browser</h1>
-        <p className={styles["hero-description"]}>
-          Experience the power of FFmpeg directly in your web browser using WebAssembly technology.
-          This page demonstrates how to combine images and audio files into videos without uploading
-          your content to external servers.
+      {/* FFMPEG WASM Info Section */}
+      <div style={{
+        background: '#f5f7fa',
+        border: '1px solid #e3e8ee',
+        borderRadius: 8,
+        padding: '24px 20px',
+        marginBottom: 32,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+      }}>
+        <p style={{ fontSize: 17, marginBottom: 8 }}>
+          <strong>FFMPEG WASM</strong> is a browser-based video and audio processing tool using FFmpeg WebAssembly for client-side media manipulation.
         </p>
-      </section>
+        <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
+          <li>Process video and audio files directly in your browser without server uploads.</li>
+          <li>Combine images and audio files into video content using WebAssembly technology.</li>
+          <li>Convert between different media formats and apply various filters and effects.</li>
+          <li>Experience high-performance media processing with complete privacy and security.</li>
+        </ul>
+      </div>
 
-      <section className={styles["tech-info-section"]}>
-        <h2>About FFmpeg.wasm</h2>
-        <div className={styles["tech-grid"]}>
-          <div className={styles["tech-card"]}>
-            <h3>What is FFmpeg.wasm?</h3>
-            <p>
-              FFmpeg.wasm is a WebAssembly port of the popular FFmpeg multimedia framework. 
-              It allows you to run FFmpeg commands directly in the browser, enabling client-side 
-              video and audio processing without server-side dependencies.
-            </p>
-          </div>
-          
-          <div className={styles["tech-card"]}>
-            <h3>Technology Stack</h3>
-            <ul>
-              <li><strong>WebAssembly (WASM):</strong> Near-native performance in the browser</li>
-              <li><strong>FFmpeg Core:</strong> Industry-standard multimedia processing library</li>
-              <li><strong>React:</strong> Modern UI framework for interactive components</li>
-              <li><strong>Client-side Processing:</strong> No data leaves your device</li>
-            </ul>
-          </div>
-          
-          <div className={styles["tech-card"]}>
-            <h3>Supported Formats</h3>
-            <div className={styles["format-lists"]}>
-              <div>
-                <h4>Input Audio:</h4>
-                <ul>
-                  <li>MP3, WAV, AAC, FLAC</li>
-                  <li>OGG, M4A, WMA</li>
-                  <li>Most common audio formats</li>
-                </ul>
-              </div>
-              <div>
-                <h4>Input Images:</h4>
-                <ul>
-                  <li>JPEG, PNG, GIF, BMP</li>
-                  <li>TIFF, WebP, SVG</li>
-                  <li>High-resolution images supported</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-          
-          <div className={styles["tech-card"]}>
-            <h3>Output Quality</h3>
-            <p>
-              The default settings produce high-quality MP4 videos with H.264 video codec and AAC audio.
-              You can customize encoding parameters like bitrate, quality, and preset to match your needs.
-            </p>
-          </div>
-        </div>
-      </section>
 
-      <section className={styles["usage-section"]}>
-        <h2>How to Use</h2>
-        <div className={styles.steps}>
-          <div className={styles.step}>
-            <div className={styles["step-number"]}>1</div>
-            <div className={styles["step-content"]}>
-              <h3>Upload Files</h3>
-              <p>Select one or more audio and image files using the file picker above.</p>
-            </div>
-          </div>
-          
-          <div className={styles.step}>
-            <div className={styles["step-number"]}>2</div>
-            <div className={styles["step-content"]}>
-              <h3>Select Files</h3>
-              <p>Choose which specific audio and image files you want to combine from the tables below.</p>
-            </div>
-          </div>
-          
-          <div className={styles.step}>
-            <div className={styles["step-number"]}>3</div>
-            <div className={styles["step-content"]}>
-              <h3>Customize Settings</h3>
-              <p>Optionally modify the FFmpeg command parameters for custom encoding options.</p>
-            </div>
-          </div>
-          
-          <div className={styles.step}>
-            <div className={styles["step-number"]}>4</div>
-            <div className={styles["step-content"]}>
-              <h3>Render Video</h3>
-              <p>Click "Render Video" to process your files and generate the final video.</p>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <CombineImageAudioExample />
     </main>

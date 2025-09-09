@@ -352,19 +352,27 @@ export default function ALS2CUEPage() {
 
   return (
     <main className={styles.als2cueMain}>
-      <section 
-        className={styles.heroSection}
-        style={{ 
-          background: heroBgColor,
-          color: heroTextColor
-        }}
-      >
-        <h1>ALS to CUE Converter</h1>
-        <p className={styles.heroDescription}>
-          Convert Ableton Live Set (.als) files to CUE format to extract marker start times.
-          Upload your .als file and get a formatted CUE file with all your project markers.
+      {/* ALS2CUE Info Section */}
+      <div style={{
+        background: '#f5f7fa',
+        border: '1px solid #e3e8ee',
+        borderRadius: 8,
+        padding: '24px 20px',
+        marginBottom: 32,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+      }}>
+        <p style={{ fontSize: 17, marginBottom: 8 }}>
+          <strong>ALS2CUE</strong> is a tool for converting Ableton Live Set (.als) files into CUE sheet files for audio track splitting and metadata extraction.
         </p>
-      </section>
+        <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
+          <li>Upload an Ableton Live Set (.als) file to extract track markers and timing information.</li>
+          <li>Convert Ableton markers into CUE sheet format for use with audio editing software.</li>
+          <li>Generate precise timestamps and track titles for audio file splitting and organization.</li>
+          <li>Export CUE files compatible with various audio players and editing tools.</li>
+        </ul>
+      </div>
+
+
 
       <section 
         className={styles.uploadSection}

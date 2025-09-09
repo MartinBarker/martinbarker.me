@@ -16,6 +16,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const session = require('express-session');
 const sharedSession = require('express-socket.io-session');
+const { Vibrant } = require('node-vibrant/node');
 
 // --- Determine if we are in dev or production environment ---
 var isDev = process.env.NODE_ENV === 'development' ? true : false;
@@ -1489,6 +1490,240 @@ app.post('/addVideoToPlaylist', async (req, res) => {
     } else {
       res.status(500).json({ error: 'An unknown error occurred.' });
     }
+  }
+});
+
+// Rate limiting for vibrant API
+const vibrantRateLimit = new Map();
+const VIBRANT_RATE_LIMIT_WINDOW = 60000; // 1 minute
+const VIBRANT_MAX_REQUESTS = 10; // 10 requests per minute per IP
+
+// Cleanup old rate limit entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, requests] of vibrantRateLimit.entries()) {
+    const recentRequests = requests.filter(time => now - time < VIBRANT_RATE_LIMIT_WINDOW);
+    if (recentRequests.length === 0) {
+      vibrantRateLimit.delete(ip);
+    } else {
+      vibrantRateLimit.set(ip, recentRequests);
+    }
+  }
+}, 5 * 60 * 1000); // 5 minutes
+
+// Function to check rate limit
+function checkVibrantRateLimit(ip) {
+  const now = Date.now();
+  const userRequests = vibrantRateLimit.get(ip) || [];
+  
+  // Remove old requests outside the window
+  const recentRequests = userRequests.filter(time => now - time < VIBRANT_RATE_LIMIT_WINDOW);
+  
+  if (recentRequests.length >= VIBRANT_MAX_REQUESTS) {
+    return false;
+  }
+  
+  recentRequests.push(now);
+  vibrantRateLimit.set(ip, recentRequests);
+  return true;
+}
+
+// Function to validate image size
+function validateImageSize(buffer) {
+  const maxSize = 10 * 1024 * 1024; // 10MB limit
+  if (buffer.length > maxSize) {
+    throw new Error('Image size exceeds 10MB limit');
+  }
+  return true;
+}
+
+// Function to validate base64 data
+function validateBase64Data(base64Data) {
+  // Check if it's valid base64
+  const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+  if (!base64Regex.test(base64Data)) {
+    throw new Error('Invalid base64 data format');
+  }
+  
+  // Check reasonable size (base64 is ~33% larger than binary)
+  const maxBase64Size = 15 * 1024 * 1024; // ~10MB binary = ~13.3MB base64
+  if (base64Data.length > maxBase64Size) {
+    throw new Error('Base64 data too large');
+  }
+  
+  return true;
+}
+
+// Function to sanitize and validate URL
+function validateImageUrl(url) {
+  try {
+    const parsedUrl = new URL(url);
+    
+    // Only allow HTTPS (except localhost for development)
+    if (parsedUrl.protocol !== 'https:' && !parsedUrl.hostname.includes('localhost')) {
+      throw new Error('Only HTTPS URLs are allowed');
+    }
+    
+    // Check for suspicious patterns
+    const suspiciousPatterns = [
+      /\.\./,  // Directory traversal
+      /%2e%2e/i,  // URL encoded directory traversal
+      /javascript:/i,  // JavaScript protocol
+      /data:/i,  // Data URLs (should use imageData instead)
+      /file:/i,  // File protocol
+      /ftp:/i,  // FTP protocol
+    ];
+    
+    for (const pattern of suspiciousPatterns) {
+      if (pattern.test(url)) {
+        throw new Error('URL contains suspicious patterns');
+      }
+    }
+    
+    // Validate file extension
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const pathname = parsedUrl.pathname.toLowerCase();
+    const hasValidExtension = allowedExtensions.some(ext => pathname.endsWith(ext));
+    
+    if (!hasValidExtension) {
+      throw new Error('URL must point to a valid image file');
+    }
+    
+    return parsedUrl;
+  } catch (error) {
+    throw new Error(`Invalid URL: ${error.message}`);
+  }
+}
+
+// Vibrant color extraction API endpoint
+app.post('/vibrant/extract-colors', async (req, res) => {
+  const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+  console.log("🎨 [POST /vibrant/extract-colors] Hit", { ip: clientIP, body: req.body });
+  
+  try {
+    // Rate limiting check
+    if (!checkVibrantRateLimit(clientIP)) {
+      return res.status(429).json({ 
+        error: 'Rate limit exceeded. Maximum 10 requests per minute.',
+        retryAfter: 60
+      });
+    }
+    
+    const { imageUrl, imageData } = req.body;
+    
+    // Validate input
+    if (!imageUrl && !imageData) {
+      return res.status(400).json({ error: 'Either imageUrl or imageData is required.' });
+    }
+    
+    if (imageUrl && imageData) {
+      return res.status(400).json({ error: 'Provide either imageUrl or imageData, not both.' });
+    }
+    
+    let palette;
+    
+    if (imageData) {
+      // Handle base64 image data
+      try {
+        // Validate base64 format and size
+        validateBase64Data(imageData);
+        
+        const base64Data = imageData.replace(/^data:image\/[a-z]+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        
+        // Validate image size
+        validateImageSize(buffer);
+        
+        palette = await Vibrant.from(buffer).getPalette();
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+    } else {
+      // Handle image URL
+      try {
+        const parsedUrl = validateImageUrl(imageUrl);
+        
+        // Check if URL is from allowed domains (security measure)
+        const allowedDomains = [
+          'amazon.com', 'amazonaws.com', 'discogs.com', 'imgur.com', 
+          'github.com', 'githubusercontent.com', 'unsplash.com',
+          'pixabay.com', 'pexels.com', 'flickr.com', 'localhost'
+        ];
+        
+        const urlDomain = parsedUrl.hostname.toLowerCase();
+        const isAllowed = allowedDomains.some(domain => urlDomain.includes(domain));
+        
+        if (!isAllowed) {
+          return res.status(400).json({ 
+            error: 'Image URL must be from an allowed domain for security reasons.' 
+          });
+        }
+        
+        // Set timeout for image fetching
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        try {
+          palette = await Vibrant.from(imageUrl).getPalette();
+          clearTimeout(timeoutId);
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === 'AbortError') {
+            throw new Error('Image fetch timeout');
+          }
+          throw fetchError;
+        }
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+    }
+    
+    // Extract color data
+    const colors = {};
+    const colorNames = {
+      Vibrant: 'Vibrant',
+      LightVibrant: 'Light Vibrant', 
+      DarkVibrant: 'Dark Vibrant',
+      Muted: 'Muted',
+      LightMuted: 'Light Muted',
+      DarkMuted: 'Dark Muted'
+    };
+    
+    Object.entries(palette).forEach(([key, color]) => {
+      if (color) {
+        colors[key] = {
+          hex: color.hex,
+          population: color.population,
+          name: colorNames[key] || key
+        };
+      }
+    });
+    
+    console.log("✅ Successfully extracted colors:", Object.keys(colors));
+    res.status(200).json({ 
+      success: true, 
+      colors,
+      extractedAt: new Date().toISOString(),
+      requestId: crypto.randomBytes(8).toString('hex') // For tracking
+    });
+    
+  } catch (error) {
+    console.error("❌ Error extracting colors:", { 
+      error: error.message, 
+      ip: clientIP, 
+      timestamp: new Date().toISOString() 
+    });
+    
+    // Don't expose internal error details
+    const safeError = error.message.includes('timeout') ? 'Image processing timeout' :
+                     error.message.includes('size') ? 'Image too large' :
+                     error.message.includes('format') ? 'Invalid image format' :
+                     'Failed to extract colors from image';
+    
+    res.status(500).json({ 
+      error: safeError,
+      requestId: crypto.randomBytes(8).toString('hex')
+    });
   }
 });
 
