@@ -1,6 +1,13 @@
 // When running locally, make sure to set 'NODE_ENV=development' in the .env file
 
 require('dotenv').config();
+
+// Helper function for development-only logging
+const devLog = (...args) => {
+  if (isDev) {
+    console.log(...args);
+  }
+};
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 const express = require('express');
 const fs = require('fs');
@@ -79,6 +86,17 @@ const io = new Server(server, {
 
 // --- Socket.IO connection logic start ---
 const sessionSocketMap = new Map();
+// Track active API jobs by socketId to allow cancellation on disconnect
+const activeJobs = new Map();
+// Track disconnected sockets to avoid spam logging
+const disconnectedSockets = new Set();
+
+// Helper function to check if socket is still connected
+function isSocketConnected(socketId) {
+  if (!socketId) return false;
+  const target = io.sockets.sockets.get(socketId);
+  return target && target.connected;
+}
 
 io.use(sharedSession(sessionMiddleware, { autoSave: true }));
 
@@ -101,6 +119,19 @@ io.on('connection', (socket) => {
   console.log('[Socket.IO] connect  id=%s  sid=%s', socket.id, sessionID);
 
   socket.on('disconnect', () => {
+    // Cancel any active jobs for this socket
+    if (activeJobs.has(socket.id)) {
+      const job = activeJobs.get(socket.id);
+      if (job && job.cancel) {
+        job.cancel();
+        console.log(`[Socket.IO] Cancelled active job for socket ${socket.id}`);
+      }
+      activeJobs.delete(socket.id);
+    }
+    
+    // Mark socket as disconnected to avoid spam logging
+    disconnectedSockets.add(socket.id);
+    
     if (sessionID && sessionSocketMap.has(sessionID)) {
       const set = sessionSocketMap.get(sessionID);
       set.delete(socket);
@@ -111,6 +142,16 @@ io.on('connection', (socket) => {
 });
 // --- Socket.IO connection logic end---
 
+// Clean up disconnectedSockets set periodically to prevent memory leaks
+setInterval(() => {
+  // Keep only the last 100 disconnected socket IDs to prevent memory leaks
+  if (disconnectedSockets.size > 100) {
+    const socketIds = Array.from(disconnectedSockets);
+    disconnectedSockets.clear();
+    // Keep only the most recent 50
+    socketIds.slice(-50).forEach(id => disconnectedSockets.add(id));
+  }
+}, 60000); // Clean up every minute
 
 // Emit progress to all connected clients and log to server console
 function emitProgressUpdate(extraLog) {
@@ -2312,12 +2353,22 @@ app.get('/listogs/callback/discogs', async (req, res) => {
 
 
 function sendLogMessageToSession(message, socketId) {
-  const target = socketId && io.sockets.sockets.get(socketId);
-  if (target) {
-    target.emit('sessionLog', message);       // talk straight to that socket
-  } else {
-    console.warn('[sendLogMessageToSession] No target socket found for socketId:', socketId);
+  // Early return if socket is not connected
+  if (!isSocketConnected(socketId)) {
+    // If socket is disconnected, remove from active jobs silently
+    if (socketId && activeJobs.has(socketId)) {
+      activeJobs.delete(socketId);
+    }
+    // Only log once per socketId to avoid spam
+    if (socketId && !disconnectedSockets.has(socketId)) {
+      console.warn('[sendLogMessageToSession] No target socket found for socketId:', socketId);
+      disconnectedSockets.add(socketId);
+    }
+    return;
   }
+  
+  const target = io.sockets.sockets.get(socketId);
+  target.emit('sessionLog', message);
 }
 
 function sendResultsToSession(results, socketId) {
@@ -2330,14 +2381,24 @@ function sendResultsToSession(results, socketId) {
 }
 
 function sendVideosToSession(videos, socketId) {
-  const target = socketId && io.sockets.sockets.get(socketId);
-  if (target) {
-    // Deduplicate videos by videoId before sending
-    const deduplicatedVideos = deduplicateVideosByVideoId(videos);
-    target.emit('sessionVideos', deduplicatedVideos);
-  } else {
-    console.warn('[sendVideosToSession] No target socket found for socketId:', socketId);
+  // Early return if socket is not connected
+  if (!isSocketConnected(socketId)) {
+    // If socket is disconnected, remove from active jobs silently
+    if (socketId && activeJobs.has(socketId)) {
+      activeJobs.delete(socketId);
+    }
+    // Only log once per socketId to avoid spam
+    if (socketId && !disconnectedSockets.has(socketId)) {
+      console.warn('[sendVideosToSession] No target socket found for socketId:', socketId);
+      disconnectedSockets.add(socketId);
+    }
+    return;
   }
+  
+  const target = io.sockets.sockets.get(socketId);
+  // Deduplicate videos by videoId before sending
+  const deduplicatedVideos = deduplicateVideosByVideoId(videos);
+  target.emit('sessionVideos', deduplicatedVideos);
 }
 
 // Helper function to deduplicate videos by videoId
@@ -2392,17 +2453,27 @@ function deduplicateVideosByVideoId(videos) {
 }
 
 function sendStatusToSession(status, socketId) {
-  const target = socketId && io.sockets.sockets.get(socketId);
-  if (target) {
-    target.emit('sessionStatus', status);
-  } else {
-    console.warn('[sendStatusToSession] No target socket found for socketId:', socketId);
+  // Early return if socket is not connected
+  if (!isSocketConnected(socketId)) {
+    // If socket is disconnected, remove from active jobs silently
+    if (socketId && activeJobs.has(socketId)) {
+      activeJobs.delete(socketId);
+    }
+    // Only log once per socketId to avoid spam
+    if (socketId && !disconnectedSockets.has(socketId)) {
+      console.warn('[sendStatusToSession] No target socket found for socketId:', socketId);
+      disconnectedSockets.add(socketId);
+    }
+    return;
   }
+  
+  const target = io.sockets.sockets.get(socketId);
+  target.emit('sessionStatus', status);
 }
 
 
 // Make discogs api request with pagination
-async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
+async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId, cancelled = false) {
   const headers = {
     'User-Agent': USER_AGENT
   };
@@ -2431,10 +2502,32 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
   let pageCount = 0;
   let firstResponse = null;
   let totalPages = 0;
+  // Track last successful progress for rate limit display
+  let lastSuccessfulPageCount = 0;
+  let lastSuccessfulTotalPages = 0;
 
   while (url) {
+    // Check for cancellation at the start of each iteration
+    if (cancelled) {
+      console.log(`[newDiscogsAPIRequest] Job cancelled for socket ${socketId}`);
+      return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+    }
+    
+    // Also check if socket is still connected
+    if (!isSocketConnected(socketId)) {
+      console.log(`[newDiscogsAPIRequest] Socket ${socketId} disconnected, aborting`);
+      return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+    }
+
     try {
       const response = await axios.get(url, { headers });
+      
+      // Check for cancellation after the request
+      if (cancelled) {
+        console.log(`[newDiscogsAPIRequest] Job cancelled for socket ${socketId}`);
+        return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+      }
+      
       if (!firstResponse) firstResponse = response.data;
       if (rateLimitStart !== null) {
         const seconds = ((Date.now() - rateLimitStart) / 1000).toFixed(1);
@@ -2449,6 +2542,11 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
         allReleases = allReleases.concat(response.data.releases);
         pageCount++;
         totalPages = response.data?.pagination?.pages || totalPages;
+        
+        // Update last successful progress
+        lastSuccessfulPageCount = pageCount;
+        lastSuccessfulTotalPages = totalPages;
+        
         // Send status update
         sendStatusToSession({
           status: "In progress",
@@ -2467,6 +2565,12 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
     } catch (err) {
       // Handle 429 (rate limit)
       if (err.response?.status === 429) {
+        // Check for cancellation before processing rate limit
+        if (cancelled) {
+          console.log(`[newDiscogsAPIRequest] Job cancelled during rate limit handling for socket ${socketId}`);
+          return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+        }
+
         retryCount++;
         if (rateLimitStart === null) rateLimitStart = Date.now();
         const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
@@ -2475,22 +2579,60 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
         sendLogMessageToSession(logMsg, socketId);
 
         // Send waiting status
-        // If waiting for rate limit, keep the last pageCount and totalPages values unchanged
+        // If waiting for rate limit, use the last successful progress values
+        // If no successful progress yet, use current values
+        const displayPageCount = lastSuccessfulPageCount > 0 ? lastSuccessfulPageCount : pageCount;
+        const displayTotalPages = lastSuccessfulTotalPages > 0 ? lastSuccessfulTotalPages : totalPages;
+        
         sendStatusToSession({
           status: "Waiting for rate limit",
           progress: { 
-            currentIndex: pageCount, 
-            total: totalPages 
+            currentIndex: displayPageCount, 
+            total: displayTotalPages 
           }
           
         }, socketId);
 
         if (typeof io !== "undefined") io.emit('progressLog', logMsg);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        // Check for cancellation before waiting
+        if (cancelled) {
+          console.log(`[newDiscogsAPIRequest] Job cancelled before rate limit wait for socket ${socketId}`);
+          return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+        }
+        
+        // Use a timeout with cancellation checks during rate limit wait
+        await new Promise(resolve => {
+          const timeoutId = setTimeout(resolve, waitTime);
+          // Check for cancellation every 100ms during the wait
+          const checkInterval = setInterval(() => {
+            if (cancelled || !isSocketConnected(socketId)) {
+              clearTimeout(timeoutId);
+              clearInterval(checkInterval);
+              resolve();
+            }
+          }, 100);
+          
+          // Clean up interval when timeout completes
+          setTimeout(() => clearInterval(checkInterval), waitTime);
+        });
+        
+        // Check for cancellation after waiting
+        if (cancelled || !isSocketConnected(socketId)) {
+          console.log(`[newDiscogsAPIRequest] Job cancelled after rate limit wait for socket ${socketId}`);
+          return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+        }
+        
         continue;
       }
       // Handle 500 (server error)
       if (err.response?.status === 500 && error500Count < max500Retries) {
+        // Check for cancellation before processing 500 error
+        if (cancelled) {
+          console.log(`[newDiscogsAPIRequest] Job cancelled during 500 error handling for socket ${socketId}`);
+          return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+        }
+
         error500Count++;
         const waitTime = 1000 * error500Count; // Linear backoff for 500s
         const logMsg = `⏳ Discogs 500 error. Retry ${error500Count}/${max500Retries}. Waiting ${waitTime / 1000} seconds...`;
@@ -2498,13 +2640,44 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
         sendLogMessageToSession(logMsg, socketId);
 
         // Still in progress, but could also send a special status if desired
+        const displayPageCount = lastSuccessfulPageCount > 0 ? lastSuccessfulPageCount : pageCount;
+        const displayTotalPages = lastSuccessfulTotalPages > 0 ? lastSuccessfulTotalPages : totalPages;
+        
         sendStatusToSession({
           status: "In progress",
-          progress: { currentIndex: pageCount, total: totalPages }
+          progress: { currentIndex: displayPageCount, total: displayTotalPages }
         }, socketId);
 
         if (typeof io !== "undefined") io.emit('progressLog', logMsg);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        // Check for cancellation before waiting
+        if (cancelled) {
+          console.log(`[newDiscogsAPIRequest] Job cancelled before 500 error wait for socket ${socketId}`);
+          return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+        }
+        
+        // Use a timeout with cancellation checks during 500 error wait
+        await new Promise(resolve => {
+          const timeoutId = setTimeout(resolve, waitTime);
+          // Check for cancellation every 100ms during the wait
+          const checkInterval = setInterval(() => {
+            if (cancelled || !isSocketConnected(socketId)) {
+              clearTimeout(timeoutId);
+              clearInterval(checkInterval);
+              resolve();
+            }
+          }, 100);
+          
+          // Clean up interval when timeout completes
+          setTimeout(() => clearInterval(checkInterval), waitTime);
+        });
+        
+        // Check for cancellation after waiting
+        if (cancelled || !isSocketConnected(socketId)) {
+          console.log(`[newDiscogsAPIRequest] Job cancelled after 500 error wait for socket ${socketId}`);
+          return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
+        }
+        
         continue;
       }
 
@@ -2526,56 +2699,85 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {
   return firstResponse;
 }
 
-async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId) {
+async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false) {
+  // Check if socket is still connected before starting
+  if (!isSocketConnected(socketId)) {
+    console.log(`[getAllArtistReleaseVideos] Socket ${socketId} disconnected, aborting`);
+    return;
+  }
+
   let artistReleases = [];
   try {
-    artistReleases = await getAllArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId);
+    artistReleases = await getAllArtistReleases(artistId = discogsId, oauthToken, oauthVerifier, socketId, cancelled);
     sendLogMessageToSession(`getAllArtistReleases returned ${Array.isArray(artistReleases) ? artistReleases.length : 'unknown'} releases`, socketId);
   } catch (error) {
     sendLogMessageToSession(`Error fetching artist releases: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
   }
 
+  // Check again before proceeding to video fetching
+  if (!isSocketConnected(socketId)) {
+    console.log(`[getAllArtistReleaseVideos] Socket ${socketId} disconnected during video fetching, aborting`);
+    return;
+  }
+
   let artistVideos = [];
   try {
-    artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId);
+    artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId, cancelled);
     sendLogMessageToSession(`Fetched artist videos: ${artistVideos['totalVideoCount']} videos`, socketId);
   } catch (error) {
     sendLogMessageToSession(`Error fetching artist videos: ${error.message}`, socketId);
   }
   sendResultsToSession(artistVideos, socketId);
+  
+  // Clean up the job when completed
+  if (activeJobs.has(socketId)) {
+    activeJobs.delete(socketId);
+  }
 }
 
-async function getAllArtistReleases(artistId, oauthToken, oauthVerifier, socketId) {
+async function getAllArtistReleases(artistId, oauthToken, oauthVerifier, socketId, cancelled = false) {
   try {
-    console.log(`[getAllArtistReleases] Start: artistId=${artistId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
+    devLog(`[getAllArtistReleases] Start: artistId=${artistId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
     let allReleases = [];
     let url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
     let retryCount = 0;
 
     try {
-      console.log(`[getAllArtistReleases] Fetching: ${url}`);
-      const response = await newDiscogsAPIRequest(url, oauthToken, socketId);
+      // Check for cancellation before making the request
+      if (cancelled) {
+        console.log(`[getAllArtistReleases] Job cancelled for socket ${socketId}`);
+        return allReleases;
+      }
+
+      devLog(`[getAllArtistReleases] Fetching: ${url}`);
+      const response = await newDiscogsAPIRequest(url, oauthToken, socketId, cancelled);
+
+      // Check for cancellation after the request
+      if (cancelled) {
+        console.log(`[getAllArtistReleases] Job cancelled for socket ${socketId}`);
+        return allReleases;
+      }
 
       if (response && response.releases) {
-        console.log(`[getAllArtistReleases] Fetched ${response.releases.length} releases from current page.`);
+        devLog(`[getAllArtistReleases] Fetched ${response.releases.length} releases from current page.`);
         allReleases = allReleases.concat(response.releases);
       } else {
-        console.log(`[getAllArtistReleases] No releases found in response.`);
+        devLog(`[getAllArtistReleases] No releases found in response.`);
       }
 
       url = response.pagination?.urls?.next || null;
       if (url) {
-        console.log(`[getAllArtistReleases] Next page URL: ${url}`);
+        devLog(`[getAllArtistReleases] Next page URL: ${url}`);
       } else {
-        console.log(`[getAllArtistReleases] No more pages.`);
+        devLog(`[getAllArtistReleases] No more pages.`);
       }
       retryCount = 0;
     } catch (error) {
       console.error(`[getAllArtistReleases] Error: ${error.message}`);
       throw error;
     }
-    console.log(`[getAllArtistReleases] Done. Total releases fetched: ${allReleases.length}`);
+    devLog(`[getAllArtistReleases] Done. Total releases fetched: ${allReleases.length}`);
     return allReleases;
   } catch (err) {
     console.error('[getAllArtistReleases] error:', err.message);
@@ -2583,7 +2785,7 @@ async function getAllArtistReleases(artistId, oauthToken, oauthVerifier, socketI
   }
 }
 
-async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
+async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancelled = false) {
 
   // Map all videos by releaseId and videoId 
   const allVideos = {};
@@ -2591,6 +2793,18 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
 
   // Process releases sequentially, not in parallel
   for (let i = 0; i < artistReleases.length; i++) {
+    // Check for cancellation at the start of each iteration
+    if (cancelled) {
+      console.log(`[getAllReleaseVideos] Job cancelled for socket ${socketId}`);
+      return allVideos;
+    }
+    
+    // Also check if socket is still connected
+    if (!isSocketConnected(socketId)) {
+      console.log(`[getAllReleaseVideos] Socket ${socketId} disconnected, aborting`);
+      return allVideos;
+    }
+
     const release = artistReleases[i];
     sendLogMessageToSession(`${i + 1}/${artistReleases.length} Fetching videos for release ${release.main_release || release.id}`, socketId);
 
@@ -2611,7 +2825,7 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
 
       // get release URL and data
       const releaseUrl = `${DISCOGS_API_URL}/releases/${releaseId}`;
-      const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId);
+      const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId, cancelled);
 
       // If release has videos, process them
       if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
@@ -2675,32 +2889,62 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId) {
   return allVideos;
 }
 
-async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId){
+async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false){
+  // Check if socket is still connected before starting
+  if (!isSocketConnected(socketId)) {
+    console.log(`[getAllLabelReleaseVideos] Socket ${socketId} disconnected, aborting`);
+    return;
+  }
+
   // Get all releases from the label
   let labelReleases = [];
   try {
-    labelReleases = await getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId);
+    labelReleases = await getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
     sendLogMessageToSession(`getAllDiscogsLabelReleases returned ${Array.isArray(labelReleases) ? labelReleases.length : 'unknown'} releases`, socketId);
   } catch (error) {
     sendLogMessageToSession(`Error fetching label releases: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
   }
   
+  // Check again before proceeding to video fetching
+  if (!isSocketConnected(socketId)) {
+    console.log(`[getAllLabelReleaseVideos] Socket ${socketId} disconnected during video fetching, aborting`);
+    return;
+  }
+  
   // Get all videos from all label releases
   let labelVideos = [];
   try {
-    labelVideos = await getAllReleaseVideos(labelReleases, oauthToken, socketId);
+    labelVideos = await getAllReleaseVideos(labelReleases, oauthToken, socketId, cancelled);
     sendLogMessageToSession(`Fetched label videos: ${labelVideos['totalVideoCount']} videos`, socketId);
   } catch (error) {
     sendLogMessageToSession(`Error fetching label videos: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
   }
   sendResultsToSession(labelVideos, socketId);
+  
+  // Clean up the job when completed
+  if (activeJobs.has(socketId)) {
+    activeJobs.delete(socketId);
+  }
 } 
 
-async function getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId) {
+async function getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false) {
+  // Check for cancellation before making the request
+  if (cancelled) {
+    console.log(`[getAllDiscogsLabelReleases] Job cancelled for socket ${socketId}`);
+    return [];
+  }
+
   const apiUrl = `https://api.discogs.com/labels/${discogsId}/releases`;
-  const response = await newDiscogsAPIRequest(apiUrl, oauthToken, socketId);
+  const response = await newDiscogsAPIRequest(apiUrl, oauthToken, socketId, cancelled);
+  
+  // Check for cancellation after the request
+  if (cancelled) {
+    console.log(`[getAllDiscogsLabelReleases] Job cancelled for socket ${socketId}`);
+    return [];
+  }
+  
   // Always return the releases array if present, otherwise fallback to response
   return response && Array.isArray(response.releases) ? response.releases : response;
 }
@@ -2806,7 +3050,7 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
 
           // Fetch release data from Discogs API
           const releaseUrl = `${DISCOGS_API_URL}/releases/${releaseId}`;
-          const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId);
+          const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId, false);
 
           const videos = [];
           if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
@@ -2839,16 +3083,32 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
 
 // Endpoint that receives discogs api request (requestId and auth info) from the frontend and returns results
 app.post('/discogs/api', async (req, res) => {
-  console.log("[POST /discogs/api] Hit: ", req.body);
+  devLog("[POST /discogs/api] Hit: ", req.body);
   const { discogsType, discogsId, oauthToken, oauthVerifier, socketId } = req.body;
-  console.log(`discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
+  devLog(`discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
+
+  // Check if socket is still connected
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (!target || !target.connected) {
+    return res.status(400).json({ error: 'Socket not connected' });
+  }
+
+  // Create a cancellation token for this job
+  let cancelled = false;
+  const cancelJob = () => {
+    cancelled = true;
+    console.log(`[Discogs API] Job cancelled for socket ${socketId}`);
+  };
+
+  // Register the job
+  activeJobs.set(socketId, { cancel: cancelJob, type: 'discogs', discogsType, discogsId });
 
   try {
     if (discogsType == 'artist') {
       sendLogMessageToSession(`Calling getAllArtistReleases with artistId=${discogsId}`, socketId);
-      getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
+      getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
     } else if (discogsType == 'label') {
-      getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId);
+      getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
     }else if(discogsType == 'release'){
       
 

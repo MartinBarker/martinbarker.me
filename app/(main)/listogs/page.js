@@ -359,7 +359,17 @@ function DiscogsAuthTestPageInner() {
       setSessionStatus(status); // <-- Save status to state
     });
 
+    // Add beforeunload listener to ensure socket disconnection
+    const handleBeforeUnload = () => {
+      if (sock) {
+        sock.disconnect();
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       sock.disconnect();
     };
   }, []);
@@ -784,7 +794,8 @@ function DiscogsAuthTestPageInner() {
                   }
                   return (
                     <>
-                      {typeof currentIndex !== 'undefined' && typeof total !== 'undefined' && total > 0 && (
+                      {typeof currentIndex !== 'undefined' && typeof total !== 'undefined' && total > 0 && 
+                       !(sessionStatus.status === 'Waiting for rate limit' && currentIndex >= total) && (
                         <span>
                           Page Progress: {currentIndex} / {total}
                           <br />
