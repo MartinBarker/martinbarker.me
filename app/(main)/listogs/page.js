@@ -153,6 +153,61 @@ function DiscogsAuthTestPageInner() {
     });
   };
 
+  // Persist results and form state in localStorage
+  const storeListogsData = (results, discogsInput, extractedId, selectedType) => {
+    try {
+      localStorage.setItem('listogs_results', JSON.stringify(results));
+      localStorage.setItem('listogs_discogs_input', discogsInput || '');
+      localStorage.setItem('listogs_extracted_id', extractedId || '');
+      localStorage.setItem('listogs_selected_type', selectedType || '');
+    } catch (err) {
+      console.error('❌ Failed to save listogs data:', err);
+    }
+  };
+
+  // Load persisted data from localStorage
+  const loadListogsData = () => {
+    try {
+      const savedResults = localStorage.getItem('listogs_results');
+      const savedInput = localStorage.getItem('listogs_discogs_input');
+      const savedId = localStorage.getItem('listogs_extracted_id');
+      const savedType = localStorage.getItem('listogs_selected_type');
+      
+      if (savedResults) {
+        setResults(JSON.parse(savedResults));
+      }
+      if (savedInput) {
+        setDiscogsInput(savedInput);
+      }
+      if (savedId) {
+        setExtractedId(savedId);
+      }
+      if (savedType) {
+        setSelectedType(savedType);
+      }
+    } catch (err) {
+      console.error('❌ Failed to load listogs data:', err);
+    }
+  };
+
+  // Clear all listogs data
+  const clearListogsData = () => {
+    try {
+      localStorage.removeItem('listogs_results');
+      localStorage.removeItem('listogs_discogs_input');
+      localStorage.removeItem('listogs_extracted_id');
+      localStorage.removeItem('listogs_selected_type');
+      setResults([]);
+      setDiscogsInput('');
+      setExtractedId('');
+      setSelectedType(null);
+      setLogLines([]);
+      setSessionStatus(null);
+    } catch (err) {
+      console.error('❌ Failed to clear listogs data:', err);
+    }
+  };
+
   const [authUrl, setAuthUrl] = useState('');
   const [authUrlLoading, setAuthUrlLoading] = useState(true); // <-- Add loading state
   const getDiscogsURL = async () => {
@@ -177,6 +232,11 @@ function DiscogsAuthTestPageInner() {
   // Call getDiscogsURL on initial mount
   useEffect(() => {
     getDiscogsURL();
+  }, []);
+
+  // Load persisted data on mount
+  useEffect(() => {
+    loadListogsData();
   }, []);
 
   // Helper to format expiry date
@@ -319,22 +379,20 @@ function DiscogsAuthTestPageInner() {
         uniqueVideos = videos;
       }
       setResults(prev => {
+        let newResults;
         // If prev is empty, just set uniqueVideos
-        if (!prev || prev.length === 0) return uniqueVideos;
-        // Merge new videos into prev (append releases)
-        if (Array.isArray(uniqueVideos)) {
+        if (!prev || prev.length === 0) {
+          newResults = uniqueVideos;
+        } else if (Array.isArray(uniqueVideos)) {
           // Merge and deduplicate with previous results
           const seen = new Set();
-          const allVideos = [...prev, ...uniqueVideos].filter(v => {
+          newResults = [...prev, ...uniqueVideos].filter(v => {
             if (!v.videoId) return true;
             if (seen.has(v.videoId)) return false;
             seen.add(v.videoId);
             return true;
           });
-          return allVideos;
-        }
-        // If object, merge keys (assuming releases as keys)
-        if (typeof uniqueVideos === 'object' && uniqueVideos !== null) {
+        } else if (typeof uniqueVideos === 'object' && uniqueVideos !== null) {
           // Merge releases, deduplicate videoIds across all releases
           const merged = { ...prev, ...uniqueVideos };
           const seen = new Set();
@@ -348,9 +406,15 @@ function DiscogsAuthTestPageInner() {
               });
             }
           });
-          return merged;
+          newResults = merged;
+        } else {
+          newResults = uniqueVideos;
         }
-        return uniqueVideos;
+        
+        // Save to localStorage
+        storeListogsData(newResults, discogsInput, extractedId, selectedType);
+        
+        return newResults;
       });
     });
 
@@ -430,12 +494,16 @@ function DiscogsAuthTestPageInner() {
     setInputError('');
     setExtractedId('');
     setSelectedType(null);
+    
+    // Save current form state
+    storeListogsData(results, value, '', null);
 
     // Try matching URLs first
     const artistMatch = value.match(/discogs\.com\/artist\/(\d+)/);
     if (artistMatch && artistMatch[1]) {
       setExtractedId(artistMatch[1]);
       setSelectedType('artist');
+      storeListogsData(results, value, artistMatch[1], 'artist');
       return;
     }
 
@@ -443,6 +511,7 @@ function DiscogsAuthTestPageInner() {
     if (labelMatch && labelMatch[1]) {
       setExtractedId(labelMatch[1]);
       setSelectedType('label');
+      storeListogsData(results, value, labelMatch[1], 'label');
       return;
     }
 
@@ -450,6 +519,7 @@ function DiscogsAuthTestPageInner() {
     if (releaseMatch && releaseMatch[1]) {
       setExtractedId(releaseMatch[1]);
       setSelectedType('release');
+      storeListogsData(results, value, releaseMatch[1], 'release');
       return;
     }
 
@@ -458,6 +528,7 @@ function DiscogsAuthTestPageInner() {
     if (listMatch && listMatch[1]) {
       setExtractedId(listMatch[1]);
       setSelectedType('list');
+      storeListogsData(results, value, listMatch[1], 'list');
       return;
     }
     // Also match /lists/<id> (simple form)
@@ -465,6 +536,7 @@ function DiscogsAuthTestPageInner() {
     if (listMatchSimple && listMatchSimple[1]) {
       setExtractedId(listMatchSimple[1]);
       setSelectedType('list');
+      storeListogsData(results, value, listMatchSimple[1], 'list');
       return;
     }
 
@@ -473,6 +545,7 @@ function DiscogsAuthTestPageInner() {
     if (bracketArtistMatch && bracketArtistMatch[1]) {
       setExtractedId(bracketArtistMatch[1]);
       setSelectedType('artist');
+      storeListogsData(results, value, bracketArtistMatch[1], 'artist');
       return;
     }
 
@@ -480,6 +553,7 @@ function DiscogsAuthTestPageInner() {
     if (bracketLabelMatch && bracketLabelMatch[1]) {
       setExtractedId(bracketLabelMatch[1]);
       setSelectedType('label');
+      storeListogsData(results, value, bracketLabelMatch[1], 'label');
       return;
     }
 
@@ -488,6 +562,7 @@ function DiscogsAuthTestPageInner() {
     if (bracketReleaseMatch && bracketReleaseMatch[1]) {
       setExtractedId(bracketReleaseMatch[1]);
       setSelectedType('release');
+      storeListogsData(results, value, bracketReleaseMatch[1], 'release');
       return;
     }
 
@@ -510,6 +585,8 @@ function DiscogsAuthTestPageInner() {
     }
     setInputError('');
     setResults([]); // <-- Clear results on new submit
+    // Clear localStorage for new search
+    storeListogsData([], discogsInput, extractedId, selectedType);
     discogsApiQuery(selectedType, extractedId);
   };
 
@@ -692,6 +769,36 @@ function DiscogsAuthTestPageInner() {
           </span>
         ) : (
           <span style={{ color: 'red' }}>Not signed in</span>
+        )}
+        
+        {/* Clear button - only show if there are video results */}
+        {videoCount > 0 && (
+          <button
+            style={{
+              color: 'white',
+              background: '#dc3545',
+              fontWeight: 'bold',
+              padding: '10px 24px',
+              border: 'none',
+              borderRadius: 6,
+              fontSize: 18,
+              cursor: 'pointer',
+              transition: 'background 0.2s, box-shadow 0.2s',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.07)',
+              marginLeft: 16
+            }}
+            onClick={clearListogsData}
+            onMouseOver={e => {
+              e.currentTarget.style.background = '#c82333';
+              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = '#dc3545';
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
+            }}
+          >
+            Clear All Data
+          </button>
         )}
       </div>
 
