@@ -151,6 +151,14 @@ function getRedirectUrl() {
   return 'https://martinbarker.me/internal-api/listogs/youtube/callback'; // Updated production redirect URL
 }
 
+// Function to determine the YouTube redirect URL based on the environment
+function getYouTubeRedirectUrl() {
+  if (isDev) {
+    return 'http://localhost:3030/youtube/callback';
+  }
+  return 'https://martinbarker.me/internal-api/youtube/callback';
+}
+
 function getDiscogsRediurectUrl() {
   if (isDev) {
     return 'http://localhost:3030/listogs/callback/discogs';
@@ -172,6 +180,13 @@ function initializeOAuthClient(clientId, clientSecret) {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
+// Centralized function to initialize the YouTube OAuth2 client
+function initializeYouTubeOAuthClient(clientId, clientSecret) {
+  const redirectUri = getYouTubeRedirectUrl();
+  console.log('YouTube redirectUri = ', redirectUri);
+  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+}
+
 // Centralized function to generate the sign-in URL
 function generateSignInUrl(oauth2Client) {
   return oauth2Client.generateAuthUrl({
@@ -184,7 +199,9 @@ function generateSignInUrl(oauth2Client) {
 // Initialize OAuth2 client and YouTube API
 async function initializeOAuth() {
   console.log('\nInitializing OAuth...');
-  oauth2Client = initializeOAuthClient(gcpClientId, gcpClientSecret);
+  console.log('gcpClientId:', gcpClientId ? 'SET' : 'NOT SET');
+  console.log('gcpClientSecret:', gcpClientSecret ? 'SET' : 'NOT SET');
+  oauth2Client = initializeYouTubeOAuthClient(gcpClientId, gcpClientSecret);
   youtube = google.youtube({
     version: 'v3',
     auth: oauth2Client,
@@ -1100,12 +1117,15 @@ async function getAwsSecret(secretName) {
 
 var discogsConsumerKey = '';
 var discogsConsumerSecret = '';
+var gcpClientId = '';
+var gcpClientSecret = '';
 
 async function setSecrets() {
   try {
     const envFilePath = `${__dirname}/.env`;
     var isLocalEnvFile = fs.existsSync(envFilePath);
     console.log('isLocalEnvFile=', isLocalEnvFile);
+    console.log('NODE_ENV=', process.env.NODE_ENV);
     if (process.env.NODE_ENV === 'development' && isLocalEnvFile) {
       require('dotenv').config({ path: envFilePath });
       gcpClientId = process.env.GCP_CLIENT_ID || '';
@@ -1113,6 +1133,8 @@ async function setSecrets() {
       discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY || '';
       discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET || '';
       console.log('setSecrets() Local environment variables loaded.');
+      console.log('gcpClientId loaded:', gcpClientId ? 'YES' : 'NO');
+      console.log('gcpClientSecret loaded:', gcpClientSecret ? 'YES' : 'NO');
     } else {
       try {
         const youtubeSecrets = await getAwsSecret("youtubeAuth");
@@ -1428,6 +1450,227 @@ async function generateUrl(callbackPort) {
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // YouTube Auth Stuff End
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// YouTube OAuth2 Routes
+// Get YouTube OAuth2 URL
+app.get('/youtube/getAuthUrl', ensureSecretsInitialized, async (req, res) => {
+  console.log("📺 [GET /youtube/getAuthUrl] Hit");
+  try {
+    if (!oauth2Client) {
+      throw new Error('OAuth2 client not initialized');
+    }
+
+    console.log('OAuth2 client clientId:', oauth2Client._clientId ? 'SET' : 'NOT SET');
+    console.log('OAuth2 client clientSecret:', oauth2Client._clientSecret ? 'SET' : 'NOT SET');
+    console.log('Redirect URI:', getYouTubeRedirectUrl());
+
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: ['https://www.googleapis.com/auth/youtube.force-ssl'],
+      prompt: 'consent',
+      redirect_uri: getYouTubeRedirectUrl()
+    });
+
+    console.log('Generated YouTube auth URL:', authUrl);
+    res.status(200).json({ url: authUrl });
+  } catch (error) {
+    console.error('Error generating YouTube auth URL:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get YouTube OAuth2 URL (production route)
+app.get('/internal-api/youtube/getAuthUrl', ensureSecretsInitialized, async (req, res) => {
+  console.log("📺 [GET /internal-api/youtube/getAuthUrl] Hit");
+  try {
+    if (!oauth2Client) {
+      throw new Error('OAuth2 client not initialized');
+    }
+
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: ['https://www.googleapis.com/auth/youtube.force-ssl'],
+      prompt: 'consent',
+      redirect_uri: getYouTubeRedirectUrl()
+    });
+
+    console.log('Generated YouTube auth URL:', authUrl);
+    res.status(200).json({ url: authUrl });
+  } catch (error) {
+    console.error('Error generating YouTube auth URL:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// YouTube OAuth2 callback
+app.get('/youtube/callback', async (req, res) => {
+  console.log("📺 [GET /youtube/callback] Hit:", req.originalUrl);
+
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).send('No code found in the request.');
+  }
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    console.log('YouTube User authenticated. Tokens:', tokens);
+
+    // Store tokens in session
+    req.session.youtubeAuth = {
+      tokens: tokens,
+      isAuthenticated: true,
+      authenticatedAt: new Date().toISOString()
+    };
+
+    // Update global auth status
+    authStatus.isAuthenticated = true;
+
+    // Redirect to the frontend route
+    const redirectUrl = isDev ? 'http://localhost:3001/youtube' : 'https://martinbarker.me/youtube';
+    res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('Error during YouTube authentication:', error.message);
+    res.status(500).send('Authentication failed.');
+  }
+});
+
+// YouTube OAuth2 callback for production (with /internal-api prefix)
+app.get('/internal-api/youtube/callback', async (req, res) => {
+  console.log("📺 [GET /internal-api/youtube/callback] Hit:", req.originalUrl);
+
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).send('No code found in the request.');
+  }
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    console.log('YouTube User authenticated. Tokens:', tokens);
+
+    // Store tokens in session
+    req.session.youtubeAuth = {
+      tokens: tokens,
+      isAuthenticated: true,
+      authenticatedAt: new Date().toISOString()
+    };
+
+    // Update global auth status
+    authStatus.isAuthenticated = true;
+
+    // Redirect to the frontend route
+    const redirectUrl = 'https://martinbarker.me/youtube';
+    res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('Error during YouTube authentication:', error.message);
+    res.status(500).send('Authentication failed.');
+  }
+});
+
+// Get YouTube authentication status
+app.get('/youtube/authStatus', (req, res) => {
+  console.log("🔍 [GET /youtube/authStatus] Hit");
+  
+  const youtubeAuth = req.session?.youtubeAuth;
+  const isAuthenticated = youtubeAuth?.isAuthenticated || false;
+  
+  let userInfo = null;
+  if (isAuthenticated && youtubeAuth?.tokens) {
+    // Set credentials for the request
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+    
+    // Try to get user info from YouTube API
+    // Note: This is a simplified response - you might want to make an actual API call
+    userInfo = {
+      authenticatedAt: youtubeAuth.authenticatedAt,
+      hasValidTokens: !!youtubeAuth.tokens
+    };
+  }
+
+  res.status(200).json({
+    isAuthenticated,
+    userInfo
+  });
+});
+
+// Get YouTube authentication status (production route)
+app.get('/internal-api/youtube/authStatus', (req, res) => {
+  console.log("🔍 [GET /internal-api/youtube/authStatus] Hit");
+  
+  const youtubeAuth = req.session?.youtubeAuth;
+  const isAuthenticated = youtubeAuth?.isAuthenticated || false;
+  
+  let userInfo = null;
+  if (isAuthenticated && youtubeAuth?.tokens) {
+    // Set credentials for the request
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+    
+    // Try to get user info from YouTube API
+    // Note: This is a simplified response - you might want to make an actual API call
+    userInfo = {
+      authenticatedAt: youtubeAuth.authenticatedAt,
+      hasValidTokens: !!youtubeAuth.tokens
+    };
+  }
+
+  res.status(200).json({
+    isAuthenticated,
+    userInfo
+  });
+});
+
+// Clear YouTube authentication
+app.post('/youtube/clearAuth', (req, res) => {
+  console.log("🧹 [POST /youtube/clearAuth] Hit");
+  
+  try {
+    // Clear session data
+    if (req.session) {
+      delete req.session.youtubeAuth;
+    }
+    
+    // Update global auth status
+    authStatus.isAuthenticated = false;
+    
+    // Clear OAuth2 client credentials
+    if (oauth2Client) {
+      oauth2Client.setCredentials({});
+    }
+    
+    res.status(200).json({ message: 'YouTube authentication cleared successfully.' });
+  } catch (error) {
+    console.error('Error clearing YouTube auth:', error.message);
+    res.status(500).json({ error: 'Failed to clear authentication.' });
+  }
+});
+
+// Clear YouTube authentication (production route)
+app.post('/internal-api/youtube/clearAuth', (req, res) => {
+  console.log("🧹 [POST /internal-api/youtube/clearAuth] Hit");
+  
+  try {
+    // Clear session data
+    if (req.session) {
+      delete req.session.youtubeAuth;
+    }
+    
+    // Update global auth status
+    authStatus.isAuthenticated = false;
+    
+    // Clear OAuth2 client credentials
+    if (oauth2Client) {
+      oauth2Client.setCredentials({});
+    }
+    
+    res.status(200).json({ message: 'YouTube authentication cleared successfully.' });
+  } catch (error) {
+    console.error('Error clearing YouTube auth:', error.message);
+    res.status(500).json({ error: 'Failed to clear authentication.' });
+  }
+});
 
 app.post('/createPlaylist', async (req, res) => {
   console.log("🎵 [POST /createPlaylist] Hit", req.body);
