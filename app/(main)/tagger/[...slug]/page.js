@@ -23,7 +23,6 @@ export default async function TaggerSlugPage({ params }) {
   // URL decode the value to handle percent-encoded characters
   urlFromSlug = decodeURIComponent(urlFromSlug);
   
-  console.log('URL from slug:', urlFromSlug);
   
   // Access the shared route info - it will use the "/tagger" path info
   const routeInfo = getRouteInfo(`/tagger/${slugArray.join('/')}`);

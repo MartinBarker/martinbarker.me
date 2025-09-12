@@ -2332,10 +2332,63 @@ function sendResultsToSession(results, socketId) {
 function sendVideosToSession(videos, socketId) {
   const target = socketId && io.sockets.sockets.get(socketId);
   if (target) {
-    target.emit('sessionVideos', videos);
+    // Deduplicate videos by videoId before sending
+    const deduplicatedVideos = deduplicateVideosByVideoId(videos);
+    target.emit('sessionVideos', deduplicatedVideos);
   } else {
     console.warn('[sendVideosToSession] No target socket found for socketId:', socketId);
   }
+}
+
+// Helper function to deduplicate videos by videoId
+function deduplicateVideosByVideoId(videos) {
+  if (Array.isArray(videos)) {
+    const seen = new Set();
+    return videos.filter(video => {
+      if (!video.videoId) return true;
+      if (seen.has(video.videoId)) return false;
+      seen.add(video.videoId);
+      return true;
+    });
+  } else if (typeof videos === 'object' && videos !== null) {
+    const seen = new Set();
+    const result = {};
+    
+    // Handle special properties like totalVideoCount
+    if ('totalVideoCount' in videos) {
+      result.totalVideoCount = videos.totalVideoCount;
+    }
+    
+    // Process each release
+    Object.entries(videos).forEach(([releaseKey, releaseVideos]) => {
+      if (releaseKey === 'totalVideoCount') return; // Skip totalVideoCount
+      
+      if (Array.isArray(releaseVideos)) {
+        result[releaseKey] = releaseVideos.filter(video => {
+          if (!video.videoId) return true;
+          if (seen.has(video.videoId)) return false;
+          seen.add(video.videoId);
+          return true;
+        });
+      } else {
+        result[releaseKey] = releaseVideos;
+      }
+    });
+    
+    // Update totalVideoCount based on deduplicated videos
+    if ('totalVideoCount' in videos) {
+      let totalCount = 0;
+      Object.values(result).forEach(releaseVideos => {
+        if (Array.isArray(releaseVideos)) {
+          totalCount += releaseVideos.length;
+        }
+      });
+      result.totalVideoCount = totalCount;
+    }
+    
+    return result;
+  }
+  return videos;
 }
 
 function sendStatusToSession(status, socketId) {
@@ -2347,14 +2400,6 @@ function sendStatusToSession(status, socketId) {
   }
 }
 
-function sendLogMessageToSession(message, socketId) {
-  const target = socketId && io.sockets.sockets.get(socketId);
-  if (target) {
-    target.emit('sessionLog', `${message}`);       // talk straight to that socket
-  } else {
-    sessionLog(req, message);                 // fall back to whole session
-  }
-}
 
 // Make discogs api request with pagination
 async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId) {

@@ -1,30 +1,71 @@
 'use client';
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useContext } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
 import VideoTable from './Table';
+import { ColorContext } from '../ColorContext';
 
-// Helper to flatten videoData object to array
+// Helper to flatten videoData object to array with deduplication
 function flattenVideoData(videoData) {
   const rows = [];
+  const seenVideoIds = new Set();
+  
   if (!videoData) return rows;
+  
   Object.values(videoData).forEach(releaseObj => {
-    Object.values(releaseObj).forEach(video => {
-      rows.push(video);
-    });
+    if (Array.isArray(releaseObj)) {
+      releaseObj.forEach(video => {
+        // Only add if we haven't seen this videoId before
+        if (video && video.videoId && !seenVideoIds.has(video.videoId)) {
+          seenVideoIds.add(video.videoId);
+          rows.push(video);
+        } else if (video && !video.videoId) {
+          // Include videos without videoId (shouldn't happen but be safe)
+          rows.push(video);
+        }
+      });
+    } else if (releaseObj && typeof releaseObj === 'object') {
+      Object.values(releaseObj).forEach(video => {
+        // Only add if we haven't seen this videoId before
+        if (video && video.videoId && !seenVideoIds.has(video.videoId)) {
+          seenVideoIds.add(video.videoId);
+          rows.push(video);
+        } else if (video && !video.videoId) {
+          // Include videos without videoId (shouldn't happen but be safe)
+          rows.push(video);
+        }
+      });
+    }
   });
+  
   return rows;
 }
 
-// Helper to get all video IDs from results
+// Helper to get all unique video IDs from results
 function getAllVideoIds(videoData) {
   const ids = [];
+  const seenVideoIds = new Set();
+  
   if (!videoData) return ids;
+  
   Object.values(videoData).forEach(releaseObj => {
-    Object.values(releaseObj).forEach(video => {
-      if (video.videoId) ids.push(video.videoId);
-    });
+    if (Array.isArray(releaseObj)) {
+      releaseObj.forEach(video => {
+        if (video && video.videoId && !seenVideoIds.has(video.videoId)) {
+          seenVideoIds.add(video.videoId);
+          ids.push(video.videoId);
+        }
+      });
+    } else if (releaseObj && typeof releaseObj === 'object') {
+      Object.values(releaseObj).forEach(video => {
+        if (video && video.videoId && !seenVideoIds.has(video.videoId)) {
+          seenVideoIds.add(video.videoId);
+          ids.push(video.videoId);
+        }
+      });
+    }
   });
+  
   return ids;
 }
 
@@ -34,6 +75,20 @@ function DiscogsAuthTestPageInner() {
   const router = useRouter();
   const oauthToken = params.get('oauth_token');
   const oauthVerifier = params.get('oauth_verifier');
+  const { colors } = useContext(ColorContext);
+
+  // Function to darken a color for better contrast
+  const darkenColor = (color, amount = 0.3) => {
+    if (!color || color === '#ffffff') return '#333333'; // fallback for white/undefined
+    const hex = color.replace('#', '');
+    const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - Math.floor(255 * amount));
+    const g = Math.max(0, parseInt(hex.substr(2, 2), 16) - Math.floor(255 * amount));
+    const b = Math.max(0, parseInt(hex.substr(4, 2), 16) - Math.floor(255 * amount));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  };
+
+  // Get the button color from DarkMuted
+  const buttonColor = colors?.DarkMuted || '#333333';
 
   // Helper: 1 year in ms (simulate expiry)
   const DISCOGS_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
@@ -44,7 +99,6 @@ function DiscogsAuthTestPageInner() {
       localStorage.setItem('discogs_oauth_token', token);
       localStorage.setItem('discogs_oauth_verifier', verifier);
       localStorage.setItem('discogs_oauth_set_time', Date.now().toString());
-      console.log('✅ Tokens saved to localStorage');
     } catch (err) {
       console.error('❌ Failed to save tokens:', err);
     }
@@ -110,12 +164,10 @@ function DiscogsAuthTestPageInner() {
           : 'https://www.martinbarker.me/internal-api';
 
       var queryUrl = `${apiBaseURL}/listogs/discogs/getURL`;
-      console.log('querying for discogs auth URL:', queryUrl);
       const res = await fetch(queryUrl);
       const data = await res.json();
       setAuthUrl(data.url || '');
     } catch (err) {
-      console.log('error fetching url:', err);
       setAuthUrl(`Error fetching URL: ${err.message}`);
     } finally {
       setAuthUrlLoading(false); // <-- Set loading false after fetch
@@ -209,7 +261,6 @@ function DiscogsAuthTestPageInner() {
       ? '/socket.io'
       : '/internal-api/socket.io';
 
-    console.log('[Socket.IO] Connecting to', socketUrl, 'with path', socketPath);
 
     const sock = io(socketUrl, {
       withCredentials: true,
@@ -218,7 +269,6 @@ function DiscogsAuthTestPageInner() {
     setSocket(sock);
 
     sock.on('connect', () => {
-      //console.log('[Socket.IO] Connected:', sock.id);
       setSocketId(sock.id);
     });
 
@@ -238,7 +288,6 @@ function DiscogsAuthTestPageInner() {
 
     // Listen for videos 
     sock.on('sessionVideos', (videos) => {
-      console.log('sessionVideos = ', videos);
       // --- Remove duplicate videoIds ---
       let uniqueVideos;
       if (Array.isArray(videos)) {
@@ -308,7 +357,6 @@ function DiscogsAuthTestPageInner() {
     // Listen for status updates 
     sock.on('sessionStatus', (status) => {
       setSessionStatus(status); // <-- Save status to state
-      console.log('sessionStatus = ', status);
     });
 
     return () => {
@@ -338,7 +386,6 @@ function DiscogsAuthTestPageInner() {
       }
 
       const requestUrl = `${apiBaseURL}/discogs/api`;
-      console.log('Calling requestUrl for discogs api query =', requestUrl);
 
       const res = await fetch(requestUrl, {
         method: 'POST',
@@ -354,10 +401,8 @@ function DiscogsAuthTestPageInner() {
       });
 
       const data = await res.json();
-      console.log('discogsapi response = ', data);
       setTestDiscogsAuthResult(data);
     } catch (err) {
-      console.log('discogsapi💚 Error :', err);
       setTestDiscogsAuthResult({ error: err.message });
     }
   };
@@ -473,9 +518,12 @@ function DiscogsAuthTestPageInner() {
   // --- All video IDs as comma separated string ---
   const allVideoIdsString = videoIds.join(',');
 
-  // --- Copy to clipboard handler ---
+  // --- Copy to clipboard handler with visual feedback ---
+  const [copyButtonClicked, setCopyButtonClicked] = useState(false);
   const handleCopyIds = () => {
     navigator.clipboard.writeText(allVideoIdsString);
+    setCopyButtonClicked(true);
+    setTimeout(() => setCopyButtonClicked(false), 1000); // Reset after 1 second
   };
 
   // --- ExportCSVButton component ---
@@ -518,12 +566,23 @@ function DiscogsAuthTestPageInner() {
         style={{
           padding: '8px 16px',
           fontSize: 16,
-          background: '#007bff',
+          background: (!data || data.length === 0) ? '#cccccc' : buttonColor,
           color: 'white',
           border: 'none',
           borderRadius: 6,
-          cursor: 'pointer',
-          marginTop: 8
+          cursor: (!data || data.length === 0) ? 'not-allowed' : 'pointer',
+          marginTop: 8,
+          transition: 'background-color 0.3s ease'
+        }}
+        onMouseOver={e => {
+          if (data && data.length > 0) {
+            e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+          }
+        }}
+        onMouseOut={e => {
+          if (data && data.length > 0) {
+            e.currentTarget.style.background = buttonColor;
+          }
         }}
         disabled={!data || data.length === 0}
       >
@@ -560,7 +619,7 @@ function DiscogsAuthTestPageInner() {
           <button
             style={{
               color: 'white',
-              background: '#007bff',
+              background: buttonColor,
               fontWeight: 'bold',
               padding: '10px 24px',
               border: 'none',
@@ -570,6 +629,14 @@ function DiscogsAuthTestPageInner() {
               transition: 'background 0.2s, box-shadow 0.2s',
               boxShadow: '0 2px 8px rgba(0,0,0,0.07)'
             }}
+            onMouseOver={e => {
+              e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = buttonColor;
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
+            }}
             onClick={clearDiscogsAuth}
           >
             Clear Discogs Auth
@@ -578,7 +645,7 @@ function DiscogsAuthTestPageInner() {
           <button
             style={{
               color: 'white',
-              background: '#007bff',
+              background: authUrlLoading ? '#cccccc' : buttonColor,
               fontWeight: 'bold',
               padding: '10px 24px',
               border: 'none',
@@ -591,13 +658,13 @@ function DiscogsAuthTestPageInner() {
             onClick={() => { if (!authUrlLoading && authUrl) window.location.href = authUrl; }}
             onMouseOver={e => {
               if (!authUrlLoading) {
-                e.currentTarget.style.background = '#339dff';
-                e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,123,255,0.18)';
+                e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
               }
             }}
             onMouseOut={e => {
               if (!authUrlLoading) {
-                e.currentTarget.style.background = '#007bff';
+                e.currentTarget.style.background = buttonColor;
                 e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
               }
             }}
@@ -638,11 +705,22 @@ function DiscogsAuthTestPageInner() {
           style={{ 
             padding: '8px 16px', 
             fontSize: 16,
-            background: 'white',
-            color: 'black',
-            border: '1px solid #ccc',
+            background: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? '#cccccc' : buttonColor,
+            color: 'white',
+            border: 'none',
             borderRadius: 6,
-            cursor: 'pointer'
+            cursor: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? 'not-allowed' : 'pointer',
+            transition: 'background-color 0.3s ease'
+          }}
+          onMouseOver={e => {
+            if (extractedId && selectedType && discogsAuthStatus.exists) {
+              e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+            }
+          }}
+          onMouseOut={e => {
+            if (extractedId && selectedType && discogsAuthStatus.exists) {
+              e.currentTarget.style.background = buttonColor;
+            }
           }}
           disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
         >
@@ -778,7 +856,7 @@ function DiscogsAuthTestPageInner() {
       {/* All YouTube Video IDs Section (bottom of page) */}
       {videoIds.length > 0 && (
         <div style={{ marginTop: 32, marginBottom: 32 }}>
-          <h3>All YouTube Video IDs (comma separated):</h3>
+          <h3>All YouTube Video IDs (comma separated) - {videoIds.length} videos:</h3>
           <textarea
             value={allVideoIdsString}
             readOnly
@@ -796,14 +874,25 @@ function DiscogsAuthTestPageInner() {
             style={{
               padding: '8px 16px',
               fontSize: 16,
-              background: '#007bff',
+              background: copyButtonClicked ? '#28a745' : buttonColor,
               color: 'white',
               border: 'none',
               borderRadius: 6,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              transition: 'background-color 0.3s ease'
+            }}
+            onMouseOver={e => {
+              if (!copyButtonClicked) {
+                e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+              }
+            }}
+            onMouseOut={e => {
+              if (!copyButtonClicked) {
+                e.currentTarget.style.background = buttonColor;
+              }
             }}
           >
-            Copy to Clipboard
+            {copyButtonClicked ? `Copied ${videoIds.length} IDs!` : `Copy ${videoIds.length} IDs to Clipboard`}
           </button>
         </div>
       )}
