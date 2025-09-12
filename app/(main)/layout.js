@@ -73,7 +73,6 @@ export default function RootLayout({ children }) {
           const randomKey = imageKeys[Math.floor(Math.random() * imageKeys.length)];
           setRandomImage(`/images/aesthetic-images/images/${randomKey}`);
           setColors(data[randomKey].colors);
-          console.log('fetched color data: ', data[randomKey].colors)
         })
         .catch((error) => console.error("Error loading colors.json:", error));
     }, []);
@@ -236,8 +235,7 @@ export default function RootLayout({ children }) {
     const useMobile = isMobile && !forceDesktop;
     const suffix = useMobile ? '-thumbnail-mobile.jpg' : '-thumbnail.jpg';
     
-    // Debug logging to verify mobile switching
-    console.log(`getThumbnailPath: isMobile=${isMobile}, forceDesktop=${forceDesktop}, useMobile=${useMobile}, suffix=${suffix}`);
+    // Mobile thumbnail path logic
     
     return `/images/aesthetic-images/thumbnails/${sanitizedName}${suffix}`;
   };

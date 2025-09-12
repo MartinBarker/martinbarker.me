@@ -99,7 +99,6 @@ function DiscogsAuthTestPageInner() {
       localStorage.setItem('discogs_oauth_token', token);
       localStorage.setItem('discogs_oauth_verifier', verifier);
       localStorage.setItem('discogs_oauth_set_time', Date.now().toString());
-      console.log('✅ Tokens saved to localStorage');
     } catch (err) {
       console.error('❌ Failed to save tokens:', err);
     }
@@ -165,12 +164,10 @@ function DiscogsAuthTestPageInner() {
           : 'https://www.martinbarker.me/internal-api';
 
       var queryUrl = `${apiBaseURL}/listogs/discogs/getURL`;
-      console.log('querying for discogs auth URL:', queryUrl);
       const res = await fetch(queryUrl);
       const data = await res.json();
       setAuthUrl(data.url || '');
     } catch (err) {
-      console.log('error fetching url:', err);
       setAuthUrl(`Error fetching URL: ${err.message}`);
     } finally {
       setAuthUrlLoading(false); // <-- Set loading false after fetch
@@ -264,7 +261,6 @@ function DiscogsAuthTestPageInner() {
       ? '/socket.io'
       : '/internal-api/socket.io';
 
-    console.log('[Socket.IO] Connecting to', socketUrl, 'with path', socketPath);
 
     const sock = io(socketUrl, {
       withCredentials: true,
@@ -273,7 +269,6 @@ function DiscogsAuthTestPageInner() {
     setSocket(sock);
 
     sock.on('connect', () => {
-      //console.log('[Socket.IO] Connected:', sock.id);
       setSocketId(sock.id);
     });
 
@@ -293,7 +288,6 @@ function DiscogsAuthTestPageInner() {
 
     // Listen for videos 
     sock.on('sessionVideos', (videos) => {
-      console.log('sessionVideos = ', videos);
       // --- Remove duplicate videoIds ---
       let uniqueVideos;
       if (Array.isArray(videos)) {
@@ -363,7 +357,6 @@ function DiscogsAuthTestPageInner() {
     // Listen for status updates 
     sock.on('sessionStatus', (status) => {
       setSessionStatus(status); // <-- Save status to state
-      console.log('sessionStatus = ', status);
     });
 
     return () => {
@@ -393,7 +386,6 @@ function DiscogsAuthTestPageInner() {
       }
 
       const requestUrl = `${apiBaseURL}/discogs/api`;
-      console.log('Calling requestUrl for discogs api query =', requestUrl);
 
       const res = await fetch(requestUrl, {
         method: 'POST',
@@ -409,10 +401,8 @@ function DiscogsAuthTestPageInner() {
       });
 
       const data = await res.json();
-      console.log('discogsapi response = ', data);
       setTestDiscogsAuthResult(data);
     } catch (err) {
-      console.log('discogsapi💚 Error :', err);
       setTestDiscogsAuthResult({ error: err.message });
     }
   };
