@@ -513,9 +513,12 @@ function DiscogsAuthTestPageInner() {
   // --- All video IDs as comma separated string ---
   const allVideoIdsString = videoIds.join(',');
 
-  // --- Copy to clipboard handler ---
+  // --- Copy to clipboard handler with visual feedback ---
+  const [copyButtonClicked, setCopyButtonClicked] = useState(false);
   const handleCopyIds = () => {
     navigator.clipboard.writeText(allVideoIdsString);
+    setCopyButtonClicked(true);
+    setTimeout(() => setCopyButtonClicked(false), 1000); // Reset after 1 second
   };
 
   // --- ExportCSVButton component ---
@@ -818,7 +821,7 @@ function DiscogsAuthTestPageInner() {
       {/* All YouTube Video IDs Section (bottom of page) */}
       {videoIds.length > 0 && (
         <div style={{ marginTop: 32, marginBottom: 32 }}>
-          <h3>All YouTube Video IDs (comma separated):</h3>
+          <h3>All YouTube Video IDs (comma separated) - {videoIds.length} videos:</h3>
           <textarea
             value={allVideoIdsString}
             readOnly
@@ -836,14 +839,15 @@ function DiscogsAuthTestPageInner() {
             style={{
               padding: '8px 16px',
               fontSize: 16,
-              background: '#007bff',
+              background: copyButtonClicked ? '#28a745' : '#007bff',
               color: 'white',
               border: 'none',
               borderRadius: 6,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              transition: 'background-color 0.3s ease'
             }}
           >
-            Copy to Clipboard
+            {copyButtonClicked ? `Copied ${videoIds.length} IDs!` : `Copy ${videoIds.length} IDs to Clipboard`}
           </button>
         </div>
       )}
