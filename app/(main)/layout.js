@@ -279,10 +279,7 @@ export default function RootLayout({ children }) {
           )}
           
           <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
-            onClick={(e) => {
-              // Remove auto-close feature for mobile - keep same sidebar layout
-              // User can manually close sidebar using the toggle button
-            }} />
+            onClick={toggleSidebar} />
           <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : styles.collapsed}`}
             style={{ background: colors.Vibrant }}>
             <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
