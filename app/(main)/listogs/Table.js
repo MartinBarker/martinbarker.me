@@ -7,15 +7,39 @@ import {
   flexRender,
 } from '@tanstack/react-table';
 
-// Helper to flatten videoData object to array
+// Helper to flatten videoData object to array with deduplication
 function flattenVideoData(videoData) {
   const rows = [];
+  const seenVideoIds = new Set();
+  
   if (!videoData) return rows;
+  
   Object.values(videoData).forEach(releaseObj => {
-    Object.values(releaseObj).forEach(video => {
-      rows.push(video);
-    });
+    if (Array.isArray(releaseObj)) {
+      releaseObj.forEach(video => {
+        // Only add if we haven't seen this videoId before
+        if (video && video.videoId && !seenVideoIds.has(video.videoId)) {
+          seenVideoIds.add(video.videoId);
+          rows.push(video);
+        } else if (video && !video.videoId) {
+          // Include videos without videoId (shouldn't happen but be safe)
+          rows.push(video);
+        }
+      });
+    } else if (releaseObj && typeof releaseObj === 'object') {
+      Object.values(releaseObj).forEach(video => {
+        // Only add if we haven't seen this videoId before
+        if (video && video.videoId && !seenVideoIds.has(video.videoId)) {
+          seenVideoIds.add(video.videoId);
+          rows.push(video);
+        } else if (video && !video.videoId) {
+          // Include videos without videoId (shouldn't happen but be safe)
+          rows.push(video);
+        }
+      });
+    }
   });
+  
   return rows;
 }
 
