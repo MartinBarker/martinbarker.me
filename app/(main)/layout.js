@@ -16,6 +16,7 @@ export default function RootLayout({ children }) {
   const [contactExpanded, setContactExpanded] = useState(false);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [thumbnailVisible, setThumbnailVisible] = useState(true); // New state for thumbnail visibility
+  const [imageLoaded, setImageLoaded] = useState(false); // Track image load state
   const [colors, setColors] = useState({
     Vibrant: '#ffffff',
     LightVibrant: '#ffffff',
@@ -75,17 +76,6 @@ export default function RootLayout({ children }) {
           console.log('fetched color data: ', data[randomKey].colors)
         })
         .catch((error) => console.error("Error loading colors.json:", error));
-    }, []);
-  
-    useEffect(() => {
-      const handleResize = () => {
-        const mobile = window.innerWidth <= 768;
-        setIsMobile(mobile);
-        setSidebarActive(!mobile);
-      };
-  
-      window.addEventListener('resize', handleResize);
-      return () => window.removeEventListener('resize', handleResize);
     }, []);
   
     const toggleSidebar = () => {
@@ -222,13 +212,34 @@ export default function RootLayout({ children }) {
       </li>
     );
 
-  // Function to convert image path to thumbnail path
-  const getThumbnailPath = (imagePath) => {
+  // Function to sanitize filename for safe filesystem operations (matches ingestImages.js)
+  const sanitizeFilename = (filename) => {
+    return filename
+      .replace(/['"]/g, '') // Remove quotes
+      .replace(/[()]/g, '') // Remove parentheses
+      .replace(/\s+/g, '_') // Replace spaces with underscores
+      .replace(/[^\w\-_.]/g, '') // Remove any other special characters except dash, underscore, dot
+      .replace(/_+/g, '_') // Replace multiple underscores with single
+      .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
+  };
+
+  // Function to convert image path to thumbnail path (mobile-aware)
+  const getThumbnailPath = (imagePath, forceDesktop = false) => {
     if (!imagePath) return null;
     // Extract filename from path like "/images/aesthetic-images/images/1597379681161.jpg"
     const filename = imagePath.split('/').pop();
     const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
-    return `/images/aesthetic-images/thumbnails/${nameWithoutExt}-thumbnail.jpg`;
+    const sanitizedName = sanitizeFilename(nameWithoutExt);
+    
+    // For sidebar images: always use mobile thumbnails when browser dimensions are small
+    // For modals: respect forceDesktop parameter to show higher quality
+    const useMobile = isMobile && !forceDesktop;
+    const suffix = useMobile ? '-thumbnail-mobile.jpg' : '-thumbnail.jpg';
+    
+    // Debug logging to verify mobile switching
+    console.log(`getThumbnailPath: isMobile=${isMobile}, forceDesktop=${forceDesktop}, useMobile=${useMobile}, suffix=${suffix}`);
+    
+    return `/images/aesthetic-images/thumbnails/${sanitizedName}${suffix}`;
   };
 
   return (
@@ -260,14 +271,27 @@ export default function RootLayout({ children }) {
           </defs>
         </svg>
         <div className={`${styles.wrapper} ${isMobile ? styles.mobile : ''}`}>
+          {/* Mobile toggle button - always visible */}
+          {isMobile && (
+            <button id="sidebarToggle" className={styles.mobileToggle} onClick={toggleSidebar}>
+              {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
+            </button>
+          )}
+          
           <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
-            onClick={() => isMobile && setSidebarActive(false)} />
+            onClick={(e) => {
+              // Remove auto-close feature for mobile - keep same sidebar layout
+              // User can manually close sidebar using the toggle button
+            }} />
           <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : styles.collapsed}`}
             style={{ background: colors.Vibrant }}>
             <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
-              <button id="sidebarToggle" className={styles.sidebarCollapse} onClick={toggleSidebar}>
-                {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
-              </button>
+              {/* Desktop toggle button - only visible on desktop */}
+              {!isMobile && (
+                <button id="sidebarToggleDesktop" className={styles.sidebarCollapse} onClick={toggleSidebar}>
+                  {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
+                </button>
+              )}
               <h3 className={`${styles.sidebarHeaderText} ${!sidebarActive && styles.hidden}`}>
                 <strong>Martin Barker</strong>
               </h3>
@@ -533,10 +557,30 @@ export default function RootLayout({ children }) {
               {randomImage && thumbnailVisible && (
                 <img
                   id="colorImage"
+                  key={`${randomImage}-${isMobile}`} // Force re-render when mobile state changes
                   src={getThumbnailPath(randomImage)}
                   alt="Random aesthetic"
                   className={styles.colorImage}
                   onClick={handleImageClick}
+                  loading="lazy"
+                  decoding="async"
+                  style={{
+                    willChange: isMobile ? 'auto' : (sidebarActive ? 'auto' : 'transform, opacity'),
+                    backfaceVisibility: isMobile ? 'visible' : 'hidden',
+                    transform: isMobile ? 'none' : 'translateZ(0)', // No hardware acceleration on mobile
+                    opacity: imageLoaded ? 1 : 0.8,
+                    transition: 'opacity 0.3s ease'
+                  }}
+                  onLoad={(e) => {
+                    // Optimize image rendering after load
+                    setImageLoaded(true);
+                    e.target.style.willChange = 'auto';
+                  }}
+                  onError={(e) => {
+                    console.warn('Failed to load thumbnail:', e.target.src);
+                    // Hide image on error to prevent layout issues
+                    e.target.style.display = 'none';
+                  }}
                 />
               )}
               <p className={`${styles.creditText} ${!sidebarActive ? styles.hidden : ''}`}>
@@ -573,7 +617,7 @@ export default function RootLayout({ children }) {
           </main>
           {imageModalOpen && (
             <ImageModal
-              imageUrl={randomImage} 
+              imageUrl={getThumbnailPath(randomImage, true)} // Force desktop thumbnail for modal
               onClose={() => setImageModalOpen(false)} 
             />
           )}

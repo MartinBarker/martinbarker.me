@@ -243,6 +243,13 @@
   cursor: pointer;
   transition: opacity 0.3s;
   filter: url(#dissolve-filter); /* Apply dissolve filter */
+  /* Performance optimizations */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  contain: layout style paint;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  transform: translateZ(0); /* Force hardware acceleration */
 }
 
 .sidebar.collapsed .colorImage {
@@ -251,6 +258,9 @@
   margin-top: 10px; /* Space below the image */
   object-fit: cover;
   border-radius: 8px;
+  /* Mobile performance optimizations */
+  image-rendering: auto;
+  contain: layout style paint;
 }
 
 .colorImage:hover {
@@ -322,12 +332,126 @@
   padding: 10px 0;
 }
 
+/* Sidebar Overlay for Mobile */
+.sidebarOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 998;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.sidebarOverlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
 /* Media Queries */
 @media (max-width: 768px) {
-
+  .wrapper.mobile {
+    position: relative;
+  }
+  
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: -250px;
+    height: 100vh;
+    z-index: 999;
+    transition: left 0.3s ease;
+    overflow-y: auto;
+    /* Mobile performance optimizations */
+    will-change: transform;
+    transform: translate3d(0, 0, 0); /* Force hardware acceleration */
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  }
   
   .sidebar.active {
-    margin-left: 0;
+    left: 0;
+  }
+  
+  /* Mobile-specific toggle button that stays visible */
+  .mobileToggle {
+    position: fixed;
+    left: 20px;
+    top: 20px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: white;
+    cursor: pointer;
+    box-shadow: 0px 1px 4px 1px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1001; /* Higher than sidebar overlay */
+    margin: 0;
+    padding: 0;
+  }
+  
+  .mobileToggle svg {
+    width: 24px;
+    height: 24px;
+    display: block;
+  }
+  
+  .content {
+    width: 100%;
+    transition: none;
+  }
+  
+  /* Smaller text for mobile to prevent cutoff */
+  .sidebarHeaderText {
+    font-size: 16px; /* Smaller font size for mobile */
+    padding-right: 10px; /* Add some padding to prevent cutoff */
+  }
+  
+  /* Make all sidebar menu text smaller on mobile */
+  .sidebar a,
+  .sidebar li,
+  .sidebar span {
+    font-size: 14px !important; /* Smaller menu text for mobile */
+  }
+  
+  /* Optimize images specifically for mobile */
+  .colorImage {
+    /* Reduce image quality on mobile for better performance */
+    image-rendering: auto;
+    will-change: auto; /* Reduce compositing layers on mobile */
+    transform: none; /* Remove hardware acceleration on mobile to save resources */
+    filter: none; /* Disable dissolve filter on mobile for better performance */
+    max-width: 120px; /* Smaller size on mobile */
+    height: auto;
+    contain: layout style; /* Reduce paint containment */
+  }
+  
+  .sidebar.collapsed .colorImage {
+    width: 40px;
+    height: 40px;
+    max-width: 40px;
+  }
+  
+  /* Disable expensive animations on mobile */
+  .sidebar * {
+    transition-duration: 0.2s; /* Faster transitions on mobile */
+  }
+  
+  /* Optimize color boxes for mobile */
+  .colorBoxes {
+    contain: layout style;
+    will-change: auto;
+  }
+  
+  .colorBox {
+    transition-duration: 0.2s; /* Faster transitions */
   }
 }
 /* Contact Section Styles */
