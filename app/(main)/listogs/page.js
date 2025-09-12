@@ -1,8 +1,9 @@
 'use client';
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useContext } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
 import VideoTable from './Table';
+import { ColorContext } from '../ColorContext';
 
 // Helper to flatten videoData object to array with deduplication
 function flattenVideoData(videoData) {
@@ -74,6 +75,20 @@ function DiscogsAuthTestPageInner() {
   const router = useRouter();
   const oauthToken = params.get('oauth_token');
   const oauthVerifier = params.get('oauth_verifier');
+  const { colors } = useContext(ColorContext);
+
+  // Function to darken a color for better contrast
+  const darkenColor = (color, amount = 0.3) => {
+    if (!color || color === '#ffffff') return '#333333'; // fallback for white/undefined
+    const hex = color.replace('#', '');
+    const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - Math.floor(255 * amount));
+    const g = Math.max(0, parseInt(hex.substr(2, 2), 16) - Math.floor(255 * amount));
+    const b = Math.max(0, parseInt(hex.substr(4, 2), 16) - Math.floor(255 * amount));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  };
+
+  // Get the button color from DarkMuted
+  const buttonColor = colors?.DarkMuted || '#333333';
 
   // Helper: 1 year in ms (simulate expiry)
   const DISCOGS_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
@@ -561,12 +576,23 @@ function DiscogsAuthTestPageInner() {
         style={{
           padding: '8px 16px',
           fontSize: 16,
-          background: '#007bff',
+          background: (!data || data.length === 0) ? '#cccccc' : buttonColor,
           color: 'white',
           border: 'none',
           borderRadius: 6,
-          cursor: 'pointer',
-          marginTop: 8
+          cursor: (!data || data.length === 0) ? 'not-allowed' : 'pointer',
+          marginTop: 8,
+          transition: 'background-color 0.3s ease'
+        }}
+        onMouseOver={e => {
+          if (data && data.length > 0) {
+            e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+          }
+        }}
+        onMouseOut={e => {
+          if (data && data.length > 0) {
+            e.currentTarget.style.background = buttonColor;
+          }
         }}
         disabled={!data || data.length === 0}
       >
@@ -603,7 +629,7 @@ function DiscogsAuthTestPageInner() {
           <button
             style={{
               color: 'white',
-              background: '#007bff',
+              background: buttonColor,
               fontWeight: 'bold',
               padding: '10px 24px',
               border: 'none',
@@ -613,6 +639,14 @@ function DiscogsAuthTestPageInner() {
               transition: 'background 0.2s, box-shadow 0.2s',
               boxShadow: '0 2px 8px rgba(0,0,0,0.07)'
             }}
+            onMouseOver={e => {
+              e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = buttonColor;
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
+            }}
             onClick={clearDiscogsAuth}
           >
             Clear Discogs Auth
@@ -621,7 +655,7 @@ function DiscogsAuthTestPageInner() {
           <button
             style={{
               color: 'white',
-              background: '#007bff',
+              background: authUrlLoading ? '#cccccc' : buttonColor,
               fontWeight: 'bold',
               padding: '10px 24px',
               border: 'none',
@@ -634,13 +668,13 @@ function DiscogsAuthTestPageInner() {
             onClick={() => { if (!authUrlLoading && authUrl) window.location.href = authUrl; }}
             onMouseOver={e => {
               if (!authUrlLoading) {
-                e.currentTarget.style.background = '#339dff';
-                e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,123,255,0.18)';
+                e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+                e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
               }
             }}
             onMouseOut={e => {
               if (!authUrlLoading) {
-                e.currentTarget.style.background = '#007bff';
+                e.currentTarget.style.background = buttonColor;
                 e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
               }
             }}
@@ -681,11 +715,22 @@ function DiscogsAuthTestPageInner() {
           style={{ 
             padding: '8px 16px', 
             fontSize: 16,
-            background: 'white',
-            color: 'black',
-            border: '1px solid #ccc',
+            background: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? '#cccccc' : buttonColor,
+            color: 'white',
+            border: 'none',
             borderRadius: 6,
-            cursor: 'pointer'
+            cursor: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? 'not-allowed' : 'pointer',
+            transition: 'background-color 0.3s ease'
+          }}
+          onMouseOver={e => {
+            if (extractedId && selectedType && discogsAuthStatus.exists) {
+              e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+            }
+          }}
+          onMouseOut={e => {
+            if (extractedId && selectedType && discogsAuthStatus.exists) {
+              e.currentTarget.style.background = buttonColor;
+            }
           }}
           disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
         >
@@ -839,12 +884,22 @@ function DiscogsAuthTestPageInner() {
             style={{
               padding: '8px 16px',
               fontSize: 16,
-              background: copyButtonClicked ? '#28a745' : '#007bff',
+              background: copyButtonClicked ? '#28a745' : buttonColor,
               color: 'white',
               border: 'none',
               borderRadius: 6,
               cursor: 'pointer',
               transition: 'background-color 0.3s ease'
+            }}
+            onMouseOver={e => {
+              if (!copyButtonClicked) {
+                e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+              }
+            }}
+            onMouseOut={e => {
+              if (!copyButtonClicked) {
+                e.currentTarget.style.background = buttonColor;
+              }
             }}
           >
             {copyButtonClicked ? `Copied ${videoIds.length} IDs!` : `Copy ${videoIds.length} IDs to Clipboard`}
