@@ -50,6 +50,18 @@ export const routeInfo = {
     subtitle: "Batch render Audacity audio tracks with Discogs metadata",
     tabTitle: "Vinyl2Digital - Vinyl Digitization Tool",
     icon: "/ico/martinbarker.ico"
+  },
+  "/auto-split": {
+    title: "Auto-Split Tool",
+    subtitle: "Detect silence in audio files with waveform visualization",
+    tabTitle: "Auto-Split Tool - Audio Silence Detection",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/waveform-visualizer": {
+    title: "Waveform Visualizer",
+    subtitle: "Visualize audio waveforms with interactive playback",
+    tabTitle: "Waveform Visualizer - Audio Waveform Display",
+    icon: "/ico/martinbarker.ico"
   }
 };
 

@@ -547,7 +547,7 @@ export default function RootLayout({ children }) {
                 </button>
                 <ul className={`${styles.contactList} ${contactExpanded ? styles.expanded : ''}`}>
                   <li>
-                    <a href="/Martin_Barker_Resume.pdf"
+                    <a href="/resume"
                       target="_blank"
                       rel="noopener noreferrer"
                       className={styles.contactItem}
