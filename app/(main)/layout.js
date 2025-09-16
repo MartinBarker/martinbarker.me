@@ -430,7 +430,7 @@ export default function RootLayout({ children }) {
                 </Link>
               </li>
 
-              <li className={styles.tooltipContainer} data-tooltip="Auto-Split Tool">
+              {/* <li className={styles.tooltipContainer} data-tooltip="Auto-Split Tool">
                 <Link
                   href="/auto-split"
                   className={styles.navbarItem}
@@ -454,9 +454,9 @@ export default function RootLayout({ children }) {
                   </div>
                   <span className={!sidebarActive ? styles.hidden : ''}>Auto-Split Tool</span>
                 </Link>
-              </li>
+              </li> */}
 
-              <li className={styles.tooltipContainer} data-tooltip="Waveform Visualizer">
+              {/* <li className={styles.tooltipContainer} data-tooltip="Waveform Visualizer">
                 <Link
                   href="/waveform-visualizer"
                   className={styles.navbarItem}
@@ -480,7 +480,7 @@ export default function RootLayout({ children }) {
                   </div>
                   <span className={!sidebarActive ? styles.hidden : ''}>Waveform Visualizer</span>
                 </Link>
-              </li>
+              </li> */}
 
               {/* 
               <ProjectLink
