@@ -430,6 +430,58 @@ export default function RootLayout({ children }) {
                 </Link>
               </li>
 
+              <li className={styles.tooltipContainer} data-tooltip="Auto-Split Tool">
+                <Link
+                  href="/auto-split"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/auto-split"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg 
+                      width="20" 
+                      height="20" 
+                      viewBox="0 0 24 24" 
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Auto-Split Tool</span>
+                </Link>
+              </li>
+
+              <li className={styles.tooltipContainer} data-tooltip="Waveform Visualizer">
+                <Link
+                  href="/waveform-visualizer"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/waveform-visualizer"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg 
+                      width="20" 
+                      height="20" 
+                      viewBox="0 0 24 24" 
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Waveform Visualizer</span>
+                </Link>
+              </li>
+
               {/* 
               <ProjectLink
                 to="/retro-roulette"
@@ -495,7 +547,7 @@ export default function RootLayout({ children }) {
                 </button>
                 <ul className={`${styles.contactList} ${contactExpanded ? styles.expanded : ''}`}>
                   <li>
-                    <a href="/static/assets/pdf/Martin Barker Resume.pdf"
+                    <a href="/Martin Barker Resume.pdf"
                       target="_blank"
                       rel="noopener noreferrer"
                       className={styles.contactItem}
