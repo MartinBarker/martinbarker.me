@@ -335,25 +335,16 @@ app.get('/listogs/youtube/callback', async (req, res) => {
 // Route to handle the production callback URL
 app.get('/youtube/callback', (req, res) => {
   console.log("📺 [GET /youtube/callback] Hit:", req.originalUrl);
-  // if (envVar !== 'production') {
-  //   return res.status(403).send('This route is only available in production.');
-  // }
 
-  const { code } = req.query;
+  const { code, scope } = req.query;
   if (code) {
-    oauth2Client.getToken(code, (err, tokens) => {
-      if (err) {
-        console.error('\nError getting tokens:', err.message);
-        return res.status(500).send('Authentication failed.');
-      }
-
-      oauth2Client.setCredentials(tokens);
-
-      console.log('\nUser authenticated in production. Tokens:', tokens);
-
-      // Send a success response
-      res.status(200).send('Your authentication info has been processed.');
-    });
+    // Redirect to frontend with query parameters (like Discogs does)
+    const redirectUrl = isDev 
+      ? `http://localhost:3001/youtube?code=${encodeURIComponent(code)}${scope ? `&scope=${encodeURIComponent(scope)}` : ''}`
+      : `https://martinbarker.me/youtube?code=${encodeURIComponent(code)}${scope ? `&scope=${encodeURIComponent(scope)}` : ''}`;
+    
+    console.log('Redirecting to frontend:', redirectUrl);
+    res.redirect(redirectUrl);
   } else {
     res.status(400).send('No code found in the request.');
   }
