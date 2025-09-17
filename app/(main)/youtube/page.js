@@ -1,12 +1,41 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 
-function YouTubeAuthPage() {
+function YouTubeAuthPageInner() {
   const [authUrl, setAuthUrl] = useState('');
   const [authUrlLoading, setAuthUrlLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [error, setError] = useState('');
+  
+  const params = useSearchParams();
+  const router = useRouter();
+  const authCode = params.get('code');
+  const scope = params.get('scope');
+
+  // Helper: 1 year in ms (simulate expiry)
+  const YOUTUBE_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
+
+  /** Persist auth code in localStorage, along with set time */
+  const storeYouTubeAuthCode = (code, scope) => {
+    try {
+      localStorage.setItem('youtube_auth_code', code);
+      localStorage.setItem('youtube_auth_scope', scope);
+      localStorage.setItem('youtube_auth_set_time', Date.now().toString());
+    } catch (err) {
+      console.error('❌ Failed to save YouTube auth code:', err);
+    }
+  };
+
+  // On mount: if auth code exists, store and redirect
+  useEffect(() => {
+    if (authCode && scope) {
+      storeYouTubeAuthCode(authCode, scope);
+      // Redirect to /youtube without query params
+      router.push('/youtube');
+    }
+  }, [authCode, scope, router]);
 
   // Check if user is already authenticated on mount
   useEffect(() => {
@@ -63,6 +92,31 @@ function YouTubeAuthPage() {
     }
   };
 
+  // YouTube Auth Status state
+  const [youtubeAuthStatus, setYoutubeAuthStatus] = useState({
+    exists: false,
+    code: null,
+    scope: null,
+    setTime: null,
+    expiresAt: null
+  });
+
+  // Check localStorage for YouTube auth code and expiry
+  useEffect(() => {
+    const code = localStorage.getItem('youtube_auth_code');
+    const scope = localStorage.getItem('youtube_auth_scope');
+    const setTimeStr = localStorage.getItem('youtube_auth_set_time');
+    let setTime = setTimeStr ? parseInt(setTimeStr, 10) : null;
+    let expiresAt = setTime ? setTime + YOUTUBE_AUTH_EXPIRY_MS : null;
+    setYoutubeAuthStatus({
+      exists: !!(code && scope),
+      code,
+      scope,
+      setTime,
+      expiresAt
+    });
+  }, []);
+
   // Clear authentication data
   const clearAuth = async () => {
     try {
@@ -79,6 +133,17 @@ function YouTubeAuthPage() {
         setIsAuthenticated(false);
         setUserInfo(null);
         setError('');
+        // Clear localStorage
+        localStorage.removeItem('youtube_auth_code');
+        localStorage.removeItem('youtube_auth_scope');
+        localStorage.removeItem('youtube_auth_set_time');
+        setYoutubeAuthStatus({
+          exists: false,
+          code: null,
+          scope: null,
+          setTime: null,
+          expiresAt: null
+        });
         // Refresh the auth URL
         getYouTubeAuthUrl();
       } else {
@@ -115,9 +180,43 @@ function YouTubeAuthPage() {
         </ul>
       </div>
 
+      {/* LocalStorage Auth Status */}
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ marginBottom: 16 }}>Local Storage Auth Status</h2>
+        {youtubeAuthStatus.exists ? (
+          <div style={{
+            background: '#d4edda',
+            border: '1px solid #c3e6cb',
+            borderRadius: 6,
+            padding: '16px',
+            marginBottom: 16
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ color: '#155724', fontWeight: 'bold' }}>✅ Auth Code Stored</span>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 14, color: '#155724' }}>
+              <div>Code: {youtubeAuthStatus.code ? 'Present' : 'Missing'}</div>
+              <div>Scope: {youtubeAuthStatus.scope || 'None'}</div>
+              <div>Set: {youtubeAuthStatus.setTime ? new Date(youtubeAuthStatus.setTime).toLocaleString() : 'Unknown'}</div>
+              <div>Expires: {youtubeAuthStatus.expiresAt ? new Date(youtubeAuthStatus.expiresAt).toLocaleString() : 'Unknown'}</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            background: '#f8d7da',
+            border: '1px solid #f5c6cb',
+            borderRadius: 6,
+            padding: '16px',
+            marginBottom: 16
+          }}>
+            <span style={{ color: '#721c24', fontWeight: 'bold' }}>❌ No auth code stored</span>
+          </div>
+        )}
+      </div>
+
       {/* Authentication Status */}
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ marginBottom: 16 }}>Authentication Status</h2>
+        <h2 style={{ marginBottom: 16 }}>Server Authentication Status</h2>
         {isAuthenticated ? (
           <div style={{
             background: '#d4edda',
@@ -235,4 +334,10 @@ function YouTubeAuthPage() {
   );
 }
 
-export default YouTubeAuthPage;
+export default function YouTubeAuthPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <YouTubeAuthPageInner />
+    </Suspense>
+  );
+}
