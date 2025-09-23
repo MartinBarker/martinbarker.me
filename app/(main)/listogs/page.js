@@ -93,6 +93,31 @@ function DiscogsAuthTestPageInner() {
   // Helper: 1 year in ms (simulate expiry)
   const DISCOGS_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
 
+  // YouTube playlist creation state
+  const [youtubeAuthStatus, setYoutubeAuthStatus] = useState({
+    exists: false,
+    code: null,
+    scope: null,
+    setTime: null,
+    expiresAt: null
+  });
+  const [playlistData, setPlaylistData] = useState({
+    title: '',
+    description: '',
+    privacyStatus: 'private'
+  });
+  const [playlistLoading, setPlaylistLoading] = useState(false);
+  const [playlistCreated, setPlaylistCreated] = useState(null);
+  const [youtubeError, setYoutubeError] = useState('');
+  const [playlistProgress, setPlaylistProgress] = useState({ added: 0, total: 0 });
+  const [discogsInfo, setDiscogsInfo] = useState(null);
+  const [currentSearchId, setCurrentSearchId] = useState(null);
+  const [rateLimited, setRateLimited] = useState(false);
+  const [retryAfter, setRetryAfter] = useState(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const [useExistingPlaylist, setUseExistingPlaylist] = useState(false);
+  const [existingPlaylistId, setExistingPlaylistId] = useState('');
+
   /** Persist tokens in localStorage, along with set time */
   const storeDiscogsTokens = (token, verifier) => {
     try {
@@ -113,6 +138,32 @@ function DiscogsAuthTestPageInner() {
     }
     // Only run on mount or when params change
   }, [oauthToken, oauthVerifier, router]);
+
+  // Check localStorage for YouTube auth code and expiry
+  useEffect(() => {
+    const code = localStorage.getItem('youtube_auth_code');
+    const scope = localStorage.getItem('youtube_auth_scope');
+    const setTime = localStorage.getItem('youtube_auth_set_time');
+    
+    if (code && setTime) {
+      const expiresAt = new Date(parseInt(setTime) + DISCOGS_AUTH_EXPIRY_MS);
+      setYoutubeAuthStatus({
+        exists: true,
+        code: code,
+        scope: scope || null,
+        setTime: parseInt(setTime),
+        expiresAt: expiresAt.getTime()
+      });
+    } else {
+      setYoutubeAuthStatus({
+        exists: false,
+        code: null,
+        scope: null,
+        setTime: null,
+        expiresAt: null
+      });
+    }
+  }, []);
 
   // Discogs Auth Status state
   const [discogsAuthStatus, setDiscogsAuthStatus] = useState({
@@ -219,11 +270,26 @@ function DiscogsAuthTestPageInner() {
           : 'https://www.martinbarker.me/internal-api';
 
       var queryUrl = `${apiBaseURL}/listogs/discogs/getURL`;
+      console.log('🔗 [Frontend] Fetching Discogs auth URL from:', queryUrl);
       const res = await fetch(queryUrl);
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error('❌ [Frontend] Error response:', {
+          status: res.status,
+          statusText: res.statusText,
+          error: errorData
+        });
+        setAuthUrl(`Error ${res.status}: ${errorData.error || res.statusText}`);
+        return;
+      }
+      
       const data = await res.json();
+      console.log('✅ [Frontend] Successfully received auth URL');
       setAuthUrl(data.url || '');
     } catch (err) {
-      setAuthUrl(`Error fetching URL: ${err.message}`);
+      console.error('❌ [Frontend] Network error fetching Discogs URL:', err);
+      setAuthUrl(`Network Error: ${err.message}`);
     } finally {
       setAuthUrlLoading(false); // <-- Set loading false after fetch
     }
@@ -411,8 +477,17 @@ function DiscogsAuthTestPageInner() {
           newResults = uniqueVideos;
         }
         
-        // Save to localStorage
-        storeListogsData(newResults, discogsInput, extractedId, selectedType);
+        // Save to localStorage - use saved input if available
+        const savedInput = localStorage.getItem('listogs_discogs_input');
+        storeListogsData(newResults, savedInput || discogsInput, extractedId, selectedType);
+        
+        // Trigger auto-populate after results are updated
+        setTimeout(() => {
+          if (newResults && (Array.isArray(newResults) ? newResults.length > 0 : Object.keys(newResults).length > 0)) {
+            console.log('Socket handler triggering autoPopulatePlaylistData with searchId:', currentSearchId);
+            autoPopulatePlaylistData(currentSearchId);
+          }
+        }, 100);
         
         return newResults;
       });
@@ -448,18 +523,19 @@ function DiscogsAuthTestPageInner() {
           : 'https://www.martinbarker.me/internal-api';
 
       if (!discogsType || !discogsId) {
-        console.error('discogsApiQuery() - discogsType or discogsId is missing');
+        console.error('❌ [Frontend] discogsApiQuery() - discogsType or discogsId is missing');
         return;
       }
       const oauthToken = discogsAuthStatus.token;
       const oauthVerifier = discogsAuthStatus.verifier;
       if (!oauthToken || !oauthVerifier) {
-        console.error('discogsApiQuery() - Missing oauthToken or oauthVerifier');
+        console.error('❌ [Frontend] discogsApiQuery() - Missing oauthToken or oauthVerifier');
         setTestDiscogsAuthResult({ error: 'Missing oauthToken or oauthVerifier' });
         return;
       }
 
       const requestUrl = `${apiBaseURL}/discogs/api`;
+      console.log('🔍 [Frontend] Making Discogs API request to:', requestUrl);
 
       const res = await fetch(requestUrl, {
         method: 'POST',
@@ -474,10 +550,26 @@ function DiscogsAuthTestPageInner() {
         })
       });
 
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error('❌ [Frontend] Discogs API error response:', {
+          status: res.status,
+          statusText: res.statusText,
+          error: errorData
+        });
+        setTestDiscogsAuthResult({ 
+          error: `API Error ${res.status}: ${errorData.error || res.statusText}`,
+          details: errorData.details
+        });
+        return;
+      }
+
       const data = await res.json();
+      console.log('✅ [Frontend] Discogs API success:', data);
       setTestDiscogsAuthResult(data);
     } catch (err) {
-      setTestDiscogsAuthResult({ error: err.message });
+      console.error('❌ [Frontend] Network error in discogsApiQuery:', err);
+      setTestDiscogsAuthResult({ error: `Network Error: ${err.message}` });
     }
   };
 
@@ -574,7 +666,7 @@ function DiscogsAuthTestPageInner() {
   };
 
   // Discogs search submit handler (mocked, just sets a response)
-  const handleSearchClick = () => {
+  const handleSearchClick = async () => {
     if (!selectedType) {
       setInputError('Please select a type (Artist, Label, or List).');
       return;
@@ -584,10 +676,39 @@ function DiscogsAuthTestPageInner() {
       return;
     }
     setInputError('');
+    
+    console.log('=== FORM SUBMISSION DEBUG ===');
+    console.log('Submitting discogsInput:', discogsInput);
+    console.log('selectedType:', selectedType);
+    console.log('extractedId:', extractedId);
+    
+    // Clear previous playlist data for new search
+    setPlaylistData({
+      title: '',
+      description: ''
+    });
+    console.log('Cleared previous playlist data');
+    
+    // Generate new search ID for this search
+    const searchId = Date.now().toString();
+    setCurrentSearchId(searchId);
+    console.log('Generated new search ID:', searchId);
+    
+    // Save the discogs URL to localStorage before clearing results
+    localStorage.setItem('listogs_discogs_input', discogsInput);
+    console.log('Saved to localStorage:', localStorage.getItem('listogs_discogs_input'));
+    
     setResults([]); // <-- Clear results on new submit
-    // Clear localStorage for new search
+    
+    // Fetch Discogs info first for playlist metadata
+    console.log('Fetching Discogs info for:', discogsInput);
+    const info = await fetchDiscogsInfo(discogsInput);
+    console.log('Fetched Discogs info:', info);
+    
+    // Clear localStorage for new search but keep the discogs input
     storeListogsData([], discogsInput, extractedId, selectedType);
     discogsApiQuery(selectedType, extractedId);
+    console.log('=== END FORM SUBMISSION DEBUG ===');
   };
 
   // --- Display results ---
@@ -611,6 +732,336 @@ function DiscogsAuthTestPageInner() {
     navigator.clipboard.writeText(allVideoIdsString);
     setCopyButtonClicked(true);
     setTimeout(() => setCopyButtonClicked(false), 1000); // Reset after 1 second
+  };
+
+  // Check if user can create YouTube playlists
+  const canCreatePlaylists = youtubeAuthStatus.exists && youtubeAuthStatus.expiresAt && new Date(youtubeAuthStatus.expiresAt) > new Date();
+
+  // Fetch Discogs info for the given URL
+  const fetchDiscogsInfo = async (url) => {
+    try {
+      const apiBaseURL = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.martinbarker.me/internal-api';
+
+      console.log('🔍 [Frontend] Fetching Discogs info for URL:', url);
+      const response = await fetch(`${apiBaseURL}/discogs/info`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ url })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ [Frontend] Discogs info fetched successfully:', data);
+        setDiscogsInfo(data);
+        return data;
+      } else {
+        const errorData = await response.json();
+        console.error('❌ [Frontend] Failed to fetch Discogs info:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        });
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ [Frontend] Network error fetching Discogs info:', error);
+      return null;
+    }
+  };
+
+  // Auto-populate playlist data based on search results
+  const autoPopulatePlaylistData = (searchId = null) => {
+    if (videoIds.length === 0) return;
+    
+    // Only auto-populate for the current search
+    if (searchId && currentSearchId && searchId !== currentSearchId) {
+      console.log('Skipping auto-populate for old search:', searchId, 'current:', currentSearchId);
+      return;
+    }
+
+    console.log('=== AUTO-POPULATE DEBUG ===');
+    console.log('searchId:', searchId, 'currentSearchId:', currentSearchId);
+    console.log('discogsInfo:', discogsInfo);
+    console.log('discogsInput:', discogsInput);
+    console.log('results length:', results.length);
+    console.log('videoIds length:', videoIds.length);
+
+    // Get the Discogs URL with comprehensive fallback logic
+    let discogsUrl = 'N/A';
+    let discogsName = 'Unknown';
+    let discogsProfile = '';
+
+    // 1. Try discogsInfo first (from API response)
+    if (discogsInfo && discogsInfo.url) {
+      discogsUrl = discogsInfo.url;
+      discogsName = discogsInfo.name || 'Unknown';
+      discogsProfile = discogsInfo.profile || '';
+      console.log('Using discogsInfo URL:', discogsUrl);
+    }
+    // 2. Try current discogsInput state
+    else if (discogsInput && discogsInput.trim()) {
+      discogsUrl = discogsInput.trim();
+      console.log('Using discogsInput URL:', discogsUrl);
+    }
+    // 3. Try saved input from localStorage
+    else {
+      const savedInput = localStorage.getItem('listogs_discogs_input');
+      if (savedInput && savedInput.trim()) {
+        discogsUrl = savedInput.trim();
+        console.log('Using saved input URL:', discogsUrl);
+      }
+    }
+
+    // Extract name from URL if we have a URL but no name
+    if (discogsUrl !== 'N/A' && discogsName === 'Unknown') {
+      const artistMatch = discogsUrl.match(/discogs\.com\/artist\/(\d+)-(.+)/);
+      if (artistMatch) {
+        const artistSlug = artistMatch[2];
+        discogsName = decodeURIComponent(artistSlug)
+          .replace(/-/g, ' ')
+          .replace(/\b\w/g, l => l.toUpperCase());
+        console.log('Extracted name from URL:', discogsName);
+      }
+    }
+
+    // Final fallback: use most common artist from video data
+    if (discogsName === 'Unknown') {
+      const artistCounts = {};
+      const videos = flattenVideoData(results);
+      
+      videos.forEach(video => {
+        if (video.artist) {
+          artistCounts[video.artist] = (artistCounts[video.artist] || 0) + 1;
+        }
+      });
+
+      const mostCommonArtist = Object.keys(artistCounts).reduce((a, b) => 
+        artistCounts[a] > artistCounts[b] ? a : b, Object.keys(artistCounts)[0]
+      );
+      
+      if (mostCommonArtist) {
+        discogsName = mostCommonArtist;
+        console.log('Using most common artist:', discogsName);
+      }
+    }
+
+    // Create title
+    const title = `${discogsName} - All Discogs Videos [Listogs]`;
+    
+    // Create description with proper URL
+    let description = `Curated playlist from Listogs search results.
+
+🔗 Generated by: https://www.martinbarker.me/listogs
+📀 Original Discogs: ${discogsUrl}`;
+
+    // Add profile info if available
+    if (discogsProfile && discogsProfile.trim()) {
+      description += `\n\n📝 About: ${discogsProfile.substring(0, 200)}${discogsProfile.length > 200 ? '...' : ''}`;
+    }
+
+    description += `\n\nThis playlist was automatically generated from Discogs data using Listogs.`;
+
+    console.log('Final playlist data:', { title, description, discogsUrl });
+    console.log('=== END AUTO-POPULATE DEBUG ===');
+
+    setPlaylistData(prev => ({
+      ...prev,
+      title: title,
+      description: description
+    }));
+  };
+
+  // Auto-populate playlist data when videos are found
+  useEffect(() => {
+    if (videoIds.length > 0 && canCreatePlaylists) {
+      // Always auto-populate when we have videos, even if playlist data exists
+      // This ensures fresh playlist data for each new search
+      autoPopulatePlaylistData(currentSearchId);
+    }
+  }, [videoIds.length, canCreatePlaylists, discogsInput, results, discogsInfo, currentSearchId]);
+
+  // Reset rate limiting state
+  const resetRateLimitState = () => {
+    setRateLimited(false);
+    setRetryAfter(null);
+    setRetryAttempt(0);
+    setYoutubeError('');
+  };
+
+  // Create YouTube playlist with video IDs
+  const createYouTubePlaylist = async () => {
+    if (!useExistingPlaylist && !playlistData.title.trim()) {
+      setYoutubeError('Please enter a playlist title');
+      return;
+    }
+
+    if (useExistingPlaylist && !existingPlaylistId.trim()) {
+      setYoutubeError('Please enter an existing playlist ID');
+      return;
+    }
+
+    if (videoIds.length === 0) {
+      setYoutubeError('No videos found to add to playlist');
+      return;
+    }
+
+    // Reset rate limiting state when starting new playlist creation
+    resetRateLimitState();
+    setPlaylistLoading(true);
+    setPlaylistProgress({ added: 0, total: videoIds.length });
+
+    try {
+      const apiBaseURL = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.martinbarker.me/internal-api';
+
+      // Exchange auth code for tokens if needed
+      if (youtubeAuthStatus.exists && youtubeAuthStatus.code) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Exchanging auth code for tokens...');
+        }
+        const tokenResponse = await fetch(`${apiBaseURL}/youtube/exchangeCode`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            code: youtubeAuthStatus.code,
+            scope: youtubeAuthStatus.scope
+          })
+        });
+
+        if (!tokenResponse.ok) {
+          const tokenError = await tokenResponse.json();
+          setYoutubeError(tokenError.error || 'Failed to exchange auth code for tokens');
+          setPlaylistLoading(false);
+          return;
+        }
+      }
+
+      let playlistId;
+      let playlistResult;
+
+      if (useExistingPlaylist) {
+        // Use existing playlist
+        playlistId = existingPlaylistId.trim();
+        playlistResult = { id: playlistId, title: 'Existing Playlist' };
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Using existing playlist ID:', playlistId);
+        }
+      } else {
+        // Create new playlist
+        const response = await fetch(`${apiBaseURL}/youtube/createPlaylist`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify(playlistData)
+        });
+
+        if (response.ok) {
+          playlistResult = await response.json();
+          playlistId = playlistResult.id;
+          setPlaylistCreated(playlistResult);
+        } else {
+          const errorData = await response.json();
+          setYoutubeError(errorData.error || 'Failed to create playlist');
+          setPlaylistLoading(false);
+          return;
+        }
+      }
+      
+      // Now add videos to the playlist with progress tracking
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Adding ${videoIds.length} videos to playlist...`);
+      }
+      await addVideosToPlaylist(playlistId, videoIds);
+        
+      setPlaylistData({
+        title: '',
+        description: '',
+        privacyStatus: 'private'
+      });
+    } catch (err) {
+      console.error('Error creating playlist:', err);
+      setYoutubeError('Failed to create playlist');
+    } finally {
+      setPlaylistLoading(false);
+      setPlaylistProgress({ added: 0, total: 0 });
+    }
+  };
+
+  // Add videos to playlist
+  const addVideosToPlaylist = async (playlistId, videoIds) => {
+    try {
+      const apiBaseURL = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.martinbarker.me/internal-api';
+
+      let addedCount = 0;
+      let retryCount = 0;
+      
+      for (const videoId of videoIds) {
+        try {
+          const response = await fetch(`${apiBaseURL}/youtube/addVideoToPlaylist`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+              playlistId: playlistId,
+              videoId: videoId
+            })
+          });
+
+          if (response.status === 429) {
+            // Rate limited
+            const errorData = await response.json();
+            setRateLimited(true);
+            setRetryAfter(errorData.retryAfter || 3600);
+            setYoutubeError(`Rate limited: ${errorData.error}. Please try again in ${Math.ceil((errorData.retryAfter || 3600) / 60)} minutes.`);
+            break;
+          } else if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          addedCount++;
+          setPlaylistProgress({ added: addedCount, total: videoIds.length });
+          retryCount = 0; // Reset retry count on success
+        } catch (err) {
+          console.error(`Error adding video ${videoId} to playlist:`, err);
+          
+          // Check if it's a rate limit error
+          if (err.message.includes('429') || err.message.includes('quota')) {
+            setRateLimited(true);
+            setRetryAfter(3600); // Default to 1 hour
+            setYoutubeError('Rate limited by YouTube API. Please try again later.');
+            break;
+          }
+          
+          // For other errors, continue with next video
+          retryCount++;
+          if (retryCount > 3) {
+            setYoutubeError('Too many consecutive errors. Please try again later.');
+            break;
+          }
+        }
+      }
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Successfully added ${addedCount} videos to playlist`);
+      }
+    } catch (err) {
+      console.error('Error adding videos to playlist:', err);
+    }
   };
 
   // --- ExportCSVButton component ---
@@ -941,6 +1392,291 @@ function DiscogsAuthTestPageInner() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* YouTube Playlist Creation Section */}
+      {canCreatePlaylists && videoIds.length > 0 && (
+        <div style={{ marginTop: 32, marginBottom: 16 }}>
+          <h3>Create YouTube Playlist:</h3>
+          <div style={{
+            background: '#f8f9fa',
+            border: '1px solid #dee2e6',
+            borderRadius: 6,
+            padding: '20px',
+            marginTop: 16
+          }}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', marginBottom: 12, fontWeight: 'bold' }}>
+                <input
+                  type="checkbox"
+                  checked={useExistingPlaylist}
+                  onChange={(e) => setUseExistingPlaylist(e.target.checked)}
+                  style={{ marginRight: 8 }}
+                />
+                Add to existing playlist
+              </label>
+            </div>
+
+            {useExistingPlaylist ? (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                  Existing Playlist ID *
+                </label>
+                <input
+                  type="text"
+                  value={existingPlaylistId}
+                  onChange={(e) => setExistingPlaylistId(e.target.value)}
+                  placeholder="Enter YouTube playlist ID (e.g., PLpQuORMLvnZbiL-UWg6uUAthRgaEmW2JK)"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    border: '1px solid #ced4da',
+                    borderRadius: 4,
+                    fontSize: 14
+                  }}
+                />
+                <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                  You can find the playlist ID in the URL of your YouTube playlist
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                    Playlist Title *
+                  </label>
+                  <input
+                    type="text"
+                    value={playlistData.title}
+                    onChange={(e) => setPlaylistData(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="Enter playlist title"
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      border: '1px solid #ced4da',
+                      borderRadius: 4,
+                      fontSize: 14
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                    Description
+                  </label>
+                  <textarea
+                    value={playlistData.description}
+                    onChange={(e) => setPlaylistData(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Enter playlist description (optional)"
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      border: '1px solid #ced4da',
+                      borderRadius: 4,
+                      fontSize: 14,
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                    Privacy Status
+                  </label>
+                  <select
+                    value={playlistData.privacyStatus}
+                    onChange={(e) => setPlaylistData(prev => ({ ...prev, privacyStatus: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      border: '1px solid #ced4da',
+                      borderRadius: 4,
+                      fontSize: 14,
+                      background: 'white'
+                    }}
+                  >
+                    <option value="private">Private</option>
+                    <option value="public">Public</option>
+                    <option value="unlisted">Unlisted</option>
+                  </select>
+                </div>
+              </>
+            )}
+
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: 14, color: '#666', margin: 0 }}>
+                This will create a playlist with <strong>{videoIds.length} videos</strong> found in your search results.
+              </p>
+            </div>
+
+            <div>
+              <button
+                onClick={createYouTubePlaylist}
+                disabled={playlistLoading}
+                style={{
+                  padding: '12px 24px',
+                  fontSize: 16,
+                  background: playlistLoading ? '#6c757d' : buttonColor,
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: playlistLoading ? 'not-allowed' : 'pointer',
+                  fontWeight: 'bold',
+                  transition: 'background 0.2s'
+                }}
+                onMouseOver={e => {
+                  if (!playlistLoading) {
+                    e.currentTarget.style.background = darkenColor(buttonColor);
+                  }
+                }}
+                onMouseOut={e => {
+                  if (!playlistLoading) {
+                    e.currentTarget.style.background = buttonColor;
+                  }
+                }}
+              >
+                {playlistLoading ? (useExistingPlaylist ? 'Adding videos...' : 'Creating...') : (useExistingPlaylist ? `Add to Playlist (${videoIds.length} videos)` : `Create Playlist (${videoIds.length} videos)`)}
+              </button>
+              
+              {/* Progress Display */}
+              {playlistLoading && playlistProgress.total > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ 
+                    fontSize: 14, 
+                    color: '#666', 
+                    marginBottom: 8,
+                    textAlign: 'center'
+                  }}>
+                    Adding videos: {playlistProgress.added} / {playlistProgress.total}
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: 8,
+                    backgroundColor: '#e9ecef',
+                    borderRadius: 4,
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${(playlistProgress.added / playlistProgress.total) * 100}%`,
+                      height: '100%',
+                      backgroundColor: '#28a745',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {youtubeError && (
+              <div style={{
+                marginTop: 16,
+                padding: '12px',
+                background: rateLimited ? '#fff3cd' : '#f8d7da',
+                border: `1px solid ${rateLimited ? '#ffeaa7' : '#f5c6cb'}`,
+                borderRadius: 4
+              }}>
+                <span style={{ color: rateLimited ? '#856404' : '#721c24' }}>
+                  {rateLimited ? '⚠️ Rate Limited: ' : 'Error: '}{youtubeError}
+                </span>
+                {rateLimited && retryAfter && (
+                  <div style={{ marginTop: 8, fontSize: 14 }}>
+                    <div>Please wait {Math.ceil(retryAfter / 60)} minutes before trying again.</div>
+                    <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                      YouTube API quota has been exceeded. The system will automatically retry with exponential backoff.
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {rateLimited && (
+              <div style={{
+                marginTop: 16,
+                padding: '12px',
+                background: '#e2e3e5',
+                border: '1px solid #d6d8db',
+                borderRadius: 4
+              }}>
+                <div style={{ color: '#383d41', fontWeight: 'bold', marginBottom: 8 }}>
+                  🔄 Retry Information
+                </div>
+                <div style={{ fontSize: 14, color: '#666' }}>
+                  The system is automatically retrying failed requests with exponential backoff.
+                  This helps avoid hitting YouTube's API rate limits.
+                </div>
+                <button
+                  onClick={resetRateLimitState}
+                  style={{
+                    marginTop: 8,
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    background: '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Reset Rate Limit Status
+                </button>
+              </div>
+            )}
+
+            {playlistCreated && (
+              <div style={{
+                marginTop: 16,
+                padding: '12px',
+                background: '#d4edda',
+                border: '1px solid #c3e6cb',
+                borderRadius: 4
+              }}>
+                <div style={{ color: '#155724', fontWeight: 'bold', marginBottom: 8 }}>
+                  ✅ Playlist Created Successfully!
+                </div>
+                <div style={{ color: '#155724', marginBottom: 4 }}>
+                  <strong>Title:</strong> {playlistCreated.snippet?.title}
+                </div>
+                <div style={{ color: '#155724', marginBottom: 4 }}>
+                  <strong>ID:</strong> {playlistCreated.id}
+                </div>
+                <div style={{ color: '#155724', marginBottom: 8 }}>
+                  <strong>Privacy:</strong> {playlistCreated.status?.privacyStatus}
+                </div>
+                <a
+                  href={`https://www.youtube.com/playlist?list=${playlistCreated.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: '#007bff',
+                    textDecoration: 'none',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  View Playlist on YouTube →
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* YouTube Auth Status */}
+      {!canCreatePlaylists && videoIds.length > 0 && (
+        <div style={{ marginTop: 32, marginBottom: 16 }}>
+          <h3>YouTube Playlist Creation:</h3>
+          <div style={{
+            background: '#fff3cd',
+            border: '1px solid #ffeaa7',
+            borderRadius: 6,
+            padding: '16px'
+          }}>
+            <p style={{ margin: 0, color: '#856404' }}>
+              To create YouTube playlists with your found videos, you need to authenticate with YouTube first. 
+              Visit the <a href="/youtube" style={{ color: '#007bff' }}>YouTube page</a> to sign in.
+            </p>
+          </div>
         </div>
       )}
 

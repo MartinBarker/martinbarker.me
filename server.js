@@ -888,38 +888,67 @@ app.post('/discogsFetch', async (req, res) => {
   const { type, id } = req.body;
 
   if (!type || !id) {
+    console.error("❌ [POST /discogsFetch] Missing type or id:", { type, id });
     return res.status(400).json({ error: 'Type and ID are required.' });
   }
 
+  // Check if secrets are initialized
+  if (!secretsInitialized) {
+    console.error("❌ [POST /discogsFetch] Secrets not initialized");
+    return res.status(503).json({ error: 'Server not ready. Secrets not initialized.' });
+  }
+
+  // Check if Discogs credentials are available
+  if (!discogsConsumerKey || !discogsConsumerSecret) {
+    console.error("❌ [POST /discogsFetch] Discogs credentials not available:", {
+      hasKey: !!discogsConsumerKey,
+      hasSecret: !!discogsConsumerSecret
+    });
+    return res.status(500).json({ error: 'Discogs credentials not configured.' });
+  }
+
   try {
+    console.log(`🔍 [POST /discogsFetch] Fetching data for type=${type}, id=${id}`);
     const data = await fetchDiscogsData(type, id);
     // Only log a summary, not the full response
     if (data && data.id) {
-      console.log(`Discogs API Response: type=${type}, id=${id}, response.id=${data.id}`);
+      console.log(`✅ [POST /discogsFetch] Success: type=${type}, id=${id}, response.id=${data.id}`);
     } else if (data && data.message) {
-      console.log(`Discogs API Response: type=${type}, id=${id}, message=${data.message}`);
+      console.log(`✅ [POST /discogsFetch] Success: type=${type}, id=${id}, message=${data.message}`);
     } else {
-      console.log(`Discogs API Response: type=${type}, id=${id}, response received.`);
+      console.log(`✅ [POST /discogsFetch] Success: type=${type}, id=${id}, response received.`);
     }
     res.status(200).json(data);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch data from Discogs.' });
+    console.error(`❌ [POST /discogsFetch] Error:`, {
+      type,
+      id,
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ 
+      error: 'Failed to fetch data from Discogs.',
+      details: error.message,
+      type,
+      id
+    });
   }
 });
 
 // DEBUG_generateDiscogsAuthUrl: returns the Discogs auth URL (no session logic, just for debug)
-function DEBUG_generateDiscogsAuthUrl() {
-  const oauthNonce = crypto.randomBytes(16).toString('hex');
-  const oauthTimestamp = Math.floor(Date.now() / 1000);
-  const callbackUrl = getDiscogsRediurectUrl();
-  const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_signature="${discogsConsumerSecret}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
-  return axios.get(DISCOGS_REQUEST_TOKEN_URL, {
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: authHeader,
-      'User-Agent': USER_AGENT,
-    },
-  });
+async function DEBUG_generateDiscogsAuthUrl() {
+  try {
+    // Get fresh OAuth tokens
+    const tokens = await getDiscogsOAuthTokens();
+    
+    // Generate auth URL using the fresh tokens
+    const url = `${DISCOGS_AUTHORIZE_URL}?oauth_token=${tokens.accessToken}`;
+    console.log('✅ Generated fresh Discogs auth URL');
+    return { data: `oauth_token=${tokens.accessToken}&oauth_token_secret=${tokens.accessTokenSecret}` };
+  } catch (error) {
+    console.error('❌ Failed to generate Discogs auth URL:', error.message || error);
+    throw error;
+  }
 }
 
 // DEBUG_discogsAuthUrl endpoint for frontend test page
@@ -942,13 +971,241 @@ function generateNonce() {
 // Global variable to store mapping between oauth_token and oauth_token_secret
 let discogsRequestTokens = {};
 
-// Middleware to ensure secrets are initialized before handling requests
-function ensureSecretsInitialized(req, res, next) {
-  if (!secretsInitialized) {
-    return res.status(503).json({ error: 'Secrets are not initialized yet. Please try again later.' });
+// Discogs OAuth token management
+let discogsOAuthTokens = {
+  accessToken: null,
+  accessTokenSecret: null,
+  expiresAt: null,
+  refreshInterval: null
+};
+
+// Discogs OAuth token auto-refresh mechanism
+function startDiscogsTokenAutoRefresh() {
+  const REFRESH_INTERVAL_MS = 45 * 60 * 1000; // 45 minutes (tokens typically last 1 hour)
+  
+  console.log('🔄 Starting Discogs OAuth token auto-refresh every 45 minutes...');
+  
+  discogsOAuthTokens.refreshInterval = setInterval(async () => {
+    console.log('🔄 Auto-refreshing Discogs OAuth tokens...');
+    try {
+      await refreshDiscogsOAuthTokens();
+      console.log('✅ Discogs OAuth tokens auto-refreshed successfully');
+    } catch (error) {
+      console.error('❌ Failed to auto-refresh Discogs OAuth tokens:', error.message || error);
+    }
+  }, REFRESH_INTERVAL_MS);
+}
+
+// Refresh Discogs OAuth tokens by generating new ones
+async function refreshDiscogsOAuthTokens() {
+  try {
+    console.log('🔄 Refreshing Discogs OAuth tokens...');
+    
+    // Generate new OAuth tokens
+    const oauthNonce = generateNonce();
+    const oauthTimestamp = Math.floor(Date.now() / 1000);
+    const callbackUrl = getDiscogsRediurectUrl();
+    
+    const authHeader = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_nonce="${oauthNonce}", oauth_signature="${discogsConsumerSecret}&", oauth_signature_method="PLAINTEXT", oauth_timestamp="${oauthTimestamp}", oauth_callback="${callbackUrl}"`;
+    
+    const response = await axios.get(DISCOGS_REQUEST_TOKEN_URL, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: authHeader,
+        'User-Agent': USER_AGENT,
+      },
+    });
+    
+    const { oauth_token, oauth_token_secret } = querystring.parse(response.data);
+    
+    // Store new tokens
+    discogsOAuthTokens.accessToken = oauth_token;
+    discogsOAuthTokens.accessTokenSecret = oauth_token_secret;
+    discogsOAuthTokens.expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+    
+    // Store in request tokens mapping for callback handling
+    discogsRequestTokens[oauth_token] = oauth_token_secret;
+    
+    console.log('✅ Discogs OAuth tokens refreshed successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to refresh Discogs OAuth tokens:', error.message || error);
+    return false;
   }
+}
+
+// Check if Discogs OAuth tokens are valid and not expired
+function areDiscogsTokensValid() {
+  if (!discogsOAuthTokens.accessToken || !discogsOAuthTokens.accessTokenSecret) {
+    return false;
+  }
+  
+  if (discogsOAuthTokens.expiresAt && new Date() > discogsOAuthTokens.expiresAt) {
+    console.log('⚠️ Discogs OAuth tokens have expired');
+    return false;
+  }
+  
+  return true;
+}
+
+// Get current Discogs OAuth tokens, refreshing if needed
+async function getDiscogsOAuthTokens() {
+  if (!areDiscogsTokensValid()) {
+    console.log('🔄 Discogs OAuth tokens invalid or expired, refreshing...');
+    await refreshDiscogsOAuthTokens();
+  }
+  
+  return {
+    accessToken: discogsOAuthTokens.accessToken,
+    accessTokenSecret: discogsOAuthTokens.accessTokenSecret
+  };
+}
+
+// Stop Discogs token auto-refresh
+function stopDiscogsTokenAutoRefresh() {
+  if (discogsOAuthTokens.refreshInterval) {
+    clearInterval(discogsOAuthTokens.refreshInterval);
+    discogsOAuthTokens.refreshInterval = null;
+    console.log('🛑 Discogs OAuth token auto-refresh stopped');
+  }
+}
+
+// Middleware to ensure secrets are initialized before handling requests
+async function ensureSecretsInitialized(req, res, next) {
+  if (!secretsInitialized) {
+    console.log('🔄 Secrets not initialized, attempting refresh...');
+    const refreshSuccess = await refreshSecrets();
+    if (!refreshSuccess) {
+      return res.status(503).json({ error: 'Secrets are not initialized yet. Please try again later.' });
+    }
+  }
+  
+  // Check if secrets are stale (older than 1 hour) and refresh if needed
+  if (secretsLastRefreshed && (Date.now() - secretsLastRefreshed.getTime()) > 60 * 60 * 1000) {
+    console.log('🔄 Secrets are stale, refreshing...');
+    await refreshSecrets();
+  }
+  
   next();
 }
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    secretsInitialized: secretsInitialized,
+    secretsLastRefreshed: secretsLastRefreshed ? secretsLastRefreshed.toISOString() : null,
+    secretsAgeMinutes: secretsLastRefreshed ? Math.round((Date.now() - secretsLastRefreshed.getTime()) / (1000 * 60)) : null,
+    discogsConfigured: !!(discogsConsumerKey && discogsConsumerSecret),
+    discogsTokensValid: areDiscogsTokensValid(),
+    discogsTokensExpiresAt: discogsOAuthTokens.expiresAt ? discogsOAuthTokens.expiresAt.toISOString() : null,
+    discogsTokensAgeMinutes: discogsOAuthTokens.expiresAt ? Math.round((discogsOAuthTokens.expiresAt.getTime() - Date.now()) / (1000 * 60)) : null,
+    youtubeConfigured: !!(gcpClientId && gcpClientSecret),
+    environment: process.env.NODE_ENV || 'unknown',
+    discogsTokenRefreshActive: !!discogsOAuthTokens.refreshInterval
+  };
+  
+  console.log('🏥 [GET /health] Health check:', health);
+  
+  if (!secretsInitialized) {
+    return res.status(503).json({ ...health, status: 'not_ready' });
+  }
+  
+  res.status(200).json(health);
+});
+
+// Discogs configuration check endpoint
+app.get('/discogs/config', (req, res) => {
+  const config = {
+    secretsInitialized: secretsInitialized,
+    hasConsumerKey: !!discogsConsumerKey,
+    hasConsumerSecret: !!discogsConsumerSecret,
+    consumerKeyLength: discogsConsumerKey ? discogsConsumerKey.length : 0,
+    consumerSecretLength: discogsConsumerSecret ? discogsConsumerSecret.length : 0,
+    environment: process.env.NODE_ENV || 'unknown',
+    secretsLastRefreshed: secretsLastRefreshed ? secretsLastRefreshed.toISOString() : null,
+    secretsAgeMinutes: secretsLastRefreshed ? Math.round((Date.now() - secretsLastRefreshed.getTime()) / (1000 * 60)) : null,
+    timestamp: new Date().toISOString()
+  };
+  
+  console.log('🔧 [GET /discogs/config] Configuration check:', config);
+  
+  if (!secretsInitialized) {
+    return res.status(503).json({ ...config, error: 'Secrets not initialized' });
+  }
+  
+  if (!discogsConsumerKey || !discogsConsumerSecret) {
+    return res.status(500).json({ ...config, error: 'Discogs credentials not configured' });
+  }
+  
+  res.status(200).json(config);
+});
+
+// Manual secrets refresh endpoint
+app.post('/admin/refresh-secrets', async (req, res) => {
+  console.log('🔄 [POST /admin/refresh-secrets] Manual refresh requested');
+  
+  try {
+    const success = await refreshSecrets();
+    
+    if (success) {
+      res.status(200).json({
+        success: true,
+        message: 'Secrets refreshed successfully',
+        timestamp: new Date().toISOString(),
+        secretsLastRefreshed: secretsLastRefreshed ? secretsLastRefreshed.toISOString() : null
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to refresh secrets',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('❌ [POST /admin/refresh-secrets] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error refreshing secrets',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Manual Discogs OAuth tokens refresh endpoint
+app.post('/admin/refresh-discogs-tokens', async (req, res) => {
+  console.log('🔄 [POST /admin/refresh-discogs-tokens] Manual refresh requested');
+  
+  try {
+    const success = await refreshDiscogsOAuthTokens();
+    
+    if (success) {
+      res.status(200).json({
+        success: true,
+        message: 'Discogs OAuth tokens refreshed successfully',
+        timestamp: new Date().toISOString(),
+        tokensExpiresAt: discogsOAuthTokens.expiresAt ? discogsOAuthTokens.expiresAt.toISOString() : null,
+        tokensValid: areDiscogsTokensValid()
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to refresh Discogs OAuth tokens',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('❌ [POST /admin/refresh-discogs-tokens] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error refreshing Discogs OAuth tokens',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // Generate the Discogs sign-in URL
 app.get('/discogs/generateURL', ensureSecretsInitialized, async (req, res) => {
@@ -1080,17 +1337,53 @@ app.post('/listogs/callback/discogs', async (req, res) => {
 });
 
 let secretsInitialized = false; // Flag to ensure secrets are initialized
+let secretsLastRefreshed = null; // Track when secrets were last refreshed
+let secretsRefreshInterval = null; // Store the interval ID for cleanup
 
 async function initializeSecrets() {
   console.log('Initializing secrets...');
   try {
     await setSecrets();
     secretsInitialized = true;
+    secretsLastRefreshed = new Date();
     console.log('Secrets initialized.');
+    
+    // Start auto-refresh mechanism for Discogs OAuth tokens
+    startDiscogsTokenAutoRefresh();
   } catch (error) {
     console.error('Error during secrets initialization:', error.message || error);
     console.warn('Continuing with default/empty secret values.');
     secretsInitialized = false;
+  }
+}
+
+// Auto-refresh secrets every 30 minutes to prevent AWS credential expiration
+function startSecretsAutoRefresh() {
+  // Removed - AWS secrets don't need auto-refresh as they don't expire
+  console.log('ℹ️ AWS secrets auto-refresh disabled (secrets are permanent)');
+}
+
+// Manual refresh function for immediate use
+async function refreshSecrets() {
+  console.log('🔄 Manual secrets refresh requested...');
+  try {
+    await setSecrets();
+    secretsLastRefreshed = new Date();
+    secretsInitialized = true;
+    console.log('✅ Manual secrets refresh successful');
+    return true;
+  } catch (error) {
+    console.error('❌ Manual secrets refresh failed:', error.message || error);
+    return false;
+  }
+}
+
+// Cleanup function to stop auto-refresh
+function stopSecretsAutoRefresh() {
+  if (secretsRefreshInterval) {
+    clearInterval(secretsRefreshInterval);
+    secretsRefreshInterval = null;
+    console.log('🛑 Secrets auto-refresh stopped');
   }
 }
 
@@ -1112,6 +1405,27 @@ server.listen(port, async () => {
   }
 });
 
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully...');
+  stopSecretsAutoRefresh();
+  stopDiscogsTokenAutoRefresh();
+  server.close(() => {
+    console.log('✅ Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, shutting down gracefully...');
+  stopSecretsAutoRefresh();
+  stopDiscogsTokenAutoRefresh();
+  server.close(() => {
+    console.log('✅ Server closed');
+    process.exit(0);
+  });
+});
+
 // Set global agent timeouts for HTTP and HTTPS (e.g., 10 minutes)
 http.globalAgent.keepAlive = true;
 http.globalAgent.timeout = 10 * 60 * 1000; // 10 minutes
@@ -1124,26 +1438,38 @@ server.setTimeout(10 * 60 * 1000); // 10 minutes
 // For all axios requests, set a default timeout (e.g., 8 minutes)
 axios.defaults.timeout = 8 * 60 * 1000; // 8 minutes
 
-// Fetch AWS secret
-async function getAwsSecret(secretName) {
+// Fetch AWS secret with retry mechanism
+async function getAwsSecret(secretName, maxRetries = 3) {
   console.log(`\nFetching AWS secret: ${secretName}`);
-  try {
-    const awsClient = new SecretsManagerClient({ region: "us-west-2" });
-    console.log('AWS Secrets Manager client created');
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt}/${maxRetries} for secret: ${secretName}`);
+      const awsClient = new SecretsManagerClient({ region: "us-west-2" });
+      console.log('AWS Secrets Manager client created');
 
-    const command = new GetSecretValueCommand({
-      SecretId: secretName,
-      VersionStage: "AWSCURRENT", // Explicitly specify the version stage
-    });
-    console.log('GetSecretValueCommand created');
+      const command = new GetSecretValueCommand({
+        SecretId: secretName,
+        VersionStage: "AWSCURRENT", // Explicitly specify the version stage
+      });
+      console.log('GetSecretValueCommand created');
 
-    const response = await awsClient.send(command);
-    console.log('AWS secret retrieved successfully');
-
-    return response.SecretString;
-  } catch (error) {
-    console.error('\nError getting AWS secret:', error.message);
-    throw error;
+      const response = await awsClient.send(command);
+      console.log(`✅ AWS secret ${secretName} retrieved successfully on attempt ${attempt}`);
+      return response.SecretString;
+    } catch (error) {
+      console.error(`❌ Attempt ${attempt}/${maxRetries} failed for secret ${secretName}:`, error.message);
+      
+      if (attempt === maxRetries) {
+        console.error(`❌ All ${maxRetries} attempts failed for secret ${secretName}`);
+        throw error;
+      }
+      
+      // Wait before retry (exponential backoff)
+      const waitTime = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+      console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
   }
 }
 
@@ -1167,22 +1493,34 @@ async function setSecrets() {
       console.log('setSecrets() Local environment variables loaded.');
       console.log('gcpClientId loaded:', gcpClientId ? 'YES' : 'NO');
       console.log('gcpClientSecret loaded:', gcpClientSecret ? 'YES' : 'NO');
+      console.log('discogsConsumerKey loaded:', discogsConsumerKey ? 'YES' : 'NO');
+      console.log('discogsConsumerSecret loaded:', discogsConsumerSecret ? 'YES' : 'NO');
     } else {
+      console.log('setSecrets() Loading AWS secrets for production...');
       try {
+        console.log('setSecrets() Fetching YouTube secrets...');
         const youtubeSecrets = await getAwsSecret("youtubeAuth");
         const youtubeSecretsJson = JSON.parse(youtubeSecrets);
         gcpClientId = youtubeSecretsJson.GCP_CLIENT_ID || '';
         gcpClientSecret = youtubeSecretsJson.GCP_CLIENT_SECRET || '';
+        console.log('setSecrets() YouTube secrets loaded successfully');
 
+        console.log('setSecrets() Fetching Discogs secrets...');
         const discogsSecrets = await getAwsSecret("discogsAuth");
         const discogsSecretsJson = JSON.parse(discogsSecrets);
         discogsConsumerKey = discogsSecretsJson.DISCOGS_CONSUMER_KEY || '';
         discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET || '';
+        console.log('setSecrets() Discogs secrets loaded successfully');
 
         console.log('setSecrets() AWS secrets loaded.');
+        console.log('gcpClientId loaded:', gcpClientId ? 'YES' : 'NO');
+        console.log('gcpClientSecret loaded:', gcpClientSecret ? 'YES' : 'NO');
+        console.log('discogsConsumerKey loaded:', discogsConsumerKey ? 'YES' : 'NO');
+        console.log('discogsConsumerSecret loaded:', discogsConsumerSecret ? 'YES' : 'NO');
       } catch (awsError) {
-        console.warn('setSecrets() Warning: Failed to fetch AWS secrets. Defaulting to empty values.');
-        console.warn('AWS Error:', awsError.message || awsError);
+        console.error('setSecrets() ERROR: Failed to fetch AWS secrets:', awsError.message || awsError);
+        console.error('setSecrets() AWS Error details:', awsError);
+        console.warn('setSecrets() Warning: Defaulting to empty values.');
         gcpClientId = '';
         gcpClientSecret = '';
         discogsConsumerKey = '';
@@ -1191,6 +1529,7 @@ async function setSecrets() {
     }
   } catch (error) {
     console.error("setSecrets() Error setting secrets:", error);
+    console.error("setSecrets() Error stack:", error.stack);
   }
 }
 
@@ -1701,6 +2040,646 @@ app.post('/internal-api/youtube/clearAuth', (req, res) => {
   } catch (error) {
     console.error('Error clearing YouTube auth:', error.message);
     res.status(500).json({ error: 'Failed to clear authentication.' });
+  }
+});
+
+// Exchange auth code for tokens
+app.post('/youtube/exchangeCode', (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🔄 [POST /youtube/exchangeCode] Hit");
+  }
+  
+  try {
+    const { code, scope } = req.body;
+    
+    if (!code) {
+      return res.status(400).json({ error: 'Auth code is required' });
+    }
+
+    // Exchange code for tokens
+    oauth2Client.getToken(code, (err, tokens) => {
+      if (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error exchanging code for tokens:', err);
+        }
+        return res.status(400).json({ error: 'Invalid auth code' });
+      }
+
+      // Store tokens in session
+      req.session.youtubeAuth = {
+        isAuthenticated: true,
+        tokens: tokens,
+        authenticatedAt: new Date().toISOString()
+      };
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Auth code exchanged successfully for tokens');
+      }
+      res.status(200).json({ 
+        message: 'Auth code exchanged successfully',
+        isAuthenticated: true
+      });
+    });
+
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error exchanging auth code:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to exchange auth code' });
+  }
+});
+
+// Exchange auth code for tokens (production route)
+app.post('/internal-api/youtube/exchangeCode', (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🔄 [POST /internal-api/youtube/exchangeCode] Hit");
+  }
+  
+  try {
+    const { code, scope } = req.body;
+    
+    if (!code) {
+      return res.status(400).json({ error: 'Auth code is required' });
+    }
+
+    // Exchange code for tokens
+    oauth2Client.getToken(code, (err, tokens) => {
+      if (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error exchanging code for tokens:', err);
+        }
+        return res.status(400).json({ error: 'Invalid auth code' });
+      }
+
+      // Store tokens in session
+      req.session.youtubeAuth = {
+        isAuthenticated: true,
+        tokens: tokens,
+        authenticatedAt: new Date().toISOString()
+      };
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Auth code exchanged successfully for tokens');
+      }
+      res.status(200).json({ 
+        message: 'Auth code exchanged successfully',
+        isAuthenticated: true
+      });
+    });
+
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error exchanging auth code:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to exchange auth code' });
+  }
+});
+
+// Create YouTube playlist
+app.post('/youtube/createPlaylist', (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🎵 [POST /youtube/createPlaylist] Hit");
+  }
+  
+  try {
+    const youtubeAuth = req.session?.youtubeAuth;
+    
+    if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
+      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+    }
+
+    const { title, description, privacyStatus } = req.body;
+    
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Playlist title is required' });
+    }
+
+    // Set credentials for the authenticated user
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+
+    // Create the playlist
+    youtube.playlists.insert({
+      part: 'snippet,status',
+      requestBody: {
+        snippet: {
+          title: title.trim(),
+          description: description || ''
+        },
+        status: {
+          privacyStatus: privacyStatus || 'private'
+        }
+      }
+    }, (err, response) => {
+      if (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error creating playlist:', err);
+        }
+        
+        // Extract detailed error information
+        let errorMessage = 'Failed to create playlist';
+        let errorCode = null;
+        let errorReason = null;
+        
+        if (err.code) {
+          errorCode = err.code;
+        }
+        
+        if (err.message) {
+          errorMessage = err.message;
+        }
+        
+        if (err.errors && err.errors.length > 0) {
+          const firstError = err.errors[0];
+          if (firstError.message) {
+            errorMessage = firstError.message;
+          }
+          if (firstError.reason) {
+            errorReason = firstError.reason;
+          }
+        }
+        
+        // Determine appropriate HTTP status code
+        let statusCode = 500;
+        if (err.code === 403) {
+          statusCode = 429; // Rate limited
+        } else if (err.code === 401) {
+          statusCode = 401; // Unauthorized
+        } else if (err.code === 400) {
+          statusCode = 400; // Bad request
+        }
+        
+        const errorResponse = {
+          error: errorMessage,
+          code: errorCode,
+          reason: errorReason
+        };
+        
+        return res.status(statusCode).json(errorResponse);
+      }
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Playlist created successfully:', response.data);
+      }
+      res.status(200).json(response.data);
+    });
+
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error creating playlist:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to create playlist' });
+  }
+});
+
+// Create YouTube playlist (production route)
+app.post('/internal-api/youtube/createPlaylist', (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🎵 [POST /internal-api/youtube/createPlaylist] Hit");
+  }
+  
+  try {
+    const youtubeAuth = req.session?.youtubeAuth;
+    
+    if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
+      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+    }
+
+    const { title, description, privacyStatus } = req.body;
+    
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Playlist title is required' });
+    }
+
+    // Set credentials for the authenticated user
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+
+    // Create the playlist
+    youtube.playlists.insert({
+      part: 'snippet,status',
+      requestBody: {
+        snippet: {
+          title: title.trim(),
+          description: description || ''
+        },
+        status: {
+          privacyStatus: privacyStatus || 'private'
+        }
+      }
+    }, (err, response) => {
+      if (err) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error creating playlist:', err);
+        }
+        
+        // Extract detailed error information
+        let errorMessage = 'Failed to create playlist';
+        let errorCode = null;
+        let errorReason = null;
+        
+        if (err.code) {
+          errorCode = err.code;
+        }
+        
+        if (err.message) {
+          errorMessage = err.message;
+        }
+        
+        if (err.errors && err.errors.length > 0) {
+          const firstError = err.errors[0];
+          if (firstError.message) {
+            errorMessage = firstError.message;
+          }
+          if (firstError.reason) {
+            errorReason = firstError.reason;
+          }
+        }
+        
+        // Determine appropriate HTTP status code
+        let statusCode = 500;
+        if (err.code === 403) {
+          statusCode = 429; // Rate limited
+        } else if (err.code === 401) {
+          statusCode = 401; // Unauthorized
+        } else if (err.code === 400) {
+          statusCode = 400; // Bad request
+        }
+        
+        const errorResponse = {
+          error: errorMessage,
+          code: errorCode,
+          reason: errorReason
+        };
+        
+        return res.status(statusCode).json(errorResponse);
+      }
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Playlist created successfully:', response.data);
+      }
+      res.status(200).json(response.data);
+    });
+
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error creating playlist:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to create playlist' });
+  }
+});
+
+// Add video to YouTube playlist
+app.post('/youtube/addVideoToPlaylist', async (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🎵 [POST /youtube/addVideoToPlaylist] Hit");
+  }
+  
+  try {
+    const youtubeAuth = req.session?.youtubeAuth;
+    
+    if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
+      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+    }
+
+    const { playlistId, videoId } = req.body;
+    
+    if (!playlistId || !videoId) {
+      return res.status(400).json({ error: 'Playlist ID and Video ID are required' });
+    }
+
+    // Set credentials for the authenticated user
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+
+    // Add video to playlist with retry logic
+    try {
+      const response = await retryWithExponentialBackoff(async () => {
+        return new Promise((resolve, reject) => {
+          youtube.playlistItems.insert({
+            part: 'snippet',
+            requestBody: {
+              snippet: {
+                playlistId: playlistId,
+                resourceId: {
+                  kind: 'youtube#video',
+                  videoId: videoId
+                }
+              }
+            }
+          }, (err, response) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(response);
+            }
+          });
+        });
+      });
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Video added to playlist successfully:', response.data);
+      }
+      res.status(200).json(response.data);
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error adding video to playlist after retries:', error);
+      }
+      
+      // Check if it's a quota error
+      const isQuotaError = error.code === 403 && 
+        error.errors && 
+        error.errors.some(err => err.reason === 'quotaExceeded');
+      
+      if (isQuotaError) {
+        return res.status(429).json({ 
+          error: 'YouTube API quota exceeded. Please try again later.',
+          retryAfter: 3600 // 1 hour in seconds
+        });
+      }
+      
+      res.status(500).json({ error: 'Failed to add video to playlist' });
+    }
+
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error adding video to playlist:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to add video to playlist' });
+  }
+});
+
+// Add video to YouTube playlist (production route)
+app.post('/internal-api/youtube/addVideoToPlaylist', async (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🎵 [POST /internal-api/youtube/addVideoToPlaylist] Hit");
+  }
+  
+  try {
+    const youtubeAuth = req.session?.youtubeAuth;
+    
+    if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
+      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+    }
+
+    const { playlistId, videoId } = req.body;
+    
+    if (!playlistId || !videoId) {
+      return res.status(400).json({ error: 'Playlist ID and Video ID are required' });
+    }
+
+    // Set credentials for the authenticated user
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+
+    // Add video to playlist with retry logic
+    try {
+      const response = await retryWithExponentialBackoff(async () => {
+        return new Promise((resolve, reject) => {
+          youtube.playlistItems.insert({
+            part: 'snippet',
+            requestBody: {
+              snippet: {
+                playlistId: playlistId,
+                resourceId: {
+                  kind: 'youtube#video',
+                  videoId: videoId
+                }
+              }
+            }
+          }, (err, response) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(response);
+            }
+          });
+        });
+      });
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Video added to playlist successfully:', response.data);
+      }
+      res.status(200).json(response.data);
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error adding video to playlist after retries:', error);
+      }
+      
+      // Check if it's a quota error
+      const isQuotaError = error.code === 403 && 
+        error.errors && 
+        error.errors.some(err => err.reason === 'quotaExceeded');
+      
+      if (isQuotaError) {
+        return res.status(429).json({ 
+          error: 'YouTube API quota exceeded. Please try again later.',
+          retryAfter: 3600 // 1 hour in seconds
+        });
+      }
+      
+      res.status(500).json({ error: 'Failed to add video to playlist' });
+    }
+
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error adding video to playlist:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to add video to playlist' });
+  }
+});
+
+// Fetch Discogs info for playlist metadata
+app.post('/discogs/info', async (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("📋 [POST /discogs/info] Hit", req.body);
+  }
+  
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    let type, id, name, profile;
+    
+    // Parse the URL to determine type and ID
+    if (url.includes('/artist/')) {
+      const match = url.match(/\/artist\/(\d+)/);
+      if (match) {
+        type = 'artist';
+        id = match[1];
+        
+        // Fetch artist info
+        const artistUrl = `${DISCOGS_API_URL}/artists/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(artistUrl, { headers });
+        name = response.data.name;
+        profile = response.data.profile;
+      }
+    } else if (url.includes('/label/')) {
+      const match = url.match(/\/label\/(\d+)/);
+      if (match) {
+        type = 'label';
+        id = match[1];
+        
+        // Fetch label info
+        const labelUrl = `${DISCOGS_API_URL}/labels/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(labelUrl, { headers });
+        name = response.data.name;
+        profile = response.data.profile;
+      }
+    } else if (url.includes('/lists/')) {
+      const listId = url.split('/').pop();
+      type = 'list';
+      id = listId;
+      
+      // Fetch list info
+      const listUrl = `${DISCOGS_API_URL}/lists/${id}`;
+      const headers = { 'User-Agent': USER_AGENT };
+      
+      // Add OAuth if available
+      const discogsAuth = req.session?.discogsAuth;
+      if (discogsAuth?.accessToken) {
+        const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+        headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+      }
+      
+      const response = await axios.get(listUrl, { headers });
+      name = response.data.name;
+      profile = response.data.description;
+    }
+    
+    if (!type || !id) {
+      return res.status(400).json({ error: 'Invalid Discogs URL' });
+    }
+    
+    res.status(200).json({
+      type,
+      id,
+      name,
+      profile,
+      url
+    });
+    
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error fetching Discogs info:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to fetch Discogs info' });
+  }
+});
+
+// Fetch Discogs info for playlist metadata (production route)
+app.post('/internal-api/discogs/info', async (req, res) => {
+  if (process.env.NODE_ENV === 'development') {
+    console.log("📋 [POST /internal-api/discogs/info] Hit", req.body);
+  }
+  
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    let type, id, name, profile;
+    
+    // Parse the URL to determine type and ID
+    if (url.includes('/artist/')) {
+      const match = url.match(/\/artist\/(\d+)/);
+      if (match) {
+        type = 'artist';
+        id = match[1];
+        
+        // Fetch artist info
+        const artistUrl = `${DISCOGS_API_URL}/artists/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(artistUrl, { headers });
+        name = response.data.name;
+        profile = response.data.profile;
+      }
+    } else if (url.includes('/label/')) {
+      const match = url.match(/\/label\/(\d+)/);
+      if (match) {
+        type = 'label';
+        id = match[1];
+        
+        // Fetch label info
+        const labelUrl = `${DISCOGS_API_URL}/labels/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(labelUrl, { headers });
+        name = response.data.name;
+        profile = response.data.profile;
+      }
+    } else if (url.includes('/lists/')) {
+      const listId = url.split('/').pop();
+      type = 'list';
+      id = listId;
+      
+      // Fetch list info
+      const listUrl = `${DISCOGS_API_URL}/lists/${id}`;
+      const headers = { 'User-Agent': USER_AGENT };
+      
+      // Add OAuth if available
+      const discogsAuth = req.session?.discogsAuth;
+      if (discogsAuth?.accessToken) {
+        const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+        headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+      }
+      
+      const response = await axios.get(listUrl, { headers });
+      name = response.data.name;
+      profile = response.data.description;
+    }
+    
+    if (!type || !id) {
+      return res.status(400).json({ error: 'Invalid Discogs URL' });
+    }
+    
+    res.status(200).json({
+      type,
+      id,
+      name,
+      profile,
+      url
+    });
+    
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error fetching Discogs info:', error.message);
+    }
+    res.status(500).json({ error: 'Failed to fetch Discogs info' });
   }
 });
 
@@ -2289,13 +3268,39 @@ app.post('/getDiscogsImgs', async (req, res) => {
 
 // Endpoint to generate and return Discogs auth URL
 app.get('/listogs/discogs/getURL', async (req, res) => {
+  console.log("🔗 [GET /listogs/discogs/getURL] Hit");
+  
   try {
+    // Check if secrets are initialized
+    if (!secretsInitialized) {
+      console.error("❌ [GET /listogs/discogs/getURL] Secrets not initialized");
+      return res.status(503).json({ error: 'Server not ready. Secrets not initialized.' });
+    }
+
+    // Check if Discogs credentials are available
+    if (!discogsConsumerKey || !discogsConsumerSecret) {
+      console.error("❌ [GET /listogs/discogs/getURL] Discogs credentials not available:", {
+        hasKey: !!discogsConsumerKey,
+        hasSecret: !!discogsConsumerSecret
+      });
+      return res.status(500).json({ error: 'Discogs credentials not configured.' });
+    }
+
+    console.log("🔍 [GET /listogs/discogs/getURL] Generating fresh auth URL...");
     const response = await DEBUG_generateDiscogsAuthUrl();
     const { oauth_token } = querystring.parse(response.data);
     const url = `${DISCOGS_AUTHORIZE_URL}?oauth_token=${oauth_token}`;
+    console.log("✅ [GET /listogs/discogs/getURL] Success:", { url: url.substring(0, 50) + "..." });
     res.status(200).json({ url });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to generate Discogs auth URL.' });
+    console.error("❌ [GET /listogs/discogs/getURL] Error:", {
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ 
+      error: 'Failed to generate Discogs auth URL.',
+      details: error.message
+    });
   }
 });
 
@@ -2360,6 +3365,32 @@ function sendLogMessageToSession(message, socketId) {
   
   const target = io.sockets.sockets.get(socketId);
   target.emit('sessionLog', message);
+}
+
+// Exponential backoff retry function for YouTube API quota errors
+async function retryWithExponentialBackoff(operation, maxRetries = 5, baseDelay = 1000) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      // Check if it's a quota exceeded error
+      const isQuotaError = error.code === 403 && 
+        error.errors && 
+        error.errors.some(err => err.reason === 'quotaExceeded');
+      
+      if (!isQuotaError || attempt === maxRetries - 1) {
+        throw error; // Re-throw if not quota error or max retries reached
+      }
+      
+      // Calculate delay with exponential backoff and jitter
+      const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+      
+      console.log(`YouTube API quota exceeded, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
 }
 
 function sendResultsToSession(results, socketId) {
