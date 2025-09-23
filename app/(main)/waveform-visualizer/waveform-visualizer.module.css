@@ -1,70 +1,45 @@
-/* Waveform Visualizer Styles */
 .container {
-  max-width: 1000px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
-  min-height: 100vh;
 }
 
 .header {
   text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
 }
 
-.title {
+.header h1 {
   font-size: 2.5rem;
-  font-weight: bold;
   margin-bottom: 0.5rem;
-  background: linear-gradient(45deg, #007bff, #0056b3);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-.subtitle {
-  font-size: 1.1rem;
+.header p {
   color: #666;
-  margin: 0;
-}
-
-.uploadSection {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-}
-
-.error {
-  background-color: #fee;
-  color: #c33;
-  padding: 1rem;
-  border-radius: 8px;
-  border: 1px solid #fcc;
-  text-align: center;
-  max-width: 400px;
-}
-
-.playerSection {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
+  font-size: 1.1rem;
 }
 
 .loading {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
-  padding: 2rem;
+  justify-content: center;
+  padding: 3rem;
+  color: #666;
 }
 
 .spinner {
   width: 40px;
   height: 40px;
   border: 4px solid #f3f3f3;
-  border-top: 4px solid #007bff;
+  border-top: 4px solid #667eea;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
 }
 
 @keyframes spin {
@@ -72,165 +47,352 @@
   100% { transform: rotate(360deg); }
 }
 
-.waveformContainer {
-  background: white;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
+.waveformLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 12px;
-  padding: 1rem;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 2px solid #e0e0e0;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  margin: 1rem 0;
+  color: white;
+  text-align: center;
 }
 
-.waveformContainer:hover {
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-  border-color: #007bff;
+.waveformSpinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-top: 4px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
 }
 
-.waveformCanvas {
+.waveformLoading p {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.progressContainer {
   width: 100%;
-  height: 200px;
+  max-width: 350px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.progressBar {
+  width: 100%;
+  height: 8px;
+  background-color: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #4ecdc4, #44a08d, #667eea);
+  border-radius: 4px;
+  transition: width 0.3s ease-out;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.progressText {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  min-width: 3rem;
+  text-align: center;
+}
+
+.containerLoading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.95);
   border-radius: 8px;
-  display: block;
+  padding: 1.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+.containerSpinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 0.5rem;
+}
+
+.containerLoading p {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+  text-align: center;
+}
+
+
+.error {
+  background-color: #fee;
+  border: 1px solid #fcc;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  color: #c33;
+  text-align: center;
+}
+
+.audioInfo {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-left: 4px solid #667eea;
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.audioInfo p {
+  margin: 0;
+  color: #333;
+  font-weight: 500;
+}
+
+.waveformContainer {
+  background-color: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 1rem;
+}
+
+/* Peaks.js container styles - matching the example */
+.zoomviewContainer {
+  box-shadow: 3px 3px 20px #919191;
+  -moz-box-shadow: 3px 3px 20px #919191;
+  -webkit-box-shadow: 3px 3px 20px #919191;
+  margin: 24px 0 24px 0;
+  line-height: 0;
+  height: 200px;
+  border-radius: 10px;
+  background-color: #f8f9fa;
+  position: relative;
+}
+
+.overviewContainer {
+  box-shadow: 3px 3px 20px #919191;
+  -moz-box-shadow: 3px 3px 20px #919191;
+  -webkit-box-shadow: 3px 3px 20px #919191;
+  margin: 0 0 24px 0;
+  line-height: 0;
+  height: 85px;
+  border-radius: 10px;
+  background-color: #f8f9fa;
+  position: relative;
+}
+
+.audioElement {
+  width: 100%;
+  margin-top: 1rem;
+  border-radius: 8px;
 }
 
 .controls {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 2rem;
+  gap: 1rem;
   padding: 1rem;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
 }
 
-.playButton {
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 50%;
-  width: 60px;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.playButton:hover:not(:disabled) {
-  background: #0056b3;
-  transform: scale(1.05);
-}
-
-.playButton:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-.timeDisplay {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-family: 'Courier New', monospace;
-  font-size: 1.1rem;
-  font-weight: bold;
-  color: #333;
-}
-
-.volumeControl {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.volumeSlider {
-  width: 100px;
-  height: 6px;
-  border-radius: 3px;
-  background: #ddd;
-  outline: none;
-  cursor: pointer;
-}
-
-.volumeSlider::-webkit-slider-thumb {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #007bff;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.volumeSlider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #007bff;
-  cursor: pointer;
-  border: none;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.fileInfo {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 12px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.fileInfo h3 {
-  margin: 0 0 0.5rem 0;
-  color: #333;
-  font-size: 1.2rem;
-}
-
-.fileInfo p {
-  margin: 0.25rem 0;
-  color: #666;
-}
-
-.resetButton {
-  background: #6c757d;
+.controlButton {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  cursor: pointer;
+  border-radius: 6px;
   font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
   transition: all 0.2s ease;
-  align-self: center;
+  min-width: 120px;
+}
+
+.controlButton:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.controlButton:active {
+  transform: translateY(0);
+}
+
+.resetButton {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .resetButton:hover {
-  background: #5a6268;
-  transform: translateY(-1px);
+  background-color: #5a6268;
+  transform: translateY(-2px);
 }
 
-/* Mobile responsiveness */
+.resetButton:active {
+  transform: translateY(0);
+}
+
+.markersSection {
+  margin-bottom: 2rem;
+}
+
+.markersSection h3 {
+  color: #333;
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 0.5rem;
+}
+
+.tableContainer {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.markersTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.markersTable thead {
+  background-color: #f8f9fa;
+}
+
+.markersTable th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.markersTable td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e9ecef;
+  color: #555;
+}
+
+.markersTable tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.markersTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Responsive design */
 @media (max-width: 768px) {
   .container {
     padding: 1rem;
   }
   
-  .title {
+  .header h1 {
     font-size: 2rem;
   }
   
   .controls {
     flex-direction: column;
-    gap: 1rem;
-    padding: 1.5rem;
+    gap: 0.75rem;
   }
   
-  .waveformContainer {
-    padding: 0.5rem;
+  .controlButton, .resetButton {
+    width: 100%;
+    min-width: auto;
   }
   
-  .waveformCanvas {
+  .audioInfo {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .zoomviewContainer {
     height: 150px;
   }
+  
+  .overviewContainer {
+    height: 60px;
+  }
+  
+  .markersTable {
+    font-size: 0.8rem;
+  }
+  
+  .markersTable th,
+  .markersTable td {
+    padding: 0.5rem;
+  }
+}
+
+/* Peaks.js specific overrides */
+.zoomviewContainer canvas,
+.overviewContainer canvas {
+  border-radius: 10px;
+}
+
+/* Custom scrollbar for better UX */
+.tableContainer::-webkit-scrollbar {
+  height: 8px;
+}
+
+.tableContainer::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.tableContainer::-webkit-scrollbar-thumb {
+  background: #667eea;
+  border-radius: 4px;
+}
+
+.tableContainer::-webkit-scrollbar-thumb:hover {
+  background: #5a6fd8;
 }

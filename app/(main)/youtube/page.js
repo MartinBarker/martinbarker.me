@@ -8,6 +8,14 @@ function YouTubeAuthPageInner() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [error, setError] = useState('');
+  const [playlistData, setPlaylistData] = useState({
+    title: '',
+    description: '',
+    privacyStatus: 'private'
+  });
+  const [playlistLoading, setPlaylistLoading] = useState(false);
+  const [playlistCreated, setPlaylistCreated] = useState(null);
+  const [clearAuthLoading, setClearAuthLoading] = useState(false);
   
   const params = useSearchParams();
   const router = useRouter();
@@ -60,9 +68,16 @@ function YouTubeAuthPageInner() {
         if (data.userInfo) {
           setUserInfo(data.userInfo);
         }
+      } else {
+        // If auth status check fails, assume not authenticated
+        setIsAuthenticated(false);
+        setUserInfo(null);
       }
     } catch (err) {
       console.error('Error checking auth status:', err);
+      // On error, assume not authenticated
+      setIsAuthenticated(false);
+      setUserInfo(null);
     }
   };
 
@@ -101,6 +116,9 @@ function YouTubeAuthPageInner() {
     expiresAt: null
   });
 
+  // Check if user can create playlists (either server authenticated or localStorage has valid code)
+  const canCreatePlaylists = isAuthenticated || (youtubeAuthStatus.exists && youtubeAuthStatus.expiresAt && new Date(youtubeAuthStatus.expiresAt) > new Date());
+
   // Check localStorage for YouTube auth code and expiry
   useEffect(() => {
     const code = localStorage.getItem('youtube_auth_code');
@@ -119,6 +137,11 @@ function YouTubeAuthPageInner() {
 
   // Clear authentication data
   const clearAuth = async () => {
+    if (clearAuthLoading) return; // Prevent multiple clicks
+    
+    setClearAuthLoading(true);
+    setError('');
+    
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
@@ -130,13 +153,16 @@ function YouTubeAuthPageInner() {
       });
       
       if (response.ok) {
+        // Clear all authentication state
         setIsAuthenticated(false);
         setUserInfo(null);
-        setError('');
+        
         // Clear localStorage
         localStorage.removeItem('youtube_auth_code');
         localStorage.removeItem('youtube_auth_scope');
         localStorage.removeItem('youtube_auth_set_time');
+        
+        // Update local auth status
         setYoutubeAuthStatus({
           exists: false,
           code: null,
@@ -144,14 +170,124 @@ function YouTubeAuthPageInner() {
           setTime: null,
           expiresAt: null
         });
+        
         // Refresh the auth URL
         getYouTubeAuthUrl();
       } else {
-        setError('Failed to clear authentication');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        setError(errorData.error || 'Failed to clear authentication');
       }
     } catch (err) {
       console.error('Error clearing auth:', err);
-      setError('Failed to clear authentication');
+      setError('Failed to clear authentication: ' + err.message);
+    } finally {
+      setClearAuthLoading(false);
+    }
+  };
+
+  // Create playlist
+  const createPlaylist = async () => {
+    if (!playlistData.title.trim()) {
+      setError('Please enter a playlist title');
+      return;
+    }
+
+    setPlaylistLoading(true);
+    setError('');
+
+    try {
+      const apiBaseURL = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.martinbarker.me/internal-api';
+
+      // If not server authenticated but have localStorage code, exchange code for tokens first
+      if (!isAuthenticated && youtubeAuthStatus.exists && youtubeAuthStatus.code) {
+        console.log('Exchanging auth code for tokens...');
+        const tokenResponse = await fetch(`${apiBaseURL}/youtube/exchangeCode`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            code: youtubeAuthStatus.code,
+            scope: youtubeAuthStatus.scope
+          })
+        });
+
+        if (!tokenResponse.ok) {
+          const tokenError = await tokenResponse.json();
+          setError(tokenError.error || 'Failed to exchange auth code for tokens');
+          setPlaylistLoading(false);
+          return;
+        }
+        
+        // Refresh auth status after token exchange
+        await checkAuthStatus();
+      }
+
+      const response = await fetch(`${apiBaseURL}/youtube/createPlaylist`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify(playlistData)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setPlaylistCreated(result);
+        setPlaylistData({
+          title: '',
+          description: '',
+          privacyStatus: 'private'
+        });
+      } else {
+        const errorData = await response.json();
+        let errorMessage = 'Failed to create playlist';
+        
+        if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+        
+        if (errorData.code) {
+          errorMessage += ` (Error Code: ${errorData.code})`;
+        }
+        
+        if (errorData.message) {
+          errorMessage += ` - ${errorData.message}`;
+        }
+        
+        if (errorData.errors && errorData.errors.length > 0) {
+          const firstError = errorData.errors[0];
+          if (firstError.reason) {
+            errorMessage += ` (Reason: ${firstError.reason})`;
+          }
+        }
+        
+        setError(errorMessage);
+      }
+    } catch (err) {
+      console.error('Error creating playlist:', err);
+      
+      let errorMessage = 'Failed to create playlist';
+      
+      if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      if (err.code) {
+        errorMessage += ` (Error Code: ${err.code})`;
+      }
+      
+      if (err.name) {
+        errorMessage += ` (Error Type: ${err.name})`;
+      }
+      
+      setError(errorMessage);
+    } finally {
+      setPlaylistLoading(false);
     }
   };
 
@@ -200,6 +336,22 @@ function YouTubeAuthPageInner() {
               <div>Set: {youtubeAuthStatus.setTime ? new Date(youtubeAuthStatus.setTime).toLocaleString() : 'Unknown'}</div>
               <div>Expires: {youtubeAuthStatus.expiresAt ? new Date(youtubeAuthStatus.expiresAt).toLocaleString() : 'Unknown'}</div>
             </div>
+            <button
+              onClick={clearAuth}
+              disabled={clearAuthLoading}
+              style={{
+                marginTop: 12,
+                padding: '8px 16px',
+                background: clearAuthLoading ? '#6c757d' : '#dc3545',
+                color: 'white',
+                border: 'none',
+                borderRadius: 4,
+                cursor: clearAuthLoading ? 'not-allowed' : 'pointer',
+                fontSize: 14
+              }}
+            >
+              {clearAuthLoading ? 'Clearing...' : 'Clear Authentication'}
+            </button>
           </div>
         ) : (
           <div style={{
@@ -214,56 +366,9 @@ function YouTubeAuthPageInner() {
         )}
       </div>
 
-      {/* Authentication Status */}
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ marginBottom: 16 }}>Server Authentication Status</h2>
-        {isAuthenticated ? (
-          <div style={{
-            background: '#d4edda',
-            border: '1px solid #c3e6cb',
-            borderRadius: 6,
-            padding: '16px',
-            marginBottom: 16
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ color: '#155724', fontWeight: 'bold' }}>✅ Signed In</span>
-              {userInfo && (
-                <span style={{ color: '#155724' }}>
-                  as {userInfo.name || userInfo.email || 'User'}
-                </span>
-              )}
-            </div>
-            <button
-              onClick={clearAuth}
-              style={{
-                marginTop: 12,
-                padding: '8px 16px',
-                background: '#dc3545',
-                color: 'white',
-                border: 'none',
-                borderRadius: 4,
-                cursor: 'pointer',
-                fontSize: 14
-              }}
-            >
-              Clear Authentication
-            </button>
-          </div>
-        ) : (
-          <div style={{
-            background: '#f8d7da',
-            border: '1px solid #f5c6cb',
-            borderRadius: 6,
-            padding: '16px',
-            marginBottom: 16
-          }}>
-            <span style={{ color: '#721c24', fontWeight: 'bold' }}>❌ Not signed in</span>
-          </div>
-        )}
-      </div>
 
-      {/* Sign In Button */}
-      {!isAuthenticated && (
+      {/* Sign In Button - Only show if no localStorage auth */}
+      {!youtubeAuthStatus.exists && (
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ marginBottom: 16 }}>Sign In</h2>
           <button
@@ -313,8 +418,144 @@ function YouTubeAuthPageInner() {
         </div>
       )}
 
+      {/* Create Playlist Section */}
+      {canCreatePlaylists && (
+        <div style={{ marginTop: 32 }}>
+          <h2 style={{ marginBottom: 16 }}>Create Playlist</h2>
+          <div style={{
+            background: '#f8f9fa',
+            border: '1px solid #dee2e6',
+            borderRadius: 6,
+            padding: '20px'
+          }}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                Playlist Title *
+              </label>
+              <input
+                type="text"
+                value={playlistData.title}
+                onChange={(e) => setPlaylistData(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="Enter playlist title"
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  border: '1px solid #ced4da',
+                  borderRadius: 4,
+                  fontSize: 14
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                Description
+              </label>
+              <textarea
+                value={playlistData.description}
+                onChange={(e) => setPlaylistData(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Enter playlist description (optional)"
+                rows={3}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  border: '1px solid #ced4da',
+                  borderRadius: 4,
+                  fontSize: 14,
+                  resize: 'vertical'
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                Privacy Status
+              </label>
+              <select
+                value={playlistData.privacyStatus}
+                onChange={(e) => setPlaylistData(prev => ({ ...prev, privacyStatus: e.target.value }))}
+                style={{
+                  padding: '10px',
+                  border: '1px solid #ced4da',
+                  borderRadius: 4,
+                  fontSize: 14,
+                  background: 'white'
+                }}
+              >
+                <option value="private">Private</option>
+                <option value="public">Public</option>
+                <option value="unlisted">Unlisted</option>
+              </select>
+            </div>
+
+            <button
+              onClick={createPlaylist}
+              disabled={playlistLoading}
+              style={{
+                padding: '12px 24px',
+                fontSize: 16,
+                background: playlistLoading ? '#6c757d' : '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: 6,
+                cursor: playlistLoading ? 'not-allowed' : 'pointer',
+                fontWeight: 'bold',
+                transition: 'background 0.2s'
+              }}
+              onMouseOver={e => {
+                if (!playlistLoading) {
+                  e.currentTarget.style.background = '#218838';
+                }
+              }}
+              onMouseOut={e => {
+                if (!playlistLoading) {
+                  e.currentTarget.style.background = '#28a745';
+                }
+              }}
+            >
+              {playlistLoading ? 'Creating...' : 'Create Playlist'}
+            </button>
+
+            {playlistCreated && (
+              <div style={{
+                marginTop: 16,
+                padding: '12px',
+                background: '#d4edda',
+                border: '1px solid #c3e6cb',
+                borderRadius: 4
+              }}>
+                <div style={{ color: '#155724', fontWeight: 'bold', marginBottom: 8 }}>
+                  ✅ Playlist Created Successfully!
+                </div>
+                <div style={{ color: '#155724', marginBottom: 4 }}>
+                  <strong>Title:</strong> {playlistCreated.snippet?.title}
+                </div>
+                <div style={{ color: '#155724', marginBottom: 4 }}>
+                  <strong>ID:</strong> {playlistCreated.id}
+                </div>
+                <div style={{ color: '#155724', marginBottom: 8 }}>
+                  <strong>Privacy:</strong> {playlistCreated.status?.privacyStatus}
+                </div>
+                <a
+                  href={`https://www.youtube.com/playlist?list=${playlistCreated.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: '#007bff',
+                    textDecoration: 'none',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  View Playlist on YouTube →
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Features Section */}
-      {isAuthenticated && (
+      {canCreatePlaylists && (
         <div style={{ marginTop: 32 }}>
           <h2 style={{ marginBottom: 16 }}>Available Features</h2>
           <div style={{
@@ -324,8 +565,10 @@ function YouTubeAuthPageInner() {
             padding: '16px'
           }}>
             <p style={{ margin: 0, color: '#004085' }}>
-              You are now authenticated with YouTube! You can now use YouTube API features
-              such as creating playlists, managing videos, and accessing your channel data.
+              {isAuthenticated 
+                ? "You are now authenticated with YouTube! You can now use YouTube API features such as creating playlists, managing videos, and accessing your channel data."
+                : "You have a valid YouTube auth code stored locally! You can create playlists using your stored authentication."
+              }
             </p>
           </div>
         </div>

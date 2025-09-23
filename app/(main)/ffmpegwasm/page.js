@@ -264,7 +264,10 @@ export default function Home() {
         boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
       }}>
         <p style={{ fontSize: 17, marginBottom: 8 }}>
-          <strong>FFMPEG WASM</strong> is a browser-based video and audio processing tool using FFmpeg WebAssembly for client-side media manipulation.
+          <strong>FFMPEG WASM Sandbox</strong> - This is a sandbox project to test and demonstrate the capabilities of <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>ffmpeg.wasm</a>, a browser-based video and audio processing library using FFmpeg WebAssembly.
+        </p>
+        <p style={{ fontSize: 14, color: '#666', marginBottom: 12, fontStyle: 'italic' }}>
+          <strong>Note:</strong> I did not create ffmpeg.wasm - this is just a demo/testing sandbox. The actual ffmpeg.wasm library is developed by the <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>ffmpegwasm team</a>.
         </p>
         <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
           <li>Process video and audio files directly in your browser without server uploads.</li>
@@ -272,6 +275,9 @@ export default function Home() {
           <li>Convert between different media formats and apply various filters and effects.</li>
           <li>Experience high-performance media processing with complete privacy and security.</li>
         </ul>
+        <div style={{ marginTop: 16, padding: '12px', background: '#e9ecef', borderRadius: 4, fontSize: 14 }}>
+          <strong>Attribution:</strong> This demo uses <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>ffmpeg.wasm</a> by the ffmpegwasm team. Visit their <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank" rel="noopener noreferrer" style={{ color: '#007bff', textDecoration: 'none' }}>GitHub repository</a> for more information and documentation.
+        </div>
       </div>
 
 

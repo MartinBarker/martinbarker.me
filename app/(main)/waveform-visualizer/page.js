@@ -1,307 +1,471 @@
-'use client'
-import React, { useState, useRef, useEffect, useContext } from 'react';
-import styles from './waveform-visualizer.module.css';
-import { ColorContext } from '../ColorContext';
+'use client';
+
+import { useState, useRef, useEffect } from 'react';
 import FileDrop from '../FileDrop/FileDrop';
-import { Play, Pause, Volume2, Download } from 'lucide-react';
+import styles from './waveform-visualizer.module.css';
 
 export default function WaveformVisualizer() {
-  const { colors } = useContext(ColorContext);
   const [audioFile, setAudioFile] = useState(null);
-  const [audioUrl, setAudioUrl] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [waveformData, setWaveformData] = useState(null);
+  const [peaks, setPeaks] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  
-  const audioRef = useRef(null);
-  const canvasRef = useRef(null);
-  const animationRef = useRef(null);
+  const [isGeneratingWaveform, setIsGeneratingWaveform] = useState(false);
+  const [waveformProgress, setWaveformProgress] = useState(0);
+  const [error, setError] = useState('');
+  const [segments, setSegments] = useState([]);
+  const [points, setPoints] = useState([]);
+  const [isClient, setIsClient] = useState(false);
+
+  const zoomviewContainerRef = useRef(null);
+  const overviewContainerRef = useRef(null);
+  const audioElementRef = useRef(null);
+
+  // Ensure component only runs on client side
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // Handle file selection
   const handleFilesSelected = (files) => {
     const file = files[0];
     if (file && file.type.startsWith('audio/')) {
       setAudioFile(file);
-      setError(null);
-      const url = URL.createObjectURL(file);
-      setAudioUrl(url);
-      loadWaveformData(file);
+      setError('');
+      loadAudioFile(file);
     } else {
-      setError('Please select a valid audio file (mp3, wav, etc.)');
+      setError('Please select a valid audio file.');
     }
   };
 
-  // Load waveform data using the waveform-data library
-  const loadWaveformData = async (file) => {
+  // Load and process audio file
+  const loadAudioFile = async (file) => {
     setIsLoading(true);
+    setIsGeneratingWaveform(false);
+    setWaveformProgress(0);
+    setError('');
+    
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      // Create audio URL for peaks.js
+      const audioUrl = URL.createObjectURL(file);
       
-      // Generate waveform data
-      const channelData = audioBuffer.getChannelData(0);
-      const samplesPerPixel = Math.floor(channelData.length / 1000); // 1000 pixels width
-      const waveform = [];
-      
-      for (let i = 0; i < 1000; i++) {
-        const start = i * samplesPerPixel;
-        const end = Math.min(start + samplesPerPixel, channelData.length);
-        let sum = 0;
-        let max = 0;
-        
-        for (let j = start; j < end; j++) {
-          const sample = Math.abs(channelData[j]);
-          sum += sample;
-          max = Math.max(max, sample);
-        }
-        
-        waveform.push({
-          min: -max,
-          max: max,
-          avg: sum / (end - start)
+      // Wait for DOM elements to be ready
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
         });
-      }
+      });
       
-      setWaveformData(waveform);
-      setDuration(audioBuffer.duration);
+      // Start waveform generation indicator
+      setIsGeneratingWaveform(true);
+      
+      // Simulate progress for long files
+      const progressInterval = setInterval(() => {
+        setWaveformProgress(prev => {
+          if (prev >= 90) return prev; // Don't go to 100% until actually done
+          return prev + Math.random() * 10;
+        });
+      }, 200);
+      
+      // Initialize Peaks.js
+      await initPeaks(audioUrl);
+      
+      // Clear progress interval and set to 100%
+      clearInterval(progressInterval);
+      setWaveformProgress(100);
+      
+      // Small delay to show 100% before hiding
+      setTimeout(() => {
+        setIsLoading(false);
+        setIsGeneratingWaveform(false);
+        setWaveformProgress(0);
+      }, 500);
+      
     } catch (err) {
-      console.error('Error loading waveform data:', err);
+      console.error('Error loading audio file:', err);
       setError('Error loading audio file. Please try a different file.');
-    } finally {
       setIsLoading(false);
+      setIsGeneratingWaveform(false);
+      setWaveformProgress(0);
     }
   };
 
-  // Draw waveform on canvas
-  const drawWaveform = () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !waveformData) return;
-    
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    const centerY = height / 2;
-    
-    // Clear canvas
-    ctx.fillStyle = colors.LightMuted || '#f0f0f0';
-    ctx.fillRect(0, 0, width, height);
-    
-    // Draw waveform
-    ctx.strokeStyle = colors.DarkVibrant || '#333';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    
-    waveformData.forEach((point, index) => {
-      const x = (index / waveformData.length) * width;
-      const y1 = centerY + (point.min * centerY);
-      const y2 = centerY + (point.max * centerY);
+  // Initialize Peaks.js based on official documentation
+  const initPeaks = async (audioUrl) => {
+    // Clean up existing peaks instance
+    if (peaks) {
+      peaks.destroy();
+      setPeaks(null);
+    }
+
+    try {
+      // Dynamically import Peaks.js only on client side
+      const Peaks = (await import('peaks.js')).default;
+
+      // Wait for DOM elements to be ready
+      let retries = 0;
+      const maxRetries = 20;
       
-      if (index === 0) {
-        ctx.moveTo(x, y1);
-      } else {
-        ctx.lineTo(x, y1);
+      while (retries < maxRetries) {
+        if (zoomviewContainerRef.current && 
+            overviewContainerRef.current && 
+            audioElementRef.current) {
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+        retries++;
       }
+
+      if (!zoomviewContainerRef.current || !overviewContainerRef.current || !audioElementRef.current) {
+        throw new Error('DOM elements not ready after maximum retries');
+      }
+
+      console.log('DOM elements ready:', {
+        zoomview: zoomviewContainerRef.current,
+        overview: overviewContainerRef.current,
+        audio: audioElementRef.current
+      });
+
+      // Set audio source
+      audioElementRef.current.src = audioUrl;
+
+      // Initialize Peaks.js with correct configuration structure
+      const options = {
+        zoomview: {
+          container: zoomviewContainerRef.current
+        },
+        overview: {
+          container: overviewContainerRef.current
+        },
+        mediaElement: audioElementRef.current,
+        webAudio: {
+          audioContext: new (window.AudioContext || window.webkitAudioContext)()
+        }
+      };
+
+      Peaks.init(options, (err, peaksInstance) => {
+        if (err) {
+          console.error('Error initializing Peaks.js:', err);
+          setError('Error initializing waveform. Please try a different file.');
+          return;
+        }
+
+        setPeaks(peaksInstance);
+        onPeaksReady(peaksInstance);
+      });
+    } catch (err) {
+      console.error('Error loading Peaks.js:', err);
+      setError('Error loading waveform library. Please refresh the page.');
+    }
+  };
+
+  // Handle peaks ready
+  const onPeaksReady = (peaksInstance) => {
+    console.log('Peaks.js is ready');
+    
+    // Add event listeners
+    peaksInstance.on('segments.add', (segment) => {
+      console.log('Segment added:', segment);
+      updateSegments();
     });
-    
-    // Draw the bottom half
-    for (let i = waveformData.length - 1; i >= 0; i--) {
-      const x = (i / waveformData.length) * width;
-      const y = centerY + (waveformData[i].max * centerY);
-      ctx.lineTo(x, y);
-    }
-    
-    ctx.closePath();
-    ctx.fillStyle = colors.Vibrant || '#007bff';
-    ctx.fill();
-    ctx.stroke();
-    
-    // Draw progress indicator
-    if (duration > 0) {
-      const progress = currentTime / duration;
-      const progressX = progress * width;
-      
-      ctx.fillStyle = colors.DarkMuted || '#666';
-      ctx.fillRect(0, 0, progressX, height);
+
+    peaksInstance.on('segments.remove', (segment) => {
+      console.log('Segment removed:', segment);
+      updateSegments();
+    });
+
+    peaksInstance.on('points.add', (point) => {
+      console.log('Point added:', point);
+      updatePoints();
+    });
+
+    peaksInstance.on('points.remove', (point) => {
+      console.log('Point removed:', point);
+      updatePoints();
+    });
+  };
+
+  // Update segments list
+  const updateSegments = () => {
+    if (peaks) {
+      const segmentsList = peaks.segments.getSegments();
+      setSegments(segmentsList);
     }
   };
 
-  // Audio event handlers
+  // Update points list
+  const updatePoints = () => {
+    if (peaks) {
+      const pointsList = peaks.points.getPoints();
+      setPoints(pointsList);
+    }
+  };
+
+  // Zoom controls
+  const zoomIn = () => {
+    if (peaks) {
+      peaks.zoom.zoomIn();
+    }
+  };
+
+  const zoomOut = () => {
+    if (peaks) {
+      peaks.zoom.zoomOut();
+    }
+  };
+
+  // Add segment at current time
+  const addSegment = () => {
+    if (peaks) {
+      const time = peaks.player.getCurrentTime();
+      
+      peaks.segments.add({
+        startTime: time,
+        endTime: time + 10,
+        labelText: `Segment ${segments.length + 1}`,
+        editable: true,
+        color: '#ff6b6b'
+      });
+    }
+  };
+
+  // Add point at current time
+  const addPoint = () => {
+    if (peaks) {
+      const time = peaks.player.getCurrentTime();
+      
+      peaks.points.add({
+        time: time,
+        labelText: `Point ${points.length + 1}`,
+        editable: true,
+        color: '#4ecdc4'
+      });
+    }
+  };
+
+  // Clear all markers
+  const clearMarkers = () => {
+    if (peaks) {
+      peaks.segments.removeAll();
+      peaks.points.removeAll();
+    }
+  };
+
+  // Reset to load new file
+  const resetVisualizer = () => {
+    if (peaks) {
+      peaks.destroy();
+      setPeaks(null);
+    }
+    setAudioFile(null);
+    setSegments([]);
+    setPoints([]);
+    setError('');
+    setIsGeneratingWaveform(false);
+    setWaveformProgress(0);
+  };
+
+  // Cleanup on unmount
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleLoadedMetadata = () => setDuration(audio.duration);
-    const handleEnded = () => setIsPlaying(false);
-
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
-
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
-    };
-  }, [audioUrl]);
-
-  // Draw waveform when data changes
-  useEffect(() => {
-    drawWaveform();
-  }, [waveformData, currentTime, colors]);
-
-  // Animation loop
-  useEffect(() => {
-    const animate = () => {
-      drawWaveform();
-      animationRef.current = requestAnimationFrame(animate);
-    };
-    animationRef.current = requestAnimationFrame(animate);
-    
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+      if (peaks) {
+        try {
+          peaks.destroy();
+        } catch (err) {
+          console.warn('Error destroying peaks instance:', err);
+        }
       }
     };
-  }, [waveformData, currentTime, colors]);
+  }, [peaks]);
 
-  // Control functions
-  const togglePlayPause = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      audio.play();
-    }
-    setIsPlaying(!isPlaying);
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSeek = (e) => {
-    const audio = audioRef.current;
-    if (!audio || !duration) return;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percentage = x / rect.width;
-    const newTime = percentage * duration;
-    
-    audio.currentTime = newTime;
-    setCurrentTime(newTime);
-  };
-
-  const handleVolumeChange = (e) => {
-    const newVolume = parseFloat(e.target.value);
-    setVolume(newVolume);
-    if (audioRef.current) {
-      audioRef.current.volume = newVolume;
-    }
-  };
-
-  const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
+  // Show loading while component initializes on client
+  if (!isClient) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.loading}>
+          <div className={styles.spinner}></div>
+          <p>Loading waveform visualizer...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className={styles.title}>Waveform Visualizer</h1>
-        <p className={styles.subtitle}>Drop an audio file to visualize its waveform</p>
+        <h1>Peaks.js Waveform Visualizer</h1>
+        <p>Professional waveform visualization with zoom, segments, and points</p>
       </div>
 
-      {!audioFile ? (
-        <div className={styles.uploadSection}>
-          <FileDrop onFilesSelected={handleFilesSelected} />
-          {error && <div className={styles.error}>{error}</div>}
-        </div>
-      ) : (
-        <div className={styles.playerSection}>
-          {isLoading && (
-            <div className={styles.loading}>
-              <div className={styles.spinner}></div>
-              <p>Loading waveform...</p>
-            </div>
-          )}
+      {!audioFile && (
+        <FileDrop
+          onFilesSelected={handleFilesSelected}
+          accept="audio/*"
+          maxFiles={1}
+        />
+      )}
 
-          {waveformData && (
-            <div className={styles.waveformContainer}>
-              <canvas
-                ref={canvasRef}
-                className={styles.waveformCanvas}
-                width={800}
-                height={200}
-                onClick={handleSeek}
-              />
-            </div>
-          )}
-
-          <div className={styles.controls}>
-            <button
-              className={styles.playButton}
-              onClick={togglePlayPause}
-              disabled={!audioUrl}
-            >
-              {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-            </button>
-
-            <div className={styles.timeDisplay}>
-              <span>{formatTime(currentTime)}</span>
-              <span>/</span>
-              <span>{formatTime(duration)}</span>
-            </div>
-
-            <div className={styles.volumeControl}>
-              <Volume2 size={20} />
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={volume}
-                onChange={handleVolumeChange}
-                className={styles.volumeSlider}
-              />
-            </div>
-          </div>
-
-          <div className={styles.fileInfo}>
-            <h3>Current File: {audioFile.name}</h3>
-            <p>Duration: {formatTime(duration)}</p>
-            <p>Size: {(audioFile.size / 1024 / 1024).toFixed(2)} MB</p>
-          </div>
-
-          <button
-            className={styles.resetButton}
-            onClick={() => {
-              setAudioFile(null);
-              setAudioUrl(null);
-              setWaveformData(null);
-              setCurrentTime(0);
-              setDuration(0);
-              setIsPlaying(false);
-              setError(null);
-            }}
-          >
-            Load Different File
-          </button>
+      {isLoading && (
+        <div className={styles.loading}>
+          <div className={styles.spinner}></div>
+          <p>Loading audio file...</p>
         </div>
       )}
 
-      {audioUrl && (
-        <audio
-          ref={audioRef}
-          src={audioUrl}
-          preload="metadata"
-          style={{ display: 'none' }}
-        />
+      {isGeneratingWaveform && (
+        <div className={styles.waveformLoading}>
+          <div className={styles.waveformSpinner}></div>
+          <p>Generating waveform data...</p>
+          <div className={styles.progressContainer}>
+            <div className={styles.progressBar}>
+              <div 
+                className={styles.progressFill} 
+                style={{ width: `${waveformProgress}%` }}
+              ></div>
+            </div>
+            <div className={styles.progressText}>
+              {Math.round(waveformProgress)}%
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className={styles.error}>
+          <p>{error}</p>
+        </div>
+      )}
+
+      {audioFile && (
+        <>
+          <div className={styles.audioInfo}>
+            <p><strong>File:</strong> {audioFile.name}</p>
+            <p><strong>Segments:</strong> {segments.length}</p>
+            <p><strong>Points:</strong> {points.length}</p>
+          </div>
+
+          <div className={styles.waveformContainer}>
+            {/* Zoom View Container */}
+            <div 
+              className={styles.zoomviewContainer} 
+              ref={zoomviewContainerRef}
+            >
+              {isGeneratingWaveform && (
+                <div className={styles.containerLoading}>
+                  <div className={styles.containerSpinner}></div>
+                  <p>Rendering waveform...</p>
+                </div>
+              )}
+            </div>
+            
+            {/* Overview Container */}
+            <div 
+              className={styles.overviewContainer} 
+              ref={overviewContainerRef}
+            >
+              {isGeneratingWaveform && (
+                <div className={styles.containerLoading}>
+                  <div className={styles.containerSpinner}></div>
+                  <p>Rendering overview...</p>
+                </div>
+              )}
+            </div>
+            
+            {/* Audio Element */}
+            <audio 
+              ref={audioElementRef} 
+              controls 
+              className={styles.audioElement}
+            >
+              Your browser does not support the audio element.
+            </audio>
+          </div>
+
+          <div className={styles.controls}>
+            <button onClick={zoomIn} className={styles.controlButton}>
+              Zoom In
+            </button>
+            <button onClick={zoomOut} className={styles.controlButton}>
+              Zoom Out
+            </button>
+            <button onClick={addSegment} className={styles.controlButton}>
+              Add Segment
+            </button>
+            <button onClick={addPoint} className={styles.controlButton}>
+              Add Point
+            </button>
+            <button onClick={clearMarkers} className={styles.controlButton}>
+              Clear All
+            </button>
+            <button onClick={resetVisualizer} className={styles.resetButton}>
+              Load New File
+            </button>
+          </div>
+
+          {/* Segments Table */}
+          {segments.length > 0 && (
+            <div className={styles.markersSection}>
+              <h3>Segments</h3>
+              <div className={styles.tableContainer}>
+                <table className={styles.markersTable}>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Start Time</th>
+                      <th>End Time</th>
+                      <th>Duration</th>
+                      <th>Label</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {segments.map((segment) => (
+                      <tr key={segment.id}>
+                        <td>{segment.id}</td>
+                        <td>{formatTime(segment.startTime)}</td>
+                        <td>{formatTime(segment.endTime)}</td>
+                        <td>{formatTime(segment.endTime - segment.startTime)}</td>
+                        <td>{segment.labelText}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Points Table */}
+          {points.length > 0 && (
+            <div className={styles.markersSection}>
+              <h3>Points</h3>
+              <div className={styles.tableContainer}>
+                <table className={styles.markersTable}>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Time</th>
+                      <th>Label</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {points.map((point) => (
+                      <tr key={point.id}>
+                        <td>{point.id}</td>
+                        <td>{formatTime(point.time)}</td>
+                        <td>{point.labelText}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
