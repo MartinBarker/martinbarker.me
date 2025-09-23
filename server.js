@@ -360,7 +360,7 @@ app.get('/listogs/youtube/callback', async (req, res) => {
     const redirectUrl = isDev ? 'http://localhost:3001/listogs' : 'https://martinbarker.me/listogs';
     res.redirect(redirectUrl);
   } catch (error) {
-    console.error('\nError during YouTube authentication:', error.message);
+    logger.error('Error during YouTube authentication:', error.message);
     res.status(500).send('Authentication failed.');
   }
 });
@@ -398,18 +398,18 @@ app.get('/generateURL', (req, res) => {
     }
     res.status(200).json({ url: signInUrl });
   } catch (error) {
-    console.error('Error generating sign-in URL:', error.message);
+    logger.error('Error generating sign-in URL:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 // Route to handle Discogs search
 app.post('/discogsAuth', async (req, res) => {
-  console.log("🎶 [POST /discogsAuth] Hit", req.body);
+  logger.info("🎶 [POST /discogsAuth] Hit", req.body);
   const { query } = req.body;
 
   if (!query) {
-    console.error("❌ No query provided in the request body.");
+    logger.error("❌ No query provided in the request body.");
     return res.status(400).json({ error: 'No query provided.' });
   }
 
@@ -801,7 +801,7 @@ const DISCOGS_AUTHORIZE_URL = 'https://discogs.com/oauth/authorize';
 // Function to make a single Discogs API request
 async function fetchDiscogsData(type, id) {
   try {
-    console.log(`🔍 [fetchDiscogsData] Starting fetch for type=${type}, id=${id}`);
+    logger.debug(`🔍 [fetchDiscogsData] Starting fetch for type=${type}, id=${id}`);
     
     let url = '';
     if (type === 'label') {
@@ -816,51 +816,51 @@ async function fetchDiscogsData(type, id) {
       url = `${DISCOGS_API_URL}/masters/${id}`;
     } else {
       const errorMsg = `Invalid type provided: ${type}. Valid types are: label, artist, list, release, master`;
-      console.error(`❌ [fetchDiscogsData] ${errorMsg}`);
+      logger.error(`❌ [fetchDiscogsData] ${errorMsg}`);
       throw new Error(errorMsg);
     }
 
-    console.log(`🌐 [fetchDiscogsData] Making request to URL: ${url}`);
-    console.log(`📋 [fetchDiscogsData] Request headers:`, { 'User-Agent': USER_AGENT });
+    logger.debug(`🌐 [fetchDiscogsData] Making request to URL: ${url}`);
+    logger.debug(`📋 [fetchDiscogsData] Request headers:`, { 'User-Agent': USER_AGENT });
     
     const response = await axios.get(url, {
       headers: { 'User-Agent': USER_AGENT },
       timeout: 30000, // 30 second timeout
     });
 
-    console.log(`📊 [fetchDiscogsData] Response status: ${response.status}`);
-    console.log(`📊 [fetchDiscogsData] Response headers:`, response.headers);
-    console.log(`📊 [fetchDiscogsData] Response data keys:`, Object.keys(response.data || {}));
+    logger.debug(`📊 [fetchDiscogsData] Response status: ${response.status}`);
+    logger.debug(`📊 [fetchDiscogsData] Response headers:`, response.headers);
+    logger.debug(`📊 [fetchDiscogsData] Response data keys:`, Object.keys(response.data || {}));
 
     // For release/master, return full JSON
     if (type === 'release' || type === 'master') {
-      console.log(`✅ [fetchDiscogsData] Returning full data for ${type}`);
+      logger.debug(`✅ [fetchDiscogsData] Returning full data for ${type}`);
       return response.data;
     }
     
     // Return only the first item from the response for other types
     if (response.data.releases && response.data.releases.length > 0) {
-      console.log(`✅ [fetchDiscogsData] Found ${response.data.releases.length} releases, returning first one`);
+      logger.debug(`✅ [fetchDiscogsData] Found ${response.data.releases.length} releases, returning first one`);
       return response.data.releases[0];
     } else if (response.data.items && response.data.items.length > 0) {
-      console.log(`✅ [fetchDiscogsData] Found ${response.data.items.length} items, returning first one`);
+      logger.debug(`✅ [fetchDiscogsData] Found ${response.data.items.length} items, returning first one`);
       return response.data.items[0];
     } else {
-      console.log(`⚠️ [fetchDiscogsData] No items found in response`);
+      logger.warn(`⚠️ [fetchDiscogsData] No items found in response`);
       return { message: 'No items found.' };
     }
   } catch (error) {
-    console.error(`❌ [fetchDiscogsData] Detailed error information:`);
-    console.error(`   - Error type: ${error.constructor.name}`);
-    console.error(`   - Error message: ${error.message}`);
-    console.error(`   - Error code: ${error.code || 'N/A'}`);
-    console.error(`   - Error status: ${error.response?.status || 'N/A'}`);
-    console.error(`   - Error statusText: ${error.response?.statusText || 'N/A'}`);
-    console.error(`   - Request URL: ${error.config?.url || 'N/A'}`);
-    console.error(`   - Request method: ${error.config?.method || 'N/A'}`);
-    console.error(`   - Request headers:`, error.config?.headers || 'N/A');
-    console.error(`   - Response data:`, error.response?.data || 'N/A');
-    console.error(`   - Stack trace:`, error.stack);
+    logger.error(`❌ [fetchDiscogsData] Detailed error information:`);
+    logger.error(`   - Error type: ${error.constructor.name}`);
+    logger.error(`   - Error message: ${error.message}`);
+    logger.error(`   - Error code: ${error.code || 'N/A'}`);
+    logger.error(`   - Error status: ${error.response?.status || 'N/A'}`);
+    logger.error(`   - Error statusText: ${error.response?.statusText || 'N/A'}`);
+    logger.error(`   - Request URL: ${error.config?.url || 'N/A'}`);
+    logger.error(`   - Request method: ${error.config?.method || 'N/A'}`);
+    logger.error(`   - Request headers:`, error.config?.headers || 'N/A');
+    logger.error(`   - Response data:`, error.response?.data || 'N/A');
+    logger.error(`   - Stack trace:`, error.stack);
     
     // Create a more detailed error message
     let detailedMessage = `Failed to fetch Discogs data for ${type}/${id}`;
@@ -975,7 +975,7 @@ async function fetchVideoIds(releaseId) {
 // Route to handle Discogs API requests
 app.post('/discogsFetch', async (req, res) => {
   const requestId = Math.random().toString(36).substr(2, 9);
-  console.log(`📡 [POST /discogsFetch] Request ${requestId} started`, {
+  logger.info(`📡 [POST /discogsFetch] Request ${requestId} started`, {
     body: req.body,
     headers: req.headers,
     ip: req.ip,
@@ -987,7 +987,7 @@ app.post('/discogsFetch', async (req, res) => {
   // Validate input parameters
   if (!type || !id) {
     const errorMsg = `Missing required parameters. Received: type=${type}, id=${id}`;
-    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    logger.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
     return res.status(400).json({ 
       error: 'Type and ID are required.',
       details: errorMsg,
@@ -1000,7 +1000,7 @@ app.post('/discogsFetch', async (req, res) => {
   const validTypes = ['label', 'artist', 'list', 'release', 'master'];
   if (!validTypes.includes(type)) {
     const errorMsg = `Invalid type '${type}'. Valid types are: ${validTypes.join(', ')}`;
-    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    logger.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
     return res.status(400).json({ 
       error: 'Invalid type parameter.',
       details: errorMsg,
@@ -1012,9 +1012,9 @@ app.post('/discogsFetch', async (req, res) => {
   // Check if secrets are initialized
   if (!secretsInitialized) {
     const errorMsg = 'Server secrets not initialized. AWS secrets may not be loaded.';
-    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
-    console.error(`   - secretsInitialized: ${secretsInitialized}`);
-    console.error(`   - secretsLastRefresh: ${secretsLastRefresh}`);
+    logger.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    logger.error(`   - secretsInitialized: ${secretsInitialized}`);
+    logger.error(`   - secretsLastRefresh: ${secretsLastRefresh}`);
     return res.status(503).json({ 
       error: 'Server not ready. Secrets not initialized.',
       details: errorMsg,
@@ -1029,11 +1029,11 @@ app.post('/discogsFetch', async (req, res) => {
   // Check if Discogs credentials are available
   if (!discogsConsumerKey || !discogsConsumerSecret) {
     const errorMsg = 'Discogs API credentials not available. Check AWS Secrets Manager configuration.';
-    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
-    console.error(`   - discogsConsumerKey exists: ${!!discogsConsumerKey}`);
-    console.error(`   - discogsConsumerSecret exists: ${!!discogsConsumerSecret}`);
-    console.error(`   - discogsConsumerKey length: ${discogsConsumerKey?.length || 0}`);
-    console.error(`   - discogsConsumerSecret length: ${discogsConsumerSecret?.length || 0}`);
+    logger.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    logger.error(`   - discogsConsumerKey exists: ${!!discogsConsumerKey}`);
+    logger.error(`   - discogsConsumerSecret exists: ${!!discogsConsumerSecret}`);
+    logger.error(`   - discogsConsumerKey length: ${discogsConsumerKey?.length || 0}`);
+    logger.error(`   - discogsConsumerSecret length: ${discogsConsumerSecret?.length || 0}`);
     return res.status(500).json({ 
       error: 'Discogs credentials not configured.',
       details: errorMsg,
@@ -1048,8 +1048,8 @@ app.post('/discogsFetch', async (req, res) => {
   }
 
   try {
-    console.log(`🔍 [POST /discogsFetch] Request ${requestId} - Starting fetchDiscogsData for type=${type}, id=${id}`);
-    console.log(`📋 [POST /discogsFetch] Request ${requestId} - Environment:`, {
+    logger.info(`🔍 [POST /discogsFetch] Request ${requestId} - Starting fetchDiscogsData for type=${type}, id=${id}`);
+    logger.debug(`📋 [POST /discogsFetch] Request ${requestId} - Environment:`, {
       NODE_ENV: process.env.NODE_ENV,
       DISCOGS_API_URL: DISCOGS_API_URL,
       USER_AGENT: USER_AGENT
@@ -1059,11 +1059,11 @@ app.post('/discogsFetch', async (req, res) => {
     const data = await fetchDiscogsData(type, id);
     const duration = Date.now() - startTime;
     
-    console.log(`✅ [POST /discogsFetch] Request ${requestId} - Success in ${duration}ms`);
+    logger.info(`✅ [POST /discogsFetch] Request ${requestId} - Success in ${duration}ms`);
     
     // Log response summary
     if (data && data.id) {
-      console.log(`📊 [POST /discogsFetch] Request ${requestId} - Response summary:`, {
+      logger.info(`📊 [POST /discogsFetch] Request ${requestId} - Response summary:`, {
         type,
         id,
         responseId: data.id,
@@ -1073,14 +1073,14 @@ app.post('/discogsFetch', async (req, res) => {
         duration: `${duration}ms`
       });
     } else if (data && data.message) {
-      console.log(`📊 [POST /discogsFetch] Request ${requestId} - Response message:`, {
+      logger.info(`📊 [POST /discogsFetch] Request ${requestId} - Response message:`, {
         type,
         id,
         message: data.message,
         duration: `${duration}ms`
       });
     } else {
-      console.log(`📊 [POST /discogsFetch] Request ${requestId} - Response received:`, {
+      logger.info(`📊 [POST /discogsFetch] Request ${requestId} - Response received:`, {
         type,
         id,
         responseType: typeof data,
@@ -1092,15 +1092,15 @@ app.post('/discogsFetch', async (req, res) => {
   } catch (error) {
     const duration = Date.now() - Date.now(); // This will be 0, but shows the pattern
     
-    console.error(`❌ [POST /discogsFetch] Request ${requestId} - Detailed error information:`);
-    console.error(`   - Request parameters: type=${type}, id=${id}`);
-    console.error(`   - Error type: ${error.constructor.name}`);
-    console.error(`   - Error message: ${error.message}`);
-    console.error(`   - Error code: ${error.code || 'N/A'}`);
-    console.error(`   - Error status: ${error.statusCode || error.response?.status || 'N/A'}`);
-    console.error(`   - Request URL: ${error.url || error.config?.url || 'N/A'}`);
-    console.error(`   - Stack trace:`, error.stack);
-    console.error(`   - Original error:`, error.originalError?.message || 'N/A');
+    logger.error(`❌ [POST /discogsFetch] Request ${requestId} - Detailed error information:`);
+    logger.error(`   - Request parameters: type=${type}, id=${id}`);
+    logger.error(`   - Error type: ${error.constructor.name}`);
+    logger.error(`   - Error message: ${error.message}`);
+    logger.error(`   - Error code: ${error.code || 'N/A'}`);
+    logger.error(`   - Error status: ${error.statusCode || error.response?.status || 'N/A'}`);
+    logger.error(`   - Request URL: ${error.url || error.config?.url || 'N/A'}`);
+    logger.error(`   - Stack trace:`, error.stack);
+    logger.error(`   - Original error:`, error.originalError?.message || 'N/A');
     
     // Create comprehensive error response
     const errorResponse = {
@@ -1585,15 +1585,16 @@ server.listen(port, async () => {
     await initializeSecrets();
     await initializeOAuth();
     if (loadTokens()) {
-      console.log('Using existing tokens for authentication.');
+      logger.info('Using existing tokens for authentication.');
     } else {
-      console.log('No tokens found. Please visit the sign-in URL to authenticate.');
+      logger.info('No tokens found. Please visit the sign-in URL to authenticate.');
     }
-    console.log(`Server is running on port ${port}`);
+    logger.info(`🚀 Server is running on port ${port}`);
+    logger.info(`📊 Server ready to accept connections`);
   } catch (error) {
-    console.error("Failed to initialize server components:", error);
-    console.error("Server will continue running with limited functionality.");
-    console.log(`Server is running on port ${port} (with initialization errors)`);
+    logger.error("Failed to initialize server components:", error);
+    logger.error("Server will continue running with limited functionality.");
+    logger.warn(`Server is running on port ${port} (with initialization errors)`);
   }
 });
 
@@ -2135,7 +2136,7 @@ app.get('/internal-api/youtube/callback', async (req, res) => {
 
 // Get YouTube authentication status
 app.get('/youtube/authStatus', (req, res) => {
-  console.log("🔍 [GET /youtube/authStatus] Hit");
+  logger.info("🔍 [GET /youtube/authStatus] Hit");
   
   const youtubeAuth = req.session?.youtubeAuth;
   const isAuthenticated = youtubeAuth?.isAuthenticated || false;
@@ -2161,7 +2162,7 @@ app.get('/youtube/authStatus', (req, res) => {
 
 // Get YouTube authentication status (production route)
 app.get('/internal-api/youtube/authStatus', (req, res) => {
-  console.log("🔍 [GET /internal-api/youtube/authStatus] Hit");
+  logger.info("🔍 [GET /internal-api/youtube/authStatus] Hit");
   
   const youtubeAuth = req.session?.youtubeAuth;
   const isAuthenticated = youtubeAuth?.isAuthenticated || false;
@@ -2187,7 +2188,7 @@ app.get('/internal-api/youtube/authStatus', (req, res) => {
 
 // Clear YouTube authentication
 app.post('/youtube/clearAuth', (req, res) => {
-  console.log("🧹 [POST /youtube/clearAuth] Hit");
+  logger.info("🧹 [POST /youtube/clearAuth] Hit");
   
   try {
     // Clear session data
@@ -2238,7 +2239,7 @@ app.post('/internal-api/youtube/clearAuth', (req, res) => {
 // Exchange auth code for tokens
 app.post('/youtube/exchangeCode', (req, res) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log("🔄 [POST /youtube/exchangeCode] Hit");
+    logger.info("🔄 [POST /youtube/exchangeCode] Hit");
   }
   
   try {
@@ -2330,7 +2331,7 @@ app.post('/internal-api/youtube/exchangeCode', (req, res) => {
 // Create YouTube playlist
 app.post('/youtube/createPlaylist', (req, res) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log("🎵 [POST /youtube/createPlaylist] Hit");
+    logger.info("🎵 [POST /youtube/createPlaylist] Hit");
   }
   
   try {
