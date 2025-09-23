@@ -768,6 +768,8 @@ const DISCOGS_AUTHORIZE_URL = 'https://discogs.com/oauth/authorize';
 // Function to make a single Discogs API request
 async function fetchDiscogsData(type, id) {
   try {
+    console.log(`🔍 [fetchDiscogsData] Starting fetch for type=${type}, id=${id}`);
+    
     let url = '';
     if (type === 'label') {
       url = `${DISCOGS_API_URL}/labels/${id}/releases`;
@@ -780,29 +782,84 @@ async function fetchDiscogsData(type, id) {
     } else if (type === 'master') {
       url = `${DISCOGS_API_URL}/masters/${id}`;
     } else {
-      throw new Error('Invalid type provided.');
+      const errorMsg = `Invalid type provided: ${type}. Valid types are: label, artist, list, release, master`;
+      console.error(`❌ [fetchDiscogsData] ${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
-    console.log(`Fetching Discogs data from URL: ${url}`);
+    console.log(`🌐 [fetchDiscogsData] Making request to URL: ${url}`);
+    console.log(`📋 [fetchDiscogsData] Request headers:`, { 'User-Agent': USER_AGENT });
+    
     const response = await axios.get(url, {
       headers: { 'User-Agent': USER_AGENT },
+      timeout: 30000, // 30 second timeout
     });
+
+    console.log(`📊 [fetchDiscogsData] Response status: ${response.status}`);
+    console.log(`📊 [fetchDiscogsData] Response headers:`, response.headers);
+    console.log(`📊 [fetchDiscogsData] Response data keys:`, Object.keys(response.data || {}));
 
     // For release/master, return full JSON
     if (type === 'release' || type === 'master') {
+      console.log(`✅ [fetchDiscogsData] Returning full data for ${type}`);
       return response.data;
     }
+    
     // Return only the first item from the response for other types
     if (response.data.releases && response.data.releases.length > 0) {
+      console.log(`✅ [fetchDiscogsData] Found ${response.data.releases.length} releases, returning first one`);
       return response.data.releases[0];
     } else if (response.data.items && response.data.items.length > 0) {
+      console.log(`✅ [fetchDiscogsData] Found ${response.data.items.length} items, returning first one`);
       return response.data.items[0];
     } else {
+      console.log(`⚠️ [fetchDiscogsData] No items found in response`);
       return { message: 'No items found.' };
     }
   } catch (error) {
-    console.error('Error fetching Discogs data:', error.message);
-    throw error;
+    console.error(`❌ [fetchDiscogsData] Detailed error information:`);
+    console.error(`   - Error type: ${error.constructor.name}`);
+    console.error(`   - Error message: ${error.message}`);
+    console.error(`   - Error code: ${error.code || 'N/A'}`);
+    console.error(`   - Error status: ${error.response?.status || 'N/A'}`);
+    console.error(`   - Error statusText: ${error.response?.statusText || 'N/A'}`);
+    console.error(`   - Request URL: ${error.config?.url || 'N/A'}`);
+    console.error(`   - Request method: ${error.config?.method || 'N/A'}`);
+    console.error(`   - Request headers:`, error.config?.headers || 'N/A');
+    console.error(`   - Response data:`, error.response?.data || 'N/A');
+    console.error(`   - Stack trace:`, error.stack);
+    
+    // Create a more detailed error message
+    let detailedMessage = `Failed to fetch Discogs data for ${type}/${id}`;
+    
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      detailedMessage += ` - Network connection failed. Check internet connectivity and Discogs API availability.`;
+    } else if (error.code === 'ETIMEDOUT') {
+      detailedMessage += ` - Request timed out after 30 seconds. Discogs API may be slow or unavailable.`;
+    } else if (error.response?.status === 401) {
+      detailedMessage += ` - Authentication failed. Check Discogs API credentials.`;
+    } else if (error.response?.status === 403) {
+      detailedMessage += ` - Access forbidden. Check Discogs API permissions.`;
+    } else if (error.response?.status === 404) {
+      detailedMessage += ` - Resource not found. The ${type} with ID ${id} may not exist.`;
+    } else if (error.response?.status === 429) {
+      detailedMessage += ` - Rate limit exceeded. Too many requests to Discogs API.`;
+    } else if (error.response?.status >= 500) {
+      detailedMessage += ` - Discogs API server error (${error.response.status}). Try again later.`;
+    } else if (error.response?.status >= 400) {
+      detailedMessage += ` - Client error (${error.response.status}). Check request parameters.`;
+    } else {
+      detailedMessage += ` - ${error.message}`;
+    }
+    
+    const enhancedError = new Error(detailedMessage);
+    enhancedError.originalError = error;
+    enhancedError.type = type;
+    enhancedError.id = id;
+    enhancedError.url = error.config?.url;
+    enhancedError.statusCode = error.response?.status;
+    
+    throw enhancedError;
   }
 }
 
@@ -884,54 +941,156 @@ async function fetchVideoIds(releaseId) {
 
 // Route to handle Discogs API requests
 app.post('/discogsFetch', async (req, res) => {
-  console.log("📡 [POST /discogsFetch] Hit", req.body);
+  const requestId = Math.random().toString(36).substr(2, 9);
+  console.log(`📡 [POST /discogsFetch] Request ${requestId} started`, {
+    body: req.body,
+    headers: req.headers,
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+  
   const { type, id } = req.body;
 
+  // Validate input parameters
   if (!type || !id) {
-    console.error("❌ [POST /discogsFetch] Missing type or id:", { type, id });
-    return res.status(400).json({ error: 'Type and ID are required.' });
+    const errorMsg = `Missing required parameters. Received: type=${type}, id=${id}`;
+    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    return res.status(400).json({ 
+      error: 'Type and ID are required.',
+      details: errorMsg,
+      requestId,
+      received: { type, id }
+    });
+  }
+
+  // Validate type parameter
+  const validTypes = ['label', 'artist', 'list', 'release', 'master'];
+  if (!validTypes.includes(type)) {
+    const errorMsg = `Invalid type '${type}'. Valid types are: ${validTypes.join(', ')}`;
+    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    return res.status(400).json({ 
+      error: 'Invalid type parameter.',
+      details: errorMsg,
+      requestId,
+      validTypes
+    });
   }
 
   // Check if secrets are initialized
   if (!secretsInitialized) {
-    console.error("❌ [POST /discogsFetch] Secrets not initialized");
-    return res.status(503).json({ error: 'Server not ready. Secrets not initialized.' });
+    const errorMsg = 'Server secrets not initialized. AWS secrets may not be loaded.';
+    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    console.error(`   - secretsInitialized: ${secretsInitialized}`);
+    console.error(`   - secretsLastRefresh: ${secretsLastRefresh}`);
+    return res.status(503).json({ 
+      error: 'Server not ready. Secrets not initialized.',
+      details: errorMsg,
+      requestId,
+      secretsStatus: {
+        initialized: secretsInitialized,
+        lastRefresh: secretsLastRefresh
+      }
+    });
   }
 
   // Check if Discogs credentials are available
   if (!discogsConsumerKey || !discogsConsumerSecret) {
-    console.error("❌ [POST /discogsFetch] Discogs credentials not available:", {
-      hasKey: !!discogsConsumerKey,
-      hasSecret: !!discogsConsumerSecret
+    const errorMsg = 'Discogs API credentials not available. Check AWS Secrets Manager configuration.';
+    console.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
+    console.error(`   - discogsConsumerKey exists: ${!!discogsConsumerKey}`);
+    console.error(`   - discogsConsumerSecret exists: ${!!discogsConsumerSecret}`);
+    console.error(`   - discogsConsumerKey length: ${discogsConsumerKey?.length || 0}`);
+    console.error(`   - discogsConsumerSecret length: ${discogsConsumerSecret?.length || 0}`);
+    return res.status(500).json({ 
+      error: 'Discogs credentials not configured.',
+      details: errorMsg,
+      requestId,
+      credentialsStatus: {
+        hasKey: !!discogsConsumerKey,
+        hasSecret: !!discogsConsumerSecret,
+        keyLength: discogsConsumerKey?.length || 0,
+        secretLength: discogsConsumerSecret?.length || 0
+      }
     });
-    return res.status(500).json({ error: 'Discogs credentials not configured.' });
   }
 
   try {
-    console.log(`🔍 [POST /discogsFetch] Fetching data for type=${type}, id=${id}`);
+    console.log(`🔍 [POST /discogsFetch] Request ${requestId} - Starting fetchDiscogsData for type=${type}, id=${id}`);
+    console.log(`📋 [POST /discogsFetch] Request ${requestId} - Environment:`, {
+      NODE_ENV: process.env.NODE_ENV,
+      DISCOGS_API_URL: DISCOGS_API_URL,
+      USER_AGENT: USER_AGENT
+    });
+    
+    const startTime = Date.now();
     const data = await fetchDiscogsData(type, id);
-    // Only log a summary, not the full response
+    const duration = Date.now() - startTime;
+    
+    console.log(`✅ [POST /discogsFetch] Request ${requestId} - Success in ${duration}ms`);
+    
+    // Log response summary
     if (data && data.id) {
-      console.log(`✅ [POST /discogsFetch] Success: type=${type}, id=${id}, response.id=${data.id}`);
+      console.log(`📊 [POST /discogsFetch] Request ${requestId} - Response summary:`, {
+        type,
+        id,
+        responseId: data.id,
+        responseType: typeof data,
+        hasTracklist: !!(data.tracklist && data.tracklist.length > 0),
+        trackCount: data.tracklist?.length || 0,
+        duration: `${duration}ms`
+      });
     } else if (data && data.message) {
-      console.log(`✅ [POST /discogsFetch] Success: type=${type}, id=${id}, message=${data.message}`);
+      console.log(`📊 [POST /discogsFetch] Request ${requestId} - Response message:`, {
+        type,
+        id,
+        message: data.message,
+        duration: `${duration}ms`
+      });
     } else {
-      console.log(`✅ [POST /discogsFetch] Success: type=${type}, id=${id}, response received.`);
+      console.log(`📊 [POST /discogsFetch] Request ${requestId} - Response received:`, {
+        type,
+        id,
+        responseType: typeof data,
+        duration: `${duration}ms`
+      });
     }
+    
     res.status(200).json(data);
   } catch (error) {
-    console.error(`❌ [POST /discogsFetch] Error:`, {
-      type,
-      id,
-      error: error.message,
-      stack: error.stack
-    });
-    res.status(500).json({ 
+    const duration = Date.now() - Date.now(); // This will be 0, but shows the pattern
+    
+    console.error(`❌ [POST /discogsFetch] Request ${requestId} - Detailed error information:`);
+    console.error(`   - Request parameters: type=${type}, id=${id}`);
+    console.error(`   - Error type: ${error.constructor.name}`);
+    console.error(`   - Error message: ${error.message}`);
+    console.error(`   - Error code: ${error.code || 'N/A'}`);
+    console.error(`   - Error status: ${error.statusCode || error.response?.status || 'N/A'}`);
+    console.error(`   - Request URL: ${error.url || error.config?.url || 'N/A'}`);
+    console.error(`   - Stack trace:`, error.stack);
+    console.error(`   - Original error:`, error.originalError?.message || 'N/A');
+    
+    // Create comprehensive error response
+    const errorResponse = {
       error: 'Failed to fetch data from Discogs.',
       details: error.message,
-      type,
-      id
-    });
+      requestId,
+      request: { type, id },
+      errorInfo: {
+        type: error.constructor.name,
+        code: error.code || null,
+        statusCode: error.statusCode || error.response?.status || null,
+        url: error.url || error.config?.url || null,
+        originalMessage: error.originalError?.message || null
+      },
+      timestamp: new Date().toISOString(),
+      serverInfo: {
+        nodeEnv: process.env.NODE_ENV,
+        secretsInitialized,
+        hasDiscogsCredentials: !!(discogsConsumerKey && discogsConsumerSecret)
+      }
+    };
+    
+    res.status(500).json(errorResponse);
   }
 });
 
