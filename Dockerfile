@@ -44,5 +44,8 @@ COPY supervisord.conf /etc/supervisord.conf
 # Expose ports
 EXPOSE 80 3001 3030
 
+# Create log directory
+RUN mkdir -p /var/log
+
 # Command to run supervisord
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

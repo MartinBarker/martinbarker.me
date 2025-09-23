@@ -27,7 +27,39 @@ const { Vibrant } = require('node-vibrant/node');
 
 // --- Determine if we are in dev or production environment ---
 var isDev = process.env.NODE_ENV === 'development' ? true : false;
-console.log('isDev = ', isDev);
+
+// Enhanced logging configuration for production
+const logLevel = process.env.LOG_LEVEL || (isDev ? 'debug' : 'info');
+
+// Custom logger function for consistent logging
+const logger = {
+  info: (...args) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [INFO]`, ...args);
+  },
+  error: (...args) => {
+    const timestamp = new Date().toISOString();
+    console.error(`[${timestamp}] [ERROR]`, ...args);
+  },
+  warn: (...args) => {
+    const timestamp = new Date().toISOString();
+    console.warn(`[${timestamp}] [WARN]`, ...args);
+  },
+  debug: (...args) => {
+    if (logLevel === 'debug' || isDev) {
+      const timestamp = new Date().toISOString();
+      console.log(`[${timestamp}] [DEBUG]`, ...args);
+    }
+  }
+};
+
+// Log startup information
+logger.info('🚀 Server starting...');
+logger.info(`Environment: ${isDev ? 'development' : 'production'}`);
+logger.info(`Log Level: ${logLevel}`);
+logger.info(`Node Version: ${process.version}`);
+logger.info(`Platform: ${process.platform}`);
+logger.info(`Memory Usage: ${JSON.stringify(process.memoryUsage())}`);
 /*
 Difference between dev and prod:
   In dev we can access api route directly on port 3030 such as 'http://localhost:3030/listogs/discogs/getURL'
@@ -271,14 +303,14 @@ function saveTokens(tokens) {
 
 // Handle OAuth2 callback
 app.get('/oauth2callback', (req, res) => {
-  console.log("🔑 [GET /oauth2callback] Hit:", req.originalUrl);
-  console.log('\nFull URL received:', req.protocol + '://' + req.get('host') + req.originalUrl); // Print full URL
+  logger.info("🔑 [GET /oauth2callback] Hit:", req.originalUrl);
+  logger.info('Full URL received:', req.protocol + '://' + req.get('host') + req.originalUrl);
 
   const { code } = req.query;
   if (code) {
     oauth2Client.getToken(code, (err, tokens) => {
       if (err) {
-        console.error('\nError getting tokens:', err.message);
+        logger.error('Error getting tokens:', err.message);
         res.status(500).send('Authentication failed.');
         return;
       }
@@ -301,13 +333,14 @@ app.get('/oauth2callback', (req, res) => {
 
 // Endpoint to get authentication status
 app.get('/authStatus', (req, res) => {
-  console.log("🔍 [GET /authStatus] Hit");
+  logger.info("🔍 [GET /authStatus] Hit");
+  logger.debug('Auth status:', authStatus);
   res.status(200).json(authStatus);
 });
 
 // Handle YouTube OAuth2 callback
 app.get('/listogs/youtube/callback', async (req, res) => {
-  console.log("📺 [GET /listogs/youtube/callback] Hit:", req.originalUrl);
+  logger.info("📺 [GET /listogs/youtube/callback] Hit:", req.originalUrl);
 
   const { code } = req.query;
   if (!code) {

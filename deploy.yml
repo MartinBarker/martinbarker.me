@@ -7,7 +7,7 @@ on:
     branches:
       - main
 env:
-  AWS_REGION: us-west-1
+  AWS_REGION: us-west-2
   # Note the ARNs are not needed here
   ECR_REPOSITORY: dev-portfolio-react
   ECS_CLUSTER: portfolioCluster
