@@ -109,6 +109,7 @@ function DiscogsAuthTestPageInner() {
   const [playlistLoading, setPlaylistLoading] = useState(false);
   const [playlistCreated, setPlaylistCreated] = useState(null);
   const [youtubeError, setYoutubeError] = useState('');
+  const [discogsError, setDiscogsError] = useState('');
   const [playlistProgress, setPlaylistProgress] = useState({ added: 0, total: 0 });
   const [discogsInfo, setDiscogsInfo] = useState(null);
   const [currentSearchId, setCurrentSearchId] = useState(null);
@@ -676,6 +677,7 @@ function DiscogsAuthTestPageInner() {
       return;
     }
     setInputError('');
+    setDiscogsError(''); // Clear any previous Discogs errors
     
     console.log('=== FORM SUBMISSION DEBUG ===');
     console.log('Submitting discogsInput:', discogsInput);
@@ -758,6 +760,7 @@ function DiscogsAuthTestPageInner() {
         const data = await response.json();
         console.log('✅ [Frontend] Discogs info fetched successfully:', data);
         setDiscogsInfo(data);
+        setDiscogsError(''); // Clear any previous errors
         return data;
       } else {
         const errorData = await response.json();
@@ -766,10 +769,21 @@ function DiscogsAuthTestPageInner() {
           statusText: response.statusText,
           error: errorData
         });
+        
+        // Set user-friendly error message
+        if (response.status === 429) {
+          setDiscogsError('Site is under heavy load. Please try again later.');
+        } else if (response.status >= 500) {
+          setDiscogsError('Site is under heavy load. Please try again later.');
+        } else {
+          setDiscogsError('Failed to fetch Discogs data. Please try again later.');
+        }
+        
         return null;
       }
     } catch (error) {
       console.error('❌ [Frontend] Network error fetching Discogs info:', error);
+      setDiscogsError('Site is under heavy load. Please try again later.');
       return null;
     }
   };
@@ -1294,6 +1308,22 @@ function DiscogsAuthTestPageInner() {
         >
           Enter a URL and click to submit
         </button>
+        {discogsError && (
+          <div
+            style={{
+              marginTop: '8px',
+              padding: '8px',
+              backgroundColor: '#fee2e2',
+              border: '1px solid #fca5a5',
+              borderRadius: '6px',
+              color: '#dc2626',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            ⚠️ {discogsError}
+          </div>
+        )}
         {extractedId && (
           <div style={{ marginTop: 8, fontSize: 14 }}>
             Detected ID: <b>{extractedId}</b> {selectedType ? `(Type: ${selectedType})` : ''}

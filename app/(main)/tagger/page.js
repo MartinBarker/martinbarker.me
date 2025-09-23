@@ -35,7 +35,9 @@ export default function TaggerPage({ initialUrl }) {
   const [debugInfo, setDebugInfo] = useState({ url: '', files: [] });
   const [copyState, setCopyState] = useState('idle'); // idle | copied | hover
   const [discogsResponse, setDiscogsResponse] = useState(null);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false); const [tagsValue, setTagsValue] = useState('');
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [discogsError, setDiscogsError] = useState(null);
+  const [tagsValue, setTagsValue] = useState('');
   const [tagsCopyState, setTagsCopyState] = useState('idle'); // idle | copied | hover
   const [hashtagsValue, setHashtagsValue] = useState('');
   const [hashtagsCopyState, setHashtagsCopyState] = useState('idle'); // idle | copied | hover
@@ -897,6 +899,7 @@ export default function TaggerPage({ initialUrl }) {
       var route = `${apiBaseURL}/discogsFetch`;
       
       try {
+        setDiscogsError(null); // Clear any previous errors
         console.log(`🔍 [TAGGER] Starting Discogs fetch request:`, {
           url: urlToSubmit,
           parsedInfo: discogsInfo,
@@ -1092,6 +1095,7 @@ export default function TaggerPage({ initialUrl }) {
               'Reduce request frequency'
             ]
           });
+          setDiscogsError('We are experiencing heavy load. Please try again in a few minutes.');
         } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
           console.error(`🌐 [TAGGER] Network Error - Connection failed:`, {
             possibleCauses: [
@@ -1109,6 +1113,7 @@ export default function TaggerPage({ initialUrl }) {
         }
 
         setDiscogsResponse(null);
+        setDiscogsError('Failed to fetch Discogs data. Please try again later.');
         logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
       }
     }
@@ -2314,6 +2319,22 @@ export default function TaggerPage({ initialUrl }) {
               Submit
             </button>
           </form>
+          {discogsError && (
+            <div
+              style={{
+                marginTop: '0.5rem',
+                padding: '0.75rem',
+                backgroundColor: '#fee2e2',
+                border: '1px solid #fca5a5',
+                borderRadius: '6px',
+                color: '#dc2626',
+                fontSize: '0.9rem',
+                fontWeight: '500'
+              }}
+            >
+              ⚠️ {discogsError}
+            </div>
+          )}
           <div
             className={styles.taggerText}
             style={{
