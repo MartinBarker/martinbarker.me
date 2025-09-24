@@ -1042,6 +1042,8 @@ export default function TaggerPage({ initialUrl }) {
         });
 
         // Additional error analysis
+        let specificErrorSet = false;
+        
         if (err.message.includes('HTTP 500')) {
           console.error(`🚨 [TAGGER] Server Error (500) - This indicates a backend issue:`, {
             possibleCauses: [
@@ -1058,6 +1060,25 @@ export default function TaggerPage({ initialUrl }) {
               'Try again in a few minutes'
             ]
           });
+          
+          // Try to extract specific error details from the error message
+          // The error message format is: "HTTP 500: Internal Server Error - {details}"
+          const errorMatch = err.message.match(/HTTP 500: .* - (.+)/);
+          if (errorMatch) {
+            const errorDetails = errorMatch[1];
+            console.error(`📋 [TAGGER] Extracted error details:`, errorDetails);
+            
+            // Check if it's a Discogs rate limit error
+            if (errorDetails.includes('Rate limit exceeded') || errorDetails.includes('Too many requests')) {
+              setDiscogsError(`Discogs API Rate Limit: ${errorDetails}`);
+            } else {
+              setDiscogsError(`Server Error: ${errorDetails}`);
+            }
+            specificErrorSet = true;
+          } else {
+            setDiscogsError('Server Error: Failed to fetch Discogs data. Please try again later.');
+            specificErrorSet = true;
+          }
         } else if (err.message.includes('HTTP 404')) {
           console.error(`🔍 [TAGGER] Not Found (404) - Resource may not exist:`, {
             possibleCauses: [
@@ -1071,6 +1092,8 @@ export default function TaggerPage({ initialUrl }) {
               'Try a different Discogs URL'
             ]
           });
+          setDiscogsError('Resource not found. Please check the Discogs URL and try again.');
+          specificErrorSet = true;
         } else if (err.message.includes('HTTP 401') || err.message.includes('HTTP 403')) {
           console.error(`🔐 [TAGGER] Authentication Error - Credentials issue:`, {
             possibleCauses: [
@@ -1084,6 +1107,8 @@ export default function TaggerPage({ initialUrl }) {
               'Contact administrator'
             ]
           });
+          setDiscogsError('Authentication failed. Please contact the administrator.');
+          specificErrorSet = true;
         } else if (err.message.includes('HTTP 429')) {
           console.error(`⏰ [TAGGER] Rate Limit Exceeded - Too many requests:`, {
             possibleCauses: [
@@ -1096,6 +1121,7 @@ export default function TaggerPage({ initialUrl }) {
             ]
           });
           setDiscogsError('We are experiencing heavy load. Please try again in a few minutes.');
+          specificErrorSet = true;
         } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
           console.error(`🌐 [TAGGER] Network Error - Connection failed:`, {
             possibleCauses: [
@@ -1110,10 +1136,15 @@ export default function TaggerPage({ initialUrl }) {
               'Try again in a few minutes'
             ]
           });
+          setDiscogsError('Network error. Please check your connection and try again.');
+          specificErrorSet = true;
         }
 
         setDiscogsResponse(null);
-        setDiscogsError('Failed to fetch Discogs data. Please try again later.');
+        // Only set generic error if no specific error was already set
+        if (!specificErrorSet) {
+          setDiscogsError('Failed to fetch Discogs data. Please try again later.');
+        }
         logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
       }
     }
