@@ -38,6 +38,9 @@ export default function TaggerPage({ initialUrl }) {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [discogsError, setDiscogsError] = useState(null);
   const [tagsValue, setTagsValue] = useState('');
+  
+  // Debug flag to show sample error message
+  const errorDebug = false;
   const [tagsCopyState, setTagsCopyState] = useState('idle'); // idle | copied | hover
   const [hashtagsValue, setHashtagsValue] = useState('');
   const [hashtagsCopyState, setHashtagsCopyState] = useState('idle'); // idle | copied | hover
@@ -898,8 +901,10 @@ export default function TaggerPage({ initialUrl }) {
 
       var route = `${apiBaseURL}/discogsFetch`;
       
+      // Clear any previous errors when starting a new request
+      setDiscogsError(null);
+      
       try {
-        setDiscogsError(null); // Clear any previous errors
         console.log(`🔍 [TAGGER] Starting Discogs fetch request:`, {
           url: urlToSubmit,
           parsedInfo: discogsInfo,
@@ -1062,8 +1067,8 @@ export default function TaggerPage({ initialUrl }) {
           });
           
           // Try to extract specific error details from the error message
-          // The error message format is: "HTTP 500: Internal Server Error - {details}"
-          const errorMatch = err.message.match(/HTTP 500: .* - (.+)/);
+          // The error message format is: "HTTP 500: [statusText] - {details}" or "HTTP 500:  - {details}"
+          const errorMatch = err.message.match(/HTTP 500: .*? - (.+)/);
           if (errorMatch) {
             const errorDetails = errorMatch[1];
             console.error(`📋 [TAGGER] Extracted error details:`, errorDetails);
@@ -2350,7 +2355,7 @@ export default function TaggerPage({ initialUrl }) {
               Submit
             </button>
           </form>
-          {discogsError && (
+          {(discogsError || errorDebug) && (
             <div
               style={{
                 marginTop: '0.5rem',
@@ -2363,7 +2368,7 @@ export default function TaggerPage({ initialUrl }) {
                 fontWeight: '500'
               }}
             >
-              ⚠️ {discogsError}
+              ⚠️ {errorDebug ? 'Discogs API Rate Limit: Failed to fetch Discogs data for release/1258247 - Rate limit exceeded. Too many requests to Discogs API.' : discogsError}
             </div>
           )}
           <div
@@ -3777,7 +3782,7 @@ export default function TaggerPage({ initialUrl }) {
           placeholder={
             hashtagsValue
               ? ''
-              : `#BookerT.Jones #PriscillaJones #BookerT&TheMGs #TheMar-Keys #TheStaxStaff #ThePackers #TheRCOAll-Stars #PriscillaCoolidge #BookerT.&Priscilla #1971 #France #TheWeddingSong #She #TheIndianSong #SeaGull #ForPriscilla #TheDeltaSong #Why #MississippiVoodoo #CoolBlackDream #SweetChildYoureNotAlone #BookerT.&Priscilla1971 #BookerT.Jones1971`
+              : `#BookerT.Jones #PriscillaJones #BookerT&TheMGs #TheMar-Keys #TheStaxStaff #ThePackers #TheRCOAll-Stars #PriscillaCoolidge #BookerT.&Priscilla #1971 #France #TheWeddingSong #She #TheIndianSong #SeaGull #ForPriscilla #TheDeltaSong #Why #MississippiVoodoo #CoolBlackDream #SweetChildYoureNotAlone #BookerT.&Priscilla1971 #BookerT.Jones1970`
           }
           rows={5}
           style={{
