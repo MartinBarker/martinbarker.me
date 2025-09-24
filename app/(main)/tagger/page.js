@@ -909,49 +909,26 @@ export default function TaggerPage({ initialUrl }) {
       setSubmitMessage('');
       
       try {
-        console.log(`🔍 [TAGGER] Starting Discogs fetch request:`, {
-          url: urlToSubmit,
-          parsedInfo: discogsInfo,
+        console.log(`🔍 [TAGGER] Making request:`, {
           route: route,
-          timestamp: new Date().toISOString()
+          payload: discogsInfo
         });
-
+        
         const res = await fetch(route, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(discogsInfo)
         });
 
-        console.log(`📊 [TAGGER] Response received:`, {
-          status: res.status,
-          statusText: res.statusText,
-          ok: res.ok,
-          headers: Object.fromEntries(res.headers.entries()),
-          url: res.url
-        });
-
         // Check if response is ok before parsing JSON
         if (!res.ok) {
           const errorText = await res.text();
-          console.error(`❌ [TAGGER] HTTP Error Response:`, {
-            status: res.status,
-            statusText: res.statusText,
-            url: res.url,
-            responseText: errorText,
-            requestInfo: {
-              route: route,
-              payload: discogsInfo,
-              method: 'POST'
-            }
-          });
           
           // Try to parse error response as JSON
           let errorData;
           try {
             errorData = JSON.parse(errorText);
-            console.error(`📋 [TAGGER] Parsed Error Data:`, errorData);
           } catch (parseErr) {
-            console.error(`⚠️ [TAGGER] Could not parse error response as JSON:`, parseErr);
             errorData = { error: 'Unknown error', details: errorText };
           }
 
@@ -959,14 +936,12 @@ export default function TaggerPage({ initialUrl }) {
         }
 
         const data = await res.json();
-        console.log(`✅ [TAGGER] Successfully parsed response data:`, {
-          hasData: !!data,
-          dataType: typeof data,
-          hasId: !!data.id,
-          hasTitle: !!data.title,
-          hasTracklist: !!(data.tracklist && Array.isArray(data.tracklist)),
-          trackCount: data.tracklist?.length || 0,
-          dataKeys: Object.keys(data || {})
+        
+        // Log successful result
+        console.log(`✅ [TAGGER] Success:`, {
+          url: urlToSubmit,
+          title: data.title || 'Unknown',
+          tracks: data.tracklist?.length || 0
         });
 
         // Check if any track has credits
@@ -1036,22 +1011,10 @@ export default function TaggerPage({ initialUrl }) {
           setTimeout(generateCombinedTimestamps, 0);
         }
       } catch (err) {
-        console.error(`❌ [TAGGER] Detailed error information:`, {
-          errorType: err.constructor.name,
-          errorMessage: err.message,
-          errorStack: err.stack,
-          requestInfo: {
-            url: urlToSubmit,
-            parsedInfo: discogsInfo,
-            route: route,
-            method: 'POST'
-          },
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          environment: {
-            nodeEnv: process.env.NODE_ENV,
-            isProduction: process.env.NODE_ENV === 'production'
-          }
+        // Log error result
+        console.log(`❌ [TAGGER] Error:`, {
+          url: urlToSubmit,
+          error: err.message
         });
 
         // Set error status with user-friendly message
@@ -1077,110 +1040,32 @@ export default function TaggerPage({ initialUrl }) {
         
         setSubmitMessage(displayMessage);
 
-        // Additional error analysis
-        let specificErrorSet = false;
-        
+        // Set specific error messages for UI
         if (err.message.includes('HTTP 500')) {
-          console.error(`🚨 [TAGGER] Server Error (500) - This indicates a backend issue:`, {
-            possibleCauses: [
-              'Discogs API credentials not configured',
-              'AWS Secrets Manager connection failed',
-              'Discogs API rate limiting',
-              'Network connectivity issues',
-              'Discogs API server error'
-            ],
-            troubleshooting: [
-              'Check server logs for detailed error information',
-              'Verify AWS Secrets Manager configuration',
-              'Check Discogs API status',
-              'Try again in a few minutes'
-            ]
-          });
-          
-          // Try to extract specific error details from the error message
-          // The error message format is: "HTTP 500: [statusText] - {details}" or "HTTP 500:  - {details}"
           const errorMatch = err.message.match(/HTTP 500: .*? - (.+)/);
           if (errorMatch) {
             const errorDetails = errorMatch[1];
-            console.error(`📋 [TAGGER] Extracted error details:`, errorDetails);
-            
-            // Check if it's a Discogs rate limit error
             if (errorDetails.includes('Rate limit exceeded') || errorDetails.includes('Too many requests')) {
               setDiscogsError(`Discogs API Rate Limit: ${errorDetails}`);
             } else {
               setDiscogsError(`Server Error: ${errorDetails}`);
             }
-            specificErrorSet = true;
           } else {
             setDiscogsError('Server Error: Failed to fetch Discogs data. Please try again later.');
-            specificErrorSet = true;
           }
         } else if (err.message.includes('HTTP 404')) {
-          console.error(`🔍 [TAGGER] Not Found (404) - Resource may not exist:`, {
-            possibleCauses: [
-              'Invalid Discogs URL',
-              'Release/artist/label ID does not exist',
-              'URL parsing failed'
-            ],
-            troubleshooting: [
-              'Verify the Discogs URL is correct',
-              'Check if the release/artist exists on Discogs',
-              'Try a different Discogs URL'
-            ]
-          });
           setDiscogsError('Resource not found. Please check the Discogs URL and try again.');
-          specificErrorSet = true;
         } else if (err.message.includes('HTTP 401') || err.message.includes('HTTP 403')) {
-          console.error(`🔐 [TAGGER] Authentication Error - Credentials issue:`, {
-            possibleCauses: [
-              'Discogs API credentials expired',
-              'Invalid API key/secret',
-              'OAuth token issues'
-            ],
-            troubleshooting: [
-              'Check Discogs API credentials in AWS Secrets Manager',
-              'Verify OAuth token validity',
-              'Contact administrator'
-            ]
-          });
           setDiscogsError('Authentication failed. Please contact the administrator.');
-          specificErrorSet = true;
         } else if (err.message.includes('HTTP 429')) {
-          console.error(`⏰ [TAGGER] Rate Limit Exceeded - Too many requests:`, {
-            possibleCauses: [
-              'Too many requests to Discogs API',
-              'Rate limit exceeded'
-            ],
-            troubleshooting: [
-              'Wait a few minutes before trying again',
-              'Reduce request frequency'
-            ]
-          });
           setDiscogsError('We are experiencing heavy load. Please try again in a few minutes.');
-          specificErrorSet = true;
         } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
-          console.error(`🌐 [TAGGER] Network Error - Connection failed:`, {
-            possibleCauses: [
-              'Internet connection issues',
-              'Server is down',
-              'DNS resolution failed',
-              'CORS issues'
-            ],
-            troubleshooting: [
-              'Check internet connection',
-              'Verify server is running',
-              'Try again in a few minutes'
-            ]
-          });
           setDiscogsError('Network error. Please check your connection and try again.');
-          specificErrorSet = true;
+        } else {
+          setDiscogsError('Failed to fetch Discogs data. Please try again later.');
         }
 
         setDiscogsResponse(null);
-        // Only set generic error if no specific error was already set
-        if (!specificErrorSet) {
-          setDiscogsError('Failed to fetch Discogs data. Please try again later.');
-        }
         logDiscogsRequest({ route, payload: discogsInfo, response: String(err) });
       }
     }
