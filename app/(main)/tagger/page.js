@@ -37,6 +37,8 @@ export default function TaggerPage({ initialUrl }) {
   const [discogsResponse, setDiscogsResponse] = useState(null);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [discogsError, setDiscogsError] = useState(null);
+  const [submitStatus, setSubmitStatus] = useState(null); // 'success', 'error', or null
+  const [submitMessage, setSubmitMessage] = useState(''); // Status message to display
   const [tagsValue, setTagsValue] = useState('');
   
   // Debug flag to show sample error message
@@ -901,8 +903,10 @@ export default function TaggerPage({ initialUrl }) {
 
       var route = `${apiBaseURL}/discogsFetch`;
       
-      // Clear any previous errors when starting a new request
+      // Clear any previous errors and status when starting a new request
       setDiscogsError(null);
+      setSubmitStatus(null);
+      setSubmitMessage('');
       
       try {
         console.log(`🔍 [TAGGER] Starting Discogs fetch request:`, {
@@ -974,6 +978,10 @@ export default function TaggerPage({ initialUrl }) {
         setDiscogsResponse(data); // Save to state
         setDiscogsData(data); // Store for video title refresh
         logDiscogsRequest({ route, payload: discogsInfo, response: data });
+        
+        // Set success status
+        setSubmitStatus('success');
+        setSubmitMessage('Successfully fetched Discogs data!');
 
         // Process the response for tags
         processDiscogsResponseToTags(data);
@@ -1045,6 +1053,29 @@ export default function TaggerPage({ initialUrl }) {
             isProduction: process.env.NODE_ENV === 'production'
           }
         });
+
+        // Set error status with user-friendly message
+        setSubmitStatus('error');
+        
+        // Extract HTTP status code for cleaner display
+        let displayMessage = err.message;
+        const httpMatch = err.message.match(/HTTP (\d+)/);
+        if (httpMatch) {
+          const statusCode = httpMatch[1];
+          const statusText = statusCode === '500' ? 'Server Error' :
+                           statusCode === '404' ? 'Not Found' :
+                           statusCode === '401' || statusCode === '403' ? 'Authentication Error' :
+                           statusCode === '429' ? 'Rate Limit Exceeded' :
+                           `HTTP ${statusCode}`;
+          displayMessage = `${statusText} (${statusCode})`;
+        } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
+          displayMessage = 'Network Error - Check your connection';
+        } else if (err.message.length > 100) {
+          // Truncate very long error messages
+          displayMessage = err.message.substring(0, 97) + '...';
+        }
+        
+        setSubmitMessage(displayMessage);
 
         // Additional error analysis
         let specificErrorSet = false;
@@ -2355,6 +2386,28 @@ export default function TaggerPage({ initialUrl }) {
               Submit
             </button>
           </form>
+          
+          {/* Response Status Display */}
+          {submitStatus && (
+            <div
+              style={{
+                marginTop: '0.5rem',
+                padding: '0.75rem',
+                backgroundColor: submitStatus === 'success' ? '#d1fae5' : '#fee2e2',
+                border: `1px solid ${submitStatus === 'success' ? '#10b981' : '#fca5a5'}`,
+                borderRadius: '6px',
+                color: submitStatus === 'success' ? '#065f46' : '#dc2626',
+                fontSize: '0.9rem',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
+            >
+              {submitStatus === 'success' ? '✅' : '❌'} {submitMessage}
+            </div>
+          )}
+          
           {(discogsError || errorDebug) && (
             <div
               style={{
