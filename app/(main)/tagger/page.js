@@ -909,7 +909,7 @@ export default function TaggerPage({ initialUrl }) {
       setSubmitMessage('');
       
       try {
-        console.log(`🔍 [TAGGER] Making request:`, {
+        console.log(`🔍 [TAGGER]. Making request:`, {
           route: route,
           payload: discogsInfo
         });
