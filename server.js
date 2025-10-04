@@ -1638,7 +1638,8 @@ async function getAwsSecret(secretName, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`Attempt ${attempt}/${maxRetries} for secret: ${secretName}`);
-      const awsClient = new SecretsManagerClient({ region: "us-west-1" });
+      const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "us-west-2";
+      const awsClient = new SecretsManagerClient({ region });
       console.log('AWS Secrets Manager client created');
 
       const command = new GetSecretValueCommand({
