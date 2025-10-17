@@ -1696,7 +1696,7 @@ function DiscogsAuthTestPageInner() {
       )}
 
       {/* YouTube Auth Status */}
-      {!canCreatePlaylists && videoIds.length > 0 && (
+      {/* {!canCreatePlaylists && videoIds.length > 0 && (
         <div style={{ marginTop: 32, marginBottom: 16 }}>
           <h3>YouTube Playlist Creation:</h3>
           <div style={{
@@ -1711,7 +1711,7 @@ function DiscogsAuthTestPageInner() {
             </p>
           </div>
         </div>
-      )}
+      )} */}
 
       {/* Display results */}
       <div style={{ marginTop: 32 }}>
