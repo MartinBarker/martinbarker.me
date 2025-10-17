@@ -1426,7 +1426,9 @@ function DiscogsAuthTestPageInner() {
       )}
 
       {/* YouTube Playlist Creation Section */}
-      {canCreatePlaylists && videoIds.length > 0 && (
+      {/* {canCreatePlaylists && videoIds.length > 0 && ( */}
+      {false && canCreatePlaylists && videoIds.length > 0 && ( 
+        
         <div style={{ marginTop: 32, marginBottom: 16 }}>
           <h3>Create YouTube Playlist:</h3>
           <div style={{
@@ -1690,6 +1692,7 @@ function DiscogsAuthTestPageInner() {
             )}
           </div>
         </div>
+
       )}
 
       {/* YouTube Auth Status */}
@@ -1725,6 +1728,7 @@ function DiscogsAuthTestPageInner() {
               "releaseTitle",
               "artist",
               "year",
+              "releaseType",
               "title",
               "videoId",
               "fullUrl",

@@ -4,6 +4,7 @@ import {
   useReactTable,
   getCoreRowModel,
   getPaginationRowModel,
+  getSortedRowModel,
   flexRender,
 } from '@tanstack/react-table';
 
@@ -45,6 +46,11 @@ function flattenVideoData(videoData) {
 
 export default function VideoTable({ videoData }) {
   const [search, setSearch] = useState('');
+  const [releaseTypeFilter, setReleaseTypeFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState('all');
+  const [yearRangeStart, setYearRangeStart] = useState('');
+  const [yearRangeEnd, setYearRangeEnd] = useState('');
+  const [sorting, setSorting] = useState([]);
   const [pagination, setPagination] = useState({
     pageIndex: 0,
     pageSize: 4, // Show 4 rows by default
@@ -53,72 +59,285 @@ export default function VideoTable({ videoData }) {
   // Memoize rawData so reference is stable
   const rawData = useMemo(() => flattenVideoData(videoData), [videoData]);
   const data = useMemo(() => {
-    if (!search) return rawData;
-    const lower = search.toLowerCase();
-    return rawData.filter(row =>
-      Object.values(row).some(
-        v => typeof v === 'string' && v.toLowerCase().includes(lower)
-      )
-    );
-  }, [rawData, search]);
+    let filteredData = rawData;
+    
+    // Apply release type filter
+    if (releaseTypeFilter !== 'all') {
+      filteredData = filteredData.filter(row => row.releaseType === releaseTypeFilter);
+    }
+    
+    // Apply year filter
+    if (yearFilter === 'specific' && yearRangeStart) {
+      if (yearRangeEnd) {
+        // Year range filter
+        const startYear = parseInt(yearRangeStart);
+        const endYear = parseInt(yearRangeEnd);
+        filteredData = filteredData.filter(row => {
+          const year = parseInt(row.year);
+          return year >= startYear && year <= endYear;
+        });
+      } else {
+        // Single year filter
+        filteredData = filteredData.filter(row => row.year === yearRangeStart);
+      }
+    } else if (yearFilter !== 'all') {
+      // Specific year filter
+      filteredData = filteredData.filter(row => row.year === yearFilter);
+    }
+    
+    // Apply search filter
+    if (search) {
+      const lower = search.toLowerCase();
+      filteredData = filteredData.filter(row =>
+        Object.values(row).some(
+          v => typeof v === 'string' && v.toLowerCase().includes(lower)
+        )
+      );
+    }
+    
+    return filteredData;
+  }, [rawData, search, releaseTypeFilter, yearFilter, yearRangeStart, yearRangeEnd]);
 
-  const columns = useMemo(
-    () => [
-      {
-        accessorKey: 'releaseTitle',
-        header: 'Release',
-        cell: info => info.getValue(),
-      },
-      {
-        accessorKey: 'artist',
-        header: 'Artist',
-        cell: info => info.getValue(),
-      },
-      {
-        accessorKey: 'year',
-        header: 'Year',
-        cell: info => info.getValue(),
-      },
-      {
-        accessorKey: 'title',
-        header: 'Video Title',
-        cell: info => info.getValue(),
-      },
-      {
-        accessorKey: 'fullUrl',
-        header: 'YouTube Link',
-        cell: info => (
-          <a href={info.getValue()} target="_blank" rel="noopener noreferrer">
-            {info.row.original.videoId}
-          </a>
-        ),
-      },
-      {
-        accessorKey: 'discogsUrl',
-        header: 'Discogs Link',
-        cell: info => (
-          <a href={info.getValue()} target="_blank" rel="noopener noreferrer">
-            Discogs
-          </a>
-        ),
-      },
-    ],
-    []
-  );
+  // Get unique release types for filter dropdown
+  const uniqueReleaseTypes = useMemo(() => {
+    const types = new Set();
+    rawData.forEach(row => {
+      if (row.releaseType && row.releaseType.trim()) {
+        types.add(row.releaseType);
+      }
+    });
+    return Array.from(types).sort();
+  }, [rawData]);
+
+  // Get unique years for filter dropdown
+  const uniqueYears = useMemo(() => {
+    const years = new Set();
+    rawData.forEach(row => {
+      // Handle various year formats and ensure we have valid years
+      if (row.year) {
+        const yearStr = row.year.toString().trim();
+        // Only add valid 4-digit years (and some 3-digit years for historical records)
+        if (yearStr && /^\d{3,4}$/.test(yearStr)) {
+          years.add(yearStr);
+        }
+      }
+    });
+    return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a)); // Sort descending (newest first)
+  }, [rawData]);
+
+  const columns = useMemo(() => [
+    {
+      accessorKey: 'releaseTitle',
+      header: 'Release',
+      cell: info => info.getValue(),
+      enableSorting: true,
+    },
+    {
+      accessorKey: 'artist',
+      header: 'Artist',
+      cell: info => info.getValue(),
+      enableSorting: true,
+    },
+    {
+      accessorKey: 'year',
+      header: 'Year',
+      cell: info => info.getValue(),
+      enableSorting: true,
+    },
+    {
+      accessorKey: 'releaseType',
+      header: 'Release Type',
+      cell: info => info.getValue() || 'N/A',
+      enableSorting: true,
+    },
+    {
+      accessorKey: 'title',
+      header: 'Video Title',
+      cell: info => info.getValue(),
+      enableSorting: true,
+    },
+    {
+      accessorKey: 'fullUrl',
+      header: 'YouTube Link',
+      cell: info => (
+        <a href={info.getValue()} target="_blank" rel="noopener noreferrer">
+          {info.row.original.videoId}
+        </a>
+      ),
+      enableSorting: false,
+    },
+    {
+      accessorKey: 'discogsUrl',
+      header: 'Discogs Link',
+      cell: info => (
+        <a href={info.getValue()} target="_blank" rel="noopener noreferrer">
+          Discogs
+        </a>
+      ),
+      enableSorting: false,
+    },
+  ], []);
 
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    getSortedRowModel: getSortedRowModel(),
     onPaginationChange: setPagination,
-    state: { pagination },
+    onSortingChange: setSorting,
+    state: { 
+      pagination,
+      sorting,
+    },
     autoResetPageIndex: false,
     autoResetExpanded: false,
   });
 
   return (
     <div>
+      {/* Table Filter Options */}
+      <div style={{ 
+        marginBottom: 16, 
+        padding: 16, 
+        background: '#f8f9fa', 
+        borderRadius: 8, 
+        border: '1px solid #dee2e6',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+      }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 600, color: '#495057' }}>
+          Table Filter Options
+        </h4>
+        
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+          gap: 16,
+          alignItems: 'end'
+        }}>
+          {/* Release Type Filter */}
+          {uniqueReleaseTypes.length > 0 && (
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 14, fontWeight: 500 }}>
+                Release Type:
+              </label>
+              <select
+                value={releaseTypeFilter}
+                onChange={(e) => setReleaseTypeFilter(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: 4,
+                  border: '1px solid #ced4da',
+                  fontSize: 14,
+                  background: 'white'
+                }}
+              >
+                <option value="all">All Types ({rawData.length})</option>
+                {uniqueReleaseTypes.map(type => {
+                  const count = rawData.filter(row => row.releaseType === type).length;
+                  return (
+                    <option key={type} value={type}>
+                      {type} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
+          {/* Year Filter */}
+          {uniqueYears.length > 0 && (
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 14, fontWeight: 500 }}>
+                Year:
+              </label>
+              <select
+                value={yearFilter}
+                onChange={(e) => {
+                  setYearFilter(e.target.value);
+                  if (e.target.value !== 'specific') {
+                    setYearRangeStart('');
+                    setYearRangeEnd('');
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: 4,
+                  border: '1px solid #ced4da',
+                  fontSize: 14,
+                  background: 'white'
+                }}
+              >
+                <option value="all">All Years ({rawData.length})</option>
+                <option value="specific">Custom Range/Year</option>
+                {uniqueYears.map(year => {
+                  const count = rawData.filter(row => row.year && row.year.toString() === year).length;
+                  return (
+                    <option key={year} value={year}>
+                      {year} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
+          {/* Year Range Inputs */}
+          {yearFilter === 'specific' && (
+            <>
+              <div>
+                <label style={{ display: 'block', marginBottom: 4, fontSize: 14, fontWeight: 500 }}>
+                  From Year:
+                </label>
+                <input
+                  type="number"
+                  value={yearRangeStart}
+                  onChange={(e) => setYearRangeStart(e.target.value)}
+                  placeholder="e.g., 1970"
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: '1px solid #ced4da',
+                    fontSize: 14
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: 4, fontSize: 14, fontWeight: 500 }}>
+                  To Year (optional):
+                </label>
+                <input
+                  type="number"
+                  value={yearRangeEnd}
+                  onChange={(e) => setYearRangeEnd(e.target.value)}
+                  placeholder="e.g., 1980"
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: '1px solid #ced4da',
+                    fontSize: 14
+                  }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Results Count */}
+        <div style={{ 
+          marginTop: 12, 
+          fontSize: 13, 
+          color: '#6c757d',
+          fontStyle: 'italic'
+        }}>
+          Showing {data.length} of {rawData.length} videos
+        </div>
+      </div>
+      
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
         <thead>
           {table.getHeaderGroups().map(headerGroup => (
@@ -131,9 +350,25 @@ export default function VideoTable({ videoData }) {
                     padding: '8px',
                     background: '#f5f5f5',
                     textAlign: 'left',
+                    cursor: header.column.getCanSort() ? 'pointer' : 'default',
+                    userSelect: 'none',
+                    position: 'relative',
                   }}
+                  onClick={header.column.getToggleSortingHandler()}
                 >
-                  {flexRender(header.column.columnDef.header, header.getContext())}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {flexRender(header.column.columnDef.header, header.getContext())}
+                    {header.column.getCanSort() && (
+                      <span style={{ 
+                        fontSize: '12px', 
+                        opacity: header.column.getIsSorted() ? 1 : 0.5,
+                        fontWeight: 'bold'
+                      }}>
+                        {header.column.getIsSorted() === 'asc' ? '↑' : 
+                         header.column.getIsSorted() === 'desc' ? '↓' : '↕'}
+                      </span>
+                    )}
+                  </div>
                 </th>
               ))}
             </tr>

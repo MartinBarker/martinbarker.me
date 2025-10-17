@@ -944,11 +944,18 @@ export default function TaggerPage({ initialUrl }) {
           tracks: data.tracklist?.length || 0
         });
 
-        // Check if any track has credits
-        const hasCredits = data.tracklist?.some(track =>
+        // Check if any track has credits or if album has credits
+        const hasTrackCredits = data.tracklist?.some(track =>
           track.extraartists && track.extraartists.length > 0
         );
+        const hasAlbumCredits = data.extraartists && data.extraartists.length > 0;
+        const hasCredits = hasTrackCredits || hasAlbumCredits;
         setHasTrackCredits(hasCredits);
+        
+        // Set checkbox to be selected by default when credits are found
+        if (hasCredits) {
+          setIncludeTrackCredits(true);
+        }
 
         setDiscogsResponse(data); // Save to state
         setDiscogsData(data); // Store for video title refresh
@@ -1743,11 +1750,27 @@ export default function TaggerPage({ initialUrl }) {
         // Add track credits if enabled and available from Discogs data
         if (includeTrackCredits && metadataSource && metadataSource.type === 'url') {
           const track = metadataSource.data.tracklist?.[idx];
-          if (track && track.extraartists && track.extraartists.length > 0) {
+          const albumData = metadataSource.data;
+          const trackCredits = track?.extraartists || [];
+          const albumCredits = albumData?.extraartists || [];
+          
+          if (trackCredits.length > 0 || albumCredits.length > 0) {
             lines.push(`  Credits:`);
-            track.extraartists.forEach(artist => {
+            
+            // Add track-specific credits first
+            trackCredits.forEach(artist => {
               lines.push(`      ${artist.name} (${artist.role})`);
             });
+            
+            // Add album-level credits (if not already included at track level)
+            albumCredits.forEach(artist => {
+              // Only add if not already in track credits
+              const alreadyInTrack = trackCredits.some(tc => tc.name === artist.name && tc.role === artist.role);
+              if (!alreadyInTrack) {
+                lines.push(`      ${artist.name} (${artist.role})`);
+              }
+            });
+            
             lines.push(''); // Add blank line after credits
           }
         }
@@ -1783,12 +1806,30 @@ export default function TaggerPage({ initialUrl }) {
 
         lines.push(lineData);
         // Add track credits if enabled and available
-        if (includeTrackCredits && track.extraartists && track.extraartists.length > 0) {
-          lines.push(`  Credits:`);
-          track.extraartists.forEach(artist => {
-            lines.push(`      ${artist.name} (${artist.role})`);
-          });
-          lines.push('');
+        if (includeTrackCredits) {
+          const trackCredits = track.extraartists || [];
+          // Get album credits from the full Discogs response if available
+          const albumCredits = (discogsResponse?.extraartists) || [];
+          
+          if (trackCredits.length > 0 || albumCredits.length > 0) {
+            lines.push(`  Credits:`);
+            
+            // Add track-specific credits first
+            trackCredits.forEach(artist => {
+              lines.push(`      ${artist.name} (${artist.role})`);
+            });
+            
+            // Add album-level credits (if not already included at track level)
+            albumCredits.forEach(artist => {
+              // Only add if not already in track credits
+              const alreadyInTrack = trackCredits.some(tc => tc.name === artist.name && tc.role === artist.role);
+              if (!alreadyInTrack) {
+                lines.push(`      ${artist.name} (${artist.role})`);
+              }
+            });
+            
+            lines.push('');
+          }
         }
 
         currentTime += duration;
@@ -1931,6 +1972,23 @@ export default function TaggerPage({ initialUrl }) {
       cleanLabel.split(',').forEach(item => {
         const trimmed = item.trim();
         if (trimmed) tagCategories.album.add(trimmed);
+      });
+    }
+
+    // Process album-level extraartists (producers, conductors, etc.)
+    if (response.extraartists && response.extraartists.length > 0) {
+      response.extraartists.forEach(artist => {
+        if (artist.name) {
+          const cleanArtist = cleanName(artist.name);
+          cleanArtist.split(',').forEach(item => {
+            const trimmed = item.trim();
+            if (trimmed) tagCategories.artists.add(trimmed);
+          });
+          // Add credit as "Name (Role)" to credits set
+          if (artist.role) {
+            tagCategories.credits.add(`${artist.name.replace(/\s+\(\d+\)$/, '')} (${artist.role})`);
+          }
+        }
       });
     }
 
@@ -2352,7 +2410,7 @@ export default function TaggerPage({ initialUrl }) {
                 <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '35%' }}>Source</th>
                 <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Filenames</th>
                 <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Times</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '15%' }}>Actions</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '15%' }}>Remove</th>
               </tr>
             </thead>
             <tbody>
@@ -2425,7 +2483,8 @@ export default function TaggerPage({ initialUrl }) {
                         alignItems: 'center',
                         justifyContent: 'center',
                         transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        margin: '0 auto'
                       }}
                       title="Clear URL input"
                       onMouseEnter={e => { 
@@ -2513,7 +2572,8 @@ export default function TaggerPage({ initialUrl }) {
                         alignItems: 'center',
                         justifyContent: 'center',
                         transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        margin: '0 auto'
                       }}
                       title="Clear files input"
                       onMouseEnter={e => { 
@@ -2596,7 +2656,8 @@ export default function TaggerPage({ initialUrl }) {
                         alignItems: 'center',
                         justifyContent: 'center',
                         transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        margin: '0 auto'
                       }}
                       title="Clear ALS filenames input"
                       onMouseEnter={e => { 
@@ -2909,6 +2970,38 @@ export default function TaggerPage({ initialUrl }) {
       </div>
       {/* --- End Timestamp Formatting Dropdowns --- */}
 
+      {/* Credits checkbox - only show when Discogs data has credits */}
+      {hasTrackCredits && (
+        <div style={{ margin: '0.5rem 0' }}>
+          <label style={{ 
+            fontSize: '0.95rem', 
+            color: '#333',
+            display: 'flex',
+            alignItems: 'center'
+          }}>
+            <input
+              type="checkbox"
+              checked={includeTrackCredits}
+              onChange={e => {
+                const enabled = e.target.checked;
+                setIncludeTrackCredits(enabled);
+                generateCombinedTimestamps();
+                setTagFilters(prev => {
+                  const next = {
+                    ...prev,
+                    credits: { ...(prev.credits || { sliderValue: 100 }), enabled }
+                  };
+                  updateTagsValue(parsedTags, next);
+                  return next;
+                });
+              }}
+              style={{ marginRight: '0.5rem' }}
+            />
+            Include track credits in timestamps
+          </label>
+        </div>
+      )}
+
       <div style={{ width: '100%' }}>
         <textarea
           value={inputValue ? `Timestamps generated by https://tagger.site:\n${inputValue}` : ''}
@@ -3134,43 +3227,6 @@ export default function TaggerPage({ initialUrl }) {
           </div>
         )}
 
-        <div style={{ margin: '0.5rem 0' }}>
-          <label style={{ 
-            fontSize: '0.95rem', 
-            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
-          }}>
-            <input
-              type="checkbox"
-              checked={includeTrackCredits}
-              onChange={e => {
-                if (!hasTrackCredits) return;
-                const enabled = e.target.checked;
-                setIncludeTrackCredits(enabled);
-                generateCombinedTimestamps();
-                setTagFilters(prev => {
-                  const next = {
-                    ...prev,
-                    credits: { ...(prev.credits || { sliderValue: 100 }), enabled }
-                  };
-                  updateTagsValue(parsedTags, next);
-                  return next;
-                });
-              }}
-              disabled={!hasTrackCredits}
-              style={{ marginRight: '0.5rem' }}
-            />
-            Include track credits
-            {!hasTrackCredits && (
-              <span style={{ 
-                marginLeft: '0.5rem', 
-                fontSize: '0.85rem', 
-                color: getReadableTextColor(colors?.LightMuted || '#ffffff')
-              }}>
-                (disabled because no track credit info was found)
-              </span>
-            )}
-          </label>
-        </div>
       </div>
 
       {/* Video Title Recommendations Section */}
