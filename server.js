@@ -931,6 +931,51 @@ async function fetchWithRetry(url, options, maxRetries = 15) {
   throw lastError || new Error('Max retries exceeded');
 }
 
+// Helper function to extract release type from Discogs formats
+function extractReleaseType(releaseData) {
+  let releaseType = '';
+  if (releaseData.formats && releaseData.formats.length > 0) {
+    const format = releaseData.formats[0];
+    if (format.descriptions && format.descriptions.length > 0) {
+      // Check for common release types in descriptions
+      const descriptions = format.descriptions.join(' ').toLowerCase();
+      
+      // Look for specific release types (case insensitive)
+      if (descriptions.includes('album')) {
+        releaseType = 'Album';
+      } else if (descriptions.includes('single')) {
+        releaseType = 'Single';
+      } else if (descriptions.includes('ep')) {
+        releaseType = 'EP';
+      } else if (descriptions.includes('lp')) {
+        releaseType = 'Album'; // LP is typically an album
+      } else if (descriptions.includes('compilation')) {
+        releaseType = 'Compilation';
+      } else if (descriptions.includes('mixtape')) {
+        releaseType = 'Mixtape';
+      } else {
+        // If no specific type found, use the first non-format description
+        // Skip technical formats like MP3, FLAC, WAV, CD, Vinyl, etc.
+        const technicalFormats = ['mp3', 'flac', 'wav', 'aac', 'ogg', 'wma', 'm4a', 'cd', 'vinyl', 'cassette', '7"', '12"', '10"', 'file', 'digital', 'download', 'streaming'];
+        for (const desc of format.descriptions) {
+          if (!technicalFormats.includes(desc.toLowerCase())) {
+            releaseType = desc;
+            break;
+          }
+        }
+        
+        // If still no type found, use format name as fallback
+        if (!releaseType) {
+          releaseType = format.name || '';
+        }
+      }
+    } else {
+      releaseType = format.name || '';
+    }
+  }
+  return releaseType;
+}
+
 // Update fetchVideoIds to use the retry logic
 async function fetchVideoIds(releaseId) {
   const url = `${DISCOGS_API_URL}/releases/${releaseId}`;
@@ -946,6 +991,9 @@ async function fetchVideoIds(releaseId) {
     const year = response.data.year || '';
     const discogsUrl = response.data.uri || `https://www.discogs.com/release/${releaseId}`;
 
+    // Extract release type from formats
+    const releaseType = extractReleaseType(response.data);
+
     const videos = response.data.videos?.map((video) => ({
       videoId: video.uri.split("v=")[1],
       fullUrl: video.uri, // Include full YouTube URL
@@ -953,6 +1001,7 @@ async function fetchVideoIds(releaseId) {
       releaseName: title,
       releaseId: releaseId,
       year,
+      releaseType: releaseType,
       discogsUrl,
     })) || [];
 
@@ -1610,13 +1659,18 @@ process.on('SIGTERM', () => {
 });
 
 process.on('SIGINT', () => {
-  console.log('🛑 SIGINT received, shutting down gracefully...');
-  stopSecretsAutoRefresh();
-  stopDiscogsTokenAutoRefresh();
-  server.close(() => {
-    console.log('✅ Server closed');
+  if (isDev) {
+    console.log('🛑 SIGINT received in development mode, exiting immediately...');
     process.exit(0);
-  });
+  } else {
+    console.log('🛑 SIGINT received, shutting down gracefully...');
+    stopSecretsAutoRefresh();
+    stopDiscogsTokenAutoRefresh();
+    server.close(() => {
+      console.log('✅ Server closed');
+      process.exit(0);
+    });
+  }
 });
 
 // Set global agent timeouts for HTTP and HTTPS (e.g., 10 minutes)
@@ -4058,11 +4112,15 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
 
           // Only add if this videoId is not already present for this release
           if (!allVideos[releaseId][videoId]) {
+            // Extract release type from formats
+            const releaseType = extractReleaseType(releaseData);
+
             allVideos[releaseId][videoId] = {
               releaseId,
               releaseTitle: releaseData.title,
               artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
               year: releaseData.year || '',
+              releaseType: releaseType,
               discogsUrl: releaseData.uri || `https://www.discogs.com/release/${releaseId}`,
               videoId,
               fullUrl: video.uri,
@@ -4203,11 +4261,15 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
             for (const video of releaseData.videos) {
               const videoId = video.uri.split("v=")[1];
               if (!allVideos[item.id][videoId]) {
+                // Extract release type from formats
+                const releaseType = extractReleaseType(releaseData);
+
                 allVideos[item.id][videoId] = {
                   releaseId: item.id,
                   releaseTitle: releaseData.title,
                   artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
                   year: releaseData.year || '',
+                  releaseType: releaseType,
                   discogsUrl: releaseData.uri || item.uri,
                   videoId,
                   fullUrl: video.uri,
@@ -4272,11 +4334,15 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
           if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
         for (const video of releaseData.videos) {
           const videoId = video.uri.split("v=")[1];
+          // Extract release type from formats
+          const releaseType = extractReleaseType(releaseData);
+
           videos.push({
             releaseId,
             releaseTitle: releaseData.title,
             artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
             year: releaseData.year || '',
+            releaseType: releaseType,
             discogsUrl: releaseData.uri || `https://www.discogs.com/release/${releaseId}`,
             videoId,
             fullUrl: video.uri,
