@@ -976,6 +976,25 @@ function extractReleaseType(releaseData) {
   return releaseType;
 }
 
+function extractLabelsAndCompanies(releaseData) {
+  const labels = Array.isArray(releaseData.labels)
+    ? releaseData.labels
+        .map((label) => (typeof label === 'string' ? label : label?.name))
+        .filter((name) => typeof name === 'string' && name.trim().length > 0)
+        .map((name) => name.trim())
+    : [];
+
+  const companies = Array.isArray(releaseData.companies)
+    ? releaseData.companies
+        .map((company) => (typeof company === 'string' ? company : company?.name))
+        .filter((name) => typeof name === 'string' && name.trim().length > 0)
+        .map((name) => name.trim())
+    : [];
+
+  const combined = [...labels, ...companies];
+  return Array.from(new Set(combined));
+}
+
 // Update fetchVideoIds to use the retry logic
 async function fetchVideoIds(releaseId) {
   const url = `${DISCOGS_API_URL}/releases/${releaseId}`;
@@ -994,6 +1013,9 @@ async function fetchVideoIds(releaseId) {
     // Extract release type from formats
     const releaseType = extractReleaseType(response.data);
 
+    const labelsAndCompanies = extractLabelsAndCompanies(response.data);
+    const country = response.data.country || '';
+
     const videos = response.data.videos?.map((video) => ({
       videoId: video.uri.split("v=")[1],
       fullUrl: video.uri, // Include full YouTube URL
@@ -1002,6 +1024,8 @@ async function fetchVideoIds(releaseId) {
       releaseId: releaseId,
       year,
       releaseType: releaseType,
+      labelsAndCompanies,
+      country,
       discogsUrl,
     })) || [];
 
@@ -4105,6 +4129,9 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
           allVideos[releaseId] = {};
         }
 
+        const labelsAndCompanies = extractLabelsAndCompanies(releaseData);
+        const country = releaseData.country || '';
+
         // Loop through each video in the release
         for (const video of releaseData.videos) {
           // Extract videoId from the video URI
@@ -4125,6 +4152,8 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
               videoId,
               fullUrl: video.uri,
               title: video.title,
+              labelsAndCompanies,
+              country,
             };
             addedCount++;
             // Send updated allVideos to session after each addition
@@ -4258,6 +4287,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
             if (!allVideos[item.id]) {
               allVideos[item.id] = {};
             }
+            const labelsAndCompanies = extractLabelsAndCompanies(releaseData);
+            const country = releaseData.country || '';
             for (const video of releaseData.videos) {
               const videoId = video.uri.split("v=")[1];
               if (!allVideos[item.id][videoId]) {
@@ -4274,6 +4305,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
                   videoId,
                   fullUrl: video.uri,
                   title: video.title,
+                  labelsAndCompanies,
+                  country,
                 };
                 addedCount++;
               }
@@ -4336,6 +4369,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
           const videoId = video.uri.split("v=")[1];
           // Extract release type from formats
           const releaseType = extractReleaseType(releaseData);
+          const labelsAndCompanies = extractLabelsAndCompanies(releaseData);
+          const country = releaseData.country || '';
 
           videos.push({
             releaseId,
@@ -4347,6 +4382,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
             videoId,
             fullUrl: video.uri,
             title: video.title,
+            labelsAndCompanies,
+            country,
           });
         }
         sendLogMessageToSession(`Found ${videos.length} videos for release ${releaseId}`, socketId);

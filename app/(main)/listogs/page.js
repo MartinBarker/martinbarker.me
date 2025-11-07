@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, Suspense, useContext } from 'react';
+import React, { useState, useEffect, Suspense, useContext, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
 import VideoTable from './Table';
@@ -713,6 +713,15 @@ function DiscogsAuthTestPageInner() {
     console.log('=== END FORM SUBMISSION DEBUG ===');
   };
 
+  const handleInputKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (discogsInput.trim()) {
+        handleSearchClick();
+      }
+    }
+  };
+
   // --- Display results ---
   const videoCount = flattenVideoData(results).length;
 
@@ -730,14 +739,24 @@ function DiscogsAuthTestPageInner() {
 
   // --- Copy to clipboard handler with visual feedback ---
   const [copyButtonClicked, setCopyButtonClicked] = useState(false);
+  const [filteredTableRows, setFilteredTableRows] = useState([]);
   const handleCopyIds = () => {
     navigator.clipboard.writeText(allVideoIdsString);
     setCopyButtonClicked(true);
     setTimeout(() => setCopyButtonClicked(false), 1000); // Reset after 1 second
   };
 
+  const handleFilteredDataChange = useCallback((rows) => {
+    setFilteredTableRows(rows || []);
+  }, []);
+
+  useEffect(() => {
+    setFilteredTableRows(flattenVideoData(results));
+  }, [results]);
+
   // Check if user can create YouTube playlists
   const canCreatePlaylists = youtubeAuthStatus.exists && youtubeAuthStatus.expiresAt && new Date(youtubeAuthStatus.expiresAt) > new Date();
+  const isSubmitDisabled = !extractedId || !selectedType || !discogsAuthStatus.exists;
 
   // Fetch Discogs info for the given URL
   const fetchDiscogsInfo = async (url) => {
@@ -763,7 +782,15 @@ function DiscogsAuthTestPageInner() {
         setDiscogsError(''); // Clear any previous errors
         return data;
       } else {
-        const errorData = await response.json();
+        let errorData = null;
+        try {
+          const raw = await response.text();
+          if (raw) {
+            errorData = JSON.parse(raw);
+          }
+        } catch (parseErr) {
+          console.warn('⚠️ [Frontend] Failed to parse Discogs error payload as JSON');
+        }
         console.error('❌ [Frontend] Failed to fetch Discogs info:', {
           status: response.status,
           statusText: response.statusText,
@@ -1088,6 +1115,12 @@ function DiscogsAuthTestPageInner() {
             headers
               .map((header) => {
                 let value = row[header];
+                if (Array.isArray(value)) {
+                  value = value.join('; ');
+                }
+                if (typeof value === 'number') {
+                  value = value.toString();
+                }
                 if (typeof value === "string" && (value.includes(",") || value.includes('"'))) {
                   value = `"${value.replace(/"/g, '""')}"`;
                 }
@@ -1278,6 +1311,7 @@ function DiscogsAuthTestPageInner() {
           type="text"
           value={discogsInput}
           onChange={e => handleInputChange(e.target.value)}
+          onKeyDown={handleInputKeyDown}
           placeholder="Enter a Discogs URL (artist, label, release, or list)"
           style={{ width: '90%', padding: 8, marginBottom: 8, fontSize: 16 }}
           disabled={!discogsAuthStatus.exists}
@@ -1287,26 +1321,26 @@ function DiscogsAuthTestPageInner() {
           style={{ 
             padding: '8px 16px', 
             fontSize: 16,
-            background: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? '#cccccc' : buttonColor,
+            background: isSubmitDisabled ? '#cccccc' : buttonColor,
             color: 'white',
             border: 'none',
             borderRadius: 6,
-            cursor: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? 'not-allowed' : 'pointer',
+            cursor: isSubmitDisabled ? 'not-allowed' : 'pointer',
             transition: 'background-color 0.3s ease'
           }}
           onMouseOver={e => {
-            if (extractedId && selectedType && discogsAuthStatus.exists) {
+            if (!isSubmitDisabled) {
               e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
             }
           }}
           onMouseOut={e => {
-            if (extractedId && selectedType && discogsAuthStatus.exists) {
+            if (!isSubmitDisabled) {
               e.currentTarget.style.background = buttonColor;
             }
           }}
-          disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
+          disabled={isSubmitDisabled}
         >
-          Enter a URL and click to submit
+          {discogsInput.trim() ? 'Submit' : 'Enter a URL and click to submit'}
         </button>
         {discogsError && (
           <div
@@ -1718,17 +1752,22 @@ function DiscogsAuthTestPageInner() {
         <h3>
           {videoCount > 0 ? `Videos Table: ${videoCount} videos Found:` : 'Results:'}
         </h3>
-        <VideoTable videoData={results} />
+        <VideoTable
+          videoData={results}
+          onFilteredDataChange={handleFilteredDataChange}
+        />
         {/* Export Table to CSV button directly under the table */}
         <div style={{ marginTop: 16 }}>
           <ExportCSVButton
-            data={flattenVideoData(results)}
+            data={filteredTableRows}
             fileName="videos.csv"
             headers={[
               "releaseTitle",
               "artist",
               "year",
               "releaseType",
+              "labelsAndCompanies",
+              "country",
               "title",
               "videoId",
               "fullUrl",
@@ -1736,7 +1775,7 @@ function DiscogsAuthTestPageInner() {
             ]}
           />
           <div style={{ fontSize: 14, color: '#555', marginTop: 8 }}>
-            Exports all video rows currently loaded in the table.
+          Exports the rows exactly as they appear with the active table filters.
           </div>
         </div>
       </div>

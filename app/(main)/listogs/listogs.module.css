@@ -513,6 +513,348 @@
     font-weight: bold;
 }
 
+/* Listogs Table Filters */
+.tableWrapper {
+    width: 100%;
+}
+
+.filterCard {
+    margin-bottom: 24px;
+    padding: 20px;
+    background-color: #f5f1e8;
+    border: 1px solid #ddd2ba;
+    border-radius: 12px;
+    box-shadow: 0 12px 30px rgba(33, 37, 41, 0.08);
+}
+
+.filterHeaderRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.filterHeaderTitle {
+    font-size: 15px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #3f3a33;
+}
+
+.clearFiltersButton {
+    border: none;
+    background: none;
+    color: #6c757d;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.clearFiltersButton:hover {
+    color: #212529;
+}
+
+.activeFiltersRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.filterByLabel {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #7b7b7b;
+}
+
+.filterChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    border-radius: 999px;
+    border: none;
+    background-color: #202226;
+    color: #fff;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.filterChip:hover {
+    background-color: #3a3f45;
+}
+
+.filterChipRemove {
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.7;
+}
+
+.filterChipPlaceholder {
+    font-size: 13px;
+    color: #8a8a8a;
+}
+
+.clearChipButton {
+    border: none;
+    background: none;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6c757d;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.clearChipButton:hover {
+    color: #212529;
+}
+
+.dropdownRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+}
+
+.dropdownWrapper {
+    position: relative;
+    min-width: 240px;
+    flex: 1 1 220px;
+}
+
+.dropdownLabel {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6c6a65;
+}
+
+.dropdownBox {
+    display: flex;
+    align-items: center;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid #c9c3b6;
+    border-radius: 8px;
+    background-color: #fff;
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dropdownBoxOpen {
+    border-color: #202226;
+    box-shadow: 0 0 0 3px rgba(32, 34, 38, 0.15);
+}
+
+.dropdownInput {
+    flex: 1;
+    border: none;
+    background: none;
+    font-size: 14px;
+    color: #212529;
+    padding: 0;
+    cursor: pointer;
+}
+
+.dropdownInput:focus {
+    outline: none;
+}
+
+.dropdownButton {
+    border: none;
+    background: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    color: #6c757d;
+    cursor: pointer;
+}
+
+.dropdownButtonIcon {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+    transition: transform 0.2s ease;
+}
+
+.dropdownBoxOpen .dropdownButtonIcon {
+    transform: rotate(180deg);
+}
+
+.dropdownList {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 8px 0;
+    border: 1px solid #c9c3b6;
+    border-radius: 10px;
+    background-color: #fff;
+    box-shadow: 0 18px 40px rgba(33, 37, 41, 0.22);
+    z-index: 30;
+}
+
+.dropdownItemAction {
+    width: 100%;
+    padding: 8px 16px;
+    text-align: left;
+    border: none;
+    background: none;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6c757d;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.dropdownItemAction:hover {
+    background-color: #f5f5f5;
+    color: #212529;
+}
+
+.dropdownItemAction:disabled {
+    color: #b0b0b0;
+    cursor: not-allowed;
+}
+
+.dropdownItemAction:disabled:hover {
+    background-color: transparent;
+    color: #b0b0b0;
+}
+
+.dropdownItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px;
+    font-size: 14px;
+    color: #212529;
+    transition: background-color 0.15s ease;
+}
+
+.dropdownItem:hover {
+    background-color: #f5f7fb;
+}
+
+.dropdownItemSelected {
+    background-color: #e6f0ff;
+}
+
+.dropdownItemLabelRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.dropdownCheckbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.dropdownItemLabel {
+    flex: 1;
+    color: #212529;
+}
+
+.dropdownItemCount {
+    font-size: 12px;
+    color: #6c757d;
+    font-weight: 600;
+    min-width: 24px;
+    text-align: right;
+}
+
+.dropdownEmpty {
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.simpleSelectWrapper {
+    flex: 1 1 200px;
+    min-width: 200px;
+}
+
+.simpleSelect,
+.rangeInput {
+    width: 100%;
+    border: 1px solid #c9c3b6;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    background-color: #fff;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.simpleSelect:focus,
+.rangeInput:focus {
+    outline: none;
+    border-color: #202226;
+    box-shadow: 0 0 0 3px rgba(32, 34, 38, 0.15);
+}
+
+.rangeInput::-webkit-outer-spin-button,
+.rangeInput::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+}
+
+.rangeInput {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.filterFooter {
+    margin-top: 18px;
+    font-size: 13px;
+    font-style: italic;
+    color: #6f6f6f;
+}
+
+.srOnly {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (max-width: 720px) {
+    .filterCard {
+        padding: 16px;
+    }
+
+    .dropdownWrapper,
+    .simpleSelectWrapper {
+        flex: 1 1 100%;
+    }
+
+    .activeFiltersRow {
+        gap: 8px;
+    }
+}
+
 .artistName {
     font-size: 18px;
     font-weight: bold;
