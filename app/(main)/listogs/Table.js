@@ -56,6 +56,10 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
   const [useCustomYearRange, setUseCustomYearRange] = useState(false);
   const [selectedCountries, setSelectedCountries] = useState([]);
   const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false);
+  const [selectedGenres, setSelectedGenres] = useState([]);
+  const [isGenreDropdownOpen, setIsGenreDropdownOpen] = useState(false);
+  const [selectedStyles, setSelectedStyles] = useState([]);
+  const [isStyleDropdownOpen, setIsStyleDropdownOpen] = useState(false);
   const [yearRangeStart, setYearRangeStart] = useState('');
   const [yearRangeEnd, setYearRangeEnd] = useState('');
   const [sorting, setSorting] = useState([]);
@@ -68,6 +72,8 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
   const labelDropdownRef = useRef(null);
   const yearDropdownRef = useRef(null);
   const countryDropdownRef = useRef(null);
+  const genreDropdownRef = useRef(null);
+  const styleDropdownRef = useRef(null);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -83,6 +89,12 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
       if (countryDropdownRef.current && !countryDropdownRef.current.contains(event.target)) {
         setIsCountryDropdownOpen(false);
       }
+      if (genreDropdownRef.current && !genreDropdownRef.current.contains(event.target)) {
+        setIsGenreDropdownOpen(false);
+      }
+      if (styleDropdownRef.current && !styleDropdownRef.current.contains(event.target)) {
+        setIsStyleDropdownOpen(false);
+      }
     }
 
     function handleEscape(event) {
@@ -91,6 +103,8 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
         setIsLabelDropdownOpen(false);
         setIsYearDropdownOpen(false);
         setIsCountryDropdownOpen(false);
+        setIsGenreDropdownOpen(false);
+        setIsStyleDropdownOpen(false);
       }
     }
 
@@ -152,6 +166,50 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
 
     return Object.entries(counts)
       .sort((a, b) => parseInt(b[0], 10) - parseInt(a[0], 10))
+      .map(([value, count]) => ({ value, count }));
+  }, [rawData]);
+
+  const genreOptions = useMemo(() => {
+    const counts = {};
+    rawData.forEach(row => {
+      const genres = Array.isArray(row.genres)
+        ? row.genres
+        : row.genres
+          ? [row.genres]
+          : [];
+
+      genres.forEach(genre => {
+        if (!genre || typeof genre !== 'string') return;
+        const trimmed = genre.trim();
+        if (!trimmed) return;
+        counts[trimmed] = (counts[trimmed] || 0) + 1;
+      });
+    });
+
+    return Object.entries(counts)
+      .sort(([genreA], [genreB]) => genreA.localeCompare(genreB))
+      .map(([value, count]) => ({ value, count }));
+  }, [rawData]);
+
+  const styleOptions = useMemo(() => {
+    const counts = {};
+    rawData.forEach(row => {
+      const styles = Array.isArray(row.styles)
+        ? row.styles
+        : row.styles
+          ? [row.styles]
+          : [];
+
+      styles.forEach(style => {
+        if (!style || typeof style !== 'string') return;
+        const trimmed = style.trim();
+        if (!trimmed) return;
+        counts[trimmed] = (counts[trimmed] || 0) + 1;
+      });
+    });
+
+    return Object.entries(counts)
+      .sort(([styleA], [styleB]) => styleA.localeCompare(styleB))
       .map(([value, count]) => ({ value, count }));
   }, [rawData]);
 
@@ -221,6 +279,32 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     });
   }, [countryOptions]);
 
+  useEffect(() => {
+    if (!genreOptions.length) {
+      setSelectedGenres(prev => (prev.length ? [] : prev));
+      return;
+    }
+
+    setSelectedGenres(prev => {
+      const validGenres = new Set(genreOptions.map(option => option.value));
+      const filtered = prev.filter(genre => validGenres.has(genre));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [genreOptions]);
+
+  useEffect(() => {
+    if (!styleOptions.length) {
+      setSelectedStyles(prev => (prev.length ? [] : prev));
+      return;
+    }
+
+    setSelectedStyles(prev => {
+      const validStyles = new Set(styleOptions.map(option => option.value));
+      const filtered = prev.filter(style => validStyles.has(style));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [styleOptions]);
+
   const orderedSelectedReleaseTypes = useMemo(() => {
     if (!selectedReleaseTypes.length) return [];
     const selectedSet = new Set(selectedReleaseTypes);
@@ -252,6 +336,22 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
       .filter(option => selectedSet.has(option.value))
       .map(option => option.value);
   }, [countryOptions, selectedCountries]);
+
+  const orderedSelectedGenres = useMemo(() => {
+    if (!selectedGenres.length) return [];
+    const selectedSet = new Set(selectedGenres);
+    return genreOptions
+      .filter(option => selectedSet.has(option.value))
+      .map(option => option.value);
+  }, [genreOptions, selectedGenres]);
+
+  const orderedSelectedStyles = useMemo(() => {
+    if (!selectedStyles.length) return [];
+    const selectedSet = new Set(selectedStyles);
+    return styleOptions
+      .filter(option => selectedSet.has(option.value))
+      .map(option => option.value);
+  }, [styleOptions, selectedStyles]);
 
   const activeReleaseTypeFilter =
     selectedReleaseTypes.length > 0 &&
@@ -353,6 +453,34 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     setIsCountryDropdownOpen(false);
   };
 
+  const toggleGenreOption = value => {
+    setSelectedGenres(prev => {
+      if (prev.includes(value)) {
+        return prev.filter(item => item !== value);
+      }
+      return [...prev, value];
+    });
+  };
+
+  const clearGenreSelection = () => {
+    setSelectedGenres([]);
+    setIsGenreDropdownOpen(false);
+  };
+
+  const toggleStyleOption = value => {
+    setSelectedStyles(prev => {
+      if (prev.includes(value)) {
+        return prev.filter(item => item !== value);
+      }
+      return [...prev, value];
+    });
+  };
+
+  const clearStyleSelection = () => {
+    setSelectedStyles([]);
+    setIsStyleDropdownOpen(false);
+  };
+
   const toggleCustomYearRange = () => {
     setUseCustomYearRange(prev => {
       if (prev) {
@@ -375,11 +503,15 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     setSelectedYears([]);
     setSelectedLabels([]);
     setSelectedCountries([]);
+    setSelectedGenres([]);
+    setSelectedStyles([]);
     clearCustomYearRange();
     setIsReleaseDropdownOpen(false);
     setIsLabelDropdownOpen(false);
     setIsYearDropdownOpen(false);
     setIsCountryDropdownOpen(false);
+    setIsGenreDropdownOpen(false);
+    setIsStyleDropdownOpen(false);
   };
 
   const anyFiltersApplied =
@@ -387,6 +519,8 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     selectedLabels.length > 0 ||
     selectedYears.length > 0 ||
     selectedCountries.length > 0 ||
+    selectedGenres.length > 0 ||
+    selectedStyles.length > 0 ||
     useCustomYearRange;
 
   const handleReleaseBoxKeyDown = event => {
@@ -414,6 +548,20 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       setIsCountryDropdownOpen(prev => !prev);
+    }
+  };
+
+  const handleGenreBoxKeyDown = event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setIsGenreDropdownOpen(prev => !prev);
+    }
+  };
+
+  const handleStyleBoxKeyDown = event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setIsStyleDropdownOpen(prev => !prev);
     }
   };
 
@@ -466,6 +614,46 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
 
     return `${orderedSelectedCountries.length} selected`;
   }, [countryOptions.length, orderedSelectedCountries, selectedCountries.length]);
+
+  const genreSummary = useMemo(() => {
+    if (!genreOptions.length) {
+      return 'No genres available';
+    }
+
+    if (!selectedGenres.length) {
+      return 'Find a genre';
+    }
+
+    if (selectedGenres.length === genreOptions.length) {
+      return 'All genres';
+    }
+
+    if (orderedSelectedGenres.length === 1) {
+      return orderedSelectedGenres[0];
+    }
+
+    return `${orderedSelectedGenres.length} selected`;
+  }, [genreOptions.length, orderedSelectedGenres, selectedGenres.length]);
+
+  const styleSummary = useMemo(() => {
+    if (!styleOptions.length) {
+      return 'No styles available';
+    }
+
+    if (!selectedStyles.length) {
+      return 'Find a style';
+    }
+
+    if (selectedStyles.length === styleOptions.length) {
+      return 'All styles';
+    }
+
+    if (orderedSelectedStyles.length === 1) {
+      return orderedSelectedStyles[0];
+    }
+
+    return `${orderedSelectedStyles.length} selected`;
+  }, [styleOptions.length, orderedSelectedStyles, selectedStyles.length]);
   const data = useMemo(() => {
     let filteredData = rawData;
     
@@ -496,6 +684,34 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
         const country = row.country.toString().trim();
         if (!country) return false;
         return selectedSet.has(country);
+      });
+    }
+
+    if (selectedGenres.length > 0) {
+      const selectedSet = new Set(selectedGenres);
+      filteredData = filteredData.filter(row => {
+        const genres = Array.isArray(row.genres)
+          ? row.genres
+          : row.genres
+            ? [row.genres]
+            : [];
+
+        if (!genres.length) return false;
+        return genres.some(genre => selectedSet.has(genre));
+      });
+    }
+
+    if (selectedStyles.length > 0) {
+      const selectedSet = new Set(selectedStyles);
+      filteredData = filteredData.filter(row => {
+        const styles = Array.isArray(row.styles)
+          ? row.styles
+          : row.styles
+            ? [row.styles]
+            : [];
+
+        if (!styles.length) return false;
+        return styles.some(style => selectedSet.has(style));
       });
     }
     
@@ -537,7 +753,20 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     }
     
     return filteredData;
-  }, [rawData, search, activeReleaseTypeFilter, selectedReleaseTypes, selectedLabels, selectedCountries, useCustomYearRange, selectedYears, yearRangeStart, yearRangeEnd]);
+  }, [
+    rawData,
+    search,
+    activeReleaseTypeFilter,
+    selectedReleaseTypes,
+    selectedLabels,
+    selectedCountries,
+    selectedGenres,
+    selectedStyles,
+    useCustomYearRange,
+    selectedYears,
+    yearRangeStart,
+    yearRangeEnd
+  ]);
 
   useEffect(() => {
     onFilteredDataChange(data);
@@ -571,6 +800,34 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     {
       accessorKey: 'labelsAndCompanies',
       header: 'Labels & Companies',
+      cell: info => {
+        const value = info.getValue();
+        if (!value) return 'N/A';
+        if (Array.isArray(value)) {
+          if (value.length === 0) return 'N/A';
+          return value.join(', ');
+        }
+        return value;
+      },
+      enableSorting: false,
+    },
+    {
+      accessorKey: 'genres',
+      header: 'Genres',
+      cell: info => {
+        const value = info.getValue();
+        if (!value) return 'N/A';
+        if (Array.isArray(value)) {
+          if (value.length === 0) return 'N/A';
+          return value.join(', ');
+        }
+        return value;
+      },
+      enableSorting: false,
+    },
+    {
+      accessorKey: 'styles',
+      header: 'Styles',
       cell: info => {
         const value = info.getValue();
         if (!value) return 'N/A';
@@ -651,7 +908,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
         <div className={styles.activeFiltersRow}>
           <span className={styles.filterByLabel}>Filter by</span>
           {!anyFiltersApplied && (
-            <span className={styles.filterChipPlaceholder}>All release types, labels & countries</span>
+            <span className={styles.filterChipPlaceholder}>All release types, labels, genres, styles & countries</span>
           )}
 
           {activeReleaseTypeFilter && orderedSelectedReleaseTypes.map(type => (
@@ -743,6 +1000,52 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
               onClick={clearCountrySelection}
             >
               Remove country filter
+            </button>
+          )}
+
+          {orderedSelectedGenres.length > 0 && orderedSelectedGenres.map(genre => (
+            <button
+              key={`genre-${genre}`}
+              type="button"
+              className={styles.filterChip}
+              onClick={() => toggleGenreOption(genre)}
+            >
+              <span>{genre}</span>
+              <span className={styles.filterChipRemove} aria-hidden="true">×</span>
+              <span className={styles.srOnly}>Remove genre {genre}</span>
+            </button>
+          ))}
+
+          {orderedSelectedGenres.length > 0 && (
+            <button
+              type="button"
+              className={styles.clearChipButton}
+              onClick={clearGenreSelection}
+            >
+              Remove genre filter
+            </button>
+          )}
+
+  {orderedSelectedStyles.length > 0 && orderedSelectedStyles.map(style => (
+            <button
+              key={`style-${style}`}
+              type="button"
+              className={styles.filterChip}
+              onClick={() => toggleStyleOption(style)}
+            >
+              <span>{style}</span>
+              <span className={styles.filterChipRemove} aria-hidden="true">×</span>
+              <span className={styles.srOnly}>Remove style {style}</span>
+            </button>
+          ))}
+
+          {orderedSelectedStyles.length > 0 && (
+            <button
+              type="button"
+              className={styles.clearChipButton}
+              onClick={clearStyleSelection}
+            >
+              Remove style filter
             </button>
           )}
 
@@ -934,6 +1237,180 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
                 </>
               ) : (
                 <div className={styles.dropdownEmpty}>No labels or companies found</div>
+              )}
+            </div>
+          </div>
+
+          <div
+            className={styles.dropdownWrapper}
+            ref={genreDropdownRef}
+          >
+            <label className={styles.dropdownLabel} htmlFor="genre-filter-input">
+              Genre
+            </label>
+            <div
+              className={`${styles.dropdownBox} ${isGenreDropdownOpen ? styles.dropdownBoxOpen : ''}`}
+              role="combobox"
+              aria-haspopup="listbox"
+              aria-expanded={isGenreDropdownOpen}
+              aria-controls="genre-filter-listbox"
+              tabIndex={0}
+              onClick={() => setIsGenreDropdownOpen(prev => !prev)}
+              onKeyDown={handleGenreBoxKeyDown}
+            >
+              <input
+                id="genre-filter-input"
+                className={styles.dropdownInput}
+                readOnly
+                tabIndex={-1}
+                value={genreSummary}
+                aria-autocomplete="list"
+                aria-controls="genre-filter-listbox"
+              />
+              <button
+                type="button"
+                className={styles.dropdownButton}
+                aria-label={isGenreDropdownOpen ? 'Hide genre options' : 'Show genre options'}
+                onClick={event => {
+                  event.stopPropagation();
+                  setIsGenreDropdownOpen(prev => !prev);
+                }}
+                tabIndex={-1}
+              >
+                <svg viewBox="0 0 1024 1024" className={styles.dropdownButtonIcon} aria-hidden="true">
+                  <path d="M512 640a32 32 0 0 1-22.63-9.37l-256-256a32 32 0 0 1 45.26-45.26L512 562.75l233.37-233.38a32 32 0 0 1 45.26 45.26l-256 256A32 32 0 0 1 512 640z" />
+                </svg>
+              </button>
+            </div>
+            <div
+              className={styles.dropdownList}
+              id="genre-filter-listbox"
+              role="listbox"
+              aria-multiselectable="true"
+              hidden={!isGenreDropdownOpen}
+            >
+              {genreOptions.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    className={styles.dropdownItemAction}
+                    onClick={clearGenreSelection}
+                    disabled={selectedGenres.length === 0}
+                  >
+                    Clear genre selections
+                  </button>
+                  {genreOptions.map(option => {
+                    const isSelected = selectedGenres.includes(option.value);
+                    return (
+                      <div
+                        key={option.value}
+                        className={`${styles.dropdownItem} ${isSelected ? styles.dropdownItemSelected : ''}`}
+                        role="option"
+                        aria-selected={isSelected}
+                      >
+                        <label className={styles.dropdownItemLabelRow}>
+                          <input
+                            type="checkbox"
+                            className={styles.dropdownCheckbox}
+                            checked={isSelected}
+                            onChange={() => toggleGenreOption(option.value)}
+                          />
+                          <span className={styles.dropdownItemLabel}>{option.value}</span>
+                        </label>
+                        <span className={styles.dropdownItemCount}>{option.count}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : (
+                <div className={styles.dropdownEmpty}>No genres found</div>
+              )}
+            </div>
+          </div>
+
+          <div
+            className={styles.dropdownWrapper}
+            ref={styleDropdownRef}
+          >
+            <label className={styles.dropdownLabel} htmlFor="style-filter-input">
+              Style
+            </label>
+            <div
+              className={`${styles.dropdownBox} ${isStyleDropdownOpen ? styles.dropdownBoxOpen : ''}`}
+              role="combobox"
+              aria-haspopup="listbox"
+              aria-expanded={isStyleDropdownOpen}
+              aria-controls="style-filter-listbox"
+              tabIndex={0}
+              onClick={() => setIsStyleDropdownOpen(prev => !prev)}
+              onKeyDown={handleStyleBoxKeyDown}
+            >
+              <input
+                id="style-filter-input"
+                className={styles.dropdownInput}
+                readOnly
+                tabIndex={-1}
+                value={styleSummary}
+                aria-autocomplete="list"
+                aria-controls="style-filter-listbox"
+              />
+              <button
+                type="button"
+                className={styles.dropdownButton}
+                aria-label={isStyleDropdownOpen ? 'Hide style options' : 'Show style options'}
+                onClick={event => {
+                  event.stopPropagation();
+                  setIsStyleDropdownOpen(prev => !prev);
+                }}
+                tabIndex={-1}
+              >
+                <svg viewBox="0 0 1024 1024" className={styles.dropdownButtonIcon} aria-hidden="true">
+                  <path d="M512 640a32 32 0 0 1-22.63-9.37l-256-256a32 32 0 0 1 45.26-45.26L512 562.75l233.37-233.38a32 32 0 0 1 45.26 45.26l-256 256A32 32 0 0 1 512 640z" />
+                </svg>
+              </button>
+            </div>
+            <div
+              className={styles.dropdownList}
+              id="style-filter-listbox"
+              role="listbox"
+              aria-multiselectable="true"
+              hidden={!isStyleDropdownOpen}
+            >
+              {styleOptions.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    className={styles.dropdownItemAction}
+                    onClick={clearStyleSelection}
+                    disabled={selectedStyles.length === 0}
+                  >
+                    Clear style selections
+                  </button>
+                  {styleOptions.map(option => {
+                    const isSelected = selectedStyles.includes(option.value);
+                    return (
+                      <div
+                        key={option.value}
+                        className={`${styles.dropdownItem} ${isSelected ? styles.dropdownItemSelected : ''}`}
+                        role="option"
+                        aria-selected={isSelected}
+                      >
+                        <label className={styles.dropdownItemLabelRow}>
+                          <input
+                            type="checkbox"
+                            className={styles.dropdownCheckbox}
+                            checked={isSelected}
+                            onChange={() => toggleStyleOption(option.value)}
+                          />
+                          <span className={styles.dropdownItemLabel}>{option.value}</span>
+                        </label>
+                        <span className={styles.dropdownItemCount}>{option.count}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : (
+                <div className={styles.dropdownEmpty}>No styles found</div>
               )}
             </div>
           </div>
