@@ -123,6 +123,8 @@ const sessionSocketMap = new Map();
 const activeJobs = new Map();
 // Track disconnected sockets to avoid spam logging
 const disconnectedSockets = new Set();
+// Track rate-limit retry state per socket for exponential backoff
+const socketRateLimitState = new Map();
 
 // Helper function to check if socket is still connected
 function isSocketConnected(socketId) {
@@ -329,6 +331,38 @@ app.get('/oauth2callback', (req, res) => {
     });
   } else {
     res.status(400).send('No code found in the request.');
+  }
+});
+
+app.post('/listogs/stop', (req, res) => {
+  try {
+    const { socketId } = req.body || {};
+
+    if (!socketId) {
+      return res.status(400).json({ error: 'socketId is required' });
+    }
+
+    const job = activeJobs.get(socketId);
+    if (job && job.cancel) {
+      try {
+        job.cancel();
+      } catch (err) {
+        logger.warn(`[Stop Job] Error while cancelling job for socket ${socketId}:`, err.message);
+      }
+      activeJobs.delete(socketId);
+      sendLogMessageToSession('🛑 Job cancelled by user.', socketId);
+      sendStatusToSession({
+        task: job.type || 'discogs',
+        status: 'Stopped by user',
+        progress: null
+      }, socketId);
+      return res.json({ stopped: true });
+    }
+
+    return res.json({ stopped: false, message: 'No active job for this socket.' });
+  } catch (err) {
+    logger.error('[Stop Job] Unexpected error:', err);
+    return res.status(500).json({ error: 'Failed to stop job.' });
   }
 });
 
@@ -1061,6 +1095,8 @@ async function fetchVideoIds(releaseId) {
     const country = response.data.country || '';
     const genres = Array.isArray(response.data.genres) ? response.data.genres : [];
     const styles = Array.isArray(response.data.styles) ? response.data.styles : [];
+    const masterId = typeof response.data.master_id === 'number' ? response.data.master_id : (response.data.master_id || null);
+    const isMasterRelease = !response.data.master_id;
 
     const videos = response.data.videos?.map((video) => ({
       videoId: video.uri.split("v=")[1],
@@ -1074,6 +1110,8 @@ async function fetchVideoIds(releaseId) {
       country,
       genres,
       styles,
+      masterId,
+      isMasterRelease,
       discogsUrl,
     })) || [];
 
@@ -3878,6 +3916,9 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId, cancelled 
         console.log(msg);
         if (typeof io !== "undefined") io.emit('progressLog', msg);
         rateLimitStart = null;
+        if (socketRateLimitState.has(socketId)) {
+          socketRateLimitState.set(socketId, { retry: 0 });
+        }
       }
       // If paginated, collect all releases/items
       if (response.data && Array.isArray(response.data.releases)) {
@@ -3913,10 +3954,14 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId, cancelled 
           return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
         }
 
-        retryCount++;
+        const rateState = socketRateLimitState.get(socketId) || { retry: 0 };
+        rateState.retry = (rateState.retry || 0) + 1;
+        socketRateLimitState.set(socketId, rateState);
+
+        retryCount = rateState.retry;
         if (rateLimitStart === null) rateLimitStart = Date.now();
-        const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
-        const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}. Waiting ${waitTime / 1000} seconds...`;
+        const waitTime = Math.min(2000 * Math.pow(2, rateState.retry - 1), 32000); // Cap at 32 seconds
+        const logMsg = `⏳ Rate limit hit. Attempt ${rateState.retry}. Waiting ${waitTime / 1000} seconds...`;
         console.warn(logMsg);
         sendLogMessageToSession(logMsg, socketId);
 
@@ -4181,6 +4226,8 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
         const country = releaseData.country || '';
         const genres = Array.isArray(releaseData.genres) ? releaseData.genres : [];
         const styles = Array.isArray(releaseData.styles) ? releaseData.styles : [];
+        const masterId = typeof releaseData.master_id === 'number' ? releaseData.master_id : (releaseData.master_id || null);
+        const isMasterRelease = !releaseData.master_id;
 
         // Loop through each video in the release
         for (const video of releaseData.videos) {
@@ -4206,6 +4253,8 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
               country,
               genres,
               styles,
+              masterId,
+              isMasterRelease,
             };
             addedCount++;
             // Send updated allVideos to session after each addition
@@ -4343,6 +4392,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
             const country = releaseData.country || '';
             const genres = Array.isArray(releaseData.genres) ? releaseData.genres : [];
             const styles = Array.isArray(releaseData.styles) ? releaseData.styles : [];
+            const masterId = typeof releaseData.master_id === 'number' ? releaseData.master_id : (releaseData.master_id || null);
+            const isMasterRelease = !releaseData.master_id;
             for (const video of releaseData.videos) {
               const videoId = video.uri.split("v=")[1];
               if (!allVideos[item.id][videoId]) {
@@ -4363,6 +4414,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
                   country,
                   genres,
                   styles,
+                  masterId,
+                  isMasterRelease,
                 };
                 addedCount++;
               }
@@ -4429,6 +4482,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
           const country = releaseData.country || '';
           const genres = Array.isArray(releaseData.genres) ? releaseData.genres : [];
           const styles = Array.isArray(releaseData.styles) ? releaseData.styles : [];
+          const masterId = typeof releaseData.master_id === 'number' ? releaseData.master_id : (releaseData.master_id || null);
+          const isMasterRelease = !releaseData.master_id;
 
           videos.push({
             releaseId,
@@ -4444,6 +4499,8 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
             country,
             genres,
             styles,
+            masterId,
+            isMasterRelease,
           });
         }
         sendLogMessageToSession(`Found ${videos.length} videos for release ${releaseId}`, socketId);
@@ -4506,8 +4563,10 @@ app.post('/discogs/api', async (req, res) => {
 });
 
 app.post('/listogs/discogs/list-images', async (req, res) => {
+  let cancelled = false;
+
   try {
-    const { listId, socketId, oauthToken, oauthVerifier } = req.body || {};
+    const { listId, socketId, oauthToken } = req.body || {};
     const sessionDiscogsAuth = req.session?.discogsAuth;
     const effectiveOauthToken = oauthToken || sessionDiscogsAuth?.accessToken || null;
 
@@ -4535,7 +4594,7 @@ app.post('/listogs/discogs/list-images', async (req, res) => {
 
     let listData;
     try {
-      listData = await newDiscogsAPIRequest(listUrl, effectiveOauthToken, socketId, false);
+      listData = await newDiscogsAPIRequest(listUrl, effectiveOauthToken, socketId, cancelled);
     } catch (error) {
       logger.error(`[List Images] Failed to fetch list ${listId}:`, error.message);
       sendStatusToSession({
@@ -4574,6 +4633,14 @@ app.post('/listogs/discogs/list-images', async (req, res) => {
 
     let zip = null;
     let downloadedCount = 0;
+    const cancelJob = () => {
+      cancelled = true;
+      console.log(`[List Images] Cancel requested for socket ${socketId}`);
+    };
+
+    if (socketId) {
+      activeJobs.set(socketId, { cancel: cancelJob, type: 'imageZip', listId });
+    }
 
     try {
       const tempZip = new JSZip();
@@ -4585,6 +4652,9 @@ app.post('/listogs/discogs/list-images', async (req, res) => {
         if (!isSocketConnected(socketId)) {
           logger.warn(`[List Images] Socket ${socketId} disconnected during extraction, aborting.`);
           throw Object.assign(new Error('Socket disconnected during image extraction.'), { statusCode: 499 });
+        }
+        if (cancelled) {
+          throw Object.assign(new Error('Image extraction cancelled.'), { statusCode: 499 });
         }
 
         sendStatusToSession({
@@ -4598,7 +4668,10 @@ app.post('/listogs/discogs/list-images', async (req, res) => {
 
         try {
           const releaseUrl = `https://api.discogs.com/releases/${item.id}`;
-          const releaseData = await newDiscogsAPIRequest(releaseUrl, effectiveOauthToken, socketId, false) || {};
+          const releaseData = await newDiscogsAPIRequest(releaseUrl, effectiveOauthToken, socketId, cancelled) || {};
+          if (cancelled) {
+            throw Object.assign(new Error('Image extraction cancelled.'), { statusCode: 499 });
+          }
           const images = Array.isArray(releaseData.images) ? releaseData.images : [];
 
           if (!images.length) {
@@ -4698,12 +4771,19 @@ app.post('/listogs/discogs/list-images', async (req, res) => {
     }, socketId);
 
     const safeListName = sanitizeForFilename(listName, `discogs-list-${listId}`);
-    const fileName = `${safeListName}-images.zip`;
+    const listIdStr = String(listId);
+    const baseName = safeListName && safeListName.includes(listIdStr)
+      ? safeListName
+      : `${safeListName || 'discogs-list'}-${listIdStr}`;
+    const fileName = `${baseName}-images.zip`;
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Length', zipBuffer.length);
     res.send(zipBuffer);
+    if (socketId) {
+      activeJobs.delete(socketId);
+    }
   } catch (err) {
     logger.error('[List Images] Unexpected error:', err);
     if (req.body && req.body.socketId) {
@@ -4714,5 +4794,9 @@ app.post('/listogs/discogs/list-images', async (req, res) => {
       }, req.body.socketId);
     }
     res.status(500).json({ error: 'Failed to generate image archive.' });
+  } finally {
+    if (req.body?.socketId && activeJobs.get(req.body.socketId)?.type === 'imageZip') {
+      activeJobs.delete(req.body.socketId);
+    }
   }
 });

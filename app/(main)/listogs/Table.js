@@ -60,6 +60,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
   const [isGenreDropdownOpen, setIsGenreDropdownOpen] = useState(false);
   const [selectedStyles, setSelectedStyles] = useState([]);
   const [isStyleDropdownOpen, setIsStyleDropdownOpen] = useState(false);
+  const [masterOnly, setMasterOnly] = useState(false);
   const [yearRangeStart, setYearRangeStart] = useState('');
   const [yearRangeEnd, setYearRangeEnd] = useState('');
   const [sorting, setSorting] = useState([]);
@@ -505,6 +506,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     setSelectedCountries([]);
     setSelectedGenres([]);
     setSelectedStyles([]);
+    setMasterOnly(false);
     clearCustomYearRange();
     setIsReleaseDropdownOpen(false);
     setIsLabelDropdownOpen(false);
@@ -521,6 +523,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     selectedCountries.length > 0 ||
     selectedGenres.length > 0 ||
     selectedStyles.length > 0 ||
+    masterOnly ||
     useCustomYearRange;
 
   const handleReleaseBoxKeyDown = event => {
@@ -714,6 +717,10 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
         return styles.some(style => selectedSet.has(style));
       });
     }
+
+    if (masterOnly) {
+      filteredData = filteredData.filter(row => row.isMasterRelease);
+    }
     
     // Apply year filter
     if (useCustomYearRange && yearRangeStart) {
@@ -762,6 +769,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
     selectedCountries,
     selectedGenres,
     selectedStyles,
+    masterOnly,
     useCustomYearRange,
     selectedYears,
     yearRangeStart,
@@ -1046,6 +1054,18 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
               onClick={clearStyleSelection}
             >
               Remove style filter
+            </button>
+          )}
+
+          {masterOnly && (
+            <button
+              type="button"
+              className={styles.filterChip}
+              onClick={() => setMasterOnly(false)}
+            >
+              <span>Master releases only</span>
+              <span className={styles.filterChipRemove} aria-hidden="true">×</span>
+              <span className={styles.srOnly}>Disable master releases only filter</span>
             </button>
           )}
 
@@ -1634,6 +1654,17 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
               )}
             </div>
           </div>
+        </div>
+
+        <div className={styles.masterToggleRow}>
+          <label>
+            <input
+              type="checkbox"
+              checked={masterOnly}
+              onChange={e => setMasterOnly(e.target.checked)}
+            />
+            Master releases only
+          </label>
         </div>
 
         <div className={styles.filterFooter}>

@@ -124,6 +124,8 @@ function DiscogsAuthTestPageInner() {
   const [imageDownloadFileName, setImageDownloadFileName] = useState('');
   const [imageDownloadLoading, setImageDownloadLoading] = useState(false);
   const [imageDownloadError, setImageDownloadError] = useState('');
+  const [stopRequestLoading, setStopRequestLoading] = useState(false);
+  const [socketReconnectKey, setSocketReconnectKey] = useState(0);
 
   /** Persist tokens in localStorage, along with set time */
   const storeDiscogsTokens = (token, verifier) => {
@@ -505,6 +507,12 @@ function DiscogsAuthTestPageInner() {
       setSessionStatus(status); // <-- Save status to state
       if (status && status.task === 'imageZip') {
         setImageExtractionStatus(status);
+        if (status.status === 'Image archive ready' || status.status === 'Image extraction failed' || status.status === 'Stopped by user') {
+          setImageDownloadLoading(false);
+        }
+      }
+      if (status && status.status === 'Stopped by user') {
+        setStopRequestLoading(false);
       }
     });
 
@@ -521,7 +529,7 @@ function DiscogsAuthTestPageInner() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       sock.disconnect();
     };
-  }, []);
+  }, [socketReconnectKey]);
 
   // Query /discogs/api endpoint with Discogs type, discogs id, oauthToken, and socketId
   const discogsApiQuery = async (discogsType, discogsId) => {
@@ -866,6 +874,7 @@ function DiscogsAuthTestPageInner() {
       setImageDownloadError(err.message || 'Failed to extract images for this list.');
     } finally {
       setImageDownloadLoading(false);
+      setStopRequestLoading(false);
     }
   }, [
     socketId, 
@@ -878,6 +887,63 @@ function DiscogsAuthTestPageInner() {
     discogsAuthStatus?.accessToken,
     discogsAuthStatus?.verifier
   ]);
+
+  const handleStopSearch = useCallback(async () => {
+    if (!socketId) return;
+    setStopRequestLoading(true);
+    try {
+      const apiBaseURL = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.martinbarker.me/internal-api';
+
+      const response = await fetch(`${apiBaseURL}/listogs/stop`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ socketId })
+      });
+
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (err) {
+        result = {};
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error || `Failed to stop job (status ${response.status})`);
+      }
+
+      if (result.stopped) {
+        setSessionStatus(prev => ({ ...(prev || {}), status: 'Stopped by user' }));
+        setLogLines(prev => [...prev, '🛑 Job cancelled by user.']);
+      } else {
+        setLogLines(prev => [...prev, 'ℹ️ No active job to stop.']);
+      }
+    } catch (err) {
+      console.error('❌ [Frontend] Stop request failed:', err);
+      setLogLines(prev => [...prev, `❌ Stop failed: ${err.message}`]);
+    } finally {
+      setStopRequestLoading(false);
+      setImageDownloadLoading(false);
+      setSocketReconnectKey(prev => prev + 1);
+      setSocketId(null);
+    }
+  }, [socketId, setLogLines, setSessionStatus]);
+
+  const inactiveStatuses = new Set([
+    null,
+    undefined,
+    'Done',
+    'Image archive ready',
+    'No releases found in list',
+    'No images available to download',
+    'Image extraction failed',
+    'Stopped by user'
+  ]);
+  const canStopJob = Boolean(socketId && sessionStatus && sessionStatus.status && !inactiveStatuses.has(sessionStatus.status));
 
   // Check if user can create YouTube playlists
   const canCreatePlaylists = youtubeAuthStatus.exists && youtubeAuthStatus.expiresAt && new Date(youtubeAuthStatus.expiresAt) > new Date();
@@ -1246,6 +1312,9 @@ function DiscogsAuthTestPageInner() {
                 if (typeof value === 'number') {
                   value = value.toString();
                 }
+                if (typeof value === 'boolean') {
+                  value = value ? 'true' : 'false';
+                }
                 if (typeof value === "string" && (value.includes(",") || value.includes('"'))) {
                   value = `"${value.replace(/"/g, '""')}"`;
                 }
@@ -1524,6 +1593,23 @@ function DiscogsAuthTestPageInner() {
             border: '1px solid #333'
           }}
         />
+        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={handleStopSearch}
+            disabled={!canStopJob || stopRequestLoading}
+            style={{
+              padding: '8px 16px',
+              background: !canStopJob || stopRequestLoading ? '#d3d3d3' : '#ff9800',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              cursor: !canStopJob || stopRequestLoading ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.2s ease'
+            }}
+          >
+            {stopRequestLoading ? 'Stopping…' : 'Stop Current Job'}
+          </button>
+        </div>
         {/* Display session status */}
         {sessionStatus && (
           <div style={{ marginTop: 12, padding: 8, background: '#222', color: '#fff', borderRadius: 6 }}>
@@ -1888,7 +1974,7 @@ function DiscogsAuthTestPageInner() {
         <div style={{ marginTop: 16 }}>
           <ExportCSVButton
             data={filteredTableRows}
-            fileName="videos.csv"
+            fileName={extractedId ? `discogs-${extractedId}-videos.csv` : "videos.csv"}
             headers={[
               "releaseTitle",
               "artist",
@@ -1898,6 +1984,8 @@ function DiscogsAuthTestPageInner() {
               "country",
               "genres",
               "styles",
+              "masterId",
+              "isMasterRelease",
               "title",
               "videoId",
               "fullUrl",
