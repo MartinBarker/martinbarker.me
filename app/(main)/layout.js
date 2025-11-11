@@ -250,7 +250,8 @@ export default function RootLayout({ children }) {
           <link rel="shortcut icon" href={pageIcon} />
           <meta name="google-site-verification" content="gDJG6R2M9ZdQ8t8SHYpzGW8Pq433BC0D-JlwXkvurxE" />
         </head>
-        <body  style={{ margin: '0px', width: 'fit-content' }}>
+        {/* , width: 'fit-content' */}
+        <body  style={{ margin: '0px' }}>
         <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
           <defs>
             <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" colorInterpolationFilters="sRGB" overflow="visible">
