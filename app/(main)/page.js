@@ -73,7 +73,12 @@ export default function Home() {
                 >
                   Martin Barker
                 </h1>
-                <p className={styles.heroSubtitle}>Seattle-based full-stack engineer, vinyl archivist and open-source contributor</p>
+                <p 
+                  className={styles.heroSubtitle}
+                  data-light-background={isLightBackground}
+                >
+                  Seattle-based full-stack engineer, vinyl archivist and open-source contributor
+                </p>
             </div>
 
             {/* Top Section - 3 Column Layout */}

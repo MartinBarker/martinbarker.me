@@ -24,6 +24,7 @@ const cors = require('cors');
 const session = require('express-session');
 const sharedSession = require('express-socket.io-session');
 const { Vibrant } = require('node-vibrant/node');
+const JSZip = require('jszip');
 
 // --- Determine if we are in dev or production environment ---
 var isDev = process.env.NODE_ENV === 'development' ? true : false;
@@ -122,6 +123,8 @@ const sessionSocketMap = new Map();
 const activeJobs = new Map();
 // Track disconnected sockets to avoid spam logging
 const disconnectedSockets = new Set();
+// Track rate-limit retry state per socket for exponential backoff
+const socketRateLimitState = new Map();
 
 // Helper function to check if socket is still connected
 function isSocketConnected(socketId) {
@@ -328,6 +331,38 @@ app.get('/oauth2callback', (req, res) => {
     });
   } else {
     res.status(400).send('No code found in the request.');
+  }
+});
+
+app.post('/listogs/stop', (req, res) => {
+  try {
+    const { socketId } = req.body || {};
+
+    if (!socketId) {
+      return res.status(400).json({ error: 'socketId is required' });
+    }
+
+    const job = activeJobs.get(socketId);
+    if (job && job.cancel) {
+      try {
+        job.cancel();
+      } catch (err) {
+        logger.warn(`[Stop Job] Error while cancelling job for socket ${socketId}:`, err.message);
+      }
+      activeJobs.delete(socketId);
+      sendLogMessageToSession('🛑 Job cancelled by user.', socketId);
+      sendStatusToSession({
+        task: job.type || 'discogs',
+        status: 'Stopped by user',
+        progress: null
+      }, socketId);
+      return res.json({ stopped: true });
+    }
+
+    return res.json({ stopped: false, message: 'No active job for this socket.' });
+  } catch (err) {
+    logger.error('[Stop Job] Unexpected error:', err);
+    return res.status(500).json({ error: 'Failed to stop job.' });
   }
 });
 
@@ -976,6 +1011,68 @@ function extractReleaseType(releaseData) {
   return releaseType;
 }
 
+function extractLabelsAndCompanies(releaseData) {
+  const labels = Array.isArray(releaseData.labels)
+    ? releaseData.labels
+        .map((label) => (typeof label === 'string' ? label : label?.name))
+        .filter((name) => typeof name === 'string' && name.trim().length > 0)
+        .map((name) => name.trim())
+    : [];
+
+  const companies = Array.isArray(releaseData.companies)
+    ? releaseData.companies
+        .map((company) => (typeof company === 'string' ? company : company?.name))
+        .filter((name) => typeof name === 'string' && name.trim().length > 0)
+        .map((name) => name.trim())
+    : [];
+
+  const combined = [...labels, ...companies];
+  return Array.from(new Set(combined));
+}
+
+function sanitizeForFilename(name, fallback = 'file') {
+  if (!name || typeof name !== 'string') {
+    return fallback;
+  }
+  const sanitized = name
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .trim()
+    .slice(0, 120);
+  return sanitized || fallback;
+}
+
+function getExtensionFromContentType(contentType, fallbackUri = '') {
+  if (contentType) {
+    const map = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'image/svg+xml': 'svg'
+    };
+    const normalized = contentType.split(';')[0].trim().toLowerCase();
+    if (map[normalized]) {
+      return map[normalized];
+    }
+  }
+
+  if (fallbackUri) {
+    try {
+      const parsed = new URL(fallbackUri);
+      const ext = path.extname(parsed.pathname).replace('.', '');
+      if (ext) {
+        return ext.toLowerCase();
+      }
+    } catch (err) {
+      // Ignore URL parsing errors
+    }
+  }
+
+  return 'jpg';
+}
+
 // Update fetchVideoIds to use the retry logic
 async function fetchVideoIds(releaseId) {
   const url = `${DISCOGS_API_URL}/releases/${releaseId}`;
@@ -994,6 +1091,13 @@ async function fetchVideoIds(releaseId) {
     // Extract release type from formats
     const releaseType = extractReleaseType(response.data);
 
+    const labelsAndCompanies = extractLabelsAndCompanies(response.data);
+    const country = response.data.country || '';
+    const genres = Array.isArray(response.data.genres) ? response.data.genres : [];
+    const styles = Array.isArray(response.data.styles) ? response.data.styles : [];
+    const masterId = typeof response.data.master_id === 'number' ? response.data.master_id : (response.data.master_id || null);
+    const isMasterRelease = !response.data.master_id;
+
     const videos = response.data.videos?.map((video) => ({
       videoId: video.uri.split("v=")[1],
       fullUrl: video.uri, // Include full YouTube URL
@@ -1002,6 +1106,12 @@ async function fetchVideoIds(releaseId) {
       releaseId: releaseId,
       year,
       releaseType: releaseType,
+      labelsAndCompanies,
+      country,
+      genres,
+      styles,
+      masterId,
+      isMasterRelease,
       discogsUrl,
     })) || [];
 
@@ -3806,6 +3916,9 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId, cancelled 
         console.log(msg);
         if (typeof io !== "undefined") io.emit('progressLog', msg);
         rateLimitStart = null;
+        if (socketRateLimitState.has(socketId)) {
+          socketRateLimitState.set(socketId, { retry: 0 });
+        }
       }
       // If paginated, collect all releases/items
       if (response.data && Array.isArray(response.data.releases)) {
@@ -3841,10 +3954,14 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId, cancelled 
           return firstResponse || { releases: allReleases, pagination: { pages: totalPages } };
         }
 
-        retryCount++;
+        const rateState = socketRateLimitState.get(socketId) || { retry: 0 };
+        rateState.retry = (rateState.retry || 0) + 1;
+        socketRateLimitState.set(socketId, rateState);
+
+        retryCount = rateState.retry;
         if (rateLimitStart === null) rateLimitStart = Date.now();
-        const waitTime = Math.min(1000 * Math.pow(2, retryCount), 32000); // Cap at 32 seconds
-        const logMsg = `⏳ Rate limit hit. Attempt ${retryCount}. Waiting ${waitTime / 1000} seconds...`;
+        const waitTime = Math.min(2000 * Math.pow(2, rateState.retry - 1), 32000); // Cap at 32 seconds
+        const logMsg = `⏳ Rate limit hit. Attempt ${rateState.retry}. Waiting ${waitTime / 1000} seconds...`;
         console.warn(logMsg);
         sendLogMessageToSession(logMsg, socketId);
 
@@ -4105,6 +4222,13 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
           allVideos[releaseId] = {};
         }
 
+        const labelsAndCompanies = extractLabelsAndCompanies(releaseData);
+        const country = releaseData.country || '';
+        const genres = Array.isArray(releaseData.genres) ? releaseData.genres : [];
+        const styles = Array.isArray(releaseData.styles) ? releaseData.styles : [];
+        const masterId = typeof releaseData.master_id === 'number' ? releaseData.master_id : (releaseData.master_id || null);
+        const isMasterRelease = !releaseData.master_id;
+
         // Loop through each video in the release
         for (const video of releaseData.videos) {
           // Extract videoId from the video URI
@@ -4125,6 +4249,12 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
               videoId,
               fullUrl: video.uri,
               title: video.title,
+              labelsAndCompanies,
+              country,
+              genres,
+              styles,
+              masterId,
+              isMasterRelease,
             };
             addedCount++;
             // Send updated allVideos to session after each addition
@@ -4258,6 +4388,12 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
             if (!allVideos[item.id]) {
               allVideos[item.id] = {};
             }
+            const labelsAndCompanies = extractLabelsAndCompanies(releaseData);
+            const country = releaseData.country || '';
+            const genres = Array.isArray(releaseData.genres) ? releaseData.genres : [];
+            const styles = Array.isArray(releaseData.styles) ? releaseData.styles : [];
+            const masterId = typeof releaseData.master_id === 'number' ? releaseData.master_id : (releaseData.master_id || null);
+            const isMasterRelease = !releaseData.master_id;
             for (const video of releaseData.videos) {
               const videoId = video.uri.split("v=")[1];
               if (!allVideos[item.id][videoId]) {
@@ -4274,6 +4410,12 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
                   videoId,
                   fullUrl: video.uri,
                   title: video.title,
+                  labelsAndCompanies,
+                  country,
+                  genres,
+                  styles,
+                  masterId,
+                  isMasterRelease,
                 };
                 addedCount++;
               }
@@ -4336,6 +4478,12 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
           const videoId = video.uri.split("v=")[1];
           // Extract release type from formats
           const releaseType = extractReleaseType(releaseData);
+          const labelsAndCompanies = extractLabelsAndCompanies(releaseData);
+          const country = releaseData.country || '';
+          const genres = Array.isArray(releaseData.genres) ? releaseData.genres : [];
+          const styles = Array.isArray(releaseData.styles) ? releaseData.styles : [];
+          const masterId = typeof releaseData.master_id === 'number' ? releaseData.master_id : (releaseData.master_id || null);
+          const isMasterRelease = !releaseData.master_id;
 
           videos.push({
             releaseId,
@@ -4347,6 +4495,12 @@ async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) 
             videoId,
             fullUrl: video.uri,
             title: video.title,
+            labelsAndCompanies,
+            country,
+            genres,
+            styles,
+            masterId,
+            isMasterRelease,
           });
         }
         sendLogMessageToSession(`Found ${videos.length} videos for release ${releaseId}`, socketId);
@@ -4405,5 +4559,244 @@ app.post('/discogs/api', async (req, res) => {
     sendLogMessageToSession(`Error: ${err.message}`, socketId);
 
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/listogs/discogs/list-images', async (req, res) => {
+  let cancelled = false;
+
+  try {
+    const { listId, socketId, oauthToken } = req.body || {};
+    const sessionDiscogsAuth = req.session?.discogsAuth;
+    const effectiveOauthToken = oauthToken || sessionDiscogsAuth?.accessToken || null;
+
+    if (!listId) {
+      return res.status(400).json({ error: 'listId is required' });
+    }
+
+    if (!socketId) {
+      return res.status(400).json({ error: 'socketId is required for progress updates' });
+    }
+
+    if (!isSocketConnected(socketId)) {
+      return res.status(400).json({ error: 'Socket not connected' });
+    }
+
+    const headers = { 'User-Agent': USER_AGENT };
+    const listUrl = `https://api.discogs.com/lists/${listId}`;
+
+    sendStatusToSession({
+      task: 'imageZip',
+      status: 'Fetching list metadata',
+      progress: null,
+      listId
+    }, socketId);
+
+    let listData;
+    try {
+      listData = await newDiscogsAPIRequest(listUrl, effectiveOauthToken, socketId, cancelled);
+    } catch (error) {
+      logger.error(`[List Images] Failed to fetch list ${listId}:`, error.message);
+      sendStatusToSession({
+        task: 'imageZip',
+        status: 'Image extraction failed',
+        error: `Failed to fetch list ${listId}`,
+        listId
+      }, socketId);
+      return res.status(500).json({ error: 'Failed to fetch Discogs list metadata.' });
+    }
+
+    const listItems = Array.isArray(listData?.items)
+      ? listData.items.filter(item => item && item.type === 'release' && item.id)
+      : [];
+
+    if (listItems.length === 0) {
+      sendStatusToSession({
+        task: 'imageZip',
+        status: 'No releases found in list',
+        progress: { current: 0, total: 0 },
+        listId
+      }, socketId);
+      return res.status(400).json({ error: 'No releases found in the specified Discogs list.' });
+    }
+
+    const listName = listData.name || '';
+    const totalReleases = listItems.length;
+
+    sendStatusToSession({
+      task: 'imageZip',
+      status: 'Downloading release images',
+      progress: { current: 0, total: totalReleases, downloaded: 0 },
+      listId,
+      listName
+    }, socketId);
+
+    let zip = null;
+    let downloadedCount = 0;
+    const cancelJob = () => {
+      cancelled = true;
+      console.log(`[List Images] Cancel requested for socket ${socketId}`);
+    };
+
+    if (socketId) {
+      activeJobs.set(socketId, { cancel: cancelJob, type: 'imageZip', listId });
+    }
+
+    try {
+      const tempZip = new JSZip();
+      const usedNames = new Set();
+
+      for (let index = 0; index < listItems.length; index++) {
+        const item = listItems[index];
+
+        if (!isSocketConnected(socketId)) {
+          logger.warn(`[List Images] Socket ${socketId} disconnected during extraction, aborting.`);
+          throw Object.assign(new Error('Socket disconnected during image extraction.'), { statusCode: 499 });
+        }
+        if (cancelled) {
+          throw Object.assign(new Error('Image extraction cancelled.'), { statusCode: 499 });
+        }
+
+        sendStatusToSession({
+          task: 'imageZip',
+          status: `Processing release ${index + 1} of ${totalReleases}`,
+          progress: { current: index, total: totalReleases, downloaded: downloadedCount },
+          listId,
+          listName,
+          currentRelease: item.display_title || item.title || item.id
+        }, socketId);
+
+        try {
+          const releaseUrl = `https://api.discogs.com/releases/${item.id}`;
+          const releaseData = await newDiscogsAPIRequest(releaseUrl, effectiveOauthToken, socketId, cancelled) || {};
+          if (cancelled) {
+            throw Object.assign(new Error('Image extraction cancelled.'), { statusCode: 499 });
+          }
+          const images = Array.isArray(releaseData.images) ? releaseData.images : [];
+
+          if (!images.length) {
+            sendLogMessageToSession(`No images found for release ${item.id}`, socketId);
+          } else {
+            const primaryImage = images.find(img => img && img.type === 'primary' && img.uri) || images[0];
+
+            if (primaryImage && primaryImage.uri) {
+              try {
+                const imageResponse = await axios.get(primaryImage.uri, {
+                  responseType: 'arraybuffer',
+                  headers
+                });
+
+                const contentType = imageResponse.headers['content-type'];
+                const extension = getExtensionFromContentType(contentType, primaryImage.uri);
+                const releaseTitle = sanitizeForFilename(releaseData.title || item.display_title || `release-${item.id}`, `release-${item.id}`);
+                const baseName = `${item.id}-${releaseTitle}`;
+                let filename = `${baseName}.${extension}`;
+                let dedupeIndex = 1;
+                while (usedNames.has(filename)) {
+                  dedupeIndex += 1;
+                  filename = `${baseName}-${dedupeIndex}.${extension}`;
+                }
+                usedNames.add(filename);
+
+                tempZip.file(filename, imageResponse.data);
+                downloadedCount += 1;
+                sendLogMessageToSession(`Added image for ${releaseTitle} (${item.id})`, socketId);
+              } catch (imageErr) {
+                logger.warn(`[List Images] Failed to download image for release ${item.id}:`, imageErr.message);
+                sendLogMessageToSession(`Failed to download image for release ${item.id}: ${imageErr.message}`, socketId);
+              }
+            } else {
+              sendLogMessageToSession(`No downloadable image found for release ${item.id}`, socketId);
+            }
+          }
+        } catch (releaseErr) {
+          logger.warn(`[List Images] Failed to fetch release ${item.id}:`, releaseErr.message);
+          sendLogMessageToSession(`Failed to fetch release ${item.id}: ${releaseErr.message}`, socketId);
+        }
+
+        sendStatusToSession({
+          task: 'imageZip',
+          status: `Processing release ${Math.min(index + 1, totalReleases)} of ${totalReleases}`,
+          progress: { current: index + 1, total: totalReleases, downloaded: downloadedCount },
+          listId,
+          listName
+        }, socketId);
+      }
+
+      zip = tempZip;
+    } catch (loopError) {
+      logger.error('[List Images] Extraction aborted:', loopError);
+      sendStatusToSession({
+        task: 'imageZip',
+        status: 'Image extraction failed',
+        error: loopError.message || 'Extraction interrupted',
+        listId,
+        listName
+      }, socketId);
+      const statusCode = loopError.statusCode || 500;
+      return res.status(statusCode).json({ error: loopError.message || 'Failed to complete extraction.' });
+    }
+
+    if (downloadedCount === 0) {
+      sendStatusToSession({
+        task: 'imageZip',
+        status: 'No images available to download',
+        progress: { current: totalReleases, total: totalReleases, downloaded: downloadedCount },
+        listId,
+        listName
+      }, socketId);
+      return res.status(404).json({ error: 'No images were found for releases in this list.' });
+    }
+
+    sendStatusToSession({
+      task: 'imageZip',
+      status: 'Preparing download',
+      progress: { current: totalReleases, total: totalReleases, downloaded: downloadedCount },
+      listId,
+      listName
+    }, socketId);
+
+    if (!zip) {
+      throw new Error('Unable to prepare image archive.');
+    }
+
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+    sendStatusToSession({
+      task: 'imageZip',
+      status: 'Image archive ready',
+      progress: { current: totalReleases, total: totalReleases, downloaded: downloadedCount },
+      listId,
+      listName
+    }, socketId);
+
+    const safeListName = sanitizeForFilename(listName, `discogs-list-${listId}`);
+    const listIdStr = String(listId);
+    const baseName = safeListName && safeListName.includes(listIdStr)
+      ? safeListName
+      : `${safeListName || 'discogs-list'}-${listIdStr}`;
+    const fileName = `${baseName}-images.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', zipBuffer.length);
+    res.send(zipBuffer);
+    if (socketId) {
+      activeJobs.delete(socketId);
+    }
+  } catch (err) {
+    logger.error('[List Images] Unexpected error:', err);
+    if (req.body && req.body.socketId) {
+      sendStatusToSession({
+        task: 'imageZip',
+        status: 'Image extraction failed',
+        error: err.message
+      }, req.body.socketId);
+    }
+    res.status(500).json({ error: 'Failed to generate image archive.' });
+  } finally {
+    if (req.body?.socketId && activeJobs.get(req.body.socketId)?.type === 'imageZip') {
+      activeJobs.delete(req.body.socketId);
+    }
   }
 });

@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, Suspense, useContext } from 'react';
+import React, { useState, useEffect, Suspense, useContext, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
 import VideoTable from './Table';
@@ -118,6 +118,14 @@ function DiscogsAuthTestPageInner() {
   const [retryAttempt, setRetryAttempt] = useState(0);
   const [useExistingPlaylist, setUseExistingPlaylist] = useState(false);
   const [existingPlaylistId, setExistingPlaylistId] = useState('');
+  const [filteredTableRows, setFilteredTableRows] = useState([]);
+  const [imageExtractionStatus, setImageExtractionStatus] = useState(null);
+  const [imageDownloadUrl, setImageDownloadUrl] = useState(null);
+  const [imageDownloadFileName, setImageDownloadFileName] = useState('');
+  const [imageDownloadLoading, setImageDownloadLoading] = useState(false);
+  const [imageDownloadError, setImageDownloadError] = useState('');
+  const [stopRequestLoading, setStopRequestLoading] = useState(false);
+  const [socketReconnectKey, setSocketReconnectKey] = useState(0);
 
   /** Persist tokens in localStorage, along with set time */
   const storeDiscogsTokens = (token, verifier) => {
@@ -497,6 +505,15 @@ function DiscogsAuthTestPageInner() {
     // Listen for status updates 
     sock.on('sessionStatus', (status) => {
       setSessionStatus(status); // <-- Save status to state
+      if (status && status.task === 'imageZip') {
+        setImageExtractionStatus(status);
+        if (status.status === 'Image archive ready' || status.status === 'Image extraction failed' || status.status === 'Stopped by user') {
+          setImageDownloadLoading(false);
+        }
+      }
+      if (status && status.status === 'Stopped by user') {
+        setStopRequestLoading(false);
+      }
     });
 
     // Add beforeunload listener to ensure socket disconnection
@@ -512,7 +529,7 @@ function DiscogsAuthTestPageInner() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       sock.disconnect();
     };
-  }, []);
+  }, [socketReconnectKey]);
 
   // Query /discogs/api endpoint with Discogs type, discogs id, oauthToken, and socketId
   const discogsApiQuery = async (discogsType, discogsId) => {
@@ -713,6 +730,15 @@ function DiscogsAuthTestPageInner() {
     console.log('=== END FORM SUBMISSION DEBUG ===');
   };
 
+  const handleInputKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (discogsInput.trim()) {
+        handleSearchClick();
+      }
+    }
+  };
+
   // --- Display results ---
   const videoCount = flattenVideoData(results).length;
 
@@ -736,8 +762,192 @@ function DiscogsAuthTestPageInner() {
     setTimeout(() => setCopyButtonClicked(false), 1000); // Reset after 1 second
   };
 
+  const handleFilteredDataChange = useCallback((rows) => {
+    setFilteredTableRows(rows || []);
+  }, []);
+
+  useEffect(() => {
+    setFilteredTableRows(flattenVideoData(results));
+  }, [results]);
+
+  useEffect(() => {
+    return () => {
+      if (imageDownloadUrl) {
+        URL.revokeObjectURL(imageDownloadUrl);
+      }
+    };
+  }, [imageDownloadUrl]);
+
+  const parseFilenameFromDisposition = useCallback((disposition) => {
+    if (!disposition || typeof disposition !== 'string') {
+      return null;
+    }
+    const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utfMatch && utfMatch[1]) {
+      try {
+        return decodeURIComponent(utfMatch[1]);
+      } catch (err) {
+        return utfMatch[1];
+      }
+    }
+    const quotedMatch = disposition.match(/filename="?([^";]+)"?/i);
+    if (quotedMatch && quotedMatch[1]) {
+      return quotedMatch[1];
+    }
+    return null;
+  }, []);
+
+  const handleExtractListImages = useCallback(async () => {
+    const accessToken = discogsAuthStatus?.token || discogsAuthStatus?.accessToken;
+    const accessVerifier = discogsAuthStatus?.verifier || discogsAuthStatus?.oauthVerifier;
+
+    if (!socketId) {
+      setImageDownloadError('Socket connection not established yet. Please wait and try again.');
+      return;
+    }
+
+    if (selectedType !== 'list' || !extractedId) {
+      setImageDownloadError('Please provide a valid Discogs list URL before extracting images.');
+      return;
+    }
+
+    if (!discogsAuthStatus?.exists || !accessToken) {
+      setImageDownloadError('Discogs authentication required to extract list images. Please authorize Discogs first.');
+      return;
+    }
+
+    if (imageDownloadUrl) {
+      URL.revokeObjectURL(imageDownloadUrl);
+      setImageDownloadUrl(null);
+    }
+
+    setImageDownloadError('');
+    setImageExtractionStatus({
+      task: 'imageZip',
+      status: 'Starting image extraction…',
+      progress: null
+    });
+    setImageDownloadFileName('');
+    setImageDownloadLoading(true);
+
+    try {
+      const apiBaseURL = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.martinbarker.me/internal-api';
+
+      const response = await fetch(`${apiBaseURL}/listogs/discogs/list-images`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          listId: extractedId, 
+          socketId,
+          oauthToken: accessToken,
+          oauthVerifier: accessVerifier
+        })
+      });
+
+      if (!response.ok) {
+        let errorMessage = `Failed to generate image archive (status ${response.status})`;
+        try {
+          const errorData = await response.json();
+          if (errorData && errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (err) {
+          // ignore JSON parse errors
+        }
+        throw new Error(errorMessage);
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition');
+      const filename = parseFilenameFromDisposition(disposition) || `discogs-list-${extractedId}-images.zip`;
+      const blobUrl = URL.createObjectURL(blob);
+
+      setImageDownloadUrl(blobUrl);
+      setImageDownloadFileName(filename);
+    } catch (err) {
+      console.error('[Listogs] Image extraction failed:', err);
+      setImageDownloadError(err.message || 'Failed to extract images for this list.');
+    } finally {
+      setImageDownloadLoading(false);
+      setStopRequestLoading(false);
+    }
+  }, [
+    socketId, 
+    selectedType, 
+    extractedId, 
+    imageDownloadUrl, 
+    parseFilenameFromDisposition, 
+    discogsAuthStatus?.exists, 
+    discogsAuthStatus?.token, 
+    discogsAuthStatus?.accessToken,
+    discogsAuthStatus?.verifier
+  ]);
+
+  const handleStopSearch = useCallback(async () => {
+    if (!socketId) return;
+    setStopRequestLoading(true);
+    try {
+      const apiBaseURL = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3030'
+        : 'https://www.martinbarker.me/internal-api';
+
+      const response = await fetch(`${apiBaseURL}/listogs/stop`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({ socketId })
+      });
+
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (err) {
+        result = {};
+      }
+
+      if (!response.ok) {
+        throw new Error(result.error || `Failed to stop job (status ${response.status})`);
+      }
+
+      if (result.stopped) {
+        setSessionStatus(prev => ({ ...(prev || {}), status: 'Stopped by user' }));
+        setLogLines(prev => [...prev, '🛑 Job cancelled by user.']);
+      } else {
+        setLogLines(prev => [...prev, 'ℹ️ No active job to stop.']);
+      }
+    } catch (err) {
+      console.error('❌ [Frontend] Stop request failed:', err);
+      setLogLines(prev => [...prev, `❌ Stop failed: ${err.message}`]);
+    } finally {
+      setStopRequestLoading(false);
+      setImageDownloadLoading(false);
+      setSocketReconnectKey(prev => prev + 1);
+      setSocketId(null);
+    }
+  }, [socketId, setLogLines, setSessionStatus]);
+
+  const inactiveStatuses = new Set([
+    null,
+    undefined,
+    'Done',
+    'Image archive ready',
+    'No releases found in list',
+    'No images available to download',
+    'Image extraction failed',
+    'Stopped by user'
+  ]);
+  const canStopJob = Boolean(socketId && sessionStatus && sessionStatus.status && !inactiveStatuses.has(sessionStatus.status));
+
   // Check if user can create YouTube playlists
   const canCreatePlaylists = youtubeAuthStatus.exists && youtubeAuthStatus.expiresAt && new Date(youtubeAuthStatus.expiresAt) > new Date();
+  const isSubmitDisabled = !extractedId || !selectedType || !discogsAuthStatus.exists;
 
   // Fetch Discogs info for the given URL
   const fetchDiscogsInfo = async (url) => {
@@ -763,7 +973,15 @@ function DiscogsAuthTestPageInner() {
         setDiscogsError(''); // Clear any previous errors
         return data;
       } else {
-        const errorData = await response.json();
+        let errorData = null;
+        try {
+          const raw = await response.text();
+          if (raw) {
+            errorData = JSON.parse(raw);
+          }
+        } catch (parseErr) {
+          console.warn('⚠️ [Frontend] Failed to parse Discogs error payload as JSON');
+        }
         console.error('❌ [Frontend] Failed to fetch Discogs info:', {
           status: response.status,
           statusText: response.statusText,
@@ -1088,6 +1306,15 @@ function DiscogsAuthTestPageInner() {
             headers
               .map((header) => {
                 let value = row[header];
+                if (Array.isArray(value)) {
+                  value = value.join('; ');
+                }
+                if (typeof value === 'number') {
+                  value = value.toString();
+                }
+                if (typeof value === 'boolean') {
+                  value = value ? 'true' : 'false';
+                }
                 if (typeof value === "string" && (value.includes(",") || value.includes('"'))) {
                   value = `"${value.replace(/"/g, '""')}"`;
                 }
@@ -1155,13 +1382,13 @@ function DiscogsAuthTestPageInner() {
         boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
       }}>
         <p style={{ fontSize: 17, marginBottom: 8 }}>
-          <strong>Listogs</strong> is a tool for converting <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer">Discogs</a> artist, label, or list pages into YouTube playlists.
+          <strong>Listogs</strong> is a tool for converting <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer">Discogs</a> artist, label, and list pages into YouTube playlists, CSV exports, and image bundles.
         </p>
         <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
-          <li>Authenticate with Discogs to access your lists and releases.</li>
-          <li>Paste a Discogs URL (artist, label, or list) and submit.</li>
-          <li>Listogs will find YouTube videos for each release and generate playlists and tables.</li>
-          <li>Export results to CSV or copy all YouTube video IDs for use elsewhere.</li>
+          <li>Authenticate with Discogs to access lists, releases, and related media.</li>
+          <li>Paste any Discogs artist, label, release, or list URL and submit.</li>
+          <li>Generate a YouTube-ready table for every release, with CSV export and copyable video IDs.</li>
+          <li>For Discogs list URLs, extract the primary image for each release and download them all as a single .zip file.</li>
         </ul>
      
       </div>
@@ -1274,40 +1501,44 @@ function DiscogsAuthTestPageInner() {
         {/* <div style={{ marginBottom: 8 }}>
           ...radio buttons...
         </div> */}
-        <input
-          type="text"
-          value={discogsInput}
-          onChange={e => handleInputChange(e.target.value)}
-          placeholder="Enter a Discogs URL (artist, label, release, or list)"
-          style={{ width: '90%', padding: 8, marginBottom: 8, fontSize: 16 }}
-          disabled={!discogsAuthStatus.exists}
-        />
-        <button
-          onClick={handleSearchClick}
-          style={{ 
-            padding: '8px 16px', 
-            fontSize: 16,
-            background: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? '#cccccc' : buttonColor,
-            color: 'white',
-            border: 'none',
-            borderRadius: 6,
-            cursor: (!extractedId || !selectedType || !discogsAuthStatus.exists) ? 'not-allowed' : 'pointer',
-            transition: 'background-color 0.3s ease'
-          }}
-          onMouseOver={e => {
-            if (extractedId && selectedType && discogsAuthStatus.exists) {
-              e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
-            }
-          }}
-          onMouseOut={e => {
-            if (extractedId && selectedType && discogsAuthStatus.exists) {
-              e.currentTarget.style.background = buttonColor;
-            }
-          }}
-          disabled={!extractedId || !selectedType || !discogsAuthStatus.exists}
-        >
-          Enter a URL and click to submit
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: '480px' }}>
+          <input
+            type="text"
+            value={discogsInput}
+            onChange={e => handleInputChange(e.target.value)}
+            onKeyDown={handleInputKeyDown}
+            placeholder="Enter a Discogs URL (artist, label, release, or list)"
+            style={{ width: '100%', padding: 8, fontSize: 16 }}
+            disabled={!discogsAuthStatus.exists}
+          />
+          <button
+            onClick={handleSearchClick}
+            style={{ 
+              padding: '8px 16px', 
+              fontSize: 16,
+              width: '100%',
+              background: isSubmitDisabled ? '#cccccc' : buttonColor,
+              color: 'white',
+              border: 'none',
+              borderRadius: 6,
+              cursor: isSubmitDisabled ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.3s ease'
+            }}
+            onMouseOver={e => {
+              if (!isSubmitDisabled) {
+                e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+              }
+            }}
+            onMouseOut={e => {
+              if (!isSubmitDisabled) {
+                e.currentTarget.style.background = buttonColor;
+              }
+            }}
+            disabled={isSubmitDisabled}
+          >
+            {discogsInput.trim() ? 'Submit' : 'Enter a URL and click to submit'}
+          </button>
+        </div>
         {discogsError && (
           <div
             style={{
@@ -1362,6 +1593,23 @@ function DiscogsAuthTestPageInner() {
             border: '1px solid #333'
           }}
         />
+        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={handleStopSearch}
+            disabled={!canStopJob || stopRequestLoading}
+            style={{
+              padding: '8px 16px',
+              background: !canStopJob || stopRequestLoading ? '#d3d3d3' : '#ff9800',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              cursor: !canStopJob || stopRequestLoading ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.2s ease'
+            }}
+          >
+            {stopRequestLoading ? 'Stopping…' : 'Stop Current Job'}
+          </button>
+        </div>
         {/* Display session status */}
         {sessionStatus && (
           <div style={{ marginTop: 12, padding: 8, background: '#222', color: '#fff', borderRadius: 6 }}>
@@ -1718,17 +1966,26 @@ function DiscogsAuthTestPageInner() {
         <h3>
           {videoCount > 0 ? `Videos Table: ${videoCount} videos Found:` : 'Results:'}
         </h3>
-        <VideoTable videoData={results} />
+        <VideoTable
+          videoData={results}
+          onFilteredDataChange={handleFilteredDataChange}
+        />
         {/* Export Table to CSV button directly under the table */}
         <div style={{ marginTop: 16 }}>
           <ExportCSVButton
-            data={flattenVideoData(results)}
-            fileName="videos.csv"
+            data={filteredTableRows}
+            fileName={extractedId ? `discogs-${extractedId}-videos.csv` : "videos.csv"}
             headers={[
               "releaseTitle",
               "artist",
               "year",
               "releaseType",
+              "labelsAndCompanies",
+              "country",
+              "genres",
+              "styles",
+              "masterId",
+              "isMasterRelease",
               "title",
               "videoId",
               "fullUrl",
@@ -1736,9 +1993,112 @@ function DiscogsAuthTestPageInner() {
             ]}
           />
           <div style={{ fontSize: 14, color: '#555', marginTop: 8 }}>
-            Exports all video rows currently loaded in the table.
+          Exports the rows exactly as they appear with the active table filters.
           </div>
         </div>
+
+      {selectedType === 'list' && extractedId && (
+        <div style={{
+          marginTop: 32,
+          padding: 20,
+          border: '1px solid #dee2e6',
+          borderRadius: 8,
+          background: '#f8f9fa'
+        }}>
+          <h3 style={{ marginTop: 0 }}>Discogs List Images</h3>
+          <p style={{ color: '#555', marginBottom: 12 }}>
+            Download the first image from each release in this Discogs list as a single .zip archive.
+          </p>
+          {imageExtractionStatus && imageExtractionStatus.task === 'imageZip' && (
+            <div style={{
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 6,
+              background: '#e9ecef',
+              color: '#333',
+              fontSize: 14
+            }}>
+              <strong>{imageExtractionStatus.status}</strong>
+              {imageExtractionStatus.progress && (
+                <div style={{ marginTop: 6 }}>
+                  {typeof imageExtractionStatus.progress.downloaded !== 'undefined' && (
+                    <div>Images downloaded: {imageExtractionStatus.progress.downloaded}</div>
+                  )}
+                  {typeof imageExtractionStatus.progress.current !== 'undefined' && typeof imageExtractionStatus.progress.total !== 'undefined' && imageExtractionStatus.progress.total > 0 && (
+                    <div>
+                      Releases processed: {Math.min(imageExtractionStatus.progress.current, imageExtractionStatus.progress.total)} / {imageExtractionStatus.progress.total}
+                    </div>
+                  )}
+                  {imageExtractionStatus.currentRelease && (
+                    <div style={{ marginTop: 4 }}>Current release: {imageExtractionStatus.currentRelease}</div>
+                  )}
+                </div>
+              )}
+              {imageExtractionStatus.error && (
+                <div style={{ marginTop: 6, color: '#dc3545' }}>Error: {imageExtractionStatus.error}</div>
+              )}
+            </div>
+          )}
+
+          {imageDownloadError && (
+            <div style={{
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 6,
+              background: '#fee2e2',
+              border: '1px solid #fca5a5',
+              color: '#dc2626',
+              fontSize: 14
+            }}>
+              ⚠️ {imageDownloadError}
+            </div>
+          )}
+
+          <button
+            onClick={handleExtractListImages}
+            disabled={imageDownloadLoading || !socketId || !discogsAuthStatus?.exists}
+            style={{
+              padding: '10px 24px',
+              fontSize: 16,
+              background: imageDownloadLoading || !socketId || !discogsAuthStatus?.exists ? '#cccccc' : buttonColor,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              cursor: imageDownloadLoading || !socketId || !discogsAuthStatus?.exists ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.3s ease'
+            }}
+            onMouseOver={e => {
+              if (!imageDownloadLoading && socketId && discogsAuthStatus?.exists) {
+                e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
+              }
+            }}
+            onMouseOut={e => {
+              if (!imageDownloadLoading && socketId && discogsAuthStatus?.exists) {
+                e.currentTarget.style.background = buttonColor;
+              }
+            }}
+          >
+            {imageDownloadLoading ? 'Preparing images…' : 'Extract Images (.zip)'}
+          </button>
+          {!discogsAuthStatus?.exists && (
+            <div style={{ marginTop: 8, fontSize: 13, color: '#6c757d' }}>
+              Authenticate with Discogs above to enable image extraction.
+            </div>
+          )}
+
+          {imageDownloadUrl && (
+            <div style={{ marginTop: 12 }}>
+              <a
+                href={imageDownloadUrl}
+                download={imageDownloadFileName || `discogs-list-${extractedId}-images.zip`}
+                style={{ color: '#007bff', textDecoration: 'underline' }}
+              >
+                Download {imageDownloadFileName || 'Discogs List Images'}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
       </div>
 
       {/* All YouTube Video IDs Section (bottom of page) */}
