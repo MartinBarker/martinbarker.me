@@ -2920,6 +2920,48 @@ app.post('/discogs/info', async (req, res) => {
       const response = await axios.get(listUrl, { headers });
       name = response.data.name;
       profile = response.data.description;
+    } else if (url.includes('/release/')) {
+      const match = url.match(/\/release\/(\d+)/);
+      if (match) {
+        type = 'release';
+        id = match[1];
+        
+        // Fetch release info
+        const releaseUrl = `${DISCOGS_API_URL}/releases/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(releaseUrl, { headers });
+        name = response.data.title || response.data.artists?.[0]?.name || 'Unknown Release';
+        profile = response.data.notes || response.data.profile || '';
+      }
+    } else if (url.includes('/master/')) {
+      const match = url.match(/\/master\/(\d+)/);
+      if (match) {
+        type = 'master';
+        id = match[1];
+        
+        // Fetch master info
+        const masterUrl = `${DISCOGS_API_URL}/masters/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(masterUrl, { headers });
+        name = response.data.title || response.data.artists?.[0]?.name || 'Unknown Master';
+        profile = response.data.notes || response.data.profile || '';
+      }
     }
     
     if (!type || !id) {
@@ -3019,6 +3061,48 @@ app.post('/internal-api/discogs/info', async (req, res) => {
       const response = await axios.get(listUrl, { headers });
       name = response.data.name;
       profile = response.data.description;
+    } else if (url.includes('/release/')) {
+      const match = url.match(/\/release\/(\d+)/);
+      if (match) {
+        type = 'release';
+        id = match[1];
+        
+        // Fetch release info
+        const releaseUrl = `${DISCOGS_API_URL}/releases/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(releaseUrl, { headers });
+        name = response.data.title || response.data.artists?.[0]?.name || 'Unknown Release';
+        profile = response.data.notes || response.data.profile || '';
+      }
+    } else if (url.includes('/master/')) {
+      const match = url.match(/\/master\/(\d+)/);
+      if (match) {
+        type = 'master';
+        id = match[1];
+        
+        // Fetch master info
+        const masterUrl = `${DISCOGS_API_URL}/masters/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+        
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+        
+        const response = await axios.get(masterUrl, { headers });
+        name = response.data.title || response.data.artists?.[0]?.name || 'Unknown Master';
+        profile = response.data.notes || response.data.profile || '';
+      }
     }
     
     if (!type || !id) {
