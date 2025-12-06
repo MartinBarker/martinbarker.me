@@ -50,6 +50,80 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
+.generateButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: #5865F2;
+  color: white;
+  text-decoration: none;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: inherit;
+}
+
+.generateButton:hover:not(:disabled) {
+  background: #4752C4;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.generateButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.urlContainer {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.urlLabel {
+  margin: 0 0 0.5rem 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.discordUrl {
+  display: block;
+  word-break: break-all;
+  color: #5865F2;
+  text-decoration: none;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  transition: opacity 0.3s ease;
+}
+
+.discordUrl:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.urlError {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(231, 76, 60, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(231, 76, 60, 0.2);
+}
+
+.urlError p {
+  margin: 0;
+  color: #e74c3c;
+  font-size: 0.9rem;
+}
+
 .content {
   border-radius: 12px;
   padding: 2rem;

@@ -62,6 +62,12 @@ export const routeInfo = {
     subtitle: "Visualize audio waveforms with interactive playback",
     tabTitle: "Waveform Visualizer - Audio Waveform Display",
     icon: "/ico/martinbarker.ico"
+  },
+  "/bandcamplaylist": {
+    title: "Bandcamp Playlist",
+    subtitle: "View Bandcamp IDs",
+    tabTitle: "Bandcamp Playlist - View IDs",
+    icon: "/ico/martinbarker.ico"
   }
 };
 
@@ -87,6 +93,9 @@ export function getRouteInfo(pathname) {
       title: info.title || "RenderTune",
       subtitle: info.subtitle || "Video Rendering App"
     };
+  }
+  else if (pathname.startsWith("/bandcamplaylist")) {
+    info = routeInfo["/bandcamplaylist"];
   }
   
   return info;

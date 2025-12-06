@@ -1,0 +1,332 @@
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  padding-bottom: 100px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 3rem;
+  padding: 2rem;
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.header h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  margin: 0 0 1rem 0;
+}
+
+.subtitle {
+  font-size: 1.25rem;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.content {
+  border-radius: 12px;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.emptyState {
+  text-align: center;
+  padding: 3rem;
+}
+
+.emptyState p {
+  font-size: 1.1rem;
+  opacity: 0.7;
+}
+
+.emptyState code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.playlistContainer {
+  line-height: 1.7;
+}
+
+.playlistContainer h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 0 2rem 0;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 0.5rem;
+  opacity: 0.9;
+}
+
+.playersList {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.playerWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.playerHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.playerNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.playerLink {
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+  word-break: break-all;
+}
+
+.playerLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.mediaPlayer {
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.youtubePlayer {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 4px;
+  position: relative;
+}
+
+.youtubePlayer iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 4px;
+}
+
+.spotifyPlayer {
+  width: 100%;
+  height: 352px;
+  border: 0;
+  border-radius: 12px;
+}
+
+.soundcloudPlayer {
+  width: 100%;
+  height: 166px;
+  border: 0;
+  border-radius: 4px;
+}
+
+.bandcampPlayer {
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stickyFooter {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  border-top: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.footerLeft {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.footerThumbnail {
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.footerThumbnailPlaceholder {
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.footerTrackInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.footerTrackTitle {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.footerTrackNumber {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.footerControls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.controlButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0;
+}
+
+.controlButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+.controlButton:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.controlButton svg {
+  width: 24px;
+  height: 24px;
+}
+
+.activePlayer {
+  border: 2px solid currentColor;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem;
+    padding-bottom: 90px;
+  }
+  
+  .header h1 {
+    font-size: 2rem;
+  }
+  
+  .subtitle {
+    font-size: 1rem;
+  }
+  
+  .content {
+    padding: 1rem;
+  }
+  
+  .playlistContainer h2 {
+    font-size: 1.5rem;
+  }
+  
+  .playerWrapper {
+    padding: 0.75rem;
+  }
+  
+  .playerLink {
+    font-size: 0.8rem;
+  }
+  
+  .spotifyPlayer {
+    height: 280px;
+  }
+  
+  .stickyFooter {
+    padding: 0.75rem 1rem;
+  }
+  
+  .footerThumbnail,
+  .footerThumbnailPlaceholder {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .footerTrackTitle {
+    font-size: 0.8rem;
+  }
+  
+  .footerTrackNumber {
+    font-size: 0.7rem;
+  }
+  
+  .controlButton {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .controlButton svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+

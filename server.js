@@ -25,6 +25,7 @@ const session = require('express-session');
 const sharedSession = require('express-socket.io-session');
 const { Vibrant } = require('node-vibrant/node');
 const JSZip = require('jszip');
+const bandcamp = require('bandcamp-scraper');
 
 // --- Determine if we are in dev or production environment ---
 var isDev = process.env.NODE_ENV === 'development' ? true : false;
@@ -1464,6 +1465,1029 @@ app.get('/health', (req, res) => {
   }
   
   res.status(200).json(health);
+});
+
+// Extract Bandcamp stream URLs from a Bandcamp page using bandcamp-scraper
+app.post('/bandcamp/extract-streams', async (req, res) => {
+  logger.info('🎵 [POST /bandcamp/extract-streams] Hit', req.body);
+  
+  const { url } = req.body;
+  
+  if (!url) {
+    logger.error('❌ No URL provided in request body');
+    return res.status(400).json({ error: 'URL is required' });
+  }
+  
+  // Validate it's a Bandcamp URL
+  if (!url.includes('bandcamp.com')) {
+    logger.error('❌ URL is not a Bandcamp URL:', url);
+    return res.status(400).json({ error: 'URL must be a Bandcamp URL' });
+  }
+  
+  try {
+    // Ensure URL has protocol
+    const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+    
+    logger.debug(`🌐 Extracting Bandcamp data from: ${fullUrl}`);
+    
+    // Determine if it's a track or album URL
+    const isTrack = fullUrl.includes('/track/');
+    const isAlbum = fullUrl.includes('/album/');
+    
+    let tracks = [];
+    let albumTitle = null;
+    let artist = null;
+    
+    if (isTrack) {
+      // Use getTrackInfo for track URLs
+      logger.info('📀 Detected track URL, using getTrackInfo');
+      logger.info(`   Track URL: ${fullUrl}`);
+      
+      await new Promise((resolve, reject) => {
+        bandcamp.getTrackInfo(fullUrl, (error, trackInfo) => {
+          if (error) {
+            logger.error('❌ Error getting track info:', error);
+            return reject(error);
+          }
+          
+          logger.info('✅ Track info retrieved:');
+          logger.info(`   Full track info: ${JSON.stringify(trackInfo, null, 2)}`);
+          
+          // Extract stream URLs and metadata from trackInfo
+          const trackData = {
+            index: 0,
+            title: trackInfo.name || trackInfo.title || 'Track',
+            trackId: trackInfo.id || trackInfo.trackId || null,
+            duration: trackInfo.duration || null,
+            streamUrls: {},
+            mp3_128: null,
+            artwork: null,
+            artist: null,
+            album: null
+          };
+          
+          // Extract artwork URL
+          if (trackInfo.raw && trackInfo.raw.art_id) {
+            trackData.artwork = `https://f4.bcbits.com/img/a${trackInfo.raw.art_id}_16.jpg`;
+          } else if (trackInfo.artwork) {
+            trackData.artwork = trackInfo.artwork;
+          }
+          
+          // Extract artist
+          if (trackInfo.raw && trackInfo.raw.artist) {
+            trackData.artist = trackInfo.raw.artist;
+          } else if (trackInfo.artist) {
+            trackData.artist = trackInfo.artist;
+          }
+          
+          // Extract album info
+          if (trackInfo.raw && trackInfo.raw.current && trackInfo.raw.current.album_id) {
+            // Album info might be in raw.current
+            trackData.album = trackInfo.raw.current.title || null;
+          } else if (trackInfo.album) {
+            trackData.album = trackInfo.album;
+          }
+          
+          // Extract mp3-128 from raw.trackinfo[0].file['mp3-128']
+          if (trackInfo.raw && trackInfo.raw.trackinfo && Array.isArray(trackInfo.raw.trackinfo) && 
+              trackInfo.raw.trackinfo.length > 0 && trackInfo.raw.trackinfo[0].file && 
+              trackInfo.raw.trackinfo[0].file['mp3-128']) {
+            const mp3Url = trackInfo.raw.trackinfo[0].file['mp3-128'];
+            trackData.mp3_128 = mp3Url;
+            trackData.streamUrls['mp3-128'] = mp3Url;
+            logger.info(`   ✅ Found mp3-128 URL: ${mp3Url}`);
+          }
+          
+          // The trackInfo should have stream URLs in the file property
+          if (trackInfo.file) {
+            logger.info(`   Stream URLs from track info:`);
+            Object.keys(trackInfo.file).forEach(encoding => {
+              const streamUrl = trackInfo.file[encoding];
+              if (streamUrl && typeof streamUrl === 'string') {
+                trackData.streamUrls[encoding] = streamUrl;
+                logger.info(`     ${encoding}: ${streamUrl}`);
+                if (streamUrl.includes('stream_redirect')) {
+                  logger.info(`     ✅ Found stream_redirect URL: ${streamUrl}`);
+                }
+              }
+            });
+          }
+          
+          // If we didn't find mp3-128 in raw path, try direct file path
+          if (!trackData.mp3_128 && trackInfo.file && trackInfo.file['mp3-128']) {
+            trackData.mp3_128 = trackInfo.file['mp3-128'];
+            logger.info(`   ✅ Found mp3-128 URL in file property: ${trackData.mp3_128}`);
+          }
+          
+          // Also check other properties that might contain stream URLs
+          if (trackInfo.streamUrl) {
+            logger.info(`   streamUrl property: ${trackInfo.streamUrl}`);
+            if (trackInfo.streamUrl.includes('stream_redirect')) {
+              logger.info(`   ✅ Found stream_redirect in streamUrl property: ${trackInfo.streamUrl}`);
+            }
+          }
+          
+          // Check all properties for stream_redirect
+          const trackInfoStr = JSON.stringify(trackInfo);
+          const streamRedirectMatches = trackInfoStr.match(/https?:\/\/[^"'\s]*stream_redirect[^"'\s]*/g);
+          if (streamRedirectMatches && streamRedirectMatches.length > 0) {
+            logger.info(`   ✅ Found ${streamRedirectMatches.length} stream_redirect URL(s) in track info:`);
+            streamRedirectMatches.forEach((url, idx) => {
+              logger.info(`     ${idx + 1}. ${url}`);
+            });
+          }
+          
+          tracks.push(trackData);
+          albumTitle = trackInfo.album || null;
+          artist = trackInfo.artist || null;
+          
+          resolve();
+        });
+      });
+    } else if (isAlbum) {
+      // Use getAlbumInfo for album URLs
+      logger.debug('💿 Detected album URL, using getAlbumInfo');
+      
+      await new Promise((resolve, reject) => {
+        bandcamp.getAlbumInfo(fullUrl, async (error, albumInfo) => {
+          if (error) {
+            logger.error('❌ Error getting album info:', error);
+            return reject(error);
+          }
+          
+          logger.debug('✅ Album info retrieved:', JSON.stringify(albumInfo, null, 2));
+          
+          albumTitle = albumInfo.name || null;
+          artist = albumInfo.artist || null;
+          
+          // Extract tracks from albumInfo
+          if (albumInfo.tracks && Array.isArray(albumInfo.tracks)) {
+            logger.info(`📋 Found ${albumInfo.tracks.length} track(s) in album`);
+            
+            // For each track, call getTrackInfo to get detailed info including stream_redirect URLs
+            for (let index = 0; index < albumInfo.tracks.length; index++) {
+              const track = albumInfo.tracks[index];
+              const trackUrl = track.url || track.track_url || null;
+              
+              logger.info(`\n🎵 Processing track ${index + 1}/${albumInfo.tracks.length}: "${track.name || 'Unknown'}"`);
+              logger.info(`   Track URL: ${trackUrl || 'N/A'}`);
+              
+              const trackData = {
+                index: index,
+                title: track.name || `Track ${index + 1}`,
+                trackId: track.id || null,
+                duration: track.duration || null,
+                streamUrls: {},
+                mp3_128: null,
+                artwork: null,
+                artist: artist || null,
+                album: albumTitle || null
+              };
+              
+              // Extract artwork from album info
+              if (albumInfo.artwork) {
+                trackData.artwork = albumInfo.artwork;
+              } else if (albumInfo.raw && albumInfo.raw.art_id) {
+                trackData.artwork = `https://f4.bcbits.com/img/a${albumInfo.raw.art_id}_16.jpg`;
+              }
+              
+              // First, extract stream URLs from album track info
+              if (track.file) {
+                logger.info(`   Stream URLs from album info:`);
+                Object.keys(track.file).forEach(encoding => {
+                  const streamUrl = track.file[encoding];
+                  if (streamUrl && typeof streamUrl === 'string') {
+                    trackData.streamUrls[encoding] = streamUrl;
+                    logger.info(`     ${encoding}: ${streamUrl}`);
+                    if (streamUrl.includes('stream_redirect')) {
+                      logger.info(`     ✅ Found stream_redirect URL: ${streamUrl}`);
+                    }
+                  }
+                });
+                
+                // Extract mp3-128 from album track info
+                if (track.file['mp3-128']) {
+                  trackData.mp3_128 = track.file['mp3-128'];
+                  logger.info(`   ✅ Found mp3-128 URL from album info: ${trackData.mp3_128}`);
+                }
+              }
+              
+              // Now call getTrackInfo on the individual track URL to get more detailed info
+              if (trackUrl) {
+                logger.info(`   Calling getTrackInfo on track URL...`);
+                try {
+                  await new Promise((trackResolve, trackReject) => {
+                    bandcamp.getTrackInfo(trackUrl, (trackError, trackInfo) => {
+                      if (trackError) {
+                        logger.warn(`   ⚠️ Error getting track info for "${track.name}": ${trackError.message}`);
+                        // Don't reject, just continue with album info
+                        trackResolve();
+                        return;
+                      }
+                      
+                      logger.info(`   ✅ Track info retrieved for "${track.name}":`);
+                      logger.info(`   Full track info: ${JSON.stringify(trackInfo, null, 2)}`);
+                      
+                      // Extract metadata from trackInfo
+                      if (trackInfo.raw && trackInfo.raw.art_id) {
+                        trackData.artwork = `https://f4.bcbits.com/img/a${trackInfo.raw.art_id}_16.jpg`;
+                      }
+                      
+                      if (trackInfo.raw && trackInfo.raw.artist) {
+                        trackData.artist = trackInfo.raw.artist;
+                      }
+                      
+                      if (trackInfo.raw && trackInfo.raw.current && trackInfo.raw.current.title) {
+                        // This might be the album title
+                        if (!trackData.album) {
+                          trackData.album = trackInfo.raw.current.title;
+                        }
+                      }
+                      
+                      // Extract mp3-128 from raw.trackinfo[0].file['mp3-128']
+                      if (trackInfo.raw && trackInfo.raw.trackinfo && Array.isArray(trackInfo.raw.trackinfo) && 
+                          trackInfo.raw.trackinfo.length > 0 && trackInfo.raw.trackinfo[0].file && 
+                          trackInfo.raw.trackinfo[0].file['mp3-128']) {
+                        const mp3Url = trackInfo.raw.trackinfo[0].file['mp3-128'];
+                        trackData.mp3_128 = mp3Url;
+                        trackData.streamUrls['mp3-128'] = mp3Url;
+                        logger.info(`   ✅ Found mp3-128 URL from raw.trackinfo[0].file['mp3-128']: ${mp3Url}`);
+                      }
+                      
+                      // Look for stream_redirect URLs in trackInfo
+                      if (trackInfo.file) {
+                        logger.info(`   Stream URLs from track info:`);
+                        Object.keys(trackInfo.file).forEach(encoding => {
+                          const streamUrl = trackInfo.file[encoding];
+                          if (streamUrl && typeof streamUrl === 'string') {
+                            // Update or add stream URL
+                            trackData.streamUrls[encoding] = streamUrl;
+                            logger.info(`     ${encoding}: ${streamUrl}`);
+                            if (streamUrl.includes('stream_redirect')) {
+                              logger.info(`     ✅ Found stream_redirect URL: ${streamUrl}`);
+                            }
+                          }
+                        });
+                        
+                        // If we didn't find mp3-128 in raw path, try direct file path
+                        if (!trackData.mp3_128 && trackInfo.file['mp3-128']) {
+                          trackData.mp3_128 = trackInfo.file['mp3-128'];
+                          logger.info(`   ✅ Found mp3-128 URL in file property: ${trackData.mp3_128}`);
+                        }
+                      }
+                      
+                      // Also check other properties that might contain stream URLs
+                      if (trackInfo.streamUrl) {
+                        logger.info(`   streamUrl property: ${trackInfo.streamUrl}`);
+                        if (trackInfo.streamUrl.includes('stream_redirect')) {
+                          logger.info(`   ✅ Found stream_redirect in streamUrl property: ${trackInfo.streamUrl}`);
+                        }
+                      }
+                      
+                      // Check all properties for stream_redirect
+                      const trackInfoStr = JSON.stringify(trackInfo);
+                      const streamRedirectMatches = trackInfoStr.match(/https?:\/\/[^"'\s]*stream_redirect[^"'\s]*/g);
+                      if (streamRedirectMatches && streamRedirectMatches.length > 0) {
+                        logger.info(`   ✅ Found ${streamRedirectMatches.length} stream_redirect URL(s) in track info:`);
+                        streamRedirectMatches.forEach((url, idx) => {
+                          logger.info(`     ${idx + 1}. ${url}`);
+                        });
+                      }
+                      
+                      trackResolve();
+                    });
+                  });
+                } catch (trackErr) {
+                  logger.warn(`   ⚠️ Exception getting track info: ${trackErr.message}`);
+                }
+              } else {
+                logger.warn(`   ⚠️ No track URL found for track "${track.name}"`);
+              }
+              
+              tracks.push(trackData);
+            }
+          }
+          
+          resolve();
+        });
+      });
+    } else {
+      // Try to determine type or default to track
+      logger.warn('⚠️ Could not determine if URL is track or album, defaulting to track');
+      
+      await new Promise((resolve, reject) => {
+        bandcamp.getTrackInfo(fullUrl, (error, trackInfo) => {
+          if (error) {
+            // If track fails, try album
+            logger.debug('Track info failed, trying album info...');
+            bandcamp.getAlbumInfo(fullUrl, (albumError, albumInfo) => {
+              if (albumError) {
+                logger.error('❌ Error getting both track and album info:', albumError);
+                return reject(albumError);
+              }
+              
+              // Process as album
+              albumTitle = albumInfo.name || null;
+              artist = albumInfo.artist || null;
+              
+              if (albumInfo.tracks && Array.isArray(albumInfo.tracks)) {
+                albumInfo.tracks.forEach((track, index) => {
+                  const trackData = {
+                    index: index,
+                    title: track.name || `Track ${index + 1}`,
+                    trackId: track.id || null,
+                    duration: track.duration || null,
+                    streamUrls: {},
+                    mp3_128: null
+                  };
+                  
+                  if (track.file) {
+                    Object.keys(track.file).forEach(encoding => {
+                      const streamUrl = track.file[encoding];
+                      if (streamUrl && typeof streamUrl === 'string') {
+                        trackData.streamUrls[encoding] = streamUrl;
+                      }
+                    });
+                    
+                    // Extract mp3-128 from album track info
+                    if (track.file['mp3-128']) {
+                      trackData.mp3_128 = track.file['mp3-128'];
+                    }
+                  }
+                  
+                  tracks.push(trackData);
+                });
+              }
+              
+              resolve();
+            });
+          } else {
+            // Process as track
+            const trackData = {
+              index: 0,
+              title: trackInfo.name || 'Track',
+              trackId: trackInfo.id || null,
+              duration: trackInfo.duration || null,
+              streamUrls: {},
+              mp3_128: null
+            };
+            
+            // Extract mp3-128 from raw.trackinfo[0].file['mp3-128']
+            if (trackInfo.raw && trackInfo.raw.trackinfo && Array.isArray(trackInfo.raw.trackinfo) && 
+                trackInfo.raw.trackinfo.length > 0 && trackInfo.raw.trackinfo[0].file && 
+                trackInfo.raw.trackinfo[0].file['mp3-128']) {
+              const mp3Url = trackInfo.raw.trackinfo[0].file['mp3-128'];
+              trackData.mp3_128 = mp3Url;
+              trackData.streamUrls['mp3-128'] = mp3Url;
+            }
+            
+            if (trackInfo.file) {
+              Object.keys(trackInfo.file).forEach(encoding => {
+                const streamUrl = trackInfo.file[encoding];
+                if (streamUrl && typeof streamUrl === 'string') {
+                  trackData.streamUrls[encoding] = streamUrl;
+                }
+              });
+              
+              // If we didn't find mp3-128 in raw path, try direct file path
+              if (!trackData.mp3_128 && trackInfo.file['mp3-128']) {
+                trackData.mp3_128 = trackInfo.file['mp3-128'];
+              }
+            }
+            
+            tracks.push(trackData);
+            albumTitle = trackInfo.album || null;
+            artist = trackInfo.artist || null;
+            
+            resolve();
+          }
+        });
+      });
+    }
+    
+    if (tracks.length === 0) {
+      logger.warn('⚠️ No tracks found in Bandcamp data');
+      return res.status(404).json({ error: 'No tracks found on Bandcamp page' });
+    }
+    
+    // Extract all mp3-128 URLs into a list
+    const mp3_128_urls = tracks
+      .map(track => track.mp3_128)
+      .filter(url => url !== null && url !== undefined);
+    
+    logger.info(`✅ Successfully extracted ${tracks.length} track(s) from Bandcamp page`);
+    logger.info(`✅ Found ${mp3_128_urls.length} mp3-128 URL(s):`);
+    mp3_128_urls.forEach((url, idx) => {
+      logger.info(`   ${idx + 1}. ${url}`);
+    });
+    
+    res.status(200).json({
+      success: true,
+      url: fullUrl,
+      albumTitle: albumTitle,
+      artist: artist,
+      tracks: tracks,
+      mp3_128_urls: mp3_128_urls
+    });
+    
+  } catch (error) {
+    logger.error('❌ Error extracting Bandcamp streams:', error.message);
+    if (error.stack) {
+      logger.error('   Stack:', error.stack);
+    }
+    res.status(500).json({ 
+      error: 'Failed to extract stream URLs from Bandcamp page',
+      message: error.message 
+    });
+  }
+});
+
+// Extract YouTube playlist video IDs
+app.post('/youtube/extract-playlist', async (req, res) => {
+  logger.info('📺 [POST /youtube/extract-playlist] Hit', req.body);
+  
+  const { playlistId, playlistUrl } = req.body;
+  
+  if (!playlistId && !playlistUrl) {
+    logger.error('❌ No playlist ID or URL provided');
+    return res.status(400).json({ error: 'playlistId or playlistUrl is required' });
+  }
+  
+  let extractedPlaylistId = playlistId;
+  
+  // Extract playlist ID from URL if URL provided
+  if (playlistUrl && !playlistId) {
+    const urlMatch = playlistUrl.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+    if (urlMatch) {
+      extractedPlaylistId = urlMatch[1];
+    } else {
+      logger.error('❌ Could not extract playlist ID from URL:', playlistUrl);
+      return res.status(400).json({ error: 'Invalid playlist URL' });
+    }
+  }
+  
+  try {
+    logger.debug(`📋 Extracting videos from YouTube playlist: ${extractedPlaylistId}`);
+    
+    // Try using YouTube Data API if available
+    if (youtube) {
+      try {
+        const videos = [];
+        let nextPageToken = null;
+        
+        do {
+          const response = await youtube.playlistItems.list({
+            part: ['snippet', 'contentDetails'],
+            playlistId: extractedPlaylistId,
+            maxResults: 50,
+            pageToken: nextPageToken || undefined
+          });
+          
+          if (response.data.items) {
+            response.data.items.forEach(item => {
+              if (item.contentDetails && item.contentDetails.videoId) {
+                videos.push({
+                  videoId: item.contentDetails.videoId,
+                  title: item.snippet?.title || 'Untitled',
+                  thumbnail: item.snippet?.thumbnails?.default?.url || null
+                });
+              }
+            });
+          }
+          
+          nextPageToken = response.data.nextPageToken || null;
+        } while (nextPageToken);
+        
+        logger.info(`✅ Successfully extracted ${videos.length} video(s) from playlist using YouTube API`);
+        
+        return res.status(200).json({
+          success: true,
+          playlistId: extractedPlaylistId,
+          videos: videos
+        });
+      } catch (apiError) {
+        logger.warn('⚠️ YouTube API error, trying alternative method:', apiError.message);
+      }
+    }
+    
+    // Fallback: Scrape the playlist page
+    const playlistUrl = `https://www.youtube.com/playlist?list=${extractedPlaylistId}`;
+    logger.debug(`🌐 Fetching playlist page: ${playlistUrl}`);
+    
+    const response = await axios.get(playlistUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      },
+      timeout: 10000
+    });
+    
+    const html = response.data;
+    
+    // Extract video IDs from the page
+    // YouTube playlists embed video data in JSON
+    const videoIdMatches = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/g);
+    const videoIds = [];
+    
+    if (videoIdMatches) {
+      const uniqueIds = new Set();
+      videoIdMatches.forEach(match => {
+        const videoId = match.match(/"videoId":"([a-zA-Z0-9_-]{11})"/)[1];
+        if (videoId && !uniqueIds.has(videoId)) {
+          uniqueIds.add(videoId);
+          videoIds.push(videoId);
+        }
+      });
+    }
+    
+    // Also try extracting from ytInitialData
+    const ytInitialDataMatch = html.match(/var ytInitialData = ({.+?});/);
+    if (ytInitialDataMatch && videoIds.length === 0) {
+      try {
+        const dataStr = ytInitialDataMatch[1];
+        const ytData = JSON.parse(dataStr);
+        
+        // Navigate through the data structure to find video items
+        const extractVideoIds = (obj) => {
+          const ids = [];
+          if (typeof obj !== 'object' || obj === null) return ids;
+          
+          if (Array.isArray(obj)) {
+            obj.forEach(item => ids.push(...extractVideoIds(item)));
+          } else {
+            Object.keys(obj).forEach(key => {
+              if (key === 'videoId' && typeof obj[key] === 'string' && obj[key].length === 11) {
+                ids.push(obj[key]);
+              } else {
+                ids.push(...extractVideoIds(obj[key]));
+              }
+            });
+          }
+          return ids;
+        };
+        
+        const extractedIds = extractVideoIds(ytData);
+        const uniqueExtracted = [...new Set(extractedIds)];
+        videoIds.push(...uniqueExtracted);
+      } catch (parseError) {
+        logger.warn('⚠️ Could not parse ytInitialData:', parseError.message);
+      }
+    }
+    
+    if (videoIds.length === 0) {
+      logger.warn('⚠️ No video IDs found in playlist page');
+      return res.status(404).json({ error: 'No videos found in playlist' });
+    }
+    
+    logger.info(`✅ Successfully extracted ${videoIds.length} video ID(s) from playlist page`);
+    
+    const videos = videoIds.map(videoId => ({
+      videoId: videoId,
+      title: null, // Title extraction from scraping is unreliable
+      thumbnail: null
+    }));
+    
+    res.status(200).json({
+      success: true,
+      playlistId: extractedPlaylistId,
+      videos: videos
+    });
+    
+  } catch (error) {
+    logger.error('❌ Error extracting YouTube playlist:', error.message);
+    if (error.response) {
+      logger.error('   Response status:', error.response.status);
+    }
+    res.status(500).json({ 
+      error: 'Failed to extract videos from YouTube playlist',
+      message: error.message 
+    });
+  }
+});
+
+// Internal API route for YouTube playlist extraction (production)
+app.post('/internal-api/youtube/extract-playlist', async (req, res) => {
+  // Reuse the same logic as the main endpoint
+  logger.info('📺 [POST /internal-api/youtube/extract-playlist] Hit', req.body);
+  
+  const { playlistId, playlistUrl } = req.body;
+  
+  if (!playlistId && !playlistUrl) {
+    logger.error('❌ No playlist ID or URL provided');
+    return res.status(400).json({ error: 'playlistId or playlistUrl is required' });
+  }
+  
+  let extractedPlaylistId = playlistId;
+  
+  if (playlistUrl && !playlistId) {
+    const urlMatch = playlistUrl.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+    if (urlMatch) {
+      extractedPlaylistId = urlMatch[1];
+    } else {
+      logger.error('❌ Could not extract playlist ID from URL:', playlistUrl);
+      return res.status(400).json({ error: 'Invalid playlist URL' });
+    }
+  }
+  
+  try {
+    logger.debug(`📋 Extracting videos from YouTube playlist: ${extractedPlaylistId}`);
+    
+    if (youtube) {
+      try {
+        const videos = [];
+        let nextPageToken = null;
+        
+        do {
+          const response = await youtube.playlistItems.list({
+            part: ['snippet', 'contentDetails'],
+            playlistId: extractedPlaylistId,
+            maxResults: 50,
+            pageToken: nextPageToken || undefined
+          });
+          
+          if (response.data.items) {
+            response.data.items.forEach(item => {
+              if (item.contentDetails && item.contentDetails.videoId) {
+                videos.push({
+                  videoId: item.contentDetails.videoId,
+                  title: item.snippet?.title || 'Untitled',
+                  thumbnail: item.snippet?.thumbnails?.default?.url || null
+                });
+              }
+            });
+          }
+          
+          nextPageToken = response.data.nextPageToken || null;
+        } while (nextPageToken);
+        
+        logger.info(`✅ Successfully extracted ${videos.length} video(s) from playlist using YouTube API`);
+        
+        return res.status(200).json({
+          success: true,
+          playlistId: extractedPlaylistId,
+          videos: videos
+        });
+      } catch (apiError) {
+        logger.warn('⚠️ YouTube API error, trying alternative method:', apiError.message);
+      }
+    }
+    
+    const playlistUrl = `https://www.youtube.com/playlist?list=${extractedPlaylistId}`;
+    logger.debug(`🌐 Fetching playlist page: ${playlistUrl}`);
+    
+    const response = await axios.get(playlistUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      },
+      timeout: 10000
+    });
+    
+    const html = response.data;
+    const videoIdMatches = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/g);
+    const videoIds = [];
+    
+    if (videoIdMatches) {
+      const uniqueIds = new Set();
+      videoIdMatches.forEach(match => {
+        const videoId = match.match(/"videoId":"([a-zA-Z0-9_-]{11})"/)[1];
+        if (videoId && !uniqueIds.has(videoId)) {
+          uniqueIds.add(videoId);
+          videoIds.push(videoId);
+        }
+      });
+    }
+    
+    const ytInitialDataMatch = html.match(/var ytInitialData = ({.+?});/);
+    if (ytInitialDataMatch && videoIds.length === 0) {
+      try {
+        const dataStr = ytInitialDataMatch[1];
+        const ytData = JSON.parse(dataStr);
+        
+        const extractVideoIds = (obj) => {
+          const ids = [];
+          if (typeof obj !== 'object' || obj === null) return ids;
+          
+          if (Array.isArray(obj)) {
+            obj.forEach(item => ids.push(...extractVideoIds(item)));
+          } else {
+            Object.keys(obj).forEach(key => {
+              if (key === 'videoId' && typeof obj[key] === 'string' && obj[key].length === 11) {
+                ids.push(obj[key]);
+              } else {
+                ids.push(...extractVideoIds(obj[key]));
+              }
+            });
+          }
+          return ids;
+        };
+        
+        const extractedIds = extractVideoIds(ytData);
+        const uniqueExtracted = [...new Set(extractedIds)];
+        videoIds.push(...uniqueExtracted);
+      } catch (parseError) {
+        logger.warn('⚠️ Could not parse ytInitialData:', parseError.message);
+      }
+    }
+    
+    if (videoIds.length === 0) {
+      logger.warn('⚠️ No video IDs found in playlist page');
+      return res.status(404).json({ error: 'No videos found in playlist' });
+    }
+    
+    logger.info(`✅ Successfully extracted ${videoIds.length} video ID(s) from playlist page`);
+    
+    const videos = videoIds.map(videoId => ({
+      videoId: videoId,
+      title: null,
+      thumbnail: null
+    }));
+    
+    res.status(200).json({
+      success: true,
+      playlistId: extractedPlaylistId,
+      videos: videos
+    });
+    
+  } catch (error) {
+    logger.error('❌ Error extracting YouTube playlist:', error.message);
+    if (error.response) {
+      logger.error('   Response status:', error.response.status);
+    }
+    res.status(500).json({ 
+      error: 'Failed to extract videos from YouTube playlist',
+      message: error.message 
+    });
+  }
+});
+
+// Internal API route for Bandcamp stream extraction (production) - uses same logic as main endpoint
+app.post('/internal-api/bandcamp/extract-streams', async (req, res) => {
+  // Forward to main endpoint handler (they share the same logic)
+  // We'll just call the same handler function
+  logger.info('🎵 [POST /internal-api/bandcamp/extract-streams] Hit', req.body);
+  
+  const { url } = req.body;
+  
+  if (!url) {
+    logger.error('❌ No URL provided in request body');
+    return res.status(400).json({ error: 'URL is required' });
+  }
+  
+  if (!url.includes('bandcamp.com')) {
+    logger.error('❌ URL is not a Bandcamp URL:', url);
+    return res.status(400).json({ error: 'URL must be a Bandcamp URL' });
+  }
+  
+  try {
+    const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+    logger.debug(`🌐 Extracting Bandcamp data from: ${fullUrl}`);
+    
+    const isTrack = fullUrl.includes('/track/');
+    const isAlbum = fullUrl.includes('/album/');
+    
+    let tracks = [];
+    let albumTitle = null;
+    let artist = null;
+    
+    if (isTrack) {
+      logger.debug('📀 Detected track URL, using getTrackInfo');
+      
+      await new Promise((resolve, reject) => {
+        bandcamp.getTrackInfo(fullUrl, (error, trackInfo) => {
+          if (error) {
+            logger.error('❌ Error getting track info:', error);
+            return reject(error);
+          }
+          
+          const trackData = {
+            index: 0,
+            title: trackInfo.name || 'Track',
+            trackId: trackInfo.id || null,
+            duration: trackInfo.duration || null,
+            streamUrls: {}
+          };
+          
+          if (trackInfo.file) {
+            Object.keys(trackInfo.file).forEach(encoding => {
+              const streamUrl = trackInfo.file[encoding];
+              if (streamUrl && typeof streamUrl === 'string') {
+                trackData.streamUrls[encoding] = streamUrl;
+              }
+            });
+          }
+          
+          tracks.push(trackData);
+          albumTitle = trackInfo.album || null;
+          artist = trackInfo.artist || null;
+          
+          resolve();
+        });
+      });
+    } else if (isAlbum) {
+      logger.debug('💿 Detected album URL, using getAlbumInfo');
+      
+      await new Promise((resolve, reject) => {
+        bandcamp.getAlbumInfo(fullUrl, (error, albumInfo) => {
+          if (error) {
+            logger.error('❌ Error getting album info:', error);
+            return reject(error);
+          }
+          
+          albumTitle = albumInfo.name || null;
+          artist = albumInfo.artist || null;
+          
+          if (albumInfo.tracks && Array.isArray(albumInfo.tracks)) {
+            albumInfo.tracks.forEach((track, index) => {
+              const trackData = {
+                index: index,
+                title: track.name || `Track ${index + 1}`,
+                trackId: track.id || null,
+                duration: track.duration || null,
+                streamUrls: {}
+              };
+              
+              if (track.file) {
+                Object.keys(track.file).forEach(encoding => {
+                  const streamUrl = track.file[encoding];
+                  if (streamUrl && typeof streamUrl === 'string') {
+                    trackData.streamUrls[encoding] = streamUrl;
+                  }
+                });
+              }
+              
+              tracks.push(trackData);
+            });
+          }
+          
+          resolve();
+        });
+      });
+    } else {
+      logger.warn('⚠️ Could not determine if URL is track or album, defaulting to track');
+      
+      await new Promise((resolve, reject) => {
+        bandcamp.getTrackInfo(fullUrl, (error, trackInfo) => {
+          if (error) {
+            bandcamp.getAlbumInfo(fullUrl, (albumError, albumInfo) => {
+              if (albumError) {
+                logger.error('❌ Error getting both track and album info:', albumError);
+                return reject(albumError);
+              }
+              
+              albumTitle = albumInfo.name || null;
+              artist = albumInfo.artist || null;
+              
+              if (albumInfo.tracks && Array.isArray(albumInfo.tracks)) {
+                albumInfo.tracks.forEach((track, index) => {
+                  const trackData = {
+                    index: index,
+                    title: track.name || `Track ${index + 1}`,
+                    trackId: track.id || null,
+                    duration: track.duration || null,
+                    streamUrls: {},
+                    mp3_128: null
+                  };
+                  
+                  if (track.file) {
+                    Object.keys(track.file).forEach(encoding => {
+                      const streamUrl = track.file[encoding];
+                      if (streamUrl && typeof streamUrl === 'string') {
+                        trackData.streamUrls[encoding] = streamUrl;
+                      }
+                    });
+                    
+                    // Extract mp3-128 from album track info
+                    if (track.file['mp3-128']) {
+                      trackData.mp3_128 = track.file['mp3-128'];
+                    }
+                  }
+                  
+                  tracks.push(trackData);
+                });
+              }
+              
+              resolve();
+            });
+          } else {
+            const trackData = {
+              index: 0,
+              title: trackInfo.name || 'Track',
+              trackId: trackInfo.id || null,
+              duration: trackInfo.duration || null,
+              streamUrls: {}
+            };
+            
+            if (trackInfo.file) {
+              Object.keys(trackInfo.file).forEach(encoding => {
+                const streamUrl = trackInfo.file[encoding];
+                if (streamUrl && typeof streamUrl === 'string') {
+                  trackData.streamUrls[encoding] = streamUrl;
+                }
+              });
+            }
+            
+            tracks.push(trackData);
+            albumTitle = trackInfo.album || null;
+            artist = trackInfo.artist || null;
+            
+            resolve();
+          }
+        });
+      });
+    }
+    
+    if (tracks.length === 0) {
+      logger.warn('⚠️ No tracks found in Bandcamp data');
+      return res.status(404).json({ error: 'No tracks found on Bandcamp page' });
+    }
+    
+    // Extract all mp3-128 URLs into a list
+    const mp3_128_urls = tracks
+      .map(track => track.mp3_128)
+      .filter(url => url !== null && url !== undefined);
+    
+    logger.info(`✅ Successfully extracted ${tracks.length} track(s) from Bandcamp page`);
+    logger.info(`✅ Found ${mp3_128_urls.length} mp3-128 URL(s):`);
+    mp3_128_urls.forEach((url, idx) => {
+      logger.info(`   ${idx + 1}. ${url}`);
+    });
+    
+    res.status(200).json({
+      success: true,
+      url: fullUrl,
+      albumTitle: albumTitle,
+      artist: artist,
+      tracks: tracks,
+      mp3_128_urls: mp3_128_urls
+    });
+    
+  } catch (error) {
+    logger.error('❌ Error extracting Bandcamp streams:', error.message);
+    if (error.stack) {
+      logger.error('   Stack:', error.stack);
+    }
+    res.status(500).json({ 
+      error: 'Failed to extract stream URLs from Bandcamp page',
+      message: error.message 
+    });
+  }
+});
+
+// Generate Discord guild install URL
+app.get('/discord/generateURL', (req, res) => {
+  console.log('🔗 [GET /discord/generateURL] Hit');
+  try {
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    
+    if (!clientId) {
+      return res.status(500).json({ error: 'DISCORD_CLIENT_ID is not configured' });
+    }
+
+    // Discord permission flags:
+    // View Channels: 1024
+    // Send Messages: 2048
+    // Read Message History: 65536
+    // Manage Messages: 8192
+    // Total: 76800
+    const permissions = 1024 + 2048 + 65536 + 8192; // 76800
+    
+    const scope = 'bot%20applications.commands';
+    const url = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=${scope}`;
+    
+    console.log('✅ [GET /discord/generateURL] Generated URL');
+    res.status(200).json({ url });
+  } catch (error) {
+    console.error('❌ [GET /discord/generateURL] Error:', error.message);
+    res.status(500).json({ error: 'Failed to generate Discord install URL' });
+  }
+});
+
+// Generate Discord guild install URL (internal-api route for production)
+app.get('/internal-api/discord/generateURL', (req, res) => {
+  console.log('🔗 [GET /internal-api/discord/generateURL] Hit');
+  try {
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    
+    if (!clientId) {
+      return res.status(500).json({ error: 'DISCORD_CLIENT_ID is not configured' });
+    }
+
+    // Discord permission flags:
+    // View Channels: 1024
+    // Send Messages: 2048
+    // Read Message History: 65536
+    // Manage Messages: 8192
+    // Total: 76800
+    const permissions = 1024 + 2048 + 65536 + 8192; // 76800
+    
+    const scope = 'bot%20applications.commands';
+    const url = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=${scope}`;
+    
+    console.log('✅ [GET /internal-api/discord/generateURL] Generated URL');
+    res.status(200).json({ url });
+  } catch (error) {
+    console.error('❌ [GET /internal-api/discord/generateURL] Error:', error.message);
+    res.status(500).json({ error: 'Failed to generate Discord install URL' });
+  }
 });
 
 // Discogs configuration check endpoint

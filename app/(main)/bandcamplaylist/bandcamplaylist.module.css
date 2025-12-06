@@ -1,0 +1,286 @@
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 3rem;
+  padding: 2rem;
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.header h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  margin: 0 0 1rem 0;
+}
+
+.subtitle {
+  font-size: 1.25rem;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.content {
+  border-radius: 12px;
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.emptyState {
+  text-align: center;
+  padding: 3rem;
+}
+
+.emptyState p {
+  font-size: 1.1rem;
+  opacity: 0.7;
+}
+
+.emptyState code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.idList {
+  line-height: 1.7;
+}
+
+.idList h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 0 1.5rem 0;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 0.5rem;
+  opacity: 0.9;
+}
+
+.idList ul {
+  list-style-type: disc;
+  margin: 0;
+  padding-left: 2rem;
+}
+
+.idList li {
+  font-size: 1.1rem;
+  margin: 0.75rem 0;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.urlLink {
+  color: inherit;
+  text-decoration: none;
+  transition: opacity 0.3s ease;
+}
+
+.urlLink:hover {
+  opacity: 0.7;
+  text-decoration: underline;
+}
+
+.playlistContainer {
+  line-height: 1.7;
+}
+
+.playlistContainer h2 {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 0 2rem 0;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 0.5rem;
+  opacity: 0.9;
+}
+
+.playersList {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.playerWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.playerHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.playerNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.playerLink {
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+  word-break: break-all;
+}
+
+.playerLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.bandcampPlayer {
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stickyFooter {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.footerControls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.controlButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0;
+}
+
+.controlButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+.controlButton:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.controlButton svg {
+  width: 24px;
+  height: 24px;
+}
+
+.footerInfo {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.releaseCounter {
+  font-weight: 600;
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.activePlayer {
+  border: 2px solid currentColor;
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem;
+  }
+  
+  .header h1 {
+    font-size: 2rem;
+  }
+  
+  .subtitle {
+    font-size: 1rem;
+  }
+  
+  .content {
+    padding: 1rem;
+  }
+  
+  .idList h2 {
+    font-size: 1.5rem;
+  }
+  
+  .idList li {
+    font-size: 1rem;
+  }
+  
+  .playlistContainer h2 {
+    font-size: 1.5rem;
+  }
+  
+  .playerWrapper {
+    padding: 0.75rem;
+  }
+  
+  .playerLink {
+    font-size: 0.8rem;
+  }
+  
+  .stickyFooter {
+    padding: 0.75rem 1rem;
+  }
+  
+  .controlButton {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .controlButton svg {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .releaseCounter {
+    font-size: 0.9rem;
+  }
+}
+

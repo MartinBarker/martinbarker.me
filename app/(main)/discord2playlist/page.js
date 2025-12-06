@@ -7,6 +7,9 @@ export default function Discord2Playlist() {
   const [readmeContent, setReadmeContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [discordUrl, setDiscordUrl] = useState('');
+  const [generatingUrl, setGeneratingUrl] = useState(false);
+  const [urlError, setUrlError] = useState(null);
   const { colors } = React.useContext(ColorContext);
 
   useEffect(() => {
@@ -37,6 +40,33 @@ export default function Discord2Playlist() {
 
     fetchReadme();
   }, []);
+
+  // Function to generate Discord install URL
+  const generateDiscordUrl = async () => {
+    try {
+      setGeneratingUrl(true);
+      setUrlError(null);
+      setDiscordUrl('');
+      
+      const apiUrl = process.env.NODE_ENV === 'development' 
+        ? 'http://localhost:3030/discord/generateURL'
+        : '/internal-api/discord/generateURL';
+      
+      const response = await fetch(apiUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to generate URL: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setDiscordUrl(data.url);
+    } catch (err) {
+      console.error('Error generating Discord URL:', err);
+      setUrlError(err.message);
+    } finally {
+      setGeneratingUrl(false);
+    }
+  };
 
   // Simple markdown to HTML converter
   const convertMarkdownToHTML = (markdown) => {
@@ -130,7 +160,32 @@ export default function Discord2Playlist() {
           >
             View on GitHub
           </a>
+          <button
+            onClick={generateDiscordUrl}
+            disabled={generatingUrl}
+            className={styles.generateButton}
+          >
+            {generatingUrl ? 'Generating...' : 'Generate URL'}
+          </button>
         </div>
+        {discordUrl && (
+          <div className={styles.urlContainer}>
+            <p className={styles.urlLabel}>Discord Bot Install URL:</p>
+            <a 
+              href={discordUrl} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className={styles.discordUrl}
+            >
+              {discordUrl}
+            </a>
+          </div>
+        )}
+        {urlError && (
+          <div className={styles.urlError}>
+            <p>Error: {urlError}</p>
+          </div>
+        )}
       </div>
       
       <div 

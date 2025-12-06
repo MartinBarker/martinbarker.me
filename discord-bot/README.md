@@ -1,0 +1,25 @@
+# Fresh setup
+- Clone repo
+- CD into repo and run `npm i`
+- copy .env-template-new as .env
+- setup Discord bot:
+    - Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create a new application.
+    - Create a new bot
+    - Under "General Information", copy "Application ID" and save to .env as `DISCORD_CLIENT_ID`.
+    - Under "Bot" section: 
+        - Click "Reset Token" and save to .env as `DISCORD_TOKEN`. 
+        - Add permisions: `Send Messages` and `Read Message History`
+        - Enable all 3 "Privileged Gateway Intents"
+    - Under "OAuth2" section: 
+        - Create a bot invite link with the following permissions:
+            - `bot`
+            - `applications.commands`
+            - `View Channel` (required to access channels)
+            - `Send Messages` (required to send messages)
+            - `Read Message History` (required to read messages)
+            - `Manage Messages` (required for /clear command)
+            - `View Channels`
+    - Choose `Guild Install`, copy the "Generated URL", and use it to invite the bot to your Discord server.
+
+- Deploy the discord bot commands: `node deploy-commands.js`
+- Start the bot (must be running for commands to work): `node index.js` 
