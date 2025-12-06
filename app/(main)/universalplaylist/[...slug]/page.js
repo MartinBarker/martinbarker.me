@@ -101,11 +101,12 @@ function normalizeMediaUrl(url) {
   // Handle SoundCloud URLs
   const soundcloudMatch = normalized.match(/soundcloud\.com\/([^\/\s]+)\/([^\/\s\?]+)/);
   if (soundcloudMatch) {
+    const trackId = `${soundcloudMatch[1]}_${soundcloudMatch[2]}`;
     return {
       type: 'soundcloud',
-      id: `${soundcloudMatch[1]}_${soundcloudMatch[2]}`,
+      id: trackId,
       url: `https://soundcloud.com/${soundcloudMatch[1]}/${soundcloudMatch[2]}`,
-      embedUrl: `https://w.soundcloud.com/player/?url=https://soundcloud.com/${soundcloudMatch[1]}/${soundcloudMatch[2]}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true`
+      embedUrl: `https://w.soundcloud.com/player/?url=https://soundcloud.com/${soundcloudMatch[1]}/${soundcloudMatch[2]}&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true&buying=false&sharing=false&download=false`
     };
   }
   
@@ -152,6 +153,9 @@ export default function UniversalPlaylist() {
   const bandcampAudioElements = React.useRef({});
   const bandcampStreamUrls = React.useRef({});
   const bandcampMetadata = React.useRef({}); // Store artwork, title, artist, album for each track
+  const bandcampProcessed = React.useRef(new Set()); // Track which Bandcamp URLs have been processed/expanded
+  const bandcampProcessing = React.useRef(new Set()); // Track which Bandcamp URLs are currently being processed
+  const soundcloudIframes = React.useRef({});
   const [youtubeApiReady, setYoutubeApiReady] = useState(false);
   const [bandcampStreamsReady, setBandcampStreamsReady] = useState({});
   const currentTrackIndexRef = React.useRef(0);
@@ -461,12 +465,78 @@ export default function UniversalPlaylist() {
     };
   }, []);
 
-  // Listen for messages from Bandcamp iframes to understand their API
+  // Listen for messages from Bandcamp and SoundCloud iframes
   useEffect(() => {
     const handleMessage = (event) => {
       // Log messages from bandcamp.com to understand their API
       if (event.origin.includes('bandcamp.com')) {
         console.log('[Bandcamp Message] Received from Bandcamp:', event.data, 'Origin:', event.origin);
+      }
+      
+      // Handle SoundCloud widget messages
+      if (event.origin === 'https://w.soundcloud.com' && event.data) {
+        try {
+          let messageData = event.data;
+          
+          // SoundCloud can send messages as strings or objects
+          if (typeof messageData === 'string') {
+            try {
+              messageData = JSON.parse(messageData);
+            } catch (e) {
+              // Not JSON, skip
+              return;
+            }
+          }
+          
+          if (typeof messageData === 'object' && messageData.method) {
+            const { method, value } = messageData;
+            const currentIndex = currentTrackIndexRef.current;
+            const items = mediaItemsRef.current;
+            const currentTrack = items[currentIndex];
+            
+            // Handle playback state changes
+            if (method === 'getCurrentSound' && value) {
+              // Track started playing or changed
+              if (currentTrack && currentTrack.type === 'soundcloud') {
+                setIsPlaying(true);
+              }
+            }
+            
+            // Update current time when we get position
+            if (method === 'getPosition' && typeof value === 'number' && !isNaN(value)) {
+              if (currentTrack && currentTrack.type === 'soundcloud' && currentIndex === currentTrackIndexRef.current) {
+                setCurrentTime(value / 1000); // SoundCloud returns milliseconds
+              }
+            }
+            
+            // Update duration when we get it
+            if (method === 'getDuration' && typeof value === 'number' && !isNaN(value)) {
+              if (currentTrack && currentTrack.type === 'soundcloud' && currentIndex === currentTrackIndexRef.current) {
+                setDuration(value / 1000); // SoundCloud returns milliseconds
+                
+                // Check if track has ended (position should be close to duration)
+                const iframe = soundcloudIframes.current[currentIndex];
+                if (iframe && iframe.contentWindow && isPlayingRef.current) {
+                  // Request position to compare
+                  iframe.contentWindow.postMessage(JSON.stringify({ method: 'getPosition' }), 'https://w.soundcloud.com');
+                }
+              }
+            }
+            
+            // Check if track ended - when position is very close to duration
+            if (method === 'getPosition' && typeof value === 'number' && !isNaN(value)) {
+              const iframe = soundcloudIframes.current[currentIndex];
+              if (iframe && currentTrack && currentTrack.type === 'soundcloud' && 
+                  currentIndex === currentTrackIndexRef.current && isPlayingRef.current) {
+                // Request duration to compare
+                iframe.contentWindow.postMessage(JSON.stringify({ method: 'getDuration' }), 'https://w.soundcloud.com');
+              }
+            }
+          }
+        } catch (error) {
+          // Ignore parsing errors, but log for debugging
+          console.log('[SoundCloud Message] Error parsing message:', error, event.data);
+        }
       }
     };
     
@@ -476,12 +546,52 @@ export default function UniversalPlaylist() {
     };
   }, []);
 
-  // Function to extract Bandcamp stream URLs via server endpoint
-  const extractBandcampStreamUrl = async (item) => {
-    // If we already have a stream URL, don't fetch again
-    if (bandcampStreamUrls.current[item.index]) {
-      return bandcampStreamUrls.current[item.index];
+  // Helper function to get unique key for Bandcamp item
+  const getBandcampKey = (item, trackIdx = null) => {
+    // For expanded tracks, use original URL + track index
+    if (trackIdx !== null) {
+      return `${item.original || item.url}_track_${trackIdx}`;
     }
+    // For single tracks or original items, use original URL
+    return item.original || item.url;
+  };
+
+  // Function to extract Bandcamp stream URLs via server endpoint
+  const extractBandcampStreamUrl = async (item, currentIndex = null) => {
+    // Use provided currentIndex or fall back to item.index
+    const itemIndex = currentIndex !== null ? currentIndex : item.index;
+    
+    // Get unique key for this item
+    const itemKey = getBandcampKey(item);
+    
+    // Check if this item has already been processed/expanded
+    const originalUrl = item.original || item.url;
+    if (bandcampProcessed.current.has(originalUrl)) {
+      console.log(`[extractBandcampStreamUrl] Item already processed: ${originalUrl}`);
+      // If it's an expanded track, return the stream URL for that specific track
+      if (item.bandcampKey && bandcampStreamUrls.current[item.bandcampKey]) {
+        return bandcampStreamUrls.current[item.bandcampKey];
+      }
+      // If it's the original item and we have any stream URL for it, return that
+      if (bandcampStreamUrls.current[itemKey]) {
+        return bandcampStreamUrls.current[itemKey];
+      }
+      return null;
+    }
+    
+    // Check if this item is currently being processed (prevent concurrent processing)
+    if (bandcampProcessing.current.has(originalUrl)) {
+      console.log(`[extractBandcampStreamUrl] Item already being processed: ${originalUrl}`);
+      return null;
+    }
+    
+    // If we already have a stream URL for this key, don't fetch again
+    if (bandcampStreamUrls.current[itemKey]) {
+      return bandcampStreamUrls.current[itemKey];
+    }
+    
+    // Mark as being processed
+    bandcampProcessing.current.add(originalUrl);
 
     try {
       const fullUrl = item.url.startsWith('http') ? item.url : `https://${item.url}`;
@@ -536,85 +646,99 @@ export default function UniversalPlaylist() {
         // For albums, expand into multiple mediaItems
         console.log(`[extractBandcampStreamUrl] 📀 Album detected with ${data.tracks.length} tracks, expanding...`);
         
-        // Store metadata and stream URLs first
-        data.tracks.forEach((track, idx) => {
-          const streamUrl = track.mp3_128 || 
-                           track.streamUrls['mp3-128'] || 
-                           track.streamUrls['mp3-v0'] || 
-                           Object.values(track.streamUrls)[0] || 
-                           null;
+        // Find the current index of this item in the mediaItems array (in case indices have shifted)
+        // Use a functional update to get the current state
+        setMediaItems(prev => {
+          // Find the item by its unique identifier (id or original URL) to get current index
+          const currentIndex = prev.findIndex(itm => 
+            (itm.id === item.id && itm.type === 'bandcamp') || 
+            (itm.original === item.original && itm.type === 'bandcamp')
+          );
           
-          const trackIndex = item.index + idx;
-          if (streamUrl) {
-            bandcampStreamUrls.current[trackIndex] = streamUrl;
+          if (currentIndex === -1) {
+            console.warn(`[extractBandcampStreamUrl] Could not find item in current mediaItems array`);
+            return prev; // Don't modify if item not found
           }
           
-          bandcampMetadata.current[trackIndex] = {
-            title: track.title,
-            artist: track.artist || data.artist,
-            album: track.album || data.albumTitle,
-            artwork: track.artwork,
-            duration: track.duration
-          };
-        });
-        
-        // Create new media items for each track
-        const newMediaItems = data.tracks.map((track, idx) => {
-          return {
-            type: 'bandcamp',
-            id: `${item.id}_track_${idx}`,
-            url: fullUrl, // Keep original URL
-            embedUrl: item.embedUrl,
-            original: item.original,
-            index: item.index + idx
-          };
-        });
-        
-        // Replace the single album item with all track items and re-index everything
-        setMediaItems(prev => {
-          // Save current refs
-          const oldStreamUrls = { ...bandcampStreamUrls.current };
-          const oldMetadata = { ...bandcampMetadata.current };
+          // Store metadata and stream URLs using unique keys (not indices)
+          data.tracks.forEach((track, idx) => {
+            const streamUrl = track.mp3_128 || 
+                             track.streamUrls['mp3-128'] || 
+                             track.streamUrls['mp3-v0'] || 
+                             Object.values(track.streamUrls)[0] || 
+                             null;
+            
+            // Use unique key based on original URL + track index
+            const trackKey = getBandcampKey(item, idx);
+            if (streamUrl) {
+              bandcampStreamUrls.current[trackKey] = streamUrl;
+            }
+            
+            bandcampMetadata.current[trackKey] = {
+              title: track.title,
+              artist: track.artist || data.artist,
+              album: track.album || data.albumTitle,
+              artwork: track.artwork,
+              duration: track.duration
+            };
+          });
+          
+          // Create new media items for each track
+          const newMediaItems = data.tracks.map((track, idx) => {
+            return {
+              type: 'bandcamp',
+              id: `${item.id}_track_${idx}`,
+              url: fullUrl, // Keep original URL
+              embedUrl: item.embedUrl,
+              original: item.original, // Keep original URL for key generation
+              bandcampKey: getBandcampKey(item, idx), // Store unique key
+              index: currentIndex + idx
+            };
+          });
+          
+          // Save current audio elements (these are still indexed by array position)
           const oldAudioElements = { ...bandcampAudioElements.current };
           
           // Create new items array
           const newItems = [...prev];
-          newItems.splice(item.index, 1, ...newMediaItems);
+          newItems.splice(currentIndex, 1, ...newMediaItems);
           const reindexed = newItems.map((itm, idx) => ({ ...itm, index: idx }));
           
-          // Rebuild refs with new indices
-          const newStreamUrls = {};
-          const newMetadata = {};
+          // Rebuild audio elements ref with new indices
+          // Note: metadata and stream URLs are now keyed by unique identifiers, so they don't need rebuilding
           const newAudioElements = {};
-          
           reindexed.forEach((itm, newIdx) => {
             let oldIdx;
-            if (newIdx < item.index) {
+            if (newIdx < currentIndex) {
               // Items before album - index unchanged
               oldIdx = newIdx;
-            } else if (newIdx >= item.index && newIdx < item.index + data.tracks.length) {
-              // New track items - use stored data
-              oldIdx = item.index + (newIdx - item.index);
+            } else if (newIdx >= currentIndex && newIdx < currentIndex + data.tracks.length) {
+              // New track items - no audio elements yet (will be created when rendered)
+              // Skip for now
+              return;
             } else {
               // Items after album - shifted by (tracks.length - 1)
               oldIdx = newIdx - (data.tracks.length - 1);
             }
             
-            if (oldStreamUrls[oldIdx]) newStreamUrls[newIdx] = oldStreamUrls[oldIdx];
-            if (oldMetadata[oldIdx]) newMetadata[newIdx] = oldMetadata[oldIdx];
-            if (oldAudioElements[oldIdx]) newAudioElements[newIdx] = oldAudioElements[oldIdx];
+            if (oldAudioElements[oldIdx]) {
+              newAudioElements[newIdx] = oldAudioElements[oldIdx];
+            }
           });
           
-          // Update refs
-          bandcampStreamUrls.current = newStreamUrls;
-          bandcampMetadata.current = newMetadata;
+          // Update audio elements ref (metadata and stream URLs are keyed, so they persist)
           bandcampAudioElements.current = newAudioElements;
           
           return reindexed;
         });
         
-        console.log(`[extractBandcampStreamUrl] ✅ Album expanded into ${newMediaItems.length} tracks`);
-        return bandcampStreamUrls.current[item.index] || null;
+        // Mark this URL as processed to prevent re-expansion
+        bandcampProcessed.current.add(originalUrl);
+        bandcampProcessing.current.delete(originalUrl); // Remove from processing set
+        
+        console.log(`[extractBandcampStreamUrl] ✅ Album expanded into ${data.tracks.length} tracks`);
+        // Return the first track's stream URL (will be set in the state update)
+        return null; // The stream URL will be available after state update
       } else {
         // Single track - just store metadata and stream URL
         const track = data.tracks[0];
@@ -624,11 +748,14 @@ export default function UniversalPlaylist() {
                          Object.values(track.streamUrls)[0] || 
                          null;
         
+        // Use unique key instead of index
+        const itemKey = getBandcampKey(item);
+        
         if (streamUrl) {
-          bandcampStreamUrls.current[item.index] = streamUrl;
+          bandcampStreamUrls.current[itemKey] = streamUrl;
         }
         
-        bandcampMetadata.current[item.index] = {
+        bandcampMetadata.current[itemKey] = {
           title: track.title,
           artist: track.artist || data.artist,
           album: track.album || data.albumTitle,
@@ -636,9 +763,13 @@ export default function UniversalPlaylist() {
           duration: track.duration
         };
         
+        // Mark this URL as processed to prevent re-fetching
+        bandcampProcessed.current.add(originalUrl);
+        bandcampProcessing.current.delete(originalUrl); // Remove from processing set
+        
         if (streamUrl) {
           console.log(`[extractBandcampStreamUrl] ✅ Successfully extracted stream URL: ${streamUrl}`);
-          setBandcampStreamsReady(prev => ({ ...prev, [item.index]: true }));
+          setBandcampStreamsReady(prev => ({ ...prev, [itemKey]: true }));
           return streamUrl;
         } else {
           console.warn(`[extractBandcampStreamUrl] ⚠️ No stream URL found in track data`);
@@ -647,6 +778,9 @@ export default function UniversalPlaylist() {
       }
     } catch (error) {
       console.error(`[extractBandcampStreamUrl] Error extracting stream URL:`, error);
+      // Remove from processing set on error
+      const originalUrl = item.original || item.url;
+      bandcampProcessing.current.delete(originalUrl);
       return null;
     }
   };
@@ -656,15 +790,32 @@ export default function UniversalPlaylist() {
     if (mediaItems.length === 0) return;
 
     // Extract stream URLs for all Bandcamp items
-    mediaItems.forEach((item) => {
-      if (item.type === 'bandcamp' && !bandcampStreamUrls.current[item.index]) {
+    mediaItems.forEach((item, currentIndex) => {
+      // Check if this item has already been processed by checking if it's an expanded track
+      // (expanded tracks have id like "originalId_track_0", "originalId_track_1", etc.)
+      const isExpandedTrack = item.id && item.id.includes('_track_');
+      
+      // Get unique key for this item
+      const itemKey = item.bandcampKey || getBandcampKey(item);
+      
+      // Only process if:
+      // 1. It's a Bandcamp item
+      // 2. It hasn't been processed yet (not in processed set and no stream URL for this unique key)
+      // 3. It's not currently being processed
+      // 4. It's not an expanded track (those are handled during expansion)
+      const originalUrl = item.original || item.url;
+      const alreadyProcessed = bandcampProcessed.current.has(originalUrl);
+      const currentlyProcessing = bandcampProcessing.current.has(originalUrl);
+      
+      if (item.type === 'bandcamp' && !isExpandedTrack && !alreadyProcessed && !currentlyProcessing && !bandcampStreamUrls.current[itemKey]) {
         // Extract stream URL via server endpoint (no need to wait for iframe)
-        extractBandcampStreamUrl(item).then(streamUrl => {
+        // Pass currentIndex to ensure we use the correct index even after previous expansions
+        extractBandcampStreamUrl(item, currentIndex).then(streamUrl => {
           if (streamUrl) {
-            console.log(`[useEffect] Successfully extracted stream URL for item ${item.index}: ${streamUrl}`);
+            console.log(`[useEffect] Successfully extracted stream URL for item at index ${currentIndex} (key: ${itemKey}): ${streamUrl}`);
           }
         }).catch(error => {
-          console.error(`[useEffect] Error extracting stream URL for item ${item.index}:`, error);
+          console.error(`[useEffect] Error extracting stream URL for item at index ${currentIndex} (key: ${itemKey}):`, error);
         });
       }
       
@@ -771,12 +922,65 @@ export default function UniversalPlaylist() {
           if (interval) clearInterval(interval);
         };
       }
+    } else if (currentTrack.type === 'soundcloud') {
+      const iframe = soundcloudIframes.current[currentTrackIndex];
+      if (iframe && iframe.contentWindow) {
+        // SoundCloud widget API - request position and duration periodically
+        let lastPosition = 0;
+        let lastDuration = 0;
+        let stuckCount = 0;
+        
+        interval = setInterval(() => {
+          if (!isDragging && iframe.contentWindow) {
+            try {
+              // Request position
+              iframe.contentWindow.postMessage(JSON.stringify({ method: 'getPosition' }), 'https://w.soundcloud.com');
+              // Request duration
+              iframe.contentWindow.postMessage(JSON.stringify({ method: 'getDuration' }), 'https://w.soundcloud.com');
+              
+              // Check if position is stuck at the same value (might indicate track ended)
+              // We'll rely on the message handler to update time from widget responses
+            } catch (error) {
+              // Ignore errors
+            }
+          }
+        }, 500);
+        
+        return () => {
+          if (interval) clearInterval(interval);
+        };
+      }
     }
     
     return () => {
       if (interval) clearInterval(interval);
     };
   }, [isPlaying, currentTrackIndex, mediaItems, isDragging]);
+
+  // Check if SoundCloud track has ended and autoplay next
+  useEffect(() => {
+    const currentTrack = mediaItems[currentTrackIndex];
+    if (!currentTrack || currentTrack.type !== 'soundcloud' || !isPlaying) {
+      return;
+    }
+    
+    // Check if track has ended (position is very close to duration, within 1 second)
+    if (duration > 0 && currentTime > 0 && Math.abs(currentTime - duration) < 1.0 && currentTime >= duration - 1.0) {
+      console.log(`[SoundCloud] Track ${currentTrackIndex + 1} ended, autoplaying next track`);
+      const currentIndex = currentTrackIndexRef.current;
+      const items = mediaItemsRef.current;
+      
+      // Check if there's a next track
+      if (currentIndex < items.length - 1) {
+        // Use handleNext via a timeout to avoid dependency issues
+        setTimeout(() => handleNext(), 0);
+      } else {
+        // Last track ended, just stop playing
+        setIsPlaying(false);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, duration, currentTrackIndex, mediaItems, isPlaying]);
 
   // Initialize YouTube players when API is ready and media items are loaded
   useEffect(() => {
@@ -868,9 +1072,10 @@ export default function UniversalPlaylist() {
             player.pauseVideo();
             setIsPlaying(false);
           } else {
-            // Before playing, pause all other YouTube players
+            // Before playing, pause all other players
             pauseAllYouTubePlayers();
             pauseAllBandcampPlayers();
+            pauseAllSoundCloudPlayers();
             // Then play the current one
             player.playVideo();
             setIsPlaying(true);
@@ -887,6 +1092,7 @@ export default function UniversalPlaylist() {
             // Pause all others before playing
             pauseAllYouTubePlayers();
             pauseAllBandcampPlayers();
+            pauseAllSoundCloudPlayers();
             player.playVideo();
             setIsPlaying(true);
             scrollToPlayer(currentTrackIndex);
@@ -897,6 +1103,7 @@ export default function UniversalPlaylist() {
       // Control Bandcamp player - manual play/pause button press
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
+      pauseAllSoundCloudPlayers();
       
       if (isPlaying) {
         console.log('BANDCAMP_PAUSE');
@@ -908,10 +1115,27 @@ export default function UniversalPlaylist() {
         setIsPlaying(true);
         scrollToPlayer(currentTrackIndex);
       }
-    } else {
-      // For other media types, pause all YouTube and Bandcamp players first
+    } else if (currentTrack && currentTrack.type === 'soundcloud') {
+      // Control SoundCloud player
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
+      pauseAllSoundCloudPlayers();
+      
+      if (isPlaying) {
+        console.log('SOUNDCLOUD_PAUSE');
+        controlSoundCloudPlayer(currentTrackIndex, 'pause');
+        setIsPlaying(false);
+      } else {
+        console.log('SOUNDCLOUD_PLAY');
+        controlSoundCloudPlayer(currentTrackIndex, 'play');
+        setIsPlaying(true);
+        scrollToPlayer(currentTrackIndex);
+      }
+    } else {
+      // For other media types, pause all players first
+      pauseAllYouTubePlayers();
+      pauseAllBandcampPlayers();
+      pauseAllSoundCloudPlayers();
       // Then toggle the state
       setIsPlaying(!isPlaying);
       if (!isPlaying) {
@@ -1225,7 +1449,10 @@ export default function UniversalPlaylist() {
     }
     
     // Method 1: Try using the audio element if we have a stream URL (most reliable)
-    const streamUrl = bandcampStreamUrls.current[index];
+    // Get unique key for this item to look up stream URL
+    const itemKey = item.bandcampKey || getBandcampKey(item);
+    const streamUrl = bandcampStreamUrls.current[itemKey];
+    
     if (streamUrl) {
       const audioResult = controlBandcampAudio(index, command);
       if (audioResult) {
@@ -1234,10 +1461,13 @@ export default function UniversalPlaylist() {
       }
     }
     
-    // If we don't have a stream URL yet, try to extract it first
-    if (!streamUrl) {
+    // If we don't have a stream URL yet and this item hasn't been processed, try to extract it
+    // But only if it's not an expanded track (expanded tracks should already have URLs)
+    const isExpandedTrack = item.id && item.id.includes('_track_');
+    const originalUrl = item.original || item.url;
+    if (!streamUrl && !isExpandedTrack && !bandcampProcessed.current.has(originalUrl)) {
       console.log(`[controlBandcampPlayer] No stream URL found, attempting to extract...`);
-      extractBandcampStreamUrl(item).then(url => {
+      extractBandcampStreamUrl(item, index).then(url => {
         if (url) {
           console.log(`[controlBandcampPlayer] Stream URL extracted, retrying play...`);
           // Retry with the audio element now that we have the URL
@@ -1248,6 +1478,8 @@ export default function UniversalPlaylist() {
       }).catch(error => {
         console.error(`[controlBandcampPlayer] Error extracting stream URL:`, error);
       });
+    } else if (!streamUrl) {
+      console.warn(`[controlBandcampPlayer] No stream URL available and item already processed or is expanded track`);
     }
     
     const iframe = bandcampIframes.current[index];
@@ -1326,6 +1558,50 @@ export default function UniversalPlaylist() {
     return false;
   };
 
+  // Helper function to pause all SoundCloud players
+  const pauseAllSoundCloudPlayers = () => {
+    Object.keys(soundcloudIframes.current).forEach(index => {
+      const iframe = soundcloudIframes.current[index];
+      if (iframe && iframe.contentWindow) {
+        try {
+          // SoundCloud widget API uses postMessage with JSON string
+          const pauseCommand = JSON.stringify({ method: 'pause' });
+          iframe.contentWindow.postMessage(pauseCommand, 'https://w.soundcloud.com');
+        } catch (error) {
+          console.warn(`Error pausing SoundCloud player at index ${index}:`, error);
+        }
+      }
+    });
+  };
+
+  // Helper function to control SoundCloud player
+  const controlSoundCloudPlayer = (index, command) => {
+    const iframe = soundcloudIframes.current[index];
+    if (!iframe || !iframe.contentWindow) {
+      console.warn(`[controlSoundCloudPlayer] No iframe found for index ${index}`);
+      return false;
+    }
+    
+    try {
+      // SoundCloud widget API commands
+      const commands = {
+        play: { method: 'play' },
+        pause: { method: 'pause' },
+        toggle: { method: 'toggle' }
+      };
+      
+      const commandData = commands[command] || commands.toggle;
+      const message = JSON.stringify(commandData);
+      
+      console.log(`[controlSoundCloudPlayer] Sending ${command} to SoundCloud player at index ${index}`);
+      iframe.contentWindow.postMessage(message, 'https://w.soundcloud.com');
+      return true;
+    } catch (error) {
+      console.error(`[controlSoundCloudPlayer] Error:`, error);
+      return false;
+    }
+  };
+
   // Handle previous track
   const handlePrevious = () => {
     if (currentTrackIndex > 0) {
@@ -1337,9 +1613,10 @@ export default function UniversalPlaylist() {
         console.log('BANDCAMP_PAUSE');
       }
       
-      // Pause ALL YouTube and Bandcamp players first
+      // Pause ALL players first
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
+      pauseAllSoundCloudPlayers();
       
       const prevIndex = currentTrackIndex - 1;
       setCurrentTrackIndex(prevIndex);
@@ -1352,7 +1629,7 @@ export default function UniversalPlaylist() {
         scrollToPlayer(prevIndex);
       }
       
-      // Auto-play the previous track if it's YouTube or Bandcamp
+      // Auto-play the previous track if it's YouTube, Bandcamp, or SoundCloud
       const prevTrack = mediaItems[prevIndex];
       if (prevTrack && prevTrack.type === 'youtube') {
         // Wait a bit for the player to be ready, then play
@@ -1391,6 +1668,14 @@ export default function UniversalPlaylist() {
         console.log('BANDCAMP_PLAY');
         controlBandcampPlayer(prevIndex, 'play');
         setIsPlaying(true);
+      } else if (prevTrack && prevTrack.type === 'soundcloud') {
+        // Auto-play SoundCloud track
+        console.log('SOUNDCLOUD_PLAY');
+        // Wait a bit for iframe to be ready
+        setTimeout(() => {
+          controlSoundCloudPlayer(prevIndex, 'play');
+          setIsPlaying(true);
+        }, 100);
       } else {
         setIsPlaying(false);
       }
@@ -1412,15 +1697,16 @@ export default function UniversalPlaylist() {
         console.log('BANDCAMP_PAUSE');
       }
       
-      // Pause ALL YouTube and Bandcamp players first
+      // Pause ALL players first
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
+      pauseAllSoundCloudPlayers();
       
       const nextIndex = currentIndex + 1;
       setCurrentTrackIndex(nextIndex);
       scrollToPlayer(nextIndex);
       
-      // Auto-play the next track if it's YouTube or Bandcamp
+      // Auto-play the next track if it's YouTube, Bandcamp, or SoundCloud
       const nextTrack = items[nextIndex];
       if (nextTrack && nextTrack.type === 'youtube') {
         // Wait a bit for the player to be ready, then play
@@ -1459,6 +1745,14 @@ export default function UniversalPlaylist() {
         console.log('BANDCAMP_PLAY');
         controlBandcampPlayer(nextIndex, 'play');
         setIsPlaying(true);
+      } else if (nextTrack && nextTrack.type === 'soundcloud') {
+        // Auto-play SoundCloud track
+        console.log('SOUNDCLOUD_PLAY');
+        // Wait a bit for iframe to be ready
+        setTimeout(() => {
+          controlSoundCloudPlayer(nextIndex, 'play');
+          setIsPlaying(true);
+        }, 100);
       } else {
         setIsPlaying(false);
       }
@@ -1506,6 +1800,11 @@ export default function UniversalPlaylist() {
       case 'soundcloud':
         return (
           <iframe
+            ref={(el) => {
+              if (el) {
+                soundcloudIframes.current[item.index] = el;
+              }
+            }}
             src={item.embedUrl}
             className={styles.soundcloudPlayer}
             scrolling="no"
@@ -1516,8 +1815,10 @@ export default function UniversalPlaylist() {
         );
       
       case 'bandcamp':
-        const streamUrl = bandcampStreamUrls.current[item.index];
-        const metadata = bandcampMetadata.current[item.index] || {};
+        // Get unique key for this item (use stored bandcampKey if available, otherwise generate it)
+        const itemKey = item.bandcampKey || getBandcampKey(item);
+        const streamUrl = bandcampStreamUrls.current[itemKey];
+        const metadata = bandcampMetadata.current[itemKey] || {};
         const isCurrentTrack = currentTrackIndex === item.index;
         const isCurrentPlaying = isCurrentTrack && isPlaying;
         
@@ -1760,39 +2061,53 @@ export default function UniversalPlaylist() {
           }}
         >
           <div className={styles.footerLeft}>
-            {currentTrack && currentTrack.type === 'bandcamp' && bandcampMetadata.current[currentTrackIndex]?.artwork ? (
-              <img 
-                src={bandcampMetadata.current[currentTrackIndex].artwork} 
-                alt={bandcampMetadata.current[currentTrackIndex].title || 'Track artwork'}
-                className={styles.footerThumbnail}
-              />
-            ) : thumbnailUrl ? (
-              <img 
-                src={thumbnailUrl} 
-                alt="Current track thumbnail"
-                className={styles.footerThumbnail}
-              />
-            ) : currentTrack ? (
-              <div className={styles.footerThumbnailPlaceholder}>
-                <span>{currentTrack.type.charAt(0).toUpperCase()}</span>
-              </div>
-            ) : null}
-            {currentTrack && (
-              <div className={styles.footerTrackInfo}>
-                <div className={styles.footerTrackTitle}>
-                  {currentTrack.type === 'bandcamp' && bandcampMetadata.current[currentTrackIndex]?.title
-                    ? bandcampMetadata.current[currentTrackIndex].title
-                    : currentTrack.url.length > 50 
-                      ? `${currentTrack.url.substring(0, 50)}...` 
-                      : currentTrack.url}
+            {(() => {
+              const currentTrackKey = currentTrack && currentTrack.type === 'bandcamp' 
+                ? (currentTrack.bandcampKey || getBandcampKey(currentTrack))
+                : null;
+              const currentMetadata = currentTrackKey ? bandcampMetadata.current[currentTrackKey] : null;
+              
+              return currentTrack && currentTrack.type === 'bandcamp' && currentMetadata?.artwork ? (
+                <img 
+                  src={currentMetadata.artwork} 
+                  alt={currentMetadata.title || 'Track artwork'}
+                  className={styles.footerThumbnail}
+                />
+              ) : thumbnailUrl ? (
+                <img 
+                  src={thumbnailUrl} 
+                  alt="Current track thumbnail"
+                  className={styles.footerThumbnail}
+                />
+              ) : currentTrack ? (
+                <div className={styles.footerThumbnailPlaceholder}>
+                  <span>{currentTrack.type.charAt(0).toUpperCase()}</span>
                 </div>
-                <div className={styles.footerTrackNumber}>
-                  {currentTrack.type === 'bandcamp' && bandcampMetadata.current[currentTrackIndex]?.artist
-                    ? `${bandcampMetadata.current[currentTrackIndex].artist} • Track ${currentTrackIndex + 1} of ${mediaItems.length}`
-                    : `Track ${currentTrackIndex + 1} of ${mediaItems.length}`}
+              ) : null;
+            })()}
+            {currentTrack && (() => {
+              const currentTrackKey = currentTrack.type === 'bandcamp' 
+                ? (currentTrack.bandcampKey || getBandcampKey(currentTrack))
+                : null;
+              const currentMetadata = currentTrackKey ? bandcampMetadata.current[currentTrackKey] : null;
+              
+              return (
+                <div className={styles.footerTrackInfo}>
+                  <div className={styles.footerTrackTitle}>
+                    {currentTrack.type === 'bandcamp' && currentMetadata?.title
+                      ? currentMetadata.title
+                      : currentTrack.url.length > 50 
+                        ? `${currentTrack.url.substring(0, 50)}...` 
+                        : currentTrack.url}
+                  </div>
+                  <div className={styles.footerTrackNumber}>
+                    {currentTrack.type === 'bandcamp' && currentMetadata?.artist
+                      ? `${currentMetadata.artist} • Track ${currentTrackIndex + 1} of ${mediaItems.length}`
+                      : `Track ${currentTrackIndex + 1} of ${mediaItems.length}`}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
           
           <div className={styles.footerControls}>
@@ -2059,14 +2374,40 @@ export default function UniversalPlaylist() {
                 >
                   <div className={styles.playerHeader}>
                     <span className={styles.playerNumber}>{index + 1}</span>
-                    <a 
-                      href={item.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className={styles.playerLink}
-                    >
-                      {item.url}
-                    </a>
+                    {(() => {
+                      // For Bandcamp items with metadata, show track info instead of URL
+                      if (item.type === 'bandcamp') {
+                        const itemKey = item.bandcampKey || getBandcampKey(item);
+                        const metadata = bandcampMetadata.current[itemKey];
+                        if (metadata && metadata.title) {
+                          const displayText = metadata.artist 
+                            ? `${metadata.title} - ${metadata.artist}`
+                            : metadata.title;
+                          return (
+                            <a 
+                              href={item.url} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className={styles.playerLink}
+                              title={item.url}
+                            >
+                              {displayText}
+                            </a>
+                          );
+                        }
+                      }
+                      // For other items or Bandcamp items without metadata, show URL
+                      return (
+                        <a 
+                          href={item.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className={styles.playerLink}
+                        >
+                          {item.url}
+                        </a>
+                      );
+                    })()}
                   </div>
                   {renderMediaPlayer(item)}
                 </div>
