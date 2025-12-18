@@ -85,15 +85,19 @@ function normalizeMediaUrl(url) {
   }
   
   // Handle Spotify URLs (open.spotify.com or spotify:track:)
-  const spotifyMatch = normalized.match(/(?:open\.)?spotify\.com\/(track|album|playlist|artist)\/([a-zA-Z0-9]+)/) || 
+  // Handle URLs with query parameters (e.g., ?si=...)
+  // Updated regex to properly capture IDs even when query params are present
+  const spotifyMatch = normalized.match(/(?:open\.)?spotify\.com\/(track|album|playlist|artist)\/([a-zA-Z0-9]+)(?:\?[^\s"']*)?/) || 
                        normalized.match(/spotify:(track|album|playlist|artist):([a-zA-Z0-9]+)/);
   if (spotifyMatch) {
     const type = spotifyMatch[1];
     const id = spotifyMatch[2];
+    // Preserve the original URL with query parameters if present
+    const originalUrl = normalized.includes('?') ? normalized : `https://open.spotify.com/${type}/${id}`;
     return {
       type: 'spotify',
       id: `${type}_${id}`,
-      url: `https://open.spotify.com/${type}/${id}`,
+      url: originalUrl.startsWith('http') ? originalUrl : `https://${originalUrl}`,
       embedUrl: `https://open.spotify.com/embed/${type}/${id}?utm_source=generator`
     };
   }
@@ -156,6 +160,7 @@ export default function UniversalPlaylist() {
   const bandcampProcessed = React.useRef(new Set()); // Track which Bandcamp URLs have been processed/expanded
   const bandcampProcessing = React.useRef(new Set()); // Track which Bandcamp URLs are currently being processed
   const soundcloudIframes = React.useRef({});
+  const spotifyIframes = React.useRef({});
   const [youtubeApiReady, setYoutubeApiReady] = useState(false);
   const [bandcampStreamsReady, setBandcampStreamsReady] = useState({});
   const currentTrackIndexRef = React.useRef(0);
@@ -188,8 +193,28 @@ export default function UniversalPlaylist() {
         }
       });
       
-      // Join all segments back together with '/' to reconstruct the original path
-      const joinedPath = decodedSegments.join('/');
+      // Check if the first segment looks like it contains the entire JSON array
+      // (e.g., if it starts with '{' or '[')
+      let joinedPath = '';
+      if (decodedSegments.length === 1 && (decodedSegments[0].startsWith('{') || decodedSegments[0].startsWith('['))) {
+        // Single segment contains everything
+        joinedPath = decodedSegments[0];
+      } else {
+        // Join all segments back together with '/' to reconstruct the original path
+        // But be careful: if a segment starts with '?' or contains '?', it's likely a query parameter
+        // and shouldn't have a '/' before it
+        for (let i = 0; i < decodedSegments.length; i++) {
+          const segment = decodedSegments[i];
+          if (i === 0) {
+            joinedPath = segment;
+          } else if (segment.startsWith('?') || (segment.includes('?') && !segment.startsWith('/'))) {
+            // Query parameter - join without adding '/'
+            joinedPath += segment;
+          } else {
+            joinedPath += '/' + segment;
+          }
+        }
+      }
       console.log('Joined path:', joinedPath);
       
       // Try to parse as JSON
@@ -264,7 +289,13 @@ export default function UniversalPlaylist() {
             const next = items[i + 1];
             
             // Check if current item ends with a domain and next starts with a path
-            if (next && 
+            // But don't merge if current already has a query parameter (indicates it's complete)
+            const hasQueryParam = current.includes('?');
+            const isCompleteUrl = hasQueryParam || 
+                                  current.match(/\.(com|net|org|io|co|be|me)\/(track|album|playlist|artist|watch|embed)\//i) ||
+                                  current.match(/spotify:(track|album|playlist|artist):/i);
+            
+            if (!isCompleteUrl && next && 
                 (current.match(/\.(com|net|org|io|co|be|me)(\?|$)/i) || current.match(/^[a-z0-9-]+\.(com|net|org|io|co|be|me)$/i)) &&
                 (next.startsWith('/') || next.startsWith('watch') || next.startsWith('track') || next.startsWith('album'))) {
               // Merge them
@@ -283,7 +314,11 @@ export default function UniversalPlaylist() {
         
         // Strategy 2: If still no array, try regex extraction
         if (!mediaArray) {
-          const urlPattern = /"([^"]*(?:\.(?:com|net|org|io|co|be|me|bandcamp\.com|spotify\.com|soundcloud\.com|youtube\.com|youtu\.be)[^"]*))"/g;
+          // Updated pattern to capture:
+          // 1. URLs with domains (including query parameters)
+          // 2. Spotify URIs (spotify:track:...)
+          // 3. YouTube IDs (11 character alphanumeric)
+          const urlPattern = /"([^"]*(?:\.(?:com|net|org|io|co|be|me|bandcamp\.com|spotify\.com|soundcloud\.com|youtube\.com|youtu\.be)[^"]*(?:\?[^"]*)?|spotify:(?:track|album|playlist|artist):[^"]*|[a-zA-Z0-9_-]{11}))"/g;
           const items = [];
           let match;
           while ((match = urlPattern.exec(joinedPath)) !== null) {
@@ -319,6 +354,9 @@ export default function UniversalPlaylist() {
       }
       
       console.log('Final media array:', mediaArray, 'Length:', mediaArray.length);
+      mediaArray.forEach((item, idx) => {
+        console.log(`[Media Item] ${idx}:`, item);
+      });
       
       // Normalize each media URL with error handling
       const normalizedItems = [];
@@ -1006,8 +1044,51 @@ export default function UniversalPlaylist() {
                 },
                 events: {
                   onStateChange: (event) => {
-                    // State 0 = ENDED
-                    if (event.data === window.YT.PlayerState.ENDED) {
+                    // State 1 = PLAYING, State 0 = ENDED
+                    if (event.data === window.YT.PlayerState.PLAYING) {
+                      // When a YouTube video starts playing, update the current track index
+                      // This handles the case where user clicks directly on a video to play it
+                      const currentIndex = currentTrackIndexRef.current;
+                      if (currentIndex !== index) {
+                        console.log(`[YouTube] Track ${index + 1} started playing (user clicked), updating currentTrackIndex from ${currentIndex + 1} to ${index + 1}`);
+                        // Pause all other players (but not this one)
+                        // Pause other YouTube players
+                        Object.keys(youtubePlayers.current).forEach(idx => {
+                          const idxNum = Number(idx);
+                          if (idxNum !== index) {
+                            const player = youtubePlayers.current[idx];
+                            if (player) {
+                              try {
+                                const state = player.getPlayerState();
+                                if (state === window.YT.PlayerState.PLAYING || state === window.YT.PlayerState.BUFFERING) {
+                                  player.pauseVideo();
+                                }
+                              } catch (error) {
+                                // Ignore errors
+                              }
+                            }
+                          }
+                        });
+                        pauseAllBandcampPlayers();
+                        pauseAllSoundCloudPlayers();
+                        pauseAllSpotifyPlayers();
+                        // Update state to reflect the new current track
+                        setCurrentTrackIndex(index);
+                        setIsPlaying(true);
+                        // Scroll to the player
+                        scrollToPlayer(index);
+                      } else {
+                        // This is already the current track, just ensure playing state is set
+                        setIsPlaying(true);
+                      }
+                    } else if (event.data === window.YT.PlayerState.PAUSED || event.data === window.YT.PlayerState.CUED) {
+                      // When paused, update state if this is the current track
+                      const currentIndex = currentTrackIndexRef.current;
+                      if (currentIndex === index) {
+                        setIsPlaying(false);
+                      }
+                    } else if (event.data === window.YT.PlayerState.ENDED) {
+                      // State 0 = ENDED
                       // Only autoplay next if this is the current track
                       const currentIndex = currentTrackIndexRef.current;
                       const playing = isPlayingRef.current;
@@ -1030,12 +1111,9 @@ export default function UniversalPlaylist() {
             } catch (error) {
               console.error(`Error creating YouTube player for index ${index}:`, error);
               console.error(`  Item details:`, item);
-              // Remove the failed item from mediaItems
-              setMediaItems(prev => {
-                const newItems = prev.filter((_, idx) => idx !== index);
-                // Re-index items
-                return newItems.map((itm, idx) => ({ ...itm, index: idx }));
-              });
+              // Don't remove items on error - just log it
+              // Removing items during render/effect can cause DOM manipulation errors
+              // The item will still be displayed, just without player control
             }
           }
         }
@@ -1076,6 +1154,7 @@ export default function UniversalPlaylist() {
             pauseAllYouTubePlayers();
             pauseAllBandcampPlayers();
             pauseAllSoundCloudPlayers();
+            pauseAllSpotifyPlayers();
             // Then play the current one
             player.playVideo();
             setIsPlaying(true);
@@ -1093,6 +1172,7 @@ export default function UniversalPlaylist() {
             pauseAllYouTubePlayers();
             pauseAllBandcampPlayers();
             pauseAllSoundCloudPlayers();
+            pauseAllSpotifyPlayers();
             player.playVideo();
             setIsPlaying(true);
             scrollToPlayer(currentTrackIndex);
@@ -1104,6 +1184,7 @@ export default function UniversalPlaylist() {
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
       pauseAllSoundCloudPlayers();
+      pauseAllSpotifyPlayers();
       
       if (isPlaying) {
         console.log('BANDCAMP_PAUSE');
@@ -1120,6 +1201,7 @@ export default function UniversalPlaylist() {
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
       pauseAllSoundCloudPlayers();
+      pauseAllSpotifyPlayers();
       
       if (isPlaying) {
         console.log('SOUNDCLOUD_PAUSE');
@@ -1131,11 +1213,29 @@ export default function UniversalPlaylist() {
         setIsPlaying(true);
         scrollToPlayer(currentTrackIndex);
       }
+    } else if (currentTrack && currentTrack.type === 'spotify') {
+      // Control Spotify player
+      pauseAllYouTubePlayers();
+      pauseAllBandcampPlayers();
+      pauseAllSoundCloudPlayers();
+      pauseAllSpotifyPlayers();
+      
+      if (isPlaying) {
+        console.log('SPOTIFY_PAUSE');
+        controlSpotifyPlayer(currentTrackIndex, 'pause');
+        setIsPlaying(false);
+      } else {
+        console.log('SPOTIFY_PLAY');
+        controlSpotifyPlayer(currentTrackIndex, 'play');
+        setIsPlaying(true);
+        scrollToPlayer(currentTrackIndex);
+      }
     } else {
       // For other media types, pause all players first
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
       pauseAllSoundCloudPlayers();
+      pauseAllSpotifyPlayers();
       // Then toggle the state
       setIsPlaying(!isPlaying);
       if (!isPlaying) {
@@ -1574,6 +1674,79 @@ export default function UniversalPlaylist() {
     });
   };
 
+  // Helper function to pause all Spotify players
+  const pauseAllSpotifyPlayers = () => {
+    Object.keys(spotifyIframes.current).forEach(index => {
+      const iframe = spotifyIframes.current[index];
+      if (iframe && iframe.contentWindow) {
+        try {
+          // Spotify embed API uses postMessage
+          // Try multiple message formats
+          const messages = [
+            { command: 'pause' },
+            { method: 'pause' },
+            { action: 'pause' },
+            JSON.stringify({ command: 'pause' }),
+            JSON.stringify({ method: 'pause' })
+          ];
+          messages.forEach(msg => {
+            try {
+              iframe.contentWindow.postMessage(msg, 'https://open.spotify.com');
+            } catch (e) {
+              // Ignore errors
+            }
+          });
+        } catch (error) {
+          console.warn(`Error pausing Spotify player at index ${index}:`, error);
+        }
+      }
+    });
+  };
+
+  // Helper function to control Spotify player
+  const controlSpotifyPlayer = (index, command) => {
+    const iframe = spotifyIframes.current[index];
+    if (!iframe || !iframe.contentWindow) {
+      console.warn(`[controlSpotifyPlayer] No iframe found for index ${index}`);
+      return false;
+    }
+    
+    try {
+      // Spotify embed API commands
+      const commands = {
+        play: { command: 'play' },
+        pause: { command: 'pause' },
+        toggle: { command: 'toggle' }
+      };
+      
+      const commandData = commands[command] || commands.toggle;
+      
+      console.log(`[controlSpotifyPlayer] Sending ${command} to Spotify player at index ${index}`);
+      
+      // Try multiple message formats and origins
+      const messages = [
+        commandData,
+        { method: command },
+        { action: command },
+        JSON.stringify(commandData),
+        JSON.stringify({ method: command })
+      ];
+      
+      messages.forEach(msg => {
+        try {
+          iframe.contentWindow.postMessage(msg, 'https://open.spotify.com');
+        } catch (e) {
+          // Ignore errors
+        }
+      });
+      
+      return true;
+    } catch (error) {
+      console.error(`[controlSpotifyPlayer] Error:`, error);
+      return false;
+    }
+  };
+
   // Helper function to control SoundCloud player
   const controlSoundCloudPlayer = (index, command) => {
     const iframe = soundcloudIframes.current[index];
@@ -1617,6 +1790,7 @@ export default function UniversalPlaylist() {
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
       pauseAllSoundCloudPlayers();
+      pauseAllSpotifyPlayers();
       
       const prevIndex = currentTrackIndex - 1;
       setCurrentTrackIndex(prevIndex);
@@ -1629,7 +1803,7 @@ export default function UniversalPlaylist() {
         scrollToPlayer(prevIndex);
       }
       
-      // Auto-play the previous track if it's YouTube, Bandcamp, or SoundCloud
+      // Auto-play the previous track if it's YouTube, Bandcamp, SoundCloud, or Spotify
       const prevTrack = mediaItems[prevIndex];
       if (prevTrack && prevTrack.type === 'youtube') {
         // Wait a bit for the player to be ready, then play
@@ -1676,6 +1850,14 @@ export default function UniversalPlaylist() {
           controlSoundCloudPlayer(prevIndex, 'play');
           setIsPlaying(true);
         }, 100);
+      } else if (prevTrack && prevTrack.type === 'spotify') {
+        // Auto-play Spotify track
+        console.log('SPOTIFY_PLAY');
+        // Wait a bit for iframe to be ready
+        setTimeout(() => {
+          controlSpotifyPlayer(prevIndex, 'play');
+          setIsPlaying(true);
+        }, 100);
       } else {
         setIsPlaying(false);
       }
@@ -1701,12 +1883,13 @@ export default function UniversalPlaylist() {
       pauseAllYouTubePlayers();
       pauseAllBandcampPlayers();
       pauseAllSoundCloudPlayers();
+      pauseAllSpotifyPlayers();
       
       const nextIndex = currentIndex + 1;
       setCurrentTrackIndex(nextIndex);
       scrollToPlayer(nextIndex);
       
-      // Auto-play the next track if it's YouTube, Bandcamp, or SoundCloud
+      // Auto-play the next track if it's YouTube, Bandcamp, SoundCloud, or Spotify
       const nextTrack = items[nextIndex];
       if (nextTrack && nextTrack.type === 'youtube') {
         // Wait a bit for the player to be ready, then play
@@ -1753,11 +1936,32 @@ export default function UniversalPlaylist() {
           controlSoundCloudPlayer(nextIndex, 'play');
           setIsPlaying(true);
         }, 100);
+      } else if (nextTrack && nextTrack.type === 'spotify') {
+        // Auto-play Spotify track
+        console.log('SPOTIFY_PLAY');
+        // Wait a bit for iframe to be ready
+        setTimeout(() => {
+          controlSpotifyPlayer(nextIndex, 'play');
+          setIsPlaying(true);
+        }, 100);
       } else {
         setIsPlaying(false);
       }
     }
   };
+
+  // Helper: update URL to reflect current order
+  const updateUrlWithMediaItems = (items) => {
+    try {
+      const originals = items.map(itm => itm.original ?? itm.url ?? '');
+      const encoded = encodeURIComponent(JSON.stringify(originals));
+      const newPath = `/universalplaylist/${encoded}`;
+      window.history.replaceState(null, '', newPath);
+    } catch (e) {
+      console.warn('Failed to update URL with new order', e);
+    }
+  };
+
 
   const headerBg = darkenColor(colors.Vibrant || '#667eea', 0.2);
   const contentBg = darkenColor(colors.LightMuted || '#f8f9fa', 0.1);
@@ -1789,6 +1993,12 @@ export default function UniversalPlaylist() {
       case 'spotify':
         return (
           <iframe
+            style={{ borderRadius: '12px', width: '100%', height: '152px' }}
+            ref={(el) => {
+              if (el) {
+                spotifyIframes.current[item.index] = el;
+              }
+            }}
             src={item.embedUrl}
             className={styles.spotifyPlayer}
             allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
@@ -1857,6 +2067,42 @@ export default function UniversalPlaylist() {
             minHeight: '60px',
             border: isCurrentTrack ? '2px solid rgba(0, 0, 0, 0.1)' : '1px solid rgba(0, 0, 0, 0.05)'
           }}>
+            <button
+              onClick={() => {
+                if (isCurrentPlaying) {
+                  // Pause current bandcamp track
+                  controlBandcampPlayer(item.index, 'pause');
+                  setIsPlaying(false);
+                } else {
+                  // Jump to this Bandcamp track and play
+                  pauseAllYouTubePlayers();
+                  pauseAllBandcampPlayers();
+                  pauseAllSoundCloudPlayers();
+                  pauseAllSpotifyPlayers();
+                  setCurrentTrackIndex(item.index);
+                  setIsPlaying(true);
+                  scrollToPlayer(item.index);
+                  // Allow state update then play
+                  setTimeout(() => controlBandcampPlayer(item.index, 'play'), 50);
+                }
+              }}
+              aria-label={isCurrentPlaying ? "Pause Bandcamp track" : "Play Bandcamp track"}
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                border: '1px solid #ddd',
+                background: '#fff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                flexShrink: 0
+              }}
+            >
+              {isCurrentPlaying ? '❚❚' : '▶'}
+            </button>
             {metadata.artwork && (
               <img 
                 src={metadata.artwork} 
@@ -1967,30 +2213,37 @@ export default function UniversalPlaylist() {
             {streamUrl && (
               <audio
                 ref={(el) => { 
+                  const prevEl = bandcampAudioElements.current[item.index];
+                  
+                  // Clean up previous element's listeners if it exists and is different
+                  if (prevEl && prevEl !== el) {
+                    // Remove any existing listeners (we'll store them if needed)
+                    // For now, just clear the reference
+                  }
+                  
                   if (el) {
                     bandcampAudioElements.current[item.index] = el;
                     el.volume = volume; // Set volume when element is created
                     
-                    // Add time update listener
-                    el.addEventListener('timeupdate', () => {
-                      if (currentTrackIndex === item.index && !isDragging) {
+                    // Create named functions so we can remove them later
+                    const handleTimeUpdate = () => {
+                      if (currentTrackIndex === item.index && !isDragging && el) {
                         setCurrentTime(el.currentTime || 0);
                       }
-                    });
+                    };
                     
-                    el.addEventListener('loadedmetadata', () => {
-                      if (currentTrackIndex === item.index && el.duration && !isNaN(el.duration)) {
+                    const handleLoadedMetadata = () => {
+                      if (currentTrackIndex === item.index && el && el.duration && !isNaN(el.duration)) {
                         setDuration(el.duration);
                       }
-                    });
+                    };
                     
-                    // Add ended event listener for autoplay
-                    el.addEventListener('ended', () => {
+                    const handleEnded = () => {
                       const currentIndex = currentTrackIndexRef.current;
                       const playing = isPlayingRef.current;
                       const items = mediaItemsRef.current;
                       // Only autoplay next if this is the current track and it's playing
-                      if (currentIndex === item.index && playing) {
+                      if (currentIndex === item.index && playing && el) {
                         console.log(`[Bandcamp] Track ${item.index + 1} ended, autoplaying next track`);
                         // Check if there's a next track
                         if (currentIndex < items.length - 1) {
@@ -2000,7 +2253,43 @@ export default function UniversalPlaylist() {
                           setIsPlaying(false);
                         }
                       }
-                    });
+                    };
+                    
+                    // Store handlers on the element for cleanup
+                    el._bandcampHandlers = { handleTimeUpdate, handleLoadedMetadata, handleEnded };
+                    
+                    // Add event listeners
+                    el.addEventListener('timeupdate', handleTimeUpdate);
+                    el.addEventListener('loadedmetadata', handleLoadedMetadata);
+                    el.addEventListener('ended', handleEnded);
+                  } else if (prevEl) {
+                    // Element is being removed, clean up listeners
+                    try {
+                      if (prevEl._bandcampHandlers) {
+                        const { handleTimeUpdate, handleLoadedMetadata, handleEnded } = prevEl._bandcampHandlers;
+                        // Try to remove listeners - it's safe even if element is detached
+                        try {
+                          prevEl.removeEventListener('timeupdate', handleTimeUpdate);
+                        } catch (e) {
+                          // Ignore if element is already gone
+                        }
+                        try {
+                          prevEl.removeEventListener('loadedmetadata', handleLoadedMetadata);
+                        } catch (e) {
+                          // Ignore if element is already gone
+                        }
+                        try {
+                          prevEl.removeEventListener('ended', handleEnded);
+                        } catch (e) {
+                          // Ignore if element is already gone
+                        }
+                        delete prevEl._bandcampHandlers;
+                      }
+                    } catch (e) {
+                      // Element might already be removed, ignore
+                      console.log('Error cleaning up audio listeners:', e);
+                    }
+                    delete bandcampAudioElements.current[item.index];
                   }
                 }}
                 src={streamUrl}
@@ -2057,7 +2346,7 @@ export default function UniversalPlaylist() {
             background: headerBg,
             color: textColor,
             borderTop: `2px solid ${textColor}20`,
-            paddingBottom: duration > 0 ? '20px' : '0'
+            paddingBottom: (duration > 0 || (currentTrack && currentTrack.type === 'spotify')) ? '20px' : '0'
           }}
         >
           <div className={styles.footerLeft}>
@@ -2154,7 +2443,9 @@ export default function UniversalPlaylist() {
               alignItems: 'center', 
               gap: '0.5rem',
               marginLeft: '1rem',
-              minWidth: '120px'
+              minWidth: '120px',
+              opacity: currentTrack && currentTrack.type === 'spotify' ? 0.5 : 1,
+              pointerEvents: currentTrack && currentTrack.type === 'spotify' ? 'none' : 'auto'
             }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.7 }}>
                 <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
@@ -2165,10 +2456,13 @@ export default function UniversalPlaylist() {
                 max="1"
                 step="0.01"
                 value={volume}
-                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                onChange={(e) => {
+                  if (currentTrack && currentTrack.type === 'spotify') return;
+                  setVolume(parseFloat(e.target.value));
+                }}
                 style={{
                   width: '100px',
-                  cursor: 'pointer'
+                  cursor: currentTrack && currentTrack.type === 'spotify' ? 'not-allowed' : 'pointer'
                 }}
                 aria-label="Volume"
               />
@@ -2179,7 +2473,7 @@ export default function UniversalPlaylist() {
           </div>
           
           {/* Progress Bar */}
-          {duration > 0 && (
+          {(duration > 0 || (currentTrack && currentTrack.type === 'spotify')) && (
             <div style={{
               position: 'absolute',
               bottom: 0,
@@ -2187,9 +2481,12 @@ export default function UniversalPlaylist() {
               right: 0,
               height: '4px',
               background: 'rgba(255, 255, 255, 0.2)',
-              cursor: 'pointer'
+              cursor: currentTrack && currentTrack.type === 'spotify' ? 'not-allowed' : 'pointer',
+              opacity: currentTrack && currentTrack.type === 'spotify' ? 0.4 : 1,
+              pointerEvents: currentTrack && currentTrack.type === 'spotify' ? 'none' : 'auto'
             }}
             onMouseDown={(e) => {
+              if (currentTrack && currentTrack.type === 'spotify') return;
               setIsDragging(true);
               const rect = e.currentTarget.getBoundingClientRect();
               const percent = (e.clientX - rect.left) / rect.width;
@@ -2217,6 +2514,7 @@ export default function UniversalPlaylist() {
               }
             }}
             onMouseMove={(e) => {
+              if (currentTrack && currentTrack.type === 'spotify') return;
               if (isDragging && e.buttons === 1) {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const percent = (e.clientX - rect.left) / rect.width;
@@ -2225,6 +2523,7 @@ export default function UniversalPlaylist() {
               }
             }}
             onMouseUp={(e) => {
+              if (currentTrack && currentTrack.type === 'spotify') return;
               if (isDragging) {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const percent = (e.clientX - rect.left) / rect.width;
@@ -2254,6 +2553,7 @@ export default function UniversalPlaylist() {
               setIsDragging(false);
             }}
             onMouseLeave={() => {
+              if (currentTrack && currentTrack.type === 'spotify') return;
               if (isDragging) {
                 setIsDragging(false);
               }
@@ -2283,7 +2583,7 @@ export default function UniversalPlaylist() {
           )}
           
           {/* Time Display */}
-          {duration > 0 && (
+          {(duration > 0 || (currentTrack && currentTrack.type === 'spotify')) && (
             <div style={{
               position: 'absolute',
               bottom: '8px',
@@ -2306,6 +2606,9 @@ export default function UniversalPlaylist() {
                     }
                     return `${mins}:${secs.toString().padStart(2, '0')}`;
                   };
+                  if (currentTrack && currentTrack.type === 'spotify' && duration <= 0) {
+                    return '--:--';
+                  }
                   return formatTime(currentTime);
                 })()}
               </span>
@@ -2366,9 +2669,11 @@ export default function UniversalPlaylist() {
           <div className={styles.playlistContainer}>
             <h2>Playlist ({mediaItems.length} {mediaItems.length === 1 ? 'item' : 'items'}):</h2>
             <div className={styles.playersList}>
-              {mediaItems.map((item, index) => (
+              {mediaItems.map((item, index) => {
+                const stableKey = item.id || item.bandcampKey || item.url || item.original || index;
+                return (
                 <div 
-                  key={index}
+                  key={stableKey}
                   ref={(el) => { playerRefs.current[`player-${index}`] = el; }}
                   className={`${styles.playerWrapper} ${currentTrackIndex === index && isPlaying ? styles.activePlayer : ''}`}
                 >
@@ -2411,7 +2716,7 @@ export default function UniversalPlaylist() {
                   </div>
                   {renderMediaPlayer(item)}
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         )}
