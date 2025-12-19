@@ -1,11 +1,38 @@
 /* FFmpeg.wasm Page Styles */
 .ffmpeg-main {
-  max-width: 1200px;
+  max-width: 1400px;
+  width: 100%;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 2rem 2.5rem;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.6;
   color: #333;
+}
+
+.coreBar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.loadBtnInline {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.coreHint {
+  color: #718096;
+  font-size: 0.95rem;
 }
 
 /* Hero Section */
@@ -177,6 +204,65 @@
   text-align: center;
 }
 
+.dropZone {
+  border: 2px dashed #cbd5e0;
+  border-radius: 10px;
+  padding: 1.5rem;
+  background: #f7fafc;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.dropZoneTitle {
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 0.25rem;
+}
+
+.dropZoneSubtitle {
+  color: #4a5568;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.uploadActions {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: center;
+}
+
+.clearBtn {
+  background: #fff;
+  color: #c53030;
+  border: 1px solid #e53e3e;
+  padding: 0.65rem 1.25rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.clearBtn:hover {
+  background: #fff5f5;
+  border-color: #c53030;
+}
+
+.clearBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dragActive {
+  border-color: #667eea;
+  background: #ebf4ff;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.hiddenFileInput {
+  display: none;
+}
+
 .file-input {
   padding: 1rem 2rem;
   border: 2px dashed #cbd5e0;
@@ -207,6 +293,15 @@
   font-size: 1.2rem;
 }
 
+.emptyState {
+  background: #f7fafc;
+  border: 1px dashed #cbd5e0;
+  border-radius: 8px;
+  padding: 1rem;
+  color: #4a5568;
+  font-size: 0.95rem;
+}
+
 .file-table {
   width: 100%;
   border-collapse: collapse;
@@ -231,6 +326,10 @@
   color: #4a5568;
 }
 
+.file-table tbody tr {
+  cursor: pointer;
+}
+
 .file-table tr:hover {
   background: #f7fafc;
 }
@@ -243,6 +342,30 @@
 .file-table input[type="radio"] {
   margin: 0;
   cursor: pointer;
+}
+
+.mediaTable td:last-child,
+.mediaTable th:last-child {
+  width: 80px;
+  text-align: center;
+}
+
+.removeButton {
+  background: transparent;
+  border: 1px solid #e53e3e;
+  color: #e53e3e;
+  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.removeButton:hover {
+  background: #fff5f5;
+  border-color: #c53030;
+  color: #c53030;
 }
 
 /* Command Section */
@@ -332,6 +455,9 @@
 .video-output {
   margin-bottom: 2rem;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .video-output h4 {
@@ -343,6 +469,141 @@
 .video-output video {
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.videoMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  color: #4a5568;
+  font-weight: 600;
+}
+
+.thumbnailImg {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.thumbnailImg:hover {
+  filter: grayscale(70%);
+  cursor: pointer;
+  transform: translateY(-1px);
+}
+
+.videoFrame {
+  width: 100%;
+  max-width: 960px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  resize: both;
+  min-width: 320px;
+  min-height: 240px;
+}
+
+.videoFrame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.slideshow {
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.slideshowFrame {
+  width: 100%;
+  max-width: 640px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slideshowFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: filter 0.15s ease, transform 0.15s ease;
+  cursor: pointer;
+}
+
+.slideshowFrame img:hover {
+  filter: grayscale(40%);
+  transform: scale(1.01);
+}
+
+.slideshowCaption {
+  color: #2d3748;
+  font-weight: 600;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modalContent {
+  position: relative;
+  background: #fff;
+  padding: 1rem;
+  border-radius: 10px;
+  max-width: 90vw;
+  max-height: 90vh;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.modalImage {
+  max-width: 80vw;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.modalClose {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.modalCaption {
+  color: #2d3748;
+  font-weight: 600;
+  text-align: center;
 }
 
 /* Action Section */
@@ -372,6 +633,157 @@
   background: #cbd5e0;
   cursor: not-allowed;
   transform: none;
+}
+
+/* Render Options */
+.renderOptions {
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+}
+
+.renderOptionsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.renderOptions h3 {
+  margin: 0;
+  color: #2d3748;
+}
+
+.smallButton {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 0.5rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.renderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.renderField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #2d3748;
+  font-size: 0.95rem;
+}
+
+.renderField input,
+.renderField select {
+  padding: 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.renderCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #2d3748;
+  font-size: 0.95rem;
+}
+
+.commandPreviewBox {
+  margin-top: 0.75rem;
+  background: #1a202c;
+  color: #e2e8f0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9rem;
+  overflow-x: auto;
+  border: 1px solid #2d3748;
+}
+
+.commandPreviewLabel {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: #a0aec0;
+}
+
+/* Logs */
+.logSection {
+  margin-top: 1rem;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.logHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.commandLine {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  background: #edf2f7;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  overflow-x: auto;
+}
+
+.commandLabel {
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.commandText {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: #1a202c;
+  font-size: 0.9rem;
+  white-space: pre;
+}
+
+.logBox {
+  background: #1a202c;
+  color: #e2e8f0;
+  min-height: 180px;
+  max-height: 360px;
+  overflow-y: auto;
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9rem;
+  border: 1px solid #2d3748;
+}
+
+.logLine {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 2px 0;
+}
+
+.logPlaceholder {
+  color: #a0aec0;
+}
+
+.selectionSummary {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+  color: #2d3748;
 }
 
 .message {
