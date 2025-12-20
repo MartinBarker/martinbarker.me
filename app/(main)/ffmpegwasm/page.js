@@ -678,8 +678,6 @@ function CombineImageAudioExample() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <h2>Combine Uploaded Image and Audio into a Video</h2>
-
       <div className={styles.coreBar}>
         <div>
           FFmpeg core: {loaded ? "Loaded" : "Loading..."}
@@ -695,39 +693,28 @@ function CombineImageAudioExample() {
       </div>
       
       <div className={styles["file-upload-section"]}>
-        <div 
-          className={`${styles.dropZone} ${isDragging ? styles.dragActive : ""}`}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <p className={styles.dropZoneTitle}>Drag & drop audio / video files anywhere on this page</p>
-          <p className={styles.dropZoneSubtitle}>Or click to browse and select files</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            onChange={handleFileChange}
-            accept="audio/*,video/*,image/*"
-            className={styles.hiddenFileInput}
-          />
-        </div>
-        <div className={styles.uploadActions}>
-          <button
-            type="button"
-            className={styles.clearBtn}
-            onClick={clearAllFiles}
-            disabled={mediaFiles.length === 0}
+        <div className={styles.dropZoneRow}>
+          <div 
+            className={`${styles.dropZone} ${isDragging ? styles.dragActive : ""}`}
+            onClick={() => fileInputRef.current?.click()}
           >
-            Clear All Files
-          </button>
+            <p className={styles.dropZoneTitle}>Drag & drop audio / video files anywhere on this page</p>
+            <p className={styles.dropZoneSubtitle}>Or click to browse and select files</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileChange}
+              accept="audio/*,video/*,image/*"
+              className={styles.hiddenFileInput}
+            />
+          </div>
         </div>
       </div>
 
       <div className={styles.renderOptions}>
         <div className={styles.renderOptionsHeader}>
           <h3>Render Options</h3>
-          <button className={styles.smallButton} onClick={buildAndSetCommand}>
-            Apply Options
-          </button>
         </div>
         <div className={styles.renderGrid}>
           <label className={styles.renderField}>
@@ -747,6 +734,8 @@ function CombineImageAudioExample() {
             >
               <option value="mp4">mp4</option>
               <option value="mkv">mkv</option>
+              <option value="webm">webm</option>
+              <option value="avi">avi</option>
             </select>
           </label>
           <label className={styles.renderField}>
@@ -769,46 +758,35 @@ function CombineImageAudioExample() {
               max="4320"
             />
           </label>
-          <label className={styles.renderField}>
-            <span>Background Color</span>
-            <input
-              type="color"
-              value={backgroundColor}
-              onChange={(e) => setBackgroundColor(e.target.value)}
-            />
-          </label>
-          <label className={styles.renderField}>
-            <span>Padding Color</span>
-            <input
-              type="color"
-              value={paddingColor}
-              onChange={(e) => setPaddingColor(e.target.value)}
-              disabled={!usePadding}
-            />
-          </label>
-          <label className={styles.renderCheckbox}>
-            <input
-              type="checkbox"
-              checked={usePadding}
-              onChange={(e) => setUsePadding(e.target.checked)}
-            />
-            Use padding color (instead of fit)
-          </label>
-          <label className={styles.renderCheckbox}>
-            <input
-              type="checkbox"
-              checked={alwaysUniqueFilenames}
-              onChange={(e) => setAlwaysUniqueFilenames(e.target.checked)}
-            />
-            Always unique filenames
-          </label>
         </div>
-        {commandPreview && (
-          <div className={styles.commandPreviewBox}>
-            <div className={styles.commandPreviewLabel}>Generated command</div>
-            <code>{commandPreview}</code>
-          </div>
+
+      <div className={styles.renderOptionsActions}>
+        <button 
+          onClick={renderVideo} 
+          className={styles["render-btn"]}
+          disabled={isRendering || !loaded || selectedAudioIds.length === 0 || selectedImageIds.length === 0}
+        >
+          {isRendering ? "Rendering..." : loaded ? "Render Video" : "Loading core..."}
+        </button>
+        {isRendering && (
+          <button
+            onClick={stopRender}
+            className={styles["load-btn"]}
+            style={{ marginLeft: "0.75rem", background: "#e53e3e" }}
+          >
+            Stop Render
+          </button>
         )}
+          {progress !== null && (
+            <div className={styles["progress-bar"]} style={{ marginLeft: "0.75rem", marginBottom: 0 }}>
+              <div 
+                className={styles["progress-fill"]} 
+                style={{ width: `${(progress * 100)}%` }}
+              ></div>
+              <span className={styles["progress-text"]}>{(progress * 100).toFixed(1)}%</span>
+            </div>
+          )}
+      </div>
       </div>
 
       <div className={styles["files-display"]}>
@@ -844,6 +822,21 @@ function CombineImageAudioExample() {
             { header: "Size", accessorKey: "size", cell: (info) => info.getValue() },
             { header: "Type", accessorKey: "type", cell: (info) => info.getValue() },
             { header: "Length", accessorKey: "length", cell: (info) => info.getValue() },
+            {
+              header: "Clear",
+              id: "clear",
+              cell: ({ row }) => (
+                <button
+                  className={styles.smallButton}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeFileById(row.original.id);
+                  }}
+                >
+                  Clear
+                </button>
+              )
+            },
           ]}
         />
 
@@ -889,45 +882,26 @@ function CombineImageAudioExample() {
             { header: "Name", accessorKey: "name", cell: (info) => info.getValue() },
             { header: "Size", accessorKey: "size", cell: (info) => info.getValue() },
             { header: "Type", accessorKey: "type", cell: (info) => info.getValue() },
+            {
+              header: "Clear",
+              id: "clear",
+              cell: ({ row }) => (
+                <button
+                  className={styles.smallButton}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeFileById(row.original.id);
+                  }}
+                >
+                  Clear
+                </button>
+              )
+            },
           ]}
         />
       </div>
 
-      <div className={styles["command-section"]}>
-        <button 
-          className={styles["toggle-command-btn"]}
-          onClick={() => setShowCommand(!showCommand)}
-        >
-          {showCommand ? 'Hide' : 'Show'} FFmpeg Command
-        </button>
-        
-        {showCommand && (
-          <div className={styles["command-editor"]}>
-            <h4>FFmpeg Command Options</h4>
-            <p className={styles["command-info"]}>
-              Edit the FFmpeg command options below. The command will be executed as:
-            </p>
-            <div className={styles["command-preview"]}>
-              <code>ffmpeg {ffmpegCommand.join(' ')}</code>
-            </div>
-            
-            <div className={styles["command-options"]}>
-              {ffmpegCommand.map((option, index) => (
-                <div key={index} className={styles["command-option"]}>
-                  <label>Option {index}:</label>
-                  <input
-                    type="text"
-                    value={option}
-                    onChange={(e) => updateCommandOption(index, e.target.value)}
-                    className={styles["command-input"]}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
+      
       <div className={styles.selectionSummary}>
         <span>Audio selected: {selectedAudioIds.length}</span>
         <span>Images selected: {selectedImageIds.length}</span>
@@ -935,66 +909,48 @@ function CombineImageAudioExample() {
           Total runtime:{" "}
           {formatDuration(totalSelectedDurationSeconds())}
         </span>
-        <button className={styles.smallButton} onClick={extractCoverArt}>
-          Extract cover from audio
-        </button>
+        {selectedAudioIds.length > 0 && (
+          <div className={styles.tableInlineActions}>
+            <button className={styles.smallButton} onClick={extractCoverArt}>
+              Extract cover from audio
+            </button>
+          </div>
+        )}
       </div>
 
-      {selectedImageIds.length > 0 && (
-        <div className={styles.slideshow}>
-          <div className={styles.slideshowFrame}>
-            <img
-              src={
-                getMediaById(selectedImageIds[slideshowIndex])
-                  ? URL.createObjectURL(getMediaById(selectedImageIds[slideshowIndex]).file)
-                  : ""
-              }
-              alt="Selected slideshow"
-              className={styles.slideshowImage}
-              onClick={() => {
-                const item = getMediaById(selectedImageIds[slideshowIndex]);
-                if (item) openModalForFile(item.file);
-              }}
-            />
+      {/* Clear-all button removed per request */}
+
+      {videoSrc && !isRendering && (
+        <div className={styles["video-output"]}>
+          <h4>Generated Video</h4>
+          <div className={styles.videoFrame}>
+            <video src={videoSrc || null} controls />
           </div>
-          <div className={styles.slideshowCaption}>
-            {selectedImageIds.length > 1
-              ? `Slideshow: ${slideshowIndex + 1} / ${selectedImageIds.length}`
-              : "Slideshow: 1 / 1"}
+          <div className={styles.videoMeta}>
+            <span>Files: {selectedAudioIds.length} audio / {selectedImageIds.length} image</span>
+            <span>
+              Length: {formatDuration(totalSelectedDurationSeconds())}
+            </span>
+            <span>
+              Size: {videoSrc ? "In-memory (download to know exact size)" : "—"}
+            </span>
+            <span>Type: video/mp4</span>
+            {videoSrc && (
+              <button
+                className={styles.smallButton}
+                onClick={() => {
+                  const a = document.createElement("a");
+                  a.href = videoSrc;
+                  a.download = "output.mp4";
+                  a.click();
+                }}
+              >
+                Download video
+              </button>
+            )}
           </div>
         </div>
       )}
-
-      <div className={styles["video-output"]}>
-        <h4>Generated Video</h4>
-        {!videoSrc && <p className={styles.videoPlaceholder}>No video rendered yet. Render to preview.</p>}
-        <div className={styles.videoFrame}>
-          <video src={videoSrc || null} controls />
-        </div>
-        <div className={styles.videoMeta}>
-          <span>Files: {selectedAudioIds.length} audio / {selectedImageIds.length} image</span>
-          <span>
-            Length: {formatDuration(totalSelectedDurationSeconds())}
-          </span>
-          <span>
-            Size: {videoSrc ? "In-memory (download to know exact size)" : "—"}
-          </span>
-          <span>Type: video/mp4</span>
-          {videoSrc && (
-            <button
-              className={styles.smallButton}
-              onClick={() => {
-                const a = document.createElement("a");
-                a.href = videoSrc;
-                a.download = "output.mp4";
-                a.click();
-              }}
-            >
-              Download video
-            </button>
-          )}
-        </div>
-      </div>
 
       {modalImage && (
         <div className={styles.modalBackdrop} onClick={closeModal}>
@@ -1009,12 +965,13 @@ function CombineImageAudioExample() {
       <div className={styles.logSection}>
         <div className={styles.logHeader}>
           <h4>FFmpeg Output</h4>
-          <button className={styles.smallButton} onClick={() => setLogs([])}>Clear Logs</button>
         </div>
-        <div className={styles.commandLine}>
-          <span className={styles.commandLabel}>Command:</span>
-          <code className={styles.commandText}>{commandPreview || `ffmpeg ${ffmpegCommand.join(" ")}`}</code>
-        </div>
+        {isRendering && (
+          <div className={styles.commandLine}>
+            <span className={styles.commandLabel}>Command:</span>
+            <code className={styles.commandText}>{commandPreview || `ffmpeg ${ffmpegCommand.join(" ")}`}</code>
+          </div>
+        )}
         <div className={styles.logBox}>
           {logs.length === 0 ? (
             <div className={styles.logPlaceholder}>No output yet. Run to see FFmpeg logs.</div>
@@ -1024,35 +981,6 @@ function CombineImageAudioExample() {
             ))
           )}
         </div>
-      </div>
-
-      <div className={styles["action-section"]}>
-        <button 
-          onClick={renderVideo} 
-          className={styles["render-btn"]}
-          disabled={isRendering || !loaded || selectedAudioIds.length === 0 || selectedImageIds.length === 0}
-        >
-          {isRendering ? "Rendering..." : loaded ? "Render Video" : "Loading core..."}
-        </button>
-        {isRendering && (
-          <button
-            onClick={stopRender}
-            className={styles["load-btn"]}
-            style={{ marginLeft: "0.75rem", background: "#e53e3e" }}
-          >
-            Stop Render
-          </button>
-        )}
-        <p className={styles.message}>{message}</p>
-        {progress !== null && (
-          <div className={styles["progress-bar"]}>
-            <div 
-              className={styles["progress-fill"]} 
-              style={{ width: `${(progress * 100)}%` }}
-            ></div>
-            <span className={styles["progress-text"]}>{(progress * 100).toFixed(1)}%</span>
-          </div>
-        )}
       </div>
     </section>
   );
