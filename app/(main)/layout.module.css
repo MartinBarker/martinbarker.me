@@ -299,10 +299,10 @@
   transition: all 0.3s;
 }
 
-.contentWrapper {
+/* .contentWrapper {
   max-width: 1200px;
   margin: 0 auto;
-}
+} */
 
 .titleCard {
   padding: 8px;  
