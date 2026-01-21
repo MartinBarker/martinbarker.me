@@ -65,6 +65,12 @@ export default function TaggerPage({ initialUrl }) {
   const [hasHydrated, setHasHydrated] = useState(false);
   const [isClient, setIsClient] = useState(false); // Track if we're on the client side
   const [hasTrackCredits, setHasTrackCredits] = useState(false); // Add this line
+  // Add retry state for rate limit handling
+  const [retryCountdown, setRetryCountdown] = useState(0);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const retryTimeoutRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
 
   // Add the missing parsedTags state
   const [parsedTags, setParsedTags] = useState({
@@ -881,12 +887,247 @@ export default function TaggerPage({ initialUrl }) {
   };
 
 
+  // Cleanup retry timers on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (retryCountdown > 0 && isRetrying) {
+      countdownIntervalRef.current = setInterval(() => {
+        setRetryCountdown(prev => {
+          if (prev <= 1) {
+            if (countdownIntervalRef.current) {
+              clearInterval(countdownIntervalRef.current);
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+      }
+    };
+  }, [retryCountdown, isRetrying]);
+
+  // Update retry message when countdown changes
+  useEffect(() => {
+    if (isRetrying && retryCountdown > 0 && retryAttempt > 0) {
+      const minutes = Math.floor(retryCountdown / 60);
+      const seconds = retryCountdown % 60;
+      const timeStr = minutes > 0 
+        ? `${minutes}:${seconds.toString().padStart(2, '0')}`
+        : `${seconds}`;
+      setSubmitMessage(`Rate limit exceeded. Retrying in ${timeStr}... (attempt ${retryAttempt})`);
+    }
+  }, [retryCountdown, isRetrying, retryAttempt]);
+
+  // Function to process successful Discogs response
+  const processDiscogsSuccess = (data, discogsInfo, route, urlToSubmit) => {
+    // Log successful result
+    console.log(`✅ [TAGGER] Success:`, {
+      url: urlToSubmit,
+      title: data.title || 'Unknown',
+      tracks: data.tracklist?.length || 0
+    });
+
+    // Check if any track has credits or if album has credits
+    const hasTrackCredits = data.tracklist?.some(track =>
+      track.extraartists && track.extraartists.length > 0
+    );
+    const hasAlbumCredits = data.extraartists && data.extraartists.length > 0;
+    const hasCredits = hasTrackCredits || hasAlbumCredits;
+    setHasTrackCredits(hasCredits);
+    
+    // Set checkbox to be selected by default when credits are found
+    if (hasCredits) {
+      setIncludeTrackCredits(true);
+    }
+
+    setDiscogsResponse(data); // Save to state
+    setDiscogsData(data); // Store for video title refresh
+    logDiscogsRequest({ route, payload: discogsInfo, response: data });
+    
+    // Set success status
+    setSubmitStatus('success');
+    setSubmitMessage('Successfully fetched Discogs data!');
+
+    // Process the response for tags
+    processDiscogsResponseToTags(data);
+
+    // Generate video title recommendations
+    const videoTitles = generateVideoTitleRecommendations(data, videoTitleVariation);
+    setVideoTitleRecommendations(videoTitles);
+
+    // If response has a tracklist, process timing data
+    if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
+      // Helper to parse duration string (mm:ss or hh:mm:ss) to seconds
+      function parseDuration(str) {
+        if (!str) return 0;
+        const parts = str.split(':').map(Number);
+        if (parts.length === 3) {
+          return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        } else if (parts.length === 2) {
+          return parts[0] * 60 + parts[1];
+        } else if (parts.length === 1) {
+          return parts[0];
+        }
+        return 0;
+      }
+
+      const durations = data.tracklist.map(track => parseDuration(track.duration));
+
+      // Store Discogs tracks and durations for dropdown reactivity
+      discogsTracksRef.current = data.tracklist;
+      discogsDurationsRef.current = durations;
+      setInputSource('discogs');
+
+      // Enable artist dropdown if any track has an artist
+      const hasArtist = data.tracklist.some(track =>
+        Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name
+      );
+      setArtistDisabled(!hasArtist);
+
+      // Update input sources state
+      setInputSources(prev => ({
+        ...prev,
+        url: {
+          ...prev.url,
+          data: {
+            ...data,
+            durations: durations
+          },
+          label: `Discogs: ${data.title || 'Unknown Album'}`
+        }
+      }));
+
+      // Generate combined timestamps
+      setTimeout(generateCombinedTimestamps, 0);
+    }
+  };
+
+  // Function to make Discogs request with retry logic
+  const makeDiscogsRequest = async (route, discogsInfo, attempt = 0, urlToSubmit) => {
+    try {
+      console.log(`🔍 [TAGGER].. Making request (attempt ${attempt + 1}):`, {
+        route: route,
+        payload: discogsInfo
+      });
+      
+      const res = await fetch(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(discogsInfo)
+      });
+
+      // Check if response is ok before parsing JSON
+      if (!res.ok) {
+        const errorText = await res.text();
+        
+        // Try to parse error response as JSON
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (parseErr) {
+          errorData = { error: 'Unknown error', details: errorText };
+        }
+
+        const errorMessage = errorData.details || errorData.error || 'Unknown error';
+        
+        // Check if this is a rate limit error (500 with rate limit message)
+        const isRateLimitError = res.status === 500 && 
+          (errorMessage.includes('Rate limit exceeded') || 
+           errorMessage.includes('Too many requests') ||
+           errorMessage.includes('rate limit'));
+
+        if (isRateLimitError) {
+          // Calculate exponential backoff delay (seconds)
+          // Start with 5 seconds, double each attempt, max 5 minutes (300 seconds)
+          const baseDelay = 5;
+          const maxDelay = 300;
+          const delaySeconds = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+          
+          console.log(`⚠️ [TAGGER] Rate limit hit. Retrying in ${delaySeconds} seconds (attempt ${attempt + 1})`);
+          
+          // Set retry state
+          setRetryAttempt(attempt + 1);
+          setRetryCountdown(delaySeconds);
+          setIsRetrying(true);
+          setSubmitStatus('error');
+          setSubmitMessage(`Rate limit exceeded. Retrying in ${delaySeconds} seconds... (attempt ${attempt + 1})`);
+          setDiscogsError(`Discogs API Rate Limit: ${errorMessage}. Automatically retrying...`);
+          
+          // Schedule retry
+          retryTimeoutRef.current = setTimeout(async () => {
+            setRetryCountdown(0);
+            const retryData = await makeDiscogsRequest(route, discogsInfo, attempt + 1, urlToSubmit);
+            if (retryData) {
+              processDiscogsSuccess(retryData, discogsInfo, route, urlToSubmit);
+            }
+          }, delaySeconds * 1000);
+          
+          return null; // Return null to indicate retry scheduled
+        }
+
+        // For non-rate-limit errors, throw normally
+        throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errorMessage}`);
+      }
+
+      // Success - clear retry state
+      setIsRetrying(false);
+      setRetryAttempt(0);
+      setRetryCountdown(0);
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+
+      const data = await res.json();
+      return data;
+    } catch (err) {
+      // Only throw if it's not a rate limit error (rate limit is handled above)
+      if (!err.message.includes('Rate limit exceeded') && 
+          !err.message.includes('Too many requests') &&
+          !err.message.includes('rate limit')) {
+        throw err;
+      }
+      return null;
+    }
+  };
+
   // Handle URL submission
   const handleUrlSubmit = async (e, directUrl) => {
     // Use directUrl if provided, otherwise use the state
     const urlToSubmit = directUrl || urlInput;
 
     if (e) e.preventDefault();
+    
+    // Cancel any ongoing retries if submitting a new URL
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+    setIsRetrying(false);
+    setRetryAttempt(0);
+    setRetryCountdown(0);
+    
     setDebugInfo(prev => ({
       ...prev,
       url: urlToSubmit
@@ -909,120 +1150,27 @@ export default function TaggerPage({ initialUrl }) {
       setSubmitMessage('');
       
       try {
-        console.log(`🔍 [TAGGER].. Making request:`, {
-          route: route,
-          payload: discogsInfo
-        });
+        const data = await makeDiscogsRequest(route, discogsInfo, 0, urlToSubmit);
         
-        const res = await fetch(route, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(discogsInfo)
-        });
-
-        // Check if response is ok before parsing JSON
-        if (!res.ok) {
-          const errorText = await res.text();
-          
-          // Try to parse error response as JSON
-          let errorData;
-          try {
-            errorData = JSON.parse(errorText);
-          } catch (parseErr) {
-            errorData = { error: 'Unknown error', details: errorText };
-          }
-
-          throw new Error(`HTTP ${res.status}: ${res.statusText} - ${errorData.details || errorData.error || 'Unknown error'}`);
+        // If null, it means a retry was scheduled
+        if (data === null) {
+          return;
         }
-
-        const data = await res.json();
         
-        // Log successful result
-        console.log(`✅ [TAGGER] Success:`, {
-          url: urlToSubmit,
-          title: data.title || 'Unknown',
-          tracks: data.tracklist?.length || 0
-        });
-
-        // Check if any track has credits or if album has credits
-        const hasTrackCredits = data.tracklist?.some(track =>
-          track.extraartists && track.extraartists.length > 0
-        );
-        const hasAlbumCredits = data.extraartists && data.extraartists.length > 0;
-        const hasCredits = hasTrackCredits || hasAlbumCredits;
-        setHasTrackCredits(hasCredits);
-        
-        // Set checkbox to be selected by default when credits are found
-        if (hasCredits) {
-          setIncludeTrackCredits(true);
-        }
-
-        setDiscogsResponse(data); // Save to state
-        setDiscogsData(data); // Store for video title refresh
-        logDiscogsRequest({ route, payload: discogsInfo, response: data });
-        
-        // Set success status
-        setSubmitStatus('success');
-        setSubmitMessage('Successfully fetched Discogs data!');
-
-        // Process the response for tags
-        processDiscogsResponseToTags(data);
-
-        // Generate video title recommendations
-        const videoTitles = generateVideoTitleRecommendations(data, videoTitleVariation);
-        setVideoTitleRecommendations(videoTitles);
-
-        // If response has a tracklist, process timing data
-        if (Array.isArray(data.tracklist) && data.tracklist.length > 0) {
-          // Helper to parse duration string (mm:ss or hh:mm:ss) to seconds
-          function parseDuration(str) {
-            if (!str) return 0;
-            const parts = str.split(':').map(Number);
-            if (parts.length === 3) {
-              return parts[0] * 3600 + parts[1] * 60 + parts[2];
-            } else if (parts.length === 2) {
-              return parts[0] * 60 + parts[1];
-            } else if (parts.length === 1) {
-              return parts[0];
-            }
-            return 0;
-          }
-
-          const durations = data.tracklist.map(track => parseDuration(track.duration));
-
-          // Store Discogs tracks and durations for dropdown reactivity
-          discogsTracksRef.current = data.tracklist;
-          discogsDurationsRef.current = durations;
-          setInputSource('discogs');
-
-          // Enable artist dropdown if any track has an artist
-          const hasArtist = data.tracklist.some(track =>
-            Array.isArray(track.artists) && track.artists.length > 0 && track.artists[0].name
-          );
-          setArtistDisabled(!hasArtist);
-
-          // Update input sources state
-          setInputSources(prev => ({
-            ...prev,
-            url: {
-              ...prev.url,
-              data: {
-                ...data,
-                durations: durations
-              },
-              label: `Discogs: ${data.title || 'Unknown Album'}`
-            }
-          }));
-
-          // Generate combined timestamps
-          setTimeout(generateCombinedTimestamps, 0);
-        }
+        // Process successful response
+        processDiscogsSuccess(data, discogsInfo, route, urlToSubmit);
       } catch (err) {
         // Log error result
         console.log(`❌ [TAGGER] Error:`, {
           url: urlToSubmit,
           error: err.message
         });
+
+        // Only handle non-rate-limit errors here (rate limits are handled in makeDiscogsRequest)
+        if (isRetrying) {
+          // If we're retrying, don't update error state here
+          return;
+        }
 
         // Set error status with user-friendly message
         setSubmitStatus('error');
@@ -1047,12 +1195,14 @@ export default function TaggerPage({ initialUrl }) {
         
         setSubmitMessage(displayMessage);
 
-        // Set specific error messages for UI
+        // Set specific error messages for UI (skip rate limit errors as they're handled separately)
         if (err.message.includes('HTTP 500')) {
           const errorMatch = err.message.match(/HTTP 500: .*? - (.+)/);
           if (errorMatch) {
             const errorDetails = errorMatch[1];
             if (errorDetails.includes('Rate limit exceeded') || errorDetails.includes('Too many requests')) {
+              // Rate limit errors should already be handled by makeDiscogsRequest
+              // But just in case, set error here
               setDiscogsError(`Discogs API Rate Limit: ${errorDetails}`);
             } else {
               setDiscogsError(`Server Error: ${errorDetails}`);
@@ -2336,22 +2486,54 @@ export default function TaggerPage({ initialUrl }) {
               style={{
                 marginTop: '0.5rem',
                 padding: '0.75rem',
-                backgroundColor: submitStatus === 'success' ? '#d1fae5' : '#fee2e2',
-                border: `1px solid ${submitStatus === 'success' ? '#10b981' : '#fca5a5'}`,
+                backgroundColor: submitStatus === 'success' ? '#d1fae5' : isRetrying ? '#fff3cd' : '#fee2e2',
+                border: `1px solid ${submitStatus === 'success' ? '#10b981' : isRetrying ? '#ffc107' : '#fca5a5'}`,
                 borderRadius: '6px',
-                color: submitStatus === 'success' ? '#065f46' : '#dc2626',
+                color: submitStatus === 'success' ? '#065f46' : isRetrying ? '#856404' : '#dc2626',
                 fontSize: '0.9rem',
                 fontWeight: '500',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.5rem'
+                gap: '0.5rem',
+                flexDirection: isRetrying ? 'column' : 'row',
+                alignItems: isRetrying ? 'flex-start' : 'center'
               }}
             >
-              {submitStatus === 'success' ? '✅' : '❌'} {submitMessage}
+              {submitStatus === 'success' ? '✅' : isRetrying ? '⏳' : '❌'} 
+              <span>{submitMessage}</span>
+              {isRetrying && retryCountdown > 0 && (
+                <div style={{ 
+                  marginTop: '0.5rem',
+                  fontSize: '1rem',
+                  fontWeight: '700',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  width: '100%'
+                }}>
+                  <span>Next retry in:</span>
+                  <span style={{
+                    backgroundColor: '#856404',
+                    color: '#fff',
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '4px',
+                    fontFamily: 'monospace',
+                    fontSize: '1.1rem',
+                    fontWeight: 'bold',
+                    minWidth: '60px',
+                    textAlign: 'center'
+                  }}>
+                    {Math.floor(retryCountdown / 60)}:{(retryCountdown % 60).toString().padStart(2, '0')}
+                  </span>
+                  <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                    (Attempt {retryAttempt})
+                  </span>
+                </div>
+              )}
             </div>
           )}
           
-          {(discogsError || errorDebug) && (
+          {(discogsError || errorDebug) && !isRetrying && (
             <div
               style={{
                 marginTop: '0.5rem',
