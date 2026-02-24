@@ -2435,7 +2435,8 @@ app.post('/youtube/exchangeCode', (req, res) => {
       }
       res.status(200).json({ 
         message: 'Auth code exchanged successfully',
-        isAuthenticated: true
+        isAuthenticated: true,
+        tokens: tokens
       });
     });
 
@@ -2449,24 +2450,30 @@ app.post('/youtube/exchangeCode', (req, res) => {
 
 // Exchange auth code for tokens (production route)
 app.post('/internal-api/youtube/exchangeCode', (req, res) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log("🔄 [POST /internal-api/youtube/exchangeCode] Hit");
-  }
-  
+  console.log("🔄 [POST /internal-api/youtube/exchangeCode] Hit");
+
   try {
     const { code, scope } = req.body;
-    
+
     if (!code) {
       return res.status(400).json({ error: 'Auth code is required' });
     }
 
+    const redirectUriUsed = oauth2Client.redirectUri || getYouTubeRedirectUrl();
+    console.log('Exchanging code with redirect_uri:', redirectUriUsed);
+
     // Exchange code for tokens
     oauth2Client.getToken(code, (err, tokens) => {
       if (err) {
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Error exchanging code for tokens:', err);
-        }
-        return res.status(400).json({ error: 'Invalid auth code' });
+        const googleErrorData = err.response?.data || {};
+        console.error('Error exchanging code for tokens:', err.message, JSON.stringify(googleErrorData));
+        return res.status(400).json({
+          error: 'Failed to exchange auth code for tokens',
+          details: err.message,
+          googleError: googleErrorData.error || null,
+          googleErrorDescription: googleErrorData.error_description || null,
+          redirectUriUsed: redirectUriUsed
+        });
       }
 
       // Store tokens in session
@@ -2476,20 +2483,17 @@ app.post('/internal-api/youtube/exchangeCode', (req, res) => {
         authenticatedAt: new Date().toISOString()
       };
 
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Auth code exchanged successfully for tokens');
-      }
-      res.status(200).json({ 
+      console.log('Auth code exchanged successfully. Token type:', tokens?.token_type, 'Has access_token:', !!tokens?.access_token, 'Has refresh_token:', !!tokens?.refresh_token);
+      res.status(200).json({
         message: 'Auth code exchanged successfully',
-        isAuthenticated: true
+        isAuthenticated: true,
+        tokens: tokens
       });
     });
 
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Error exchanging auth code:', error.message);
-    }
-    res.status(500).json({ error: 'Failed to exchange auth code' });
+    console.error('Error exchanging auth code (caught):', error.message);
+    res.status(500).json({ error: 'Failed to exchange auth code', details: error.message });
   }
 });
 
@@ -2500,10 +2504,15 @@ app.post('/youtube/createPlaylist', (req, res) => {
   }
   
   try {
-    const youtubeAuth = req.session?.youtubeAuth;
+    let youtubeAuth = req.session?.youtubeAuth;
     
     if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
-      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      const { tokens: bodyTokens } = req.body;
+      if (bodyTokens) {
+        youtubeAuth = { isAuthenticated: true, tokens: bodyTokens };
+      } else {
+        return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      }
     }
 
     const { title, description, privacyStatus } = req.body;
@@ -2591,15 +2600,22 @@ app.post('/youtube/createPlaylist', (req, res) => {
 
 // Create YouTube playlist (production route)
 app.post('/internal-api/youtube/createPlaylist', (req, res) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log("🎵 [POST /internal-api/youtube/createPlaylist] Hit");
-  }
-  
+  console.log("🎵 [POST /internal-api/youtube/createPlaylist] Hit");
+
   try {
-    const youtubeAuth = req.session?.youtubeAuth;
-    
-    if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
-      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+    let youtubeAuth = req.session?.youtubeAuth;
+    const hasSessionAuth = !!(youtubeAuth?.isAuthenticated && youtubeAuth?.tokens);
+    const { tokens: bodyTokens } = req.body;
+    console.log('Auth check — session auth:', hasSessionAuth, '| body tokens present:', !!bodyTokens);
+
+    if (!hasSessionAuth) {
+      if (bodyTokens) {
+        youtubeAuth = { isAuthenticated: true, tokens: bodyTokens };
+        console.log('Using body tokens. access_token present:', !!bodyTokens.access_token, 'refresh_token present:', !!bodyTokens.refresh_token);
+      } else {
+        console.warn('No session auth and no body tokens — returning 401');
+        return res.status(401).json({ error: 'Not authenticated with YouTube', details: 'No session and no tokens in request body' });
+      }
     }
 
     const { title, description, privacyStatus } = req.body;
@@ -2625,25 +2641,24 @@ app.post('/internal-api/youtube/createPlaylist', (req, res) => {
       }
     }, (err, response) => {
       if (err) {
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Error creating playlist:', err);
-        }
-        
+        const googleErrors = err.errors || [];
+        console.error('YouTube API error creating playlist:', err.message, '| code:', err.code, '| errors:', JSON.stringify(googleErrors));
+
         // Extract detailed error information
         let errorMessage = 'Failed to create playlist';
         let errorCode = null;
         let errorReason = null;
-        
+
         if (err.code) {
           errorCode = err.code;
         }
-        
+
         if (err.message) {
           errorMessage = err.message;
         }
-        
-        if (err.errors && err.errors.length > 0) {
-          const firstError = err.errors[0];
+
+        if (googleErrors.length > 0) {
+          const firstError = googleErrors[0];
           if (firstError.message) {
             errorMessage = firstError.message;
           }
@@ -2651,7 +2666,7 @@ app.post('/internal-api/youtube/createPlaylist', (req, res) => {
             errorReason = firstError.reason;
           }
         }
-        
+
         // Determine appropriate HTTP status code
         let statusCode = 500;
         if (err.code === 403) {
@@ -2661,27 +2676,22 @@ app.post('/internal-api/youtube/createPlaylist', (req, res) => {
         } else if (err.code === 400) {
           statusCode = 400; // Bad request
         }
-        
-        const errorResponse = {
+
+        return res.status(statusCode).json({
           error: errorMessage,
           code: errorCode,
-          reason: errorReason
-        };
-        
-        return res.status(statusCode).json(errorResponse);
+          reason: errorReason,
+          errors: googleErrors
+        });
       }
 
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Playlist created successfully:', response.data);
-      }
+      console.log('Playlist created successfully:', response.data?.id);
       res.status(200).json(response.data);
     });
 
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Error creating playlist:', error.message);
-    }
-    res.status(500).json({ error: 'Failed to create playlist' });
+    console.error('Error creating playlist (caught):', error.message);
+    res.status(500).json({ error: 'Failed to create playlist', details: error.message });
   }
 });
 

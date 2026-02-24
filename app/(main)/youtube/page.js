@@ -16,7 +16,8 @@ function YouTubeAuthPageInner() {
   const [playlistLoading, setPlaylistLoading] = useState(false);
   const [playlistCreated, setPlaylistCreated] = useState(null);
   const [clearAuthLoading, setClearAuthLoading] = useState(false);
-  
+  const [debugLog, setDebugLog] = useState([]);
+
   const params = useSearchParams();
   const router = useRouter();
   const authCode = params.get('code');
@@ -24,6 +25,12 @@ function YouTubeAuthPageInner() {
 
   // Helper: 1 year in ms (simulate expiry)
   const YOUTUBE_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
+
+  const addDebugLog = (msg, type = 'info') => {
+    const entry = { msg, type, time: new Date().toLocaleTimeString() };
+    setDebugLog(prev => [...prev, entry]);
+    console.log(`[YT Debug][${type.toUpperCase()}] ${msg}`);
+  };
 
   /** Persist auth code in localStorage, along with set time */
   const storeYouTubeAuthCode = (code, scope) => {
@@ -61,7 +68,7 @@ function YouTubeAuthPageInner() {
       const response = await fetch(`${apiBaseURL}/youtube/authStatus`, {
         credentials: 'include'
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setIsAuthenticated(data.isAuthenticated);
@@ -69,13 +76,11 @@ function YouTubeAuthPageInner() {
           setUserInfo(data.userInfo);
         }
       } else {
-        // If auth status check fails, assume not authenticated
         setIsAuthenticated(false);
         setUserInfo(null);
       }
     } catch (err) {
       console.error('Error checking auth status:', err);
-      // On error, assume not authenticated
       setIsAuthenticated(false);
       setUserInfo(null);
     }
@@ -92,7 +97,7 @@ function YouTubeAuthPageInner() {
       const response = await fetch(`${apiBaseURL}/youtube/getAuthUrl`, {
         credentials: 'include'
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setAuthUrl(data.url);
@@ -137,11 +142,11 @@ function YouTubeAuthPageInner() {
 
   // Clear authentication data
   const clearAuth = async () => {
-    if (clearAuthLoading) return; // Prevent multiple clicks
-    
+    if (clearAuthLoading) return;
+
     setClearAuthLoading(true);
     setError('');
-    
+
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
@@ -151,18 +156,16 @@ function YouTubeAuthPageInner() {
         method: 'POST',
         credentials: 'include'
       });
-      
+
       if (response.ok) {
-        // Clear all authentication state
         setIsAuthenticated(false);
         setUserInfo(null);
-        
-        // Clear localStorage
+
         localStorage.removeItem('youtube_auth_code');
         localStorage.removeItem('youtube_auth_scope');
         localStorage.removeItem('youtube_auth_set_time');
-        
-        // Update local auth status
+        localStorage.removeItem('youtube_tokens');
+
         setYoutubeAuthStatus({
           exists: false,
           code: null,
@@ -170,8 +173,7 @@ function YouTubeAuthPageInner() {
           setTime: null,
           expiresAt: null
         });
-        
-        // Refresh the auth URL
+
         getYouTubeAuthUrl();
       } else {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -185,6 +187,13 @@ function YouTubeAuthPageInner() {
     }
   };
 
+  // Clear only stored tokens (not the auth code), useful when tokens are expired
+  const clearStoredTokens = () => {
+    localStorage.removeItem('youtube_tokens');
+    setDebugLog([]);
+    addDebugLog('Cleared stored tokens from localStorage. Will re-exchange code on next attempt.', 'info');
+  };
+
   // Create playlist
   const createPlaylist = async () => {
     if (!playlistData.title.trim()) {
@@ -194,15 +203,33 @@ function YouTubeAuthPageInner() {
 
     setPlaylistLoading(true);
     setError('');
+    setDebugLog([]);
 
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
         : 'https://www.martinbarker.me/internal-api';
 
-      // If not server authenticated but have localStorage code, exchange code for tokens first
-      if (!isAuthenticated && youtubeAuthStatus.exists && youtubeAuthStatus.code) {
-        console.log('Exchanging auth code for tokens...');
+      addDebugLog(`API base URL: ${apiBaseURL}`, 'info');
+
+      // Get tokens: try localStorage first, then exchange auth code if needed
+      let tokens = null;
+      const storedTokensRaw = localStorage.getItem('youtube_tokens');
+      if (storedTokensRaw) {
+        try {
+          tokens = JSON.parse(storedTokensRaw);
+          addDebugLog(`Found stored tokens in localStorage. access_token present: ${!!tokens?.access_token}, refresh_token present: ${!!tokens?.refresh_token}`, 'info');
+        } catch (e) {
+          addDebugLog('Found stored tokens in localStorage but failed to parse JSON — will re-exchange auth code', 'warn');
+        }
+      } else {
+        addDebugLog('No stored tokens in localStorage', 'info');
+      }
+
+      if (!tokens && youtubeAuthStatus.exists && youtubeAuthStatus.code) {
+        addDebugLog(`Attempting to exchange auth code for tokens...`, 'info');
+        addDebugLog(`Auth code (first 4 chars): ${youtubeAuthStatus.code?.substring(0, 4)}...`, 'info');
+
         const tokenResponse = await fetch(`${apiBaseURL}/youtube/exchangeCode`, {
           method: 'POST',
           headers: {
@@ -215,16 +242,54 @@ function YouTubeAuthPageInner() {
           })
         });
 
+        addDebugLog(`exchangeCode response status: ${tokenResponse.status} ${tokenResponse.statusText}`, tokenResponse.ok ? 'info' : 'error');
+
+        const tokenData = await tokenResponse.json().catch(e => ({ parseError: e.message }));
+
         if (!tokenResponse.ok) {
-          const tokenError = await tokenResponse.json();
-          setError(tokenError.error || 'Failed to exchange auth code for tokens');
+          // Build a rich error message from whatever the server returned
+          let exchangeError = tokenData.error || 'Failed to exchange auth code for tokens';
+          if (tokenData.details) exchangeError += ` | Details: ${tokenData.details}`;
+          if (tokenData.googleError) exchangeError += ` | Google error: ${tokenData.googleError}`;
+          if (tokenData.googleErrorDescription) exchangeError += ` (${tokenData.googleErrorDescription})`;
+          if (tokenData.redirectUriUsed) exchangeError += ` | Server used redirect_uri: ${tokenData.redirectUriUsed}`;
+
+          addDebugLog(`exchangeCode FAILED: ${exchangeError}`, 'error');
+          addDebugLog('The auth code may be expired, already used, or there is a redirect_uri mismatch. Try clearing auth and signing in again.', 'warn');
+
+          // If the code is no longer valid, remove it from localStorage so the user can re-auth
+          localStorage.removeItem('youtube_auth_code');
+          localStorage.removeItem('youtube_auth_scope');
+          localStorage.removeItem('youtube_auth_set_time');
+          setYoutubeAuthStatus({ exists: false, code: null, scope: null, setTime: null, expiresAt: null });
+
+          setError(exchangeError);
           setPlaylistLoading(false);
           return;
         }
-        
-        // Refresh auth status after token exchange
-        await checkAuthStatus();
+
+        if (tokenData.parseError) {
+          addDebugLog(`exchangeCode returned non-JSON response: ${tokenData.parseError}`, 'error');
+          setError('Server returned unexpected response during token exchange');
+          setPlaylistLoading(false);
+          return;
+        }
+
+        if (tokenData.tokens) {
+          tokens = tokenData.tokens;
+          localStorage.setItem('youtube_tokens', JSON.stringify(tokens));
+          addDebugLog(`Token exchange succeeded. access_token present: ${!!tokens?.access_token}, refresh_token present: ${!!tokens?.refresh_token}`, 'info');
+        } else {
+          addDebugLog('exchangeCode returned 200 OK but response contained no tokens object. Full response: ' + JSON.stringify(tokenData), 'error');
+          setError('Token exchange returned no tokens — check server logs');
+          setPlaylistLoading(false);
+          return;
+        }
+      } else if (!tokens) {
+        addDebugLog(`No tokens and no stored auth code (exists=${youtubeAuthStatus.exists}, code=${!!youtubeAuthStatus.code}). Relying on server session.`, 'info');
       }
+
+      addDebugLog(`Calling createPlaylist... tokens in body: ${!!tokens}, session auth will be checked server-side`, 'info');
 
       const response = await fetch(`${apiBaseURL}/youtube/createPlaylist`, {
         method: 'POST',
@@ -232,11 +297,17 @@ function YouTubeAuthPageInner() {
           'Content-Type': 'application/json'
         },
         credentials: 'include',
-        body: JSON.stringify(playlistData)
+        body: JSON.stringify({
+          ...playlistData,
+          tokens: tokens || undefined
+        })
       });
+
+      addDebugLog(`createPlaylist response status: ${response.status} ${response.statusText}`, response.ok ? 'info' : 'error');
 
       if (response.ok) {
         const result = await response.json();
+        addDebugLog(`Playlist created successfully! ID: ${result.id}`, 'info');
         setPlaylistCreated(result);
         setPlaylistData({
           title: '',
@@ -244,48 +315,30 @@ function YouTubeAuthPageInner() {
           privacyStatus: 'private'
         });
       } else {
-        const errorData = await response.json();
-        let errorMessage = 'Failed to create playlist';
-        
-        if (errorData.error) {
-          errorMessage = errorData.error;
-        }
-        
-        if (errorData.code) {
-          errorMessage += ` (Error Code: ${errorData.code})`;
-        }
-        
-        if (errorData.message) {
-          errorMessage += ` - ${errorData.message}`;
-        }
-        
+        const errorData = await response.json().catch(() => ({}));
+        let errorMessage = errorData.error || 'Failed to create playlist';
+
+        if (errorData.details) errorMessage += ` | ${errorData.details}`;
+        if (errorData.code) errorMessage += ` (HTTP ${errorData.code})`;
+        if (errorData.reason) errorMessage += ` — Reason: ${errorData.reason}`;
         if (errorData.errors && errorData.errors.length > 0) {
-          const firstError = errorData.errors[0];
-          if (firstError.reason) {
-            errorMessage += ` (Reason: ${firstError.reason})`;
-          }
+          errorMessage += ` | YouTube errors: ${JSON.stringify(errorData.errors)}`;
         }
-        
+
+        addDebugLog(`createPlaylist FAILED: ${errorMessage}`, 'error');
+
+        if (response.status === 401) {
+          addDebugLog('401 Unauthorized — the tokens are invalid or expired. Clearing stored tokens. Please clear auth and sign in again.', 'warn');
+          localStorage.removeItem('youtube_tokens');
+        }
+
         setError(errorMessage);
       }
     } catch (err) {
       console.error('Error creating playlist:', err);
-      
-      let errorMessage = 'Failed to create playlist';
-      
-      if (err.message) {
-        errorMessage = err.message;
-      }
-      
-      if (err.code) {
-        errorMessage += ` (Error Code: ${err.code})`;
-      }
-      
-      if (err.name) {
-        errorMessage += ` (Error Type: ${err.name})`;
-      }
-      
-      setError(errorMessage);
+      const msg = err.message || 'Unknown error';
+      addDebugLog(`Unexpected JS error: ${msg}`, 'error');
+      setError(msg);
     } finally {
       setPlaylistLoading(false);
     }
@@ -336,22 +389,37 @@ function YouTubeAuthPageInner() {
               <div>Set: {youtubeAuthStatus.setTime ? new Date(youtubeAuthStatus.setTime).toLocaleString() : 'Unknown'}</div>
               <div>Expires: {youtubeAuthStatus.expiresAt ? new Date(youtubeAuthStatus.expiresAt).toLocaleString() : 'Unknown'}</div>
             </div>
-            <button
-              onClick={clearAuth}
-              disabled={clearAuthLoading}
-              style={{
-                marginTop: 12,
-                padding: '8px 16px',
-                background: clearAuthLoading ? '#6c757d' : '#dc3545',
-                color: 'white',
-                border: 'none',
-                borderRadius: 4,
-                cursor: clearAuthLoading ? 'not-allowed' : 'pointer',
-                fontSize: 14
-              }}
-            >
-              {clearAuthLoading ? 'Clearing...' : 'Clear Authentication'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button
+                onClick={clearAuth}
+                disabled={clearAuthLoading}
+                style={{
+                  padding: '8px 16px',
+                  background: clearAuthLoading ? '#6c757d' : '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: clearAuthLoading ? 'not-allowed' : 'pointer',
+                  fontSize: 14
+                }}
+              >
+                {clearAuthLoading ? 'Clearing...' : 'Clear Authentication'}
+              </button>
+              <button
+                onClick={clearStoredTokens}
+                style={{
+                  padding: '8px 16px',
+                  background: '#fd7e14',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 14
+                }}
+              >
+                Clear Stored Tokens Only
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{
@@ -414,7 +482,8 @@ function YouTubeAuthPageInner() {
           padding: '16px',
           marginBottom: 24
         }}>
-          <span style={{ color: '#721c24' }}>Error: {error}</span>
+          <span style={{ color: '#721c24', fontWeight: 'bold' }}>Error: </span>
+          <span style={{ color: '#721c24', fontFamily: 'monospace', fontSize: 13 }}>{error}</span>
         </div>
       )}
 
@@ -442,7 +511,8 @@ function YouTubeAuthPageInner() {
                   padding: '10px',
                   border: '1px solid #ced4da',
                   borderRadius: 4,
-                  fontSize: 14
+                  fontSize: 14,
+                  boxSizing: 'border-box'
                 }}
               />
             </div>
@@ -462,7 +532,8 @@ function YouTubeAuthPageInner() {
                   border: '1px solid #ced4da',
                   borderRadius: 4,
                   fontSize: 14,
-                  resize: 'vertical'
+                  resize: 'vertical',
+                  boxSizing: 'border-box'
                 }}
               />
             </div>
@@ -551,6 +622,43 @@ function YouTubeAuthPageInner() {
               </div>
             )}
           </div>
+
+          {/* Debug Log Panel */}
+          {debugLog.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 15 }}>Debug Log</h3>
+                <button
+                  onClick={() => setDebugLog([])}
+                  style={{ fontSize: 12, padding: '2px 8px', cursor: 'pointer' }}
+                >
+                  Clear
+                </button>
+              </div>
+              <div style={{
+                background: '#1e1e1e',
+                borderRadius: 6,
+                padding: '12px',
+                fontFamily: 'monospace',
+                fontSize: 12,
+                maxHeight: 300,
+                overflowY: 'auto'
+              }}>
+                {debugLog.map((entry, i) => (
+                  <div key={i} style={{
+                    color: entry.type === 'error' ? '#ff6b6b' : entry.type === 'warn' ? '#ffd43b' : '#a8d8ea',
+                    marginBottom: 4,
+                    lineHeight: 1.5,
+                    wordBreak: 'break-word'
+                  }}>
+                    <span style={{ color: '#888', marginRight: 8 }}>[{entry.time}]</span>
+                    <span style={{ color: entry.type === 'error' ? '#ff6b6b' : entry.type === 'warn' ? '#ffd43b' : '#69db7c', marginRight: 8, textTransform: 'uppercase', fontSize: 10 }}>{entry.type}</span>
+                    {entry.msg}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -565,7 +673,7 @@ function YouTubeAuthPageInner() {
             padding: '16px'
           }}>
             <p style={{ margin: 0, color: '#004085' }}>
-              {isAuthenticated 
+              {isAuthenticated
                 ? "You are now authenticated with YouTube! You can now use YouTube API features such as creating playlists, managing videos, and accessing your channel data."
                 : "You have a valid YouTube auth code stored locally! You can create playlists using your stored authentication."
               }
