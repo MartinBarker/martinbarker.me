@@ -18,6 +18,8 @@ const axios = require('axios'); // Ensure axios is imported
 const crypto = require('crypto'); // For generating nonces
 const querystring = require('querystring'); // For query string manipulation
 const http = require('http');
+const multer = require('multer');
+const { Readable } = require('stream');
 const https = require('https');
 const { Server } = require('socket.io');
 const cors = require('cors');
@@ -2850,6 +2852,137 @@ app.post('/internal-api/youtube/addVideoToPlaylist', async (req, res) => {
       console.error('Error adding video to playlist:', error.message);
     }
     res.status(500).json({ error: 'Failed to add video to playlist' });
+  }
+});
+
+// Multer: in-memory storage for YouTube video + thumbnail uploads (max 2 GB)
+const ytVideoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 }
+}).fields([
+  { name: 'video', maxCount: 1 },
+  { name: 'thumbnail', maxCount: 1 }
+]);
+
+// Upload video to YouTube (dev route)
+app.post('/youtube/uploadVideo', ytVideoUpload, async (req, res) => {
+  console.log('📹 [POST /youtube/uploadVideo] Hit');
+  try {
+    let youtubeAuth = req.session?.youtubeAuth;
+    const bodyTokens = req.body.tokens ? JSON.parse(req.body.tokens) : null;
+    if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
+      if (bodyTokens) {
+        youtubeAuth = { isAuthenticated: true, tokens: bodyTokens };
+      } else {
+        return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      }
+    }
+
+    const videoFile = req.files?.video?.[0];
+    if (!videoFile) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+
+    const { title = 'Untitled', description = '', privacyStatus = 'private', tags = '' } = req.body;
+    const tagList = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+
+    const response = await youtube.videos.insert({
+      part: ['snippet', 'status'],
+      requestBody: {
+        snippet: { title, description, tags: tagList },
+        status: { privacyStatus }
+      },
+      media: {
+        mimeType: videoFile.mimetype || 'video/mp4',
+        body: Readable.from(videoFile.buffer)
+      }
+    });
+
+    console.log('Video uploaded successfully:', response.data.id);
+
+    let thumbnailUploaded = false;
+    const thumbFile = req.files?.thumbnail?.[0];
+    if (thumbFile) {
+      try {
+        await youtube.thumbnails.set({
+          videoId: response.data.id,
+          media: { mimeType: thumbFile.mimetype, body: Readable.from(thumbFile.buffer) }
+        });
+        thumbnailUploaded = true;
+        console.log('Thumbnail uploaded for video:', response.data.id);
+      } catch (err) {
+        console.warn('Thumbnail upload failed (non-fatal):', err.message);
+      }
+    }
+
+    res.status(200).json({ id: response.data.id, title: response.data.snippet?.title, thumbnailUploaded });
+  } catch (error) {
+    const googleErrors = error.errors || [];
+    console.error('Error uploading video:', error.message, JSON.stringify(googleErrors));
+    const statusCode = error.code === 403 ? 403 : error.code === 401 ? 401 : 500;
+    res.status(statusCode).json({ error: error.message || 'Failed to upload video', details: JSON.stringify(googleErrors) });
+  }
+});
+
+// Upload video to YouTube (production route)
+app.post('/internal-api/youtube/uploadVideo', ytVideoUpload, async (req, res) => {
+  console.log('📹 [POST /internal-api/youtube/uploadVideo] Hit');
+  try {
+    let youtubeAuth = req.session?.youtubeAuth;
+    const bodyTokens = req.body.tokens ? JSON.parse(req.body.tokens) : null;
+    if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
+      if (bodyTokens) {
+        youtubeAuth = { isAuthenticated: true, tokens: bodyTokens };
+      } else {
+        return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      }
+    }
+
+    const videoFile = req.files?.video?.[0];
+    if (!videoFile) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+
+    const { title = 'Untitled', description = '', privacyStatus = 'private', tags = '' } = req.body;
+    const tagList = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+    oauth2Client.setCredentials(youtubeAuth.tokens);
+
+    const response = await youtube.videos.insert({
+      part: ['snippet', 'status'],
+      requestBody: {
+        snippet: { title, description, tags: tagList },
+        status: { privacyStatus }
+      },
+      media: {
+        mimeType: videoFile.mimetype || 'video/mp4',
+        body: Readable.from(videoFile.buffer)
+      }
+    });
+
+    console.log('Video uploaded successfully:', response.data.id);
+
+    let thumbnailUploaded = false;
+    const thumbFile = req.files?.thumbnail?.[0];
+    if (thumbFile) {
+      try {
+        await youtube.thumbnails.set({
+          videoId: response.data.id,
+          media: { mimeType: thumbFile.mimetype, body: Readable.from(thumbFile.buffer) }
+        });
+        thumbnailUploaded = true;
+        console.log('Thumbnail uploaded for video:', response.data.id);
+      } catch (err) {
+        console.warn('Thumbnail upload failed (non-fatal):', err.message);
+      }
+    }
+
+    res.status(200).json({ id: response.data.id, title: response.data.snippet?.title, thumbnailUploaded });
+  } catch (error) {
+    const googleErrors = error.errors || [];
+    console.error('Error uploading video:', error.message, JSON.stringify(googleErrors));
+    const statusCode = error.code === 403 ? 403 : error.code === 401 ? 401 : 500;
+    res.status(statusCode).json({ error: error.message || 'Failed to upload video', details: JSON.stringify(googleErrors) });
   }
 });
 
