@@ -607,3 +607,47 @@
   font-style: italic;
   color: #888;
 }
+
+/* Dark mode toggle button */
+.darkModeToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 16px);
+  margin: 8px 8px 4px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.15);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+  transition: background 0.2s;
+  box-sizing: border-box;
+}
+.darkModeToggle:hover {
+  background: rgba(0,0,0,0.28);
+}
+.darkModeToggleCollapsed {
+  width: 40px;
+  height: 40px;
+  margin: 8px auto 4px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+}
+.darkModeIcon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.darkModeLabel {
+  white-space: nowrap;
+}
+
+/* Dark mode content area */
+.darkContent .contentBody {
+  color: #f0f0f0;
+}

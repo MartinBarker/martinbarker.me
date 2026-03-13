@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import JSZip from "jszip";
@@ -14,6 +14,67 @@ function formatTime(seconds) {
   return `${mins}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
 }
 
+// IndexedDB helpers for caching waveform data
+const DB_NAME = 'waveform-cache';
+const STORE_NAME = 'waveforms';
+const DB_VERSION = 1;
+
+function openWaveformDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function getCachedWaveform(key) {
+  try {
+    const db = await openWaveformDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedWaveform(key, data) {
+  try {
+    const db = await openWaveformDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.put(data, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    // Caching failure is non-fatal
+  }
+}
+
+// Track colors for segments
+const TRACK_COLORS = [
+  'rgba(102, 126, 234, 0.4)',
+  'rgba(118, 75, 162, 0.4)',
+  'rgba(56, 161, 105, 0.4)',
+  'rgba(237, 137, 54, 0.4)',
+  'rgba(229, 62, 62, 0.4)',
+  'rgba(49, 151, 149, 0.4)',
+  'rgba(128, 90, 213, 0.4)',
+  'rgba(214, 69, 65, 0.4)',
+];
+
 function AutoSplitterTool() {
   const [mounted, setMounted] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -21,92 +82,104 @@ function AutoSplitterTool() {
   const [progress, setProgress] = useState(null);
   const [audioFile, setAudioFile] = useState(null);
   const [duration, setDuration] = useState(0);
-  const [channelData, setChannelData] = useState(null);
   const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
   const [numberOfTracks, setNumberOfTracks] = useState(2);
-  const [splitPoints, setSplitPoints] = useState([]);
+  const [tracks, setTracks] = useState([]); // Array of {id, startTime, endTime, label}
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(0);
   const [outputFormat, setOutputFormat] = useState("mp3");
   const [mp3Bitrate, setMp3Bitrate] = useState("128");
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(null);
   const [exportedTracks, setExportedTracks] = useState([]);
-  const [zoom, setZoom] = useState(1);
-  const [viewStart, setViewStart] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
+  const [peaksReady, setPeaksReady] = useState(false);
 
   const ffmpegRef = useRef(null);
-  const canvasRef = useRef(null);
-  const containerRef = useRef(null);
   const logOutputRef = useRef("");
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
   const playbackTimerRef = useRef(null);
   const cancelRef = useRef(false);
-
-  const zoomRef = useRef(zoom);
-  const viewStartRef = useRef(viewStart);
-  const durationRef = useRef(duration);
-  const splitPointsRef = useRef(splitPoints);
+  const peaksInstanceRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const zoomviewRef = useRef(null);
+  const overviewRef = useRef(null);
+  const tracksRef = useRef(tracks);
   const exportedTracksRef = useRef(exportedTracks);
-  const trimStartRef = useRef(trimStart);
-  const trimEndRef = useRef(trimEnd);
-  zoomRef.current = zoom;
-  viewStartRef.current = viewStart;
-  durationRef.current = duration;
-  splitPointsRef.current = splitPoints;
+
+  tracksRef.current = tracks;
   exportedTracksRef.current = exportedTracks;
-  trimStartRef.current = trimStart;
-  trimEndRef.current = trimEnd;
 
   useEffect(() => {
     setMounted(true);
     ffmpegRef.current = new FFmpeg();
   }, []);
 
+  // Initialize peaks.js when audio file changes
   useEffect(() => {
     if (!audioFile) return;
     setIsLoadingWaveform(true);
-    setSplitPoints([]);
-    setZoom(1);
-    setViewStart(0);
+    setTracks([]);
     setCurrentTime(0);
     setIsPlaying(false);
-    setTrimStart(0);
+    setPeaksReady(false);
     exportedTracks.forEach((t) => URL.revokeObjectURL(t.url));
     setExportedTracks([]);
 
-    const decodeAudio = async () => {
+    const initAudio = async () => {
       try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const arrayBuffer = await audioFile.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        setDuration(audioBuffer.duration);
-        setTrimEnd(audioBuffer.duration);
-        setChannelData(audioBuffer.getChannelData(0));
-        setMessage(`Loaded: ${audioFile.name} (${formatTime(audioBuffer.duration)})`);
-        audioContext.close();
+        // Create audio URL
+        if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+        const url = URL.createObjectURL(audioFile);
+        audioUrlRef.current = url;
+
+        // Wait for DOM
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+        if (!audioRef.current || !zoomviewRef.current || !overviewRef.current) {
+          setMessage("Error: DOM elements not ready");
+          setIsLoadingWaveform(false);
+          return;
+        }
+
+        audioRef.current.src = url;
+        audioRef.current.load();
+
+        // Wait for metadata to get duration
+        await new Promise((resolve, reject) => {
+          const onLoaded = () => {
+            audioRef.current.removeEventListener('loadedmetadata', onLoaded);
+            audioRef.current.removeEventListener('error', onError);
+            resolve();
+          };
+          const onError = () => {
+            audioRef.current.removeEventListener('loadedmetadata', onLoaded);
+            audioRef.current.removeEventListener('error', onError);
+            reject(new Error('Failed to load audio'));
+          };
+          audioRef.current.addEventListener('loadedmetadata', onLoaded);
+          audioRef.current.addEventListener('error', onError);
+        });
+
+        const dur = audioRef.current.duration;
+        setDuration(dur);
+
+        // Initialize peaks.js
+        await initPeaks(url, audioFile, dur);
+
+        setMessage(`Loaded: ${audioFile.name} (${formatTime(dur)})`);
       } catch (error) {
-        console.error("Error decoding audio:", error);
-        setMessage("Error decoding audio file");
+        console.error("Error loading audio:", error);
+        setMessage("Error loading audio file");
       } finally {
         setIsLoadingWaveform(false);
       }
     };
-    decodeAudio();
-  }, [audioFile]);
 
-  useEffect(() => {
-    if (!audioFile || !audioRef.current) return;
-    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-    const url = URL.createObjectURL(audioFile);
-    audioUrlRef.current = url;
-    audioRef.current.src = url;
-    audioRef.current.load();
+    initAudio();
+
     return () => {
       if (audioUrlRef.current) {
         URL.revokeObjectURL(audioUrlRef.current);
@@ -115,6 +188,166 @@ function AutoSplitterTool() {
     };
   }, [audioFile]);
 
+  // Initialize Peaks.js
+  const initPeaks = async (audioUrl, file, dur) => {
+    // Destroy existing instance
+    if (peaksInstanceRef.current) {
+      peaksInstanceRef.current.destroy();
+      peaksInstanceRef.current = null;
+    }
+
+    const Peaks = (await import('peaks.js')).default;
+
+    // Wait for containers
+    let retries = 0;
+    while (retries < 20) {
+      if (zoomviewRef.current && overviewRef.current && audioRef.current) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      retries++;
+    }
+
+    if (!zoomviewRef.current || !overviewRef.current || !audioRef.current) {
+      throw new Error('DOM elements not ready');
+    }
+
+    // Reuse AudioContext
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    } else if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+
+    // Check cache
+    const cacheKey = `waveform-${file.name}-${file.size}-${file.lastModified}`;
+    const cachedWaveform = await getCachedWaveform(cacheKey);
+
+    // Adaptive time formatter for zoomview
+    const formatZoomviewTime = (seconds) => {
+      const hrs = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+      if (hrs > 0) return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Condensed labels for overview
+    const formatOverviewTime = (seconds) => {
+      const hrs = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+      if (hrs > 0) return mins > 0 ? `${hrs}h${mins}m` : `${hrs}h`;
+      if (mins > 0 && secs === 0) return `${mins}m`;
+      if (mins > 0) return `${mins}:${secs.toString().padStart(2, '0')}`;
+      return `${secs}s`;
+    };
+
+    const options = {
+      zoomview: {
+        container: zoomviewRef.current,
+        formatAxisTime: formatZoomviewTime,
+        waveformColor: '#667eea',
+      },
+      overview: {
+        container: overviewRef.current,
+        formatAxisTime: formatOverviewTime,
+        axisLabelColor: '#aaa',
+        waveformColor: '#764ba2',
+      },
+      mediaElement: audioRef.current,
+      zoomLevels: [256, 512, 1024, 2048, 4096, 8192, 16384],
+    };
+
+    if (cachedWaveform) {
+      options.dataUri = { arraybuffer: cachedWaveform };
+    } else {
+      options.webAudio = { audioContext: audioContextRef.current };
+    }
+
+    return new Promise((resolve, reject) => {
+      const tryInit = (opts) => {
+        Peaks.init(opts, async (err, peaksInstance) => {
+          if (err) {
+            // Retry without cache if cached data failed
+            if (cachedWaveform && !opts.webAudio) {
+              console.log('Cached waveform failed, retrying with webAudio');
+              const retryOpts = { ...opts, webAudio: { audioContext: audioContextRef.current } };
+              delete retryOpts.dataUri;
+              tryInit(retryOpts);
+              return;
+            }
+            console.error('Error initializing Peaks.js:', err);
+            setMessage('Error initializing waveform');
+            reject(err);
+            return;
+          }
+
+          peaksInstanceRef.current = peaksInstance;
+          setPeaksReady(true);
+
+          // Listen for segment drag events (debounced)
+          let dragTimer = null;
+          peaksInstance.on('segments.dragend', (event) => {
+            if (dragTimer) clearTimeout(dragTimer);
+            dragTimer = setTimeout(() => {
+              syncTracksFromPeaks();
+            }, 50);
+          });
+
+          // Cache waveform if computed fresh
+          if (!cachedWaveform) {
+            try {
+              const waveformData = peaksInstance.getWaveformData();
+              if (waveformData) {
+                const arrayBuffer = waveformData.toArrayBuffer();
+                await setCachedWaveform(cacheKey, arrayBuffer);
+              }
+            } catch (e) {
+              console.warn('Could not cache waveform:', e);
+            }
+          }
+
+          resolve();
+        });
+      };
+
+      tryInit(options);
+    });
+  };
+
+  // Sync tracks state from peaks.js segments
+  const syncTracksFromPeaks = useCallback(() => {
+    if (!peaksInstanceRef.current) return;
+    const segments = peaksInstanceRef.current.segments.getSegments();
+    const updatedTracks = segments
+      .filter(s => s.id.startsWith('track-'))
+      .sort((a, b) => a.startTime - b.startTime)
+      .map((s, i) => ({
+        id: s.id,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        label: `Track ${i + 1}`,
+      }));
+    setTracks(updatedTracks);
+    invalidateExports();
+  }, []);
+
+  // Update peaks.js segments when tracks change programmatically
+  const updatePeaksSegments = useCallback((newTracks) => {
+    if (!peaksInstanceRef.current) return;
+    peaksInstanceRef.current.segments.removeAll();
+    newTracks.forEach((track, i) => {
+      peaksInstanceRef.current.segments.add({
+        id: track.id,
+        startTime: track.startTime,
+        endTime: track.endTime,
+        labelText: track.label,
+        editable: true,
+        color: TRACK_COLORS[i % TRACK_COLORS.length],
+      });
+    });
+  }, []);
+
+  // Playback timer
   useEffect(() => {
     if (isPlaying) {
       playbackTimerRef.current = setInterval(() => {
@@ -128,379 +361,6 @@ function AutoSplitterTool() {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  // ===== DRAW WAVEFORM =====
-  useEffect(() => {
-    if (!channelData || !canvasRef.current || !containerRef.current || !duration) return;
-    drawWaveform();
-    const handleResize = () => drawWaveform();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [channelData, splitPoints, duration, zoom, viewStart, trimStart, trimEnd]);
-
-  const drawWaveform = () => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container || !channelData || !duration) return;
-
-    const width = container.offsetWidth;
-    const height = 180;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = width + "px";
-    canvas.style.height = height + "px";
-
-    const ctx = canvas.getContext("2d");
-    ctx.scale(dpr, dpr);
-
-    const visibleDuration = duration / zoom;
-    const visEnd = viewStart + visibleDuration;
-    const timeToX = (t) => ((t - viewStart) / visibleDuration) * width;
-    const effectiveTrimEnd = trimEnd > 0 ? trimEnd : duration;
-
-    // Background
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
-    bgGrad.addColorStop(0, "#f8fafc");
-    bgGrad.addColorStop(1, "#f1f5f9");
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, width, height);
-
-    // Alternating track sections (within trim range)
-    const activeSplits = splitPoints.filter((p) => p > trimStart && p < effectiveTrimEnd);
-    if (activeSplits.length > 0) {
-      const allPts = [trimStart, ...activeSplits, effectiveTrimEnd];
-      const colors = ["rgba(102,126,234,0.08)", "rgba(118,75,162,0.08)"];
-      for (let i = 0; i < allPts.length - 1; i++) {
-        const x1 = Math.max(0, timeToX(allPts[i]));
-        const x2 = Math.min(width, timeToX(allPts[i + 1]));
-        if (x2 > 0 && x1 < width) {
-          ctx.fillStyle = colors[i % 2];
-          ctx.fillRect(x1, 0, x2 - x1, height);
-        }
-      }
-    }
-
-    // Center line
-    ctx.strokeStyle = "#cbd5e0";
-    ctx.lineWidth = 0.5;
-    ctx.setLineDash([2, 2]);
-    ctx.beginPath();
-    ctx.moveTo(0, height / 2);
-    ctx.lineTo(width, height / 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Waveform
-    const totalSamples = channelData.length;
-    const sampleRate = totalSamples / duration;
-    const startSample = Math.max(0, Math.floor(viewStart * sampleRate));
-    const endSample = Math.min(totalSamples, Math.ceil(visEnd * sampleRate));
-    const visibleSamples = endSample - startSample;
-    const samplesPerPixel = Math.max(1, Math.floor(visibleSamples / width));
-
-    const posGrad = ctx.createLinearGradient(0, height / 2, 0, 0);
-    posGrad.addColorStop(0, "#667eea");
-    posGrad.addColorStop(1, "#764ba2");
-    ctx.strokeStyle = posGrad;
-    ctx.lineWidth = 1;
-    for (let x = 0; x < width; x++) {
-      const si = startSample + x * samplesPerPixel;
-      const ei = Math.min(si + samplesPerPixel, totalSamples);
-      let max = 0;
-      for (let i = si; i < ei; i++) {
-        if (channelData[i] > max) max = channelData[i];
-      }
-      ctx.beginPath();
-      ctx.moveTo(x, height / 2);
-      ctx.lineTo(x, height / 2 - max * (height / 2) * 0.85);
-      ctx.stroke();
-    }
-
-    const negGrad = ctx.createLinearGradient(0, height / 2, 0, height);
-    negGrad.addColorStop(0, "#5a67d8");
-    negGrad.addColorStop(1, "#4c51bf");
-    ctx.strokeStyle = negGrad;
-    for (let x = 0; x < width; x++) {
-      const si = startSample + x * samplesPerPixel;
-      const ei = Math.min(si + samplesPerPixel, totalSamples);
-      let min = 0;
-      for (let i = si; i < ei; i++) {
-        if (channelData[i] < min) min = channelData[i];
-      }
-      ctx.beginPath();
-      ctx.moveTo(x, height / 2);
-      ctx.lineTo(x, height / 2 - min * (height / 2) * 0.85);
-      ctx.stroke();
-    }
-
-    // Dim outside trim range
-    ctx.fillStyle = "rgba(0,0,0,0.15)";
-    const tsX = timeToX(trimStart);
-    const teX = timeToX(effectiveTrimEnd);
-    if (tsX > 0) ctx.fillRect(0, 0, Math.min(tsX, width), height);
-    if (teX < width) ctx.fillRect(Math.max(teX, 0), 0, width - Math.max(teX, 0), height);
-
-    // Time markers
-    ctx.strokeStyle = "#cbd5e0";
-    ctx.lineWidth = 1;
-    ctx.font = "9px Arial";
-    ctx.fillStyle = "#718096";
-    ctx.textAlign = "left";
-    const interval = visibleDuration > 300 ? 60 : visibleDuration > 60 ? 10 : visibleDuration > 10 ? 5 : 1;
-    const firstMarker = Math.ceil(viewStart / interval) * interval;
-    for (let t = firstMarker; t < visEnd; t += interval) {
-      const x = timeToX(t);
-      if (x < 0 || x > width) continue;
-      ctx.beginPath();
-      ctx.moveTo(x, height / 2 - 4);
-      ctx.lineTo(x, height / 2 + 4);
-      ctx.stroke();
-      ctx.fillText(formatTime(t), x + 2, height / 2 - 6);
-    }
-
-    // Split lines
-    activeSplits.forEach((point, idx) => {
-      const x = timeToX(point);
-      if (x < -20 || x > width + 20) return;
-
-      ctx.strokeStyle = "#e53e3e";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 3]);
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.fillStyle = "rgba(229, 62, 62, 0.12)";
-      ctx.fillRect(x - 4, 0, 8, height);
-
-      ctx.fillStyle = "#e53e3e";
-      ctx.font = "bold 10px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(formatTime(point), x, 12);
-
-      ctx.beginPath();
-      ctx.arc(x, height - 12, 8, 0, Math.PI * 2);
-      ctx.fillStyle = "#e53e3e";
-      ctx.fill();
-      ctx.fillStyle = "white";
-      ctx.font = "bold 9px Arial";
-      ctx.fillText(`${idx + 1}`, x, height - 9);
-    });
-
-    // Track labels
-    if (activeSplits.length > 0) {
-      const allPts = [trimStart, ...activeSplits, effectiveTrimEnd];
-      for (let i = 0; i < allPts.length - 1; i++) {
-        const x1 = timeToX(allPts[i]);
-        const x2 = timeToX(allPts[i + 1]);
-        if (x2 < 0 || x1 > width) continue;
-        const cx = (Math.max(0, x1) + Math.min(width, x2)) / 2;
-        ctx.fillStyle = "#2d3748";
-        ctx.font = "bold 10px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText(`Track ${i + 1}`, cx, height - 30);
-        ctx.fillStyle = "#718096";
-        ctx.font = "9px Arial";
-        ctx.fillText(formatTime(allPts[i + 1] - allPts[i]), cx, height - 20);
-      }
-    }
-
-    // Trim markers
-    const drawTrimMarker = (t, label, color) => {
-      const x = timeToX(t);
-      if (x < -20 || x > width + 20) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-
-      // Handle at top
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      if (label === "S") {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x + 12, 0);
-        ctx.lineTo(x + 12, 14);
-        ctx.lineTo(x, 14);
-      } else {
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x - 12, 0);
-        ctx.lineTo(x - 12, 14);
-        ctx.lineTo(x, 14);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "white";
-      ctx.font = "bold 9px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(label, label === "S" ? x + 6 : x - 6, 10);
-    };
-    drawTrimMarker(trimStart, "S", "#0bc5ea");
-    drawTrimMarker(effectiveTrimEnd, "E", "#0bc5ea");
-
-    // Border
-    ctx.strokeStyle = "#e2e8f0";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([]);
-    ctx.strokeRect(0, 0, width, height);
-  };
-
-  // ===== WHEEL ZOOM =====
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const onWheel = (e) => {
-      e.preventDefault();
-      const d = durationRef.current;
-      if (!d) return;
-      const z = zoomRef.current;
-      const vs = viewStartRef.current;
-      const rect = container.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const visDur = d / z;
-      const mouseTime = vs + (mouseX / rect.width) * visDur;
-      const factor = e.deltaY > 0 ? 0.85 : 1.18;
-      const newZoom = Math.max(1, Math.min(200, z * factor));
-      const newVisDur = d / newZoom;
-      let newVS = mouseTime - (mouseX / rect.width) * newVisDur;
-      newVS = Math.max(0, Math.min(d - newVisDur, newVS));
-      setZoom(newZoom);
-      setViewStart(newVS);
-    };
-    container.addEventListener("wheel", onWheel, { passive: false });
-    return () => container.removeEventListener("wheel", onWheel);
-  }, [channelData]);
-
-  // ===== WAVEFORM MOUSE =====
-  const handleWaveformMouseDown = (e) => {
-    e.preventDefault();
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const startClientX = e.clientX;
-    const startRelX = e.clientX - rect.left;
-    let moved = false;
-
-    const d = durationRef.current;
-    const z = zoomRef.current;
-    const vs = viewStartRef.current;
-    const visDur = d / z;
-    const xToTime = (rx) => vs + (rx / rect.width) * visDur;
-    const tToX = (t) => ((t - vs) / visDur) * rect.width;
-
-    // Hit-test: trim markers first, then split points
-    const ts = trimStartRef.current;
-    const te = trimEndRef.current > 0 ? trimEndRef.current : d;
-    let hitType = null; // 'trimStart' | 'trimEnd' | 'split'
-    let hitIdx = -1;
-
-    if (Math.abs(startRelX - tToX(ts)) < 10) {
-      hitType = "trimStart";
-    } else if (Math.abs(startRelX - tToX(te)) < 10) {
-      hitType = "trimEnd";
-    } else {
-      const pts = splitPointsRef.current;
-      for (let i = 0; i < pts.length; i++) {
-        if (Math.abs(startRelX - tToX(pts[i])) < 10) {
-          hitType = "split";
-          hitIdx = i;
-          break;
-        }
-      }
-    }
-
-    const startViewStart = vs;
-
-    const onMove = (moveEvt) => {
-      moved = true;
-      const currentRect = container.getBoundingClientRect();
-      const relX = moveEvt.clientX - currentRect.left;
-      const cVS = viewStartRef.current;
-      const cZ = zoomRef.current;
-      const cD = durationRef.current;
-      const cVisDur = cD / cZ;
-      const t = cVS + (relX / currentRect.width) * cVisDur;
-
-      if (hitType === "trimStart") {
-        const cTE = trimEndRef.current > 0 ? trimEndRef.current : cD;
-        setTrimStart(Math.max(0, Math.min(cTE - 0.1, t)));
-        invalidateExports();
-      } else if (hitType === "trimEnd") {
-        const cTS = trimStartRef.current;
-        setTrimEnd(Math.max(cTS + 0.1, Math.min(cD, t)));
-        invalidateExports();
-      } else if (hitType === "split") {
-        const currentPts = [...splitPointsRef.current];
-        const prevBound = hitIdx > 0 ? currentPts[hitIdx - 1] + 0.05 : 0.05;
-        const nextBound = hitIdx < currentPts.length - 1 ? currentPts[hitIdx + 1] - 0.05 : cD - 0.05;
-        currentPts[hitIdx] = Math.max(prevBound, Math.min(nextBound, t));
-        setSplitPoints(currentPts);
-        invalidateExports();
-      } else if (z > 1) {
-        const dx = moveEvt.clientX - startClientX;
-        const pxPerSec = rect.width / visDur;
-        const dt = -dx / pxPerSec;
-        const maxVS = d - visDur;
-        setViewStart(Math.max(0, Math.min(maxVS, startViewStart + dt)));
-      }
-    };
-
-    const onUp = (upEvt) => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      container.style.cursor = "";
-      if (!moved && !hitType) {
-        const currentRect = container.getBoundingClientRect();
-        const relX = upEvt.clientX - currentRect.left;
-        const cVS = viewStartRef.current;
-        const cZ = zoomRef.current;
-        const cD = durationRef.current;
-        const seekTime = cVS + (relX / currentRect.width) * (cD / cZ);
-        if (audioRef.current && seekTime >= 0 && seekTime <= cD) {
-          audioRef.current.currentTime = seekTime;
-          setCurrentTime(seekTime);
-        }
-      }
-    };
-
-    if (hitType === "trimStart" || hitType === "trimEnd") {
-      container.style.cursor = "ew-resize";
-    } else if (hitType === "split") {
-      container.style.cursor = "ew-resize";
-    } else if (z > 1) {
-      container.style.cursor = "grabbing";
-    }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  };
-
-  const handleWaveformMouseMove = (e) => {
-    const container = containerRef.current;
-    if (!container || !duration) return;
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const visDur = duration / zoom;
-    const tToX = (t) => ((t - viewStart) / visDur) * rect.width;
-
-    const te = trimEnd > 0 ? trimEnd : duration;
-    if (Math.abs(x - tToX(trimStart)) < 10 || Math.abs(x - tToX(te)) < 10) {
-      container.style.cursor = "ew-resize";
-      return;
-    }
-    for (const pt of splitPoints) {
-      if (Math.abs(x - tToX(pt)) < 10) {
-        container.style.cursor = "ew-resize";
-        return;
-      }
-    }
-    container.style.cursor = zoom > 1 ? "grab" : "crosshair";
-  };
-
   const invalidateExports = () => {
     if (exportedTracksRef.current.length > 0) {
       exportedTracksRef.current.forEach((t) => URL.revokeObjectURL(t.url));
@@ -508,46 +368,13 @@ function AutoSplitterTool() {
     }
   };
 
-  // ===== SPLIT POINT MANAGEMENT =====
-  const addSplitAtPlayhead = () => {
-    if (!duration) return;
-    const t = currentTime;
-    if (t <= 0.05 || t >= duration - 0.05) return;
-    // Don't add if too close to existing point
-    for (const p of splitPoints) {
-      if (Math.abs(p - t) < 0.1) return;
-    }
-    setSplitPoints([...splitPoints, t].sort((a, b) => a - b));
-    invalidateExports();
-  };
-
-  const removeSplitPoint = (idx) => {
-    const newPts = splitPoints.filter((_, i) => i !== idx);
-    setSplitPoints(newPts);
-    invalidateExports();
-  };
-
-  const clearSplitPoints = () => {
-    setSplitPoints([]);
-    invalidateExports();
-  };
-
   // ===== ZOOM =====
   const zoomIn = () => {
-    const newZoom = Math.min(200, zoom * 1.5);
-    const visDur = duration / newZoom;
-    const center = viewStart + (duration / zoom) / 2;
-    setZoom(newZoom);
-    setViewStart(Math.max(0, Math.min(duration - visDur, center - visDur / 2)));
+    if (peaksInstanceRef.current) peaksInstanceRef.current.zoom.zoomIn();
   };
   const zoomOut = () => {
-    const newZoom = Math.max(1, zoom / 1.5);
-    const visDur = duration / newZoom;
-    const center = viewStart + (duration / zoom) / 2;
-    setZoom(newZoom);
-    setViewStart(Math.max(0, Math.min(duration - visDur, center - visDur / 2)));
+    if (peaksInstanceRef.current) peaksInstanceRef.current.zoom.zoomOut();
   };
-  const resetZoom = () => { setZoom(1); setViewStart(0); };
 
   // ===== PLAYBACK =====
   const togglePlayPause = () => {
@@ -646,10 +473,25 @@ function AutoSplitterTool() {
 
       if (cancelRef.current) { setMessage("Analysis cancelled"); return; }
 
-      const points = selectBestSplitPoints(silenceRegions, numTracks, duration);
-      setSplitPoints(points);
+      const splitPoints = selectBestSplitPoints(silenceRegions, numTracks, duration);
+
+      // Create tracks from split points — each track is a segment with start/end
+      const allBoundaries = [0, ...splitPoints, duration];
+      const newTracks = [];
+      for (let i = 0; i < allBoundaries.length - 1; i++) {
+        newTracks.push({
+          id: `track-${i}`,
+          startTime: allBoundaries[i],
+          endTime: allBoundaries[i + 1],
+          label: `Track ${i + 1}`,
+        });
+      }
+
+      setTracks(newTracks);
+      updatePeaksSegments(newTracks);
+
       const method = silenceRegions.length >= numTracks - 1 ? "silence-based" : "equal division";
-      setMessage(`Found ${points.length} split point${points.length !== 1 ? "s" : ""} for ${numTracks} tracks (${method})`);
+      setMessage(`Created ${newTracks.length} tracks (${method}). Drag segment edges to adjust.`);
     } catch (error) {
       if (!cancelRef.current) {
         console.error("Error:", error);
@@ -671,23 +513,100 @@ function AutoSplitterTool() {
     setMessage("Analysis cancelled");
   };
 
-  // ===== EXPORT =====
-  const getActiveSplits = () => {
-    const te = trimEnd > 0 ? trimEnd : duration;
-    return splitPoints.filter((p) => p > trimStart && p < te);
+  // ===== TRACK MANAGEMENT =====
+  const addTrackAtPlayhead = () => {
+    if (!duration || !peaksReady) return;
+    const t = currentTime;
+    if (t <= 0.05 || t >= duration - 0.05) return;
+
+    // Find which track the playhead is in and split it
+    const currentTracks = [...tracksRef.current];
+    let splitIdx = -1;
+    for (let i = 0; i < currentTracks.length; i++) {
+      if (t > currentTracks[i].startTime + 0.1 && t < currentTracks[i].endTime - 0.1) {
+        splitIdx = i;
+        break;
+      }
+    }
+
+    if (splitIdx >= 0) {
+      // Split existing track into two
+      const track = currentTracks[splitIdx];
+      const newTracks = [...currentTracks];
+      newTracks.splice(splitIdx, 1,
+        { id: `track-${Date.now()}-a`, startTime: track.startTime, endTime: t, label: '' },
+        { id: `track-${Date.now()}-b`, startTime: t, endTime: track.endTime, label: '' },
+      );
+      // Re-label
+      newTracks.forEach((tr, i) => { tr.label = `Track ${i + 1}`; });
+      setTracks(newTracks);
+      updatePeaksSegments(newTracks);
+      invalidateExports();
+    } else if (currentTracks.length === 0) {
+      // No tracks yet — create two tracks split at playhead
+      const newTracks = [
+        { id: `track-${Date.now()}-a`, startTime: 0, endTime: t, label: 'Track 1' },
+        { id: `track-${Date.now()}-b`, startTime: t, endTime: duration, label: 'Track 2' },
+      ];
+      setTracks(newTracks);
+      updatePeaksSegments(newTracks);
+      invalidateExports();
+    }
   };
 
+  const removeTrack = (idx) => {
+    const newTracks = tracks.filter((_, i) => i !== idx);
+    newTracks.forEach((tr, i) => { tr.label = `Track ${i + 1}`; });
+    setTracks(newTracks);
+    updatePeaksSegments(newTracks);
+    invalidateExports();
+  };
+
+  const clearTracks = () => {
+    setTracks([]);
+    if (peaksInstanceRef.current) peaksInstanceRef.current.segments.removeAll();
+    invalidateExports();
+  };
+
+  // Remove gaps: snap each track's start to the previous track's end
+  const removeGaps = () => {
+    if (tracks.length < 2) return;
+    const sorted = [...tracks].sort((a, b) => a.startTime - b.startTime);
+    const newTracks = [{ ...sorted[0] }];
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = newTracks[i - 1];
+      const trackDuration = sorted[i].endTime - sorted[i].startTime;
+      newTracks.push({
+        ...sorted[i],
+        startTime: prev.endTime,
+        endTime: prev.endTime + trackDuration,
+      });
+    }
+    newTracks.forEach((tr, i) => { tr.label = `Track ${i + 1}`; });
+    setTracks(newTracks);
+    updatePeaksSegments(newTracks);
+    invalidateExports();
+    setMessage("Gaps removed — tracks are now contiguous");
+  };
+
+  // Check if there are gaps between tracks
+  const hasGaps = () => {
+    if (tracks.length < 2) return false;
+    const sorted = [...tracks].sort((a, b) => a.startTime - b.startTime);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].startTime - sorted[i - 1].endTime > 0.01) return true;
+    }
+    return false;
+  };
+
+  // ===== EXPORT =====
   const getTrackName = (trackNumber) => {
     const baseName = audioFile?.name?.replace(/\.[^/.]+$/, "") || "audio";
     return `${baseName}_track${trackNumber}.${outputFormat}`;
   };
 
   const exportAllTracks = async () => {
-    if (!audioFile) return;
-    const active = getActiveSplits();
-    const te = trimEnd > 0 ? trimEnd : duration;
-    const allPts = [trimStart, ...active, te];
-    if (allPts.length < 2) return;
+    if (!audioFile || tracks.length === 0) return;
 
     setIsExporting(true);
     cancelRef.current = false;
@@ -699,27 +618,30 @@ function AutoSplitterTool() {
       const ffmpeg = ffmpegRef.current;
       await ffmpeg.writeFile("input", await fetchFile(audioFile));
 
-      const totalTracks = allPts.length - 1;
-      const tracks = [];
+      const sortedTracks = [...tracks].sort((a, b) => a.startTime - b.startTime);
+      const totalTracks = sortedTracks.length;
+      const exported = [];
       const mimeType = outputFormat === "flac" ? "audio/flac" : "audio/mpeg";
       const codecArgs = outputFormat === "flac" ? ["-c:a", "flac"] : ["-c:a", "libmp3lame", "-b:a", `${mp3Bitrate}k`];
 
       for (let i = 0; i < totalTracks; i++) {
         if (cancelRef.current) break;
+        const track = sortedTracks[i];
         const trackNum = i + 1;
         const trackName = getTrackName(trackNum);
         const outputName = `track_${trackNum}.${outputFormat}`;
         setExportProgress({ current: trackNum, total: totalTracks, trackName });
         setMessage(`Exporting track ${trackNum}/${totalTracks}...`);
 
-        await ffmpeg.exec(["-i", "input", "-ss", allPts[i].toFixed(4), "-to", allPts[i + 1].toFixed(4), ...codecArgs, "-y", outputName]);
+        // Export each track's actual time range — gaps are automatically skipped
+        await ffmpeg.exec(["-i", "input", "-ss", track.startTime.toFixed(4), "-to", track.endTime.toFixed(4), ...codecArgs, "-y", outputName]);
         const data = await ffmpeg.readFile(outputName);
         const blob = new Blob([data.buffer], { type: mimeType });
-        tracks.push({ trackNumber: trackNum, name: trackName, url: URL.createObjectURL(blob), size: blob.size });
+        exported.push({ trackNumber: trackNum, name: trackName, url: URL.createObjectURL(blob), size: blob.size });
         try { await ffmpeg.deleteFile(outputName); } catch {}
       }
-      setExportedTracks(tracks);
-      if (!cancelRef.current) setMessage(`Exported ${tracks.length} tracks as ${outputFormat === "flac" ? "FLAC" : `${mp3Bitrate}kbps MP3`}`);
+      setExportedTracks(exported);
+      if (!cancelRef.current) setMessage(`Exported ${exported.length} tracks as ${outputFormat === "flac" ? "FLAC" : `${mp3Bitrate}kbps MP3`}`);
     } catch (error) {
       if (!cancelRef.current) { console.error("Export error:", error); setMessage("Export error: " + error.message); }
     } finally {
@@ -775,14 +697,6 @@ function AutoSplitterTool() {
     }
   };
 
-  const downloadWaveformImage = () => {
-    if (!canvasRef.current) return;
-    const link = document.createElement("a");
-    link.download = `${audioFile?.name || "audio"}_split_points.png`;
-    link.href = canvasRef.current.toDataURL("image/png");
-    link.click();
-  };
-
   const handleDrop = (e) => {
     e.preventDefault();
     const audio = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith("audio/"));
@@ -793,19 +707,26 @@ function AutoSplitterTool() {
     if (e.target.files.length > 0) setAudioFile(e.target.files[0]);
   };
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (peaksInstanceRef.current) {
+        try { peaksInstanceRef.current.destroy(); } catch {}
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
   if (!mounted) return null;
 
-  const visibleDuration = duration / zoom;
-  const playheadVisible = duration > 0 && currentTime >= viewStart && currentTime <= viewStart + visibleDuration;
-  const playheadPct = playheadVisible ? ((currentTime - viewStart) / visibleDuration) * 100 : 0;
-  const effectiveTrimEnd = trimEnd > 0 ? trimEnd : duration;
-  const activeSplits = splitPoints.filter((p) => p > trimStart && p < effectiveTrimEnd);
-  const allSegmentPts = [trimStart, ...activeSplits, effectiveTrimEnd];
+  const sortedTracks = [...tracks].sort((a, b) => a.startTime - b.startTime);
 
   return (
     <section className={styles.section}>
       <p className={styles.desc}>
-        Analyze audio to find optimal split points. Drag split lines to adjust, scroll to zoom, click to seek.
+        Analyze audio to find optimal split points. Drag track segment edges to adjust start/end independently. Gaps between tracks are removed on export.
       </p>
 
       {/* Drop zone */}
@@ -814,7 +735,7 @@ function AutoSplitterTool() {
         <input type="file" accept="audio/*" onChange={handleFileInput} className={styles.fileInput} />
       </div>
 
-      {/* File info (single row) */}
+      {/* File info */}
       {audioFile && (
         <div className={styles.fileRow}>
           <span><b>{audioFile.name}</b></span>
@@ -830,38 +751,35 @@ function AutoSplitterTool() {
           <div className={styles.waveToolbar}>
             <div className={styles.zoomControls}>
               <button onClick={zoomOut} className={styles.tbBtn} title="Zoom Out">−</button>
-              <span className={styles.zoomLvl}>{Math.round(zoom * 100)}%</span>
               <button onClick={zoomIn} className={styles.tbBtn} title="Zoom In">+</button>
-              <button onClick={resetZoom} className={styles.tbBtn}>Reset</button>
             </div>
             <div className={styles.splitControls}>
-              <button onClick={addSplitAtPlayhead} className={styles.tbBtn} title="Add split at playhead">+ Split</button>
-              {splitPoints.length > 0 && (
-                <button onClick={clearSplitPoints} className={styles.tbBtnDanger}>Clear Splits</button>
+              <button onClick={addTrackAtPlayhead} className={styles.tbBtn} title="Split track at playhead" disabled={!peaksReady}>
+                + Split at Playhead
+              </button>
+              {tracks.length > 0 && hasGaps() && (
+                <button onClick={removeGaps} className={styles.tbBtn} title="Remove gaps between tracks">
+                  Remove Gaps
+                </button>
+              )}
+              {tracks.length > 0 && (
+                <button onClick={clearTracks} className={styles.tbBtnDanger}>Clear Tracks</button>
               )}
             </div>
-            {splitPoints.length > 0 && (
-              <button onClick={downloadWaveformImage} className={styles.tbBtnGreen}>Save Image</button>
-            )}
           </div>
 
-          <div ref={containerRef} className={styles.waveWrap} onMouseDown={handleWaveformMouseDown} onMouseMove={handleWaveformMouseMove}>
-            {isLoadingWaveform ? (
-              <div className={styles.waveLoading}><div className={styles.spinner}></div><span>Loading waveform...</span></div>
-            ) : (
-              <>
-                <canvas ref={canvasRef} className={styles.waveCanvas} />
-                {playheadVisible && (
-                  <div className={styles.playhead} style={{ left: `${playheadPct}%` }}>
-                    <div className={styles.playheadLine} />
-                    <div className={styles.playheadHandle} />
-                  </div>
-                )}
-              </>
+          <div className={styles.waveWrap}>
+            {isLoadingWaveform && (
+              <div className={styles.waveLoading}>
+                <div className={styles.spinner}></div>
+                <span>Generating waveform...</span>
+              </div>
             )}
+            <div ref={zoomviewRef} className={styles.peaksZoomview} style={{ display: isLoadingWaveform ? 'none' : 'block' }} />
+            <div ref={overviewRef} className={styles.peaksOverview} style={{ display: isLoadingWaveform ? 'none' : 'block' }} />
           </div>
 
-          {/* Playback + trim row */}
+          {/* Playback row */}
           <div className={styles.playRow}>
             <button onClick={togglePlayPause} className={styles.playBtn} disabled={!duration}>
               {isPlaying ? "⏸" : "▶"}
@@ -871,19 +789,7 @@ function AutoSplitterTool() {
               <span className={styles.volIcon}>{volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊"}</span>
               <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className={styles.volSlider} />
             </div>
-            <div className={styles.trimInputs}>
-              <label>Trim:</label>
-              <input type="number" value={parseFloat(trimStart.toFixed(2))} onChange={(e) => { setTrimStart(Math.max(0, Math.min(effectiveTrimEnd - 0.1, parseFloat(e.target.value) || 0))); invalidateExports(); }} step="0.01" min="0" className={styles.trimIn} title="Trim start (seconds)" />
-              <span>–</span>
-              <input type="number" value={parseFloat(effectiveTrimEnd.toFixed(2))} onChange={(e) => { setTrimEnd(Math.max(trimStart + 0.1, Math.min(duration, parseFloat(e.target.value) || duration))); invalidateExports(); }} step="0.01" min="0" className={styles.trimIn} title="Trim end (seconds)" />
-            </div>
           </div>
-
-          {zoom > 1 && (
-            <div className={styles.scrollBar}>
-              <div className={styles.scrollThumb} style={{ left: `${(viewStart / duration) * 100}%`, width: `${(1 / zoom) * 100}%` }} />
-            </div>
-          )}
         </div>
       )}
 
@@ -892,7 +798,7 @@ function AutoSplitterTool() {
         <div className={styles.findRow}>
           <label className={styles.findLabel}>Tracks:</label>
           <input type="number" value={numberOfTracks} onChange={(e) => { const v = e.target.value; setNumberOfTracks(v === "" ? "" : parseInt(v) || ""); }} min="2" max="100" step="1" className={styles.findInput} />
-          <button onClick={findSplitPoints} className={styles.findBtn} disabled={isAnalyzing}>
+          <button onClick={findSplitPoints} className={styles.findBtn} disabled={isAnalyzing || !peaksReady}>
             {isAnalyzing ? "Analyzing..." : "Find Split Points"}
           </button>
           {isAnalyzing && <button onClick={cancelAnalysis} className={styles.cancelBtn}>Cancel</button>}
@@ -909,23 +815,8 @@ function AutoSplitterTool() {
         </div>
       )}
 
-      {/* Split timestamps with remove */}
-      {splitPoints.length > 0 && (
-        <div className={styles.splitsRow}>
-          {splitPoints.map((point, i) => {
-            const inRange = point > trimStart && point < effectiveTrimEnd;
-            return (
-              <span key={i} className={`${styles.splitTag} ${!inRange ? styles.splitTagDim : ""}`}>
-                #{i + 1} {formatTime(point)}
-                <button onClick={() => removeSplitPoint(i)} className={styles.removeBtn} title="Remove">×</button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-
       {/* Track segments table */}
-      {activeSplits.length > 0 && (
+      {sortedTracks.length > 0 && (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead>
@@ -934,18 +825,33 @@ function AutoSplitterTool() {
                 <th>Start</th>
                 <th>End</th>
                 <th>Duration</th>
+                <th>Gap After</th>
                 {exportedTracks.length > 0 && <th></th>}
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {allSegmentPts.slice(0, -1).map((start, i) => {
+              {sortedTracks.map((track, i) => {
+                const trackDur = track.endTime - track.startTime;
+                const gapAfter = i < sortedTracks.length - 1
+                  ? sortedTracks[i + 1].startTime - track.endTime
+                  : 0;
                 const exported = exportedTracks.find((t) => t.trackNumber === i + 1);
                 return (
-                  <tr key={i}>
-                    <td>Track {i + 1}</td>
-                    <td>{formatTime(start)}</td>
-                    <td>{formatTime(allSegmentPts[i + 1])}</td>
-                    <td>{formatTime(allSegmentPts[i + 1] - start)}</td>
+                  <tr key={track.id}>
+                    <td style={{ color: TRACK_COLORS[i % TRACK_COLORS.length].replace('0.4', '1') }}>
+                      <b>{track.label}</b>
+                    </td>
+                    <td>{formatTime(track.startTime)}</td>
+                    <td>{formatTime(track.endTime)}</td>
+                    <td>{formatTime(trackDur)}</td>
+                    <td>
+                      {gapAfter > 0.01 ? (
+                        <span style={{ color: '#e53e3e', fontWeight: 600 }}>{formatTime(gapAfter)}</span>
+                      ) : i < sortedTracks.length - 1 ? (
+                        <span style={{ color: '#38a169' }}>none</span>
+                      ) : '—'}
+                    </td>
                     {exportedTracks.length > 0 && (
                       <td>
                         {exported ? (
@@ -955,6 +861,9 @@ function AutoSplitterTool() {
                         ) : "—"}
                       </td>
                     )}
+                    <td>
+                      <button onClick={() => removeTrack(i)} className={styles.removeBtn} title="Remove track">×</button>
+                    </td>
                   </tr>
                 );
               })}
@@ -964,7 +873,7 @@ function AutoSplitterTool() {
       )}
 
       {/* Export section */}
-      {activeSplits.length > 0 && (
+      {tracks.length > 0 && (
         <div className={styles.exportRow}>
           <div className={styles.fmtGroup}>
             <select value={outputFormat} onChange={(e) => { setOutputFormat(e.target.value); invalidateExports(); }} className={styles.fmtSelect}>
@@ -980,6 +889,12 @@ function AutoSplitterTool() {
               </select>
             )}
           </div>
+
+          {hasGaps() && (
+            <button onClick={removeGaps} className={styles.tbBtn} title="Remove gaps before export">
+              Remove Gaps
+            </button>
+          )}
 
           <button onClick={exportAllTracks} className={styles.exportBtn} disabled={isExporting || isAnalyzing}>
             {isExporting ? "Exporting..." : `Export ${outputFormat.toUpperCase()}`}
@@ -1019,7 +934,7 @@ function AutoSplitterTool() {
         </div>
       )}
 
-      <audio ref={audioRef} onEnded={() => setIsPlaying(false)} preload="auto" />
+      <audio ref={audioRef} onEnded={() => setIsPlaying(false)} preload="auto" controls style={{ display: 'none' }} />
     </section>
   );
 }

@@ -17,6 +17,7 @@ export default function RootLayout({ children }) {
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [thumbnailVisible, setThumbnailVisible] = useState(true); // New state for thumbnail visibility
   const [imageLoaded, setImageLoaded] = useState(false); // Track image load state
+  const [darkMode, setDarkMode] = useState(false);
   const [colors, setColors] = useState({
     Vibrant: '#ffffff',
     LightVibrant: '#ffffff',
@@ -32,6 +33,20 @@ export default function RootLayout({ children }) {
   
   // Get route info from shared module
   const { title: pageTitle, subtitle: pageSubTitle, tabTitle, icon: pageIcon } = getRouteInfo(pathname);
+
+  // Load dark mode preference from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('darkMode');
+      if (stored === 'true') setDarkMode(true);
+    } catch {}
+  }, []);
+
+  const toggleDarkMode = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    try { localStorage.setItem('darkMode', next.toString()); } catch {}
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -241,7 +256,7 @@ export default function RootLayout({ children }) {
   };
 
   return (
-    <ColorContext.Provider value={{ colors, colorData }}>
+    <ColorContext.Provider value={{ colors, colorData, darkMode, setDarkMode: toggleDarkMode }}>
       <html lang="en">
         <head>
           <meta charSet="utf-8" />
@@ -405,6 +420,32 @@ export default function RootLayout({ children }) {
                 </Link>
               </li>
 
+              <li className={styles.tooltipContainer} data-tooltip="Vinyl Digitizer">
+                <Link
+                  href="/vinyl-digitizer"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/vinyl-digitizer"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Vinyl Digitizer</span>
+                </Link>
+              </li>
+
               <li className={styles.tooltipContainer} data-tooltip="FFMPEG WASM">
                 <Link
                   href="/ffmpegwasm"
@@ -428,6 +469,26 @@ export default function RootLayout({ children }) {
                     </svg>
                   </div>
                   <span className={!sidebarActive ? styles.hidden : ''}>FFMPEG WASM</span>
+                </Link>
+              </li>
+
+              <li className={styles.tooltipContainer} data-tooltip="Color Review">
+                <Link
+                  href="/color-review"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/color-review"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Color Review</span>
                 </Link>
               </li>
 
@@ -588,6 +649,17 @@ export default function RootLayout({ children }) {
             </ul> 
             
             <div className={styles.sidebarFooter}>
+              <button
+                onClick={toggleDarkMode}
+                className={`${styles.darkModeToggle} ${!sidebarActive ? styles.darkModeToggleCollapsed : ''}`}
+                title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                style={{ color: sidebarTextColor }}
+              >
+                <span className={styles.darkModeIcon}>{darkMode ? '☀️' : '🌙'}</span>
+                <span className={`${styles.darkModeLabel} ${!sidebarActive ? styles.hidden : ''}`}>
+                  {darkMode ? 'Light Mode' : 'Dark Mode'}
+                </span>
+              </button>
               <button onClick={refreshColors} className={`${styles.refreshButton} ${!sidebarActive && styles.hidden}`} style={{ border: '1px solid black' }}>
                 Refresh Colors
               </button>
@@ -655,9 +727,8 @@ export default function RootLayout({ children }) {
             </div>
           </nav>
           <main
-            className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''
-              }`}
-            style={{ background: colors.LightMuted }}
+            className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''} ${darkMode ? styles.darkContent : ''}`}
+            style={{ background: darkMode ? colors.DarkMuted : colors.LightMuted }}
           >
             <div className={styles.contentWrapper}>
               <div className={styles.contentBody}>{children}</div>

@@ -8,7 +8,7 @@ const apiBaseURL = () =>
     ? 'http://localhost:3030'
     : 'https://www.martinbarker.me/internal-api';
 
-function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef }, _ref) {
+function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, blackTextOnWhite = false }, _ref) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
   const [authUrlLoading, setAuthUrlLoading] = useState(true);
@@ -183,11 +183,14 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
 
   // ---------- COMPACT MODE ----------
   if (compact) {
+    const signedInColor = blackTextOnWhite ? '#000000' : '#155724';
+    const notSignedInColor = blackTextOnWhite ? '#000000' : '#721c24';
+    const errorColor = blackTextOnWhite ? '#000000' : '#721c24';
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 14, color: blackTextOnWhite ? '#000000' : undefined }}>
         {canAuth ? (
           <>
-            <span style={{ color: '#155724', fontWeight: 'bold' }}>✅ YouTube signed in</span>
+            <span style={{ color: signedInColor, fontWeight: 'bold' }}>✅ YouTube signed in</span>
             <button
               onClick={clearAuth}
               disabled={clearAuthLoading}
@@ -196,18 +199,12 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
                 color: 'white', border: 'none', borderRadius: 4, cursor: clearAuthLoading ? 'not-allowed' : 'pointer'
               }}
             >
-              {clearAuthLoading ? 'Clearing...' : 'Clear auth'}
-            </button>
-            <button
-              onClick={clearStoredTokens}
-              style={{ padding: '4px 10px', fontSize: 12, background: '#fd7e14', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-            >
-              Clear tokens
+              {clearAuthLoading ? 'Clearing...' : 'Clear YouTube Auth'}
             </button>
           </>
         ) : (
           <>
-            <span style={{ color: '#721c24' }}>Not signed in to YouTube</span>
+            <span style={{ color: notSignedInColor }}>Not signed in to YouTube</span>
             <button
               onClick={handleSignIn}
               disabled={authUrlLoading || !authUrl}
@@ -221,7 +218,7 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
           </>
         )}
         {error && (
-          <span style={{ color: '#721c24', fontFamily: 'monospace', fontSize: 12 }}>{error}</span>
+          <span style={{ color: errorColor, fontFamily: 'monospace', fontSize: 12 }}>{error}</span>
         )}
         {debugLog.length > 0 && (
           <div style={{ width: '100%', marginTop: 8 }}>
@@ -276,13 +273,7 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
                   color: 'white', border: 'none', borderRadius: 4, cursor: clearAuthLoading ? 'not-allowed' : 'pointer', fontSize: 14
                 }}
               >
-                {clearAuthLoading ? 'Clearing...' : 'Clear Authentication'}
-              </button>
-              <button
-                onClick={clearStoredTokens}
-                style={{ padding: '8px 16px', background: '#fd7e14', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 14 }}
-              >
-                Clear Stored Tokens Only
+                {clearAuthLoading ? 'Clearing...' : 'Clear YouTube Auth'}
               </button>
             </div>
           </div>

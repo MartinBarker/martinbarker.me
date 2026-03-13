@@ -62,6 +62,18 @@ export const routeInfo = {
     subtitle: "Visualize audio waveforms with interactive playback",
     tabTitle: "Waveform Visualizer - Audio Waveform Display",
     icon: "/ico/martinbarker.ico"
+  },
+  "/color-review": {
+    title: "Color Review",
+    subtitle: "Review and edit image color palettes",
+    tabTitle: "Color Review - Image Palette Editor",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/vinyl-digitizer": {
+    title: "Vinyl Digitizer",
+    subtitle: "Record, split, tag, and export vinyl recordings",
+    tabTitle: "Vinyl Digitizer - Vinyl to Digital with Discogs Metadata",
+    icon: "/ico/martinbarker.ico"
   }
 };
 
