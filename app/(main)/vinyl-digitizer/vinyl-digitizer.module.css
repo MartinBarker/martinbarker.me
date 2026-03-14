@@ -7,6 +7,8 @@
   background: #ffffff;
   color: #000000;
   border-radius: 10px;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* ---- Header ---- */
@@ -28,7 +30,7 @@
 .vinylIcon { color: #764ba2; flex-shrink: 0; }
 .title { font-size: 1.5rem; font-weight: 700; margin: 0; color: #000000; }
 .subtitle { font-size: 0.82rem; color: #333333; margin: 0; }
-.headerRight { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; color: #000000; }
+.headerRight { display: flex; align-items: flex-end; gap: 0.5rem; color: #000000; flex-shrink: 0; }
 .projectNameInput {
   padding: 5px 10px;
   border: 1px solid #e2e8f0;
@@ -117,6 +119,31 @@
   margin: 0 8px;
   flex-shrink: 0;
 }
+.stepProgress {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #667eea;
+  display: block;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+/* ---- Render status banner (Step 6) ---- */
+.renderStatusBanner {
+  background: #ebf8ff;
+  border: 1px solid #bee3f8;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.renderStatusText {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #2b6cb0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 /* ---- Body layout ---- */
 .body {
@@ -134,6 +161,8 @@
   border-radius: 10px;
   padding: 1.25rem;
   box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 .cardTitle {
   font-size: 1rem;
@@ -322,6 +351,41 @@
 }
 .trackNameInput:focus { outline: none; border-color: #667eea; }
 .trackDur { font-size: 0.75rem; color: #a0aec0; white-space: nowrap; flex-shrink: 0; }
+
+/* ---- Tracklist editor ---- */
+.tracklistEditor { margin-top: 1rem; }
+.tracklistHeader { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.trackCountRow { display: flex; align-items: center; gap: 0.5rem; }
+.trackCountLabel { font-size: 0.82rem; font-weight: 600; color: #4a5568; }
+.trackAddBtn {
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: #edf2f7;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #4a5568;
+  transition: background 0.15s;
+}
+.trackAddBtn:hover { background: #e2e8f0; }
+.trackRemoveBtn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #cbd5e0;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.trackRemoveBtn:hover { color: #e53e3e; background: #fff5f5; }
 
 /* ---- Manual section ---- */
 .manualSection { }
@@ -1201,6 +1265,23 @@
 }
 .chkHeaderBtn:hover { background: #667eea; color: #fff; border-color: #667eea; }
 
+.colHeaderCheck {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.75rem;
+}
+.colorPickerMini {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #cbd5e0;
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+}
+
 /* ---- Filename format section ---- */
 .fmtSection { margin-bottom: 1.25rem; }
 .fmtRow { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
@@ -1370,7 +1451,7 @@
 .videoPreviewSection { margin: 1rem 0; display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-start; }
 .videoPreview { width: 100%; max-width: 640px; max-height: 360px; border-radius: 8px; border: 1px solid #e2e8f0; object-fit: contain; background: #000; display: block; }
 .ytSection { margin-top: 1.5rem; border-top: 1px solid #e2e8f0; padding-top: 1.25rem; }
-.ytForm { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 1rem; }
+.ytForm { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
 .thumbDropzone { width: 120px; height: 68px; border: 2px dashed #cbd5e0; border-radius: 6px; cursor: pointer; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f7fafc; flex-shrink: 0; }
 .ytResult { padding: 10px 14px; background: #f0fff4; border: 1px solid #c6f6d5; border-radius: 6px; font-size: 0.9rem; font-weight: 600; color: #276749; }
 .hoverUrl { color: #667eea; text-decoration: none; }
@@ -1915,6 +1996,13 @@
 }
 
 /* ---- Responsive ---- */
+@media (max-width: 1024px) {
+  .card { padding: 1rem; }
+  .header { flex-wrap: wrap; }
+  .exportGrid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .videoSettingsGrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .stepLabel { font-size: 0.72rem; }
+}
 @media (max-width: 768px) {
   .page { padding: 0.5rem; }
   .header { flex-direction: column; }
