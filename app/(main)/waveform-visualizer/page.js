@@ -1,8 +1,57 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import FileDrop from '../FileDrop/FileDrop';
 import styles from './waveform-visualizer.module.css';
+
+// IndexedDB helpers for caching waveform data
+const DB_NAME = 'waveform-cache';
+const STORE_NAME = 'waveforms';
+const DB_VERSION = 1;
+
+function openWaveformDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function getCachedWaveform(key) {
+  try {
+    const db = await openWaveformDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedWaveform(key, data) {
+  try {
+    const db = await openWaveformDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.put(data, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    // Caching failure is non-fatal
+  }
+}
 
 export default function WaveformVisualizer() {
   const [audioFile, setAudioFile] = useState(null);
@@ -18,6 +67,13 @@ export default function WaveformVisualizer() {
   const zoomviewContainerRef = useRef(null);
   const overviewContainerRef = useRef(null);
   const audioElementRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const peaksRef = useRef(null);
+
+  // Keep peaksRef in sync for use in non-stale callbacks
+  useEffect(() => {
+    peaksRef.current = peaks;
+  }, [peaks]);
 
   // Ensure component only runs on client side
   useEffect(() => {
@@ -36,17 +92,20 @@ export default function WaveformVisualizer() {
     }
   };
 
+  // Generate a cache key from file metadata
+  const getCacheKey = (file) => `waveform-${file.name}-${file.size}-${file.lastModified}`;
+
   // Load and process audio file
   const loadAudioFile = async (file) => {
     setIsLoading(true);
     setIsGeneratingWaveform(false);
     setWaveformProgress(0);
     setError('');
-    
+
     try {
       // Create audio URL for peaks.js
       const audioUrl = URL.createObjectURL(file);
-      
+
       // Wait for DOM elements to be ready
       await new Promise(resolve => {
         requestAnimationFrame(() => {
@@ -55,32 +114,32 @@ export default function WaveformVisualizer() {
           });
         });
       });
-      
+
       // Start waveform generation indicator
       setIsGeneratingWaveform(true);
-      
+
       // Simulate progress for long files
       const progressInterval = setInterval(() => {
         setWaveformProgress(prev => {
-          if (prev >= 90) return prev; // Don't go to 100% until actually done
+          if (prev >= 90) return prev;
           return prev + Math.random() * 10;
         });
       }, 200);
-      
+
       // Initialize Peaks.js
-      await initPeaks(audioUrl);
-      
+      await initPeaks(audioUrl, file);
+
       // Clear progress interval and set to 100%
       clearInterval(progressInterval);
       setWaveformProgress(100);
-      
+
       // Small delay to show 100% before hiding
       setTimeout(() => {
         setIsLoading(false);
         setIsGeneratingWaveform(false);
         setWaveformProgress(0);
       }, 500);
-      
+
     } catch (err) {
       console.error('Error loading audio file:', err);
       setError('Error loading audio file. Please try a different file.');
@@ -90,11 +149,11 @@ export default function WaveformVisualizer() {
     }
   };
 
-  // Initialize Peaks.js based on official documentation
-  const initPeaks = async (audioUrl) => {
+  // Initialize Peaks.js with performance optimizations
+  const initPeaks = async (audioUrl, file) => {
     // Clean up existing peaks instance
-    if (peaks) {
-      peaks.destroy();
+    if (peaksRef.current) {
+      peaksRef.current.destroy();
       setPeaks(null);
     }
 
@@ -105,10 +164,10 @@ export default function WaveformVisualizer() {
       // Wait for DOM elements to be ready
       let retries = 0;
       const maxRetries = 20;
-      
+
       while (retries < maxRetries) {
-        if (zoomviewContainerRef.current && 
-            overviewContainerRef.current && 
+        if (zoomviewContainerRef.current &&
+            overviewContainerRef.current &&
             audioElementRef.current) {
           break;
         }
@@ -120,38 +179,124 @@ export default function WaveformVisualizer() {
         throw new Error('DOM elements not ready after maximum retries');
       }
 
-      console.log('DOM elements ready:', {
-        zoomview: zoomviewContainerRef.current,
-        overview: overviewContainerRef.current,
-        audio: audioElementRef.current
-      });
-
       // Set audio source
       audioElementRef.current.src = audioUrl;
 
-      // Initialize Peaks.js with correct configuration structure
-      const options = {
-        zoomview: {
-          container: zoomviewContainerRef.current
-        },
-        overview: {
-          container: overviewContainerRef.current
-        },
-        mediaElement: audioElementRef.current,
-        webAudio: {
-          audioContext: new (window.AudioContext || window.webkitAudioContext)()
+      // Reuse AudioContext instead of creating a new one each time
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      } else if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+
+      // Check for cached waveform data
+      const cacheKey = getCacheKey(file);
+      const cachedWaveform = await getCachedWaveform(cacheKey);
+
+      // Zoomview formatter — full detail for zoomed-in view
+      const formatZoomviewTime = (seconds) => {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+
+        if (hrs > 0) {
+          return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
       };
 
-      Peaks.init(options, (err, peaksInstance) => {
-        if (err) {
-          console.error('Error initializing Peaks.js:', err);
-          setError('Error initializing waveform. Please try a different file.');
-          return;
-        }
+      // Overview formatter — condensed labels to avoid clutter when showing full track
+      const formatOverviewTime = (seconds) => {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
 
-        setPeaks(peaksInstance);
-        onPeaksReady(peaksInstance);
+        if (hrs > 0) {
+          // Show "1h", "1h30m", "2h" etc.
+          return mins > 0 ? `${hrs}h${mins}m` : `${hrs}h`;
+        }
+        if (mins > 0 && secs === 0) {
+          // Clean minute marks: "1m", "5m", "10m"
+          return `${mins}m`;
+        }
+        if (mins > 0) {
+          return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+        // Under a minute: show seconds
+        return `${secs}s`;
+      };
+
+      // Build options with explicit zoom levels for faster zoom transitions
+      const options = {
+        zoomview: {
+          container: zoomviewContainerRef.current,
+          formatAxisTime: formatZoomviewTime,
+        },
+        overview: {
+          container: overviewContainerRef.current,
+          formatAxisTime: formatOverviewTime,
+          axisLabelColor: '#aaa',
+        },
+        mediaElement: audioElementRef.current,
+        zoomLevels: [256, 512, 1024, 2048, 4096, 8192, 16384],
+      };
+
+      if (cachedWaveform) {
+        // Use cached waveform data — skips expensive Web Audio decoding
+        console.log('Using cached waveform data');
+        options.dataUri = { arraybuffer: cachedWaveform };
+      } else {
+        // Compute from audio via Web Audio API (first load)
+        options.webAudio = {
+          audioContext: audioContextRef.current
+        };
+      }
+
+      return new Promise((resolve, reject) => {
+        Peaks.init(options, async (err, peaksInstance) => {
+          if (err) {
+            console.error('Error initializing Peaks.js:', err);
+            // If cached data failed, retry without cache
+            if (cachedWaveform) {
+              console.log('Cached waveform failed, retrying with webAudio');
+              options.webAudio = { audioContext: audioContextRef.current };
+              delete options.dataUri;
+              Peaks.init(options, (retryErr, retryInstance) => {
+                if (retryErr) {
+                  setError('Error initializing waveform. Please try a different file.');
+                  reject(retryErr);
+                  return;
+                }
+                setPeaks(retryInstance);
+                onPeaksReady(retryInstance, file);
+                resolve();
+              });
+              return;
+            }
+            setError('Error initializing waveform. Please try a different file.');
+            reject(err);
+            return;
+          }
+
+          setPeaks(peaksInstance);
+          onPeaksReady(peaksInstance, file);
+
+          // Cache the waveform data for future loads (only if we computed it fresh)
+          if (!cachedWaveform) {
+            try {
+              const waveformData = peaksInstance.getWaveformData();
+              if (waveformData) {
+                const arrayBuffer = waveformData.toArrayBuffer();
+                await setCachedWaveform(cacheKey, arrayBuffer);
+                console.log('Waveform data cached for future loads');
+              }
+            } catch (cacheErr) {
+              console.warn('Could not cache waveform data:', cacheErr);
+            }
+          }
+
+          resolve();
+        });
       });
     } catch (err) {
       console.error('Error loading Peaks.js:', err);
@@ -159,67 +304,76 @@ export default function WaveformVisualizer() {
     }
   };
 
-  // Handle peaks ready
-  const onPeaksReady = (peaksInstance) => {
+  // Debounced state updaters to avoid excessive React re-renders during drag
+  const segmentUpdateTimer = useRef(null);
+  const pointUpdateTimer = useRef(null);
+
+  const debouncedUpdateSegments = useCallback((peaksInstance) => {
+    if (segmentUpdateTimer.current) clearTimeout(segmentUpdateTimer.current);
+    segmentUpdateTimer.current = setTimeout(() => {
+      const segmentsList = peaksInstance.segments.getSegments();
+      setSegments([...segmentsList]);
+    }, 100);
+  }, []);
+
+  const debouncedUpdatePoints = useCallback((peaksInstance) => {
+    if (pointUpdateTimer.current) clearTimeout(pointUpdateTimer.current);
+    pointUpdateTimer.current = setTimeout(() => {
+      const pointsList = peaksInstance.points.getPoints();
+      setPoints([...pointsList]);
+    }, 100);
+  }, []);
+
+  // Handle peaks ready — use dragend instead of continuous updates during drag
+  const onPeaksReady = (peaksInstance, file) => {
     console.log('Peaks.js is ready');
-    
-    // Add event listeners
-    peaksInstance.on('segments.add', (segment) => {
-      console.log('Segment added:', segment);
-      updateSegments();
+
+    // Update segments/points on add/remove (immediate, these are discrete actions)
+    peaksInstance.on('segments.add', () => {
+      debouncedUpdateSegments(peaksInstance);
     });
 
-    peaksInstance.on('segments.remove', (segment) => {
-      console.log('Segment removed:', segment);
-      updateSegments();
+    peaksInstance.on('segments.remove', () => {
+      debouncedUpdateSegments(peaksInstance);
     });
 
-    peaksInstance.on('points.add', (point) => {
-      console.log('Point added:', point);
-      updatePoints();
+    peaksInstance.on('points.add', () => {
+      debouncedUpdatePoints(peaksInstance);
     });
 
-    peaksInstance.on('points.remove', (point) => {
-      console.log('Point removed:', point);
-      updatePoints();
+    peaksInstance.on('points.remove', () => {
+      debouncedUpdatePoints(peaksInstance);
     });
-  };
 
-  // Update segments list
-  const updateSegments = () => {
-    if (peaks) {
-      const segmentsList = peaks.segments.getSegments();
-      setSegments(segmentsList);
-    }
-  };
+    // Only update React state when drag ends, not during drag
+    peaksInstance.on('segments.dragend', () => {
+      debouncedUpdateSegments(peaksInstance);
+    });
 
-  // Update points list
-  const updatePoints = () => {
-    if (peaks) {
-      const pointsList = peaks.points.getPoints();
-      setPoints(pointsList);
-    }
+    peaksInstance.on('points.dragend', () => {
+      debouncedUpdatePoints(peaksInstance);
+    });
   };
 
   // Zoom controls
   const zoomIn = () => {
-    if (peaks) {
-      peaks.zoom.zoomIn();
+    if (peaksRef.current) {
+      peaksRef.current.zoom.zoomIn();
     }
   };
 
   const zoomOut = () => {
-    if (peaks) {
-      peaks.zoom.zoomOut();
+    if (peaksRef.current) {
+      peaksRef.current.zoom.zoomOut();
     }
   };
 
   // Add segment at current time
   const addSegment = () => {
-    if (peaks) {
-      const time = peaks.player.getCurrentTime();
-      
-      peaks.segments.add({
+    if (peaksRef.current) {
+      const time = peaksRef.current.player.getCurrentTime();
+
+      peaksRef.current.segments.add({
         startTime: time,
         endTime: time + 10,
         labelText: `Segment ${segments.length + 1}`,
@@ -231,10 +385,10 @@ export default function WaveformVisualizer() {
 
   // Add point at current time
   const addPoint = () => {
-    if (peaks) {
-      const time = peaks.player.getCurrentTime();
-      
-      peaks.points.add({
+    if (peaksRef.current) {
+      const time = peaksRef.current.player.getCurrentTime();
+
+      peaksRef.current.points.add({
         time: time,
         labelText: `Point ${points.length + 1}`,
         editable: true,
@@ -245,16 +399,18 @@ export default function WaveformVisualizer() {
 
   // Clear all markers
   const clearMarkers = () => {
-    if (peaks) {
-      peaks.segments.removeAll();
-      peaks.points.removeAll();
+    if (peaksRef.current) {
+      peaksRef.current.segments.removeAll();
+      peaksRef.current.points.removeAll();
+      setSegments([]);
+      setPoints([]);
     }
   };
 
   // Reset to load new file
   const resetVisualizer = () => {
-    if (peaks) {
-      peaks.destroy();
+    if (peaksRef.current) {
+      peaksRef.current.destroy();
       setPeaks(null);
     }
     setAudioFile(null);
@@ -268,15 +424,20 @@ export default function WaveformVisualizer() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (peaks) {
+      if (peaksRef.current) {
         try {
-          peaks.destroy();
+          peaksRef.current.destroy();
         } catch (err) {
           console.warn('Error destroying peaks instance:', err);
         }
       }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+      if (segmentUpdateTimer.current) clearTimeout(segmentUpdateTimer.current);
+      if (pointUpdateTimer.current) clearTimeout(pointUpdateTimer.current);
     };
-  }, [peaks]);
+  }, []);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -324,8 +485,8 @@ export default function WaveformVisualizer() {
           <p>Generating waveform data...</p>
           <div className={styles.progressContainer}>
             <div className={styles.progressBar}>
-              <div 
-                className={styles.progressFill} 
+              <div
+                className={styles.progressFill}
                 style={{ width: `${waveformProgress}%` }}
               ></div>
             </div>
@@ -352,8 +513,8 @@ export default function WaveformVisualizer() {
 
           <div className={styles.waveformContainer}>
             {/* Zoom View Container */}
-            <div 
-              className={styles.zoomviewContainer} 
+            <div
+              className={styles.zoomviewContainer}
               ref={zoomviewContainerRef}
             >
               {isGeneratingWaveform && (
@@ -363,10 +524,10 @@ export default function WaveformVisualizer() {
                 </div>
               )}
             </div>
-            
+
             {/* Overview Container */}
-            <div 
-              className={styles.overviewContainer} 
+            <div
+              className={styles.overviewContainer}
               ref={overviewContainerRef}
             >
               {isGeneratingWaveform && (
@@ -376,11 +537,11 @@ export default function WaveformVisualizer() {
                 </div>
               )}
             </div>
-            
+
             {/* Audio Element */}
-            <audio 
-              ref={audioElementRef} 
-              controls 
+            <audio
+              ref={audioElementRef}
+              controls
               className={styles.audioElement}
             >
               Your browser does not support the audio element.

@@ -520,13 +520,16 @@
 /* Listogs Table Filters */
 .tableWrapper {
     width: 100%;
+    background: #ffffff;
+    color: #000000;
 }
 
 .filterCard {
     margin-bottom: 24px;
     padding: 20px;
-    background-color: #f5f1e8;
-    border: 1px solid #ddd2ba;
+    background-color: #ffffff;
+    color: #000000;
+    border: 1px solid #dee2e6;
     border-radius: 12px;
     box-shadow: 0 12px 30px rgba(33, 37, 41, 0.08);
 }
@@ -543,7 +546,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #3f3a33;
+    color: #000000;
 }
 
 .clearFiltersButton {
@@ -573,7 +576,7 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #7b7b7b;
+    color: #000000;
 }
 
 .masterToggleRow {
@@ -582,7 +585,7 @@
     align-items: center;
     gap: 12px;
     font-size: 13px;
-    color: #495057;
+    color: #000000;
 }
 
 .masterToggleRow input[type="checkbox"] {
@@ -596,7 +599,7 @@
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: #495057;
+    color: #000000;
 }
 
 .filterChip {
@@ -625,7 +628,7 @@
 
 .filterChipPlaceholder {
     font-size: 13px;
-    color: #8a8a8a;
+    color: #000000;
 }
 
 .clearChipButton {
@@ -661,7 +664,7 @@
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #6c6a65;
+    color: #000000;
 }
 
 .dropdownBox {
@@ -852,7 +855,7 @@
     margin-top: 18px;
     font-size: 13px;
     font-style: italic;
-    color: #6f6f6f;
+    color: #000000;
 }
 
 .srOnly {

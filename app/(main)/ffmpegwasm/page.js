@@ -310,6 +310,12 @@ function CombineImageAudioExample() {
   const getTokensRef = useRef(null);
   const thumbnailInputRef = useRef(null);
 
+  // Image settings (per-image: stretchImageToFit, useBlurBackground, paddingColor)
+  const [imageSettings, setImageSettings] = useState({});
+  const [imageUrlInput, setImageUrlInput] = useState("");
+  const [imageUrlLoading, setImageUrlLoading] = useState(false);
+  const [imageUrlError, setImageUrlError] = useState("");
+
   // ---------- Mount: restore settings + IDB ----------
   useEffect(() => {
     setMounted(true);
@@ -409,6 +415,7 @@ function CombineImageAudioExample() {
       const additions = files.filter(f => f?.name && !existing.has(`${f.name}-${f.size}-${f.type}`)).map(f => ({
         id: `${f.name}-${f.size}-${f.lastModified}-${Math.random().toString(36).slice(2,8)}`,
         file: f, durationSec: null,
+        previewUrl: f.type.startsWith("image/") ? URL.createObjectURL(f) : null,
       }));
       const updated = [...prev, ...additions];
       updateDerived(updated);
@@ -422,11 +429,13 @@ function CombineImageAudioExample() {
     setMediaFiles(prev => {
       const target = prev.find(i => i.id === id);
       if (!target) return prev;
+      if (target.previewUrl) URL.revokeObjectURL(target.previewUrl);
       const remaining = prev.filter(i => i.id !== id);
       updateDerived(remaining);
       removeFromFFmpeg(target.file);
       setSelectedAudioIds(c => c.filter(x => x !== id));
       setSelectedImageIds(c => c.filter(x => x !== id));
+      setImageSettings(prev2 => { const next = { ...prev2 }; delete next[id]; return next; });
       return remaining;
     });
   };
@@ -442,6 +451,39 @@ function CombineImageAudioExample() {
   const closeModal = () => {
     if (modalUrlRef.current) { URL.revokeObjectURL(modalUrlRef.current); modalUrlRef.current = null; }
     setModalImage(null);
+  };
+
+  // ---------- Image settings helpers ----------
+  const updateImageSetting = (id, key, value) => {
+    setImageSettings(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: value } }));
+  };
+
+  const getImageSettings = (id) => ({
+    stretchImageToFit: false,
+    useBlurBackground: false,
+    paddingColor: backgroundColor,
+    ...(imageSettings[id] || {}),
+  });
+
+  const addImageFromUrl = async () => {
+    const url = imageUrlInput.trim();
+    if (!url || imageUrlLoading) return;
+    setImageUrlLoading(true);
+    setImageUrlError("");
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      if (!blob.type.startsWith("image/")) throw new Error("URL does not point to an image");
+      const filename = url.split("/").pop().split("?")[0] || "image.jpg";
+      const file = new File([blob], filename, { type: blob.type });
+      addFiles([file]);
+      setImageUrlInput("");
+    } catch (err) {
+      setImageUrlError(`Failed to fetch: ${err.message}`);
+    } finally {
+      setImageUrlLoading(false);
+    }
   };
 
   const extractCoverArt = async () => {
@@ -500,8 +542,8 @@ function CombineImageAudioExample() {
   const renderVideo = async () => {
     if (isRendering || selectedAudioIds.length === 0 || selectedImageIds.length === 0) return;
     const selectedAudioItems = selectedAudioIds.map(id => getMediaById(id)).filter(Boolean);
-    const selectedImageItem = getMediaById(selectedImageIds[0]);
-    if (!selectedAudioItems.length || !selectedImageItem) return;
+    const selectedImageItems = selectedImageIds.map(id => getMediaById(id)).filter(Boolean);
+    if (!selectedAudioItems.length || !selectedImageItems.length) return;
 
     const safeOutput = outputFilename.trim() || "output";
     const outputFilepath = `${safeOutput}.${outputFormat}`;
@@ -511,12 +553,15 @@ function CombineImageAudioExample() {
       duration: item.durationSec || 10,
       startTime: "", endTime: ""
     }));
-    const imageInputs = [{
-      filepath: `${selectedImageItem.id}-${selectedImageItem.file.name}`,
-      stretchImageToFit: false,
-      paddingColor: backgroundColor,
-      useBlurBackground: false
-    }];
+    const imageInputs = selectedImageItems.map(item => {
+      const s = getImageSettings(item.id);
+      return {
+        filepath: `${item.id}-${item.file.name}`,
+        stretchImageToFit: s.stretchImageToFit,
+        useBlurBackground: s.useBlurBackground,
+        paddingColor: s.paddingColor || backgroundColor,
+      };
+    });
     const totalDurationSec = totalSelectedDuration();
     const commandResult = createFFmpegCommand({
       audioInputs, imageInputs, outputFilepath,
@@ -540,7 +585,9 @@ function CombineImageAudioExample() {
       for (const item of selectedAudioItems) {
         await writeToFFmpeg(`${item.id}-${item.file.name}`, item.file);
       }
-      await writeToFFmpeg(`${selectedImageItem.id}-${selectedImageItem.file.name}`, selectedImageItem.file);
+      for (const item of selectedImageItems) {
+        await writeToFFmpeg(`${item.id}-${item.file.name}`, item.file);
+      }
       await ffmpeg.exec(commandResult.cmdArgs);
       const data = await ffmpeg.readFile(outputFilepath);
       const url = URL.createObjectURL(new Blob([data.buffer], { type: "video/mp4" }));
@@ -552,7 +599,7 @@ function CombineImageAudioExample() {
       setYtUploadResult(null);
       setYtUploadError("");
 
-      const meta = { buffer: data, filename: safeOutput, format: outputFormat, audioFiles: selectedAudioItems.map(i => ({ name: i.file.name, size: i.file.size, durationSec: i.durationSec })), imageFiles: [{ name: selectedImageItem.file.name, size: selectedImageItem.file.size }], timestamp: Date.now(), tracklist };
+      const meta = { buffer: data, filename: safeOutput, format: outputFormat, audioFiles: selectedAudioItems.map(i => ({ name: i.file.name, size: i.file.size, durationSec: i.durationSec })), imageFiles: selectedImageItems.map(i => ({ name: i.file.name, size: i.file.size })), timestamp: Date.now(), tracklist };
       setLastRenderMeta(meta);
       saveRenderToIDB(meta).catch(() => {});
     } catch (err) {
@@ -575,9 +622,12 @@ function CombineImageAudioExample() {
 
   const clearAll = async () => {
     if (isRendering) { await stopRender(); }
-    setMediaFiles([]);
+    setMediaFiles(prev => { prev.forEach(i => { if (i.previewUrl) URL.revokeObjectURL(i.previewUrl); }); return []; });
     setSelectedAudioIds([]);
     setSelectedImageIds([]);
+    setImageSettings({});
+    setImageUrlInput("");
+    setImageUrlError("");
     setVideoSrc("");
     setLastRenderMeta(null);
     setLogs([]);
@@ -672,6 +722,15 @@ function CombineImageAudioExample() {
       onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={e => { e.preventDefault(); setIsDragging(false); }}
       onDrop={e => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); }}
+      onPaste={e => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const imageItems = items.filter(item => item.type.startsWith("image/"));
+        if (imageItems.length > 0) {
+          const files = imageItems.map(item => item.getAsFile()).filter(Boolean);
+          const renamedFiles = files.map((f, i) => new File([f], `pasted-${Date.now()}-${i}.${f.type.split("/")[1] || "png"}`, { type: f.type }));
+          addFiles(renamedFiles);
+        }
+      }}
     >
       <StepIndicator currentStep={currentStep} isRendering={isRendering} onStepClick={i => { if (!isRendering) setCurrentStep(i); }} />
 
@@ -684,9 +743,31 @@ function CombineImageAudioExample() {
             style={{ marginBottom: 24 }}
           >
             <p className={styles.dropZoneTitle}>Drag & drop audio and image files here</p>
-            <p className={styles.dropZoneSubtitle}>Or click to browse · Audio + at least one image required</p>
+            <p className={styles.dropZoneSubtitle}>Or click to browse · Paste images with Ctrl+V · Audio + at least one image required</p>
             <input ref={fileInputRef} type="file" multiple onChange={e => addFiles(e.target.files)} accept="audio/*,video/*,image/*" className={styles.hiddenFileInput} />
           </div>
+
+          {/* URL image input */}
+          <div style={{ display: "flex", gap: 8, marginBottom: imageUrlError ? 4 : 16 }}>
+            <input
+              type="text"
+              value={imageUrlInput}
+              onChange={e => { setImageUrlInput(e.target.value); setImageUrlError(""); }}
+              onKeyDown={e => { if (e.key === "Enter") addImageFromUrl(); }}
+              placeholder="Add image from URL — paste URL and press Enter"
+              style={{ flex: 1, padding: "8px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 13, background: "#fafafa" }}
+            />
+            <button
+              onClick={addImageFromUrl}
+              disabled={!imageUrlInput.trim() || imageUrlLoading}
+              style={{ padding: "8px 16px", background: imageUrlInput.trim() && !imageUrlLoading ? "#007bff" : "#adb5bd", color: "white", border: "none", borderRadius: 6, cursor: imageUrlInput.trim() && !imageUrlLoading ? "pointer" : "not-allowed", fontSize: 13, fontWeight: "bold", whiteSpace: "nowrap" }}
+            >
+              {imageUrlLoading ? "Adding…" : "Add Image"}
+            </button>
+          </div>
+          {imageUrlError && (
+            <div style={{ marginBottom: 16, fontSize: 13, color: "#dc3545", background: "#f8d7da", padding: "6px 10px", borderRadius: 4 }}>{imageUrlError}</div>
+          )}
 
           <div className={styles["files-display"]}>
             <Table
@@ -704,7 +785,7 @@ function CombineImageAudioExample() {
             />
             <Table
               title="Image Files"
-              data={mediaFiles.filter(i => i.file.type.startsWith("image/")).map(i => ({ id: i.id, name: i.file.name, size: formatFileSize(i.file.size), preview: URL.createObjectURL(i.file), file: i.file }))}
+              data={mediaFiles.filter(i => i.file.type.startsWith("image/")).map(i => ({ id: i.id, name: i.file.name, size: formatFileSize(i.file.size), preview: i.previewUrl || URL.createObjectURL(i.file), file: i.file }))}
               setData={rows => setMediaFiles(prev => { const images = prev.filter(p => p.file.type.startsWith("image/")); const audios = prev.filter(p => p.file.type.startsWith("audio/")); const m = new Map(images.map(i => [i.id, i])); return [...audios, ...rows.map(r => m.get(r.id)).filter(Boolean)]; })}
               selectedIds={selectedImageIds}
               onSelectionChange={setSelectedImageIds}
@@ -716,6 +797,50 @@ function CombineImageAudioExample() {
               ]}
             />
           </div>
+
+          {/* Per-image settings */}
+          {selectedImageIds.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: "bold", color: "#495057", marginBottom: 8 }}>
+                Image Settings · {selectedImageIds.length} image{selectedImageIds.length !== 1 ? "s" : ""} (slideshow order)
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {selectedImageIds.map((id, idx) => {
+                  const item = getMediaById(id);
+                  if (!item) return null;
+                  const s = getImageSettings(id);
+                  return (
+                    <div key={id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", background: "#f8f9fa", borderRadius: 8, border: "1px solid #dee2e6" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: "#007bff", color: "white", fontSize: 11, fontWeight: "bold", flexShrink: 0 }}>{idx + 1}</div>
+                      {item.previewUrl && <img src={item.previewUrl} alt={item.file.name} style={{ width: 56, height: 42, objectFit: "cover", borderRadius: 4, flexShrink: 0, border: "1px solid #dee2e6" }} />}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: "bold", color: "#343a40", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 6 }}>{item.file.name}</div>
+                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13, cursor: "pointer", color: "#495057" }}>
+                            <input type="checkbox" checked={s.useBlurBackground} onChange={e => updateImageSetting(id, "useBlurBackground", e.target.checked)} />
+                            Blur Background
+                          </label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13, cursor: s.useBlurBackground ? "not-allowed" : "pointer", color: s.useBlurBackground ? "#adb5bd" : "#495057" }}>
+                            <input type="checkbox" checked={s.stretchImageToFit} disabled={s.useBlurBackground} onChange={e => updateImageSetting(id, "stretchImageToFit", e.target.checked)} />
+                            Stretch to Fit
+                          </label>
+                          {!s.useBlurBackground && !s.stretchImageToFit && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#495057" }}>
+                              <span>Padding:</span>
+                              <input type="color" value={s.paddingColor} onChange={e => updateImageSetting(id, "paddingColor", e.target.value)} style={{ width: 28, height: 24, padding: 2, border: "1px solid #ced4da", borderRadius: 4, cursor: "pointer" }} />
+                              {["#000000", "#ffffff", "#1a1a2e", "#16213e", "#0f3460"].map(c => (
+                                <span key={c} onClick={() => updateImageSetting(id, "paddingColor", c)} title={c} style={{ display: "inline-block", width: 18, height: 18, borderRadius: 3, background: c, border: s.paddingColor === c ? "2px solid #007bff" : "1px solid #adb5bd", cursor: "pointer", flexShrink: 0 }} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {mediaFiles.length > 0 && (
             <div className={styles.selectionSummary} style={{ marginBottom: 8 }}>
@@ -795,7 +920,7 @@ function CombineImageAudioExample() {
           </div>
 
           <div style={{ padding: "12px 16px", background: "#f8f9fa", borderRadius: 6, marginBottom: 24, fontSize: 13, color: "#6c757d" }}>
-            <strong>{selectedAudioIds.length}</strong> audio track{selectedAudioIds.length !== 1 ? "s" : ""} · <strong>{selectedImageIds.length}</strong> image · <strong>{formatDuration(totalSelectedDuration())}</strong> runtime → <strong>{outputFilename || "output"}.{outputFormat}</strong> at {videoWidth}×{videoHeight}
+            <strong>{selectedAudioIds.length}</strong> audio track{selectedAudioIds.length !== 1 ? "s" : ""} · <strong>{selectedImageIds.length}</strong> image{selectedImageIds.length !== 1 ? "s (slideshow)" : ""} · <strong>{formatDuration(totalSelectedDuration())}</strong> runtime → <strong>{outputFilename || "output"}.{outputFormat}</strong> at {videoWidth}×{videoHeight}
           </div>
 
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>

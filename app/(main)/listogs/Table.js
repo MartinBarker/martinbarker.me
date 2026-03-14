@@ -863,7 +863,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
       accessorKey: 'fullUrl',
       header: 'YouTube Link',
       cell: info => (
-        <a href={info.getValue()} target="_blank" rel="noopener noreferrer">
+        <a href={info.getValue()} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>
           {info.row.original.videoId}
         </a>
       ),
@@ -873,7 +873,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
       accessorKey: 'discogsUrl',
       header: 'Discogs Link',
       cell: info => (
-        <a href={info.getValue()} target="_blank" rel="noopener noreferrer">
+        <a href={info.getValue()} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>
           Discogs
         </a>
       ),
@@ -1672,7 +1672,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
         </div>
       </div>
       
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16, background: '#ffffff', color: '#000000' }}>
         <thead>
           {table.getHeaderGroups().map(headerGroup => (
             <tr key={headerGroup.id}>
@@ -1680,9 +1680,10 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
                 <th
                   key={header.id}
                   style={{
-                    borderBottom: '1px solid #ccc',
+                    borderBottom: '1px solid #dee2e6',
                     padding: '8px',
-                    background: '#f5f5f5',
+                    background: '#ffffff',
+                    color: '#000000',
                     textAlign: 'left',
                     cursor: header.column.getCanSort() ? 'pointer' : 'default',
                     userSelect: 'none',
@@ -1713,13 +1714,13 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
             <React.Fragment key={row.id}>
               <tr>
                 {row.getVisibleCells().map(cell => (
-                  <td key={cell.id} style={{ padding: '8px', borderBottom: '1px solid #eee' }}>
+                  <td key={cell.id} style={{ padding: '8px', borderBottom: '1px solid #eee', background: '#ffffff', color: '#000000' }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}
               </tr>
               <tr>
-                <td colSpan={row.getVisibleCells().length} style={{ padding: 0, background: '#fafafa' }}>
+                <td colSpan={row.getVisibleCells().length} style={{ padding: 0, background: '#ffffff', color: '#000000' }}>
                   {row.original.videoId && (
                     <div style={{ padding: '12px 0', textAlign: 'center' }}>
                       <iframe
@@ -1740,7 +1741,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
           ))}
         </tbody>
       </table>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#000000', background: '#ffffff' }}>
         {/* Pagination controls (left) */}
         <button onClick={() => table.firstPage()} disabled={!table.getCanPreviousPage()}>
           {'<<'}
@@ -1802,6 +1803,8 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
             width: 140,
             borderRadius: 4,
             border: '1px solid #ccc',
+            background: '#ffffff',
+            color: '#000000',
           }}
         />
       </div>

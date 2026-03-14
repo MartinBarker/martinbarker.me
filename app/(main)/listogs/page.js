@@ -1,9 +1,10 @@
 'use client';
-import React, { useState, useEffect, Suspense, useContext, useCallback } from 'react';
+import React, { useState, useEffect, Suspense, useContext, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
 import VideoTable from './Table';
 import { ColorContext } from '../ColorContext';
+import YouTubeAuth from '../YouTubeAuth/YouTubeAuth';
 
 // Helper to flatten videoData object to array with deduplication
 function flattenVideoData(videoData) {
@@ -93,14 +94,11 @@ function DiscogsAuthTestPageInner() {
   // Helper: 1 year in ms (simulate expiry)
   const DISCOGS_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
 
+  // YouTube auth via YouTubeAuth component
+  const getTokensRef = useRef(null);
+  const [ytAuthState, setYtAuthState] = useState({ isAuthenticated: false, youtubeAuthStatus: { exists: false }, canAuth: false });
+
   // YouTube playlist creation state
-  const [youtubeAuthStatus, setYoutubeAuthStatus] = useState({
-    exists: false,
-    code: null,
-    scope: null,
-    setTime: null,
-    expiresAt: null
-  });
   const [playlistData, setPlaylistData] = useState({
     title: '',
     description: '',
@@ -126,6 +124,7 @@ function DiscogsAuthTestPageInner() {
   const [imageDownloadError, setImageDownloadError] = useState('');
   const [stopRequestLoading, setStopRequestLoading] = useState(false);
   const [socketReconnectKey, setSocketReconnectKey] = useState(0);
+  const [videosViewTab, setVideosViewTab] = useState('table');
 
   /** Persist tokens in localStorage, along with set time */
   const storeDiscogsTokens = (token, verifier) => {
@@ -147,32 +146,6 @@ function DiscogsAuthTestPageInner() {
     }
     // Only run on mount or when params change
   }, [oauthToken, oauthVerifier, router]);
-
-  // Check localStorage for YouTube auth code and expiry
-  useEffect(() => {
-    const code = localStorage.getItem('youtube_auth_code');
-    const scope = localStorage.getItem('youtube_auth_scope');
-    const setTime = localStorage.getItem('youtube_auth_set_time');
-    
-    if (code && setTime) {
-      const expiresAt = new Date(parseInt(setTime) + DISCOGS_AUTH_EXPIRY_MS);
-      setYoutubeAuthStatus({
-        exists: true,
-        code: code,
-        scope: scope || null,
-        setTime: parseInt(setTime),
-        expiresAt: expiresAt.getTime()
-      });
-    } else {
-      setYoutubeAuthStatus({
-        exists: false,
-        code: null,
-        scope: null,
-        setTime: null,
-        expiresAt: null
-      });
-    }
-  }, []);
 
   // Discogs Auth Status state
   const [discogsAuthStatus, setDiscogsAuthStatus] = useState({
@@ -946,7 +919,7 @@ function DiscogsAuthTestPageInner() {
   const canStopJob = Boolean(socketId && sessionStatus && sessionStatus.status && !inactiveStatuses.has(sessionStatus.status));
 
   // Check if user can create YouTube playlists
-  const canCreatePlaylists = youtubeAuthStatus.exists && youtubeAuthStatus.expiresAt && new Date(youtubeAuthStatus.expiresAt) > new Date();
+  const canCreatePlaylists = ytAuthState.canAuth;
   const isSubmitDisabled = !extractedId || !selectedType || !discogsAuthStatus.exists;
 
   // Fetch Discogs info for the given URL
@@ -1152,29 +1125,12 @@ function DiscogsAuthTestPageInner() {
         ? 'http://localhost:3030'
         : 'https://www.martinbarker.me/internal-api';
 
-      // Exchange auth code for tokens if needed
-      if (youtubeAuthStatus.exists && youtubeAuthStatus.code) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Exchanging auth code for tokens...');
-        }
-        const tokenResponse = await fetch(`${apiBaseURL}/youtube/exchangeCode`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          credentials: 'include',
-          body: JSON.stringify({
-            code: youtubeAuthStatus.code,
-            scope: youtubeAuthStatus.scope
-          })
-        });
-
-        if (!tokenResponse.ok) {
-          const tokenError = await tokenResponse.json();
-          setYoutubeError(tokenError.error || 'Failed to exchange auth code for tokens');
-          setPlaylistLoading(false);
-          return;
-        }
+      // Get tokens via YouTubeAuth component
+      const tokens = await getTokensRef.current?.getTokens();
+      if (!tokens) {
+        setYoutubeError('Not authenticated with YouTube. Please sign in first.');
+        setPlaylistLoading(false);
+        return;
       }
 
       let playlistId;
@@ -1374,47 +1330,65 @@ function DiscogsAuthTestPageInner() {
     <div >
       {/* --- Listogs Info Section --- */}
       <div style={{
-        background: '#f5f7fa',
+        background: '#ffffff',
+        color: '#000000',
         border: '1px solid #e3e8ee',
         borderRadius: 8,
-        padding: '24px 20px',
+        padding: '28px 24px',
         marginBottom: 32,
         boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
       }}>
-        <p style={{ fontSize: 17, marginBottom: 8 }}>
-          <strong>Listogs</strong> is a tool for converting <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer">Discogs</a> artist, label, and list pages into YouTube playlists, CSV exports, and image bundles.
+        <h1 style={{
+          fontSize: 42,
+          fontWeight: 700,
+          margin: '0 0 12px 0',
+          color: '#000000',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.1
+        }}>
+          Listogs
+        </h1>
+        <p style={{ fontSize: 14, marginBottom: 8, color: '#333', lineHeight: 1.5 }}>
+          A tool for converting <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>Discogs</a> artist, label, and list pages into YouTube playlists, CSV exports, and image bundles.
         </p>
-        <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
+        <ul style={{ fontSize: 13, marginBottom: 0, paddingLeft: 20, color: '#444', lineHeight: 1.6 }}>
           <li>Authenticate with Discogs to access lists, releases, and related media.</li>
           <li>Paste any Discogs artist, label, release, or list URL and submit.</li>
           <li>Generate a YouTube-ready table for every release, with CSV export and copyable video IDs.</li>
           <li>For Discogs list URLs, extract the primary image for each release and download them all as a single .zip file.</li>
         </ul>
-     
       </div>
       {/* Discogs Auth Status and Button (combined in one line) */}
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{
+        marginBottom: 24,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        padding: '16px 20px',
+        background: '#ffffff',
+        color: '#000000',
+        borderRadius: 8,
+        border: '1px solid #e3e8ee',
+        flexWrap: 'wrap'
+      }}>
         {discogsAuthStatus.exists ? (
           <button
             style={{
               color: 'white',
-              background: buttonColor,
+              background: '#dc3545',
               fontWeight: 'bold',
               padding: '10px 24px',
               border: 'none',
               borderRadius: 6,
-              fontSize: 18,
+              fontSize: 16,
               cursor: 'pointer',
-              transition: 'background 0.2s, box-shadow 0.2s',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.07)'
+              transition: 'background 0.2s'
             }}
             onMouseOver={e => {
-              e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
-              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
+              e.currentTarget.style.background = '#c82333';
             }}
             onMouseOut={e => {
-              e.currentTarget.style.background = buttonColor;
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
+              e.currentTarget.style.background = '#dc3545';
             }}
             onClick={clearDiscogsAuth}
           >
@@ -1454,49 +1428,25 @@ function DiscogsAuthTestPageInner() {
               : 'Authorize Discogs'}
           </button>
         )}
-        <strong>Discogs Auth Status:</strong>{' '}
+        <strong style={{ color: '#000000' }}>Discogs Auth Status:</strong>{' '}
         {discogsAuthStatus.exists ? (
-          <span style={{ color: 'green' }}>
+          <span style={{ color: '#000000' }}>
             Signed In
           </span>
         ) : (
-          <span style={{ color: 'red' }}>Not signed in</span>
-        )}
-        
-        {/* Clear button - only show if there are video results */}
-        {videoCount > 0 && (
-          <button
-            style={{
-              color: 'white',
-              background: '#dc3545',
-              fontWeight: 'bold',
-              padding: '10px 24px',
-              border: 'none',
-              borderRadius: 6,
-              fontSize: 18,
-              cursor: 'pointer',
-              transition: 'background 0.2s, box-shadow 0.2s',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.07)',
-              marginLeft: 16
-            }}
-            onClick={clearListogsData}
-            onMouseOver={e => {
-              e.currentTarget.style.background = '#c82333';
-              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.18)';
-            }}
-            onMouseOut={e => {
-              e.currentTarget.style.background = '#dc3545';
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)';
-            }}
-          >
-            Clear All Data
-          </button>
+          <span style={{ color: '#000000' }}>Not signed in</span>
         )}
       </div>
 
       {/* --- Discogs URL Submit Form --- */}
-      <div style={{ padding: 16, border: '1px solid #ccc', borderRadius: 8 }}>
-        <h3 style={{ marginTop: 0 }}>Discogs URL Submit Form</h3>
+      <div style={{
+        padding: 20,
+        border: '1px solid #dee2e6',
+        borderRadius: 8,
+        background: '#ffffff',
+        color: '#000000'
+      }}>
+        <h3 style={{ marginTop: 0, color: '#000000' }}>Discogs URL Submit Form</h3>
         {/* Removed Artist/Label/List radio selection */}
         {/* <div style={{ marginBottom: 8 }}>
           ...radio buttons...
@@ -1570,101 +1520,69 @@ function DiscogsAuthTestPageInner() {
         {discogsResponse && <pre style={{ color: 'green', marginTop: 8 }}>{discogsResponse}</pre>}
       </div>
 
-      {/* Socket.io log output */}
-      <div style={{  }}>
-        <h3 style={{ marginTop: 0 }}>Progress:</h3>
-        <textarea
-          ref={logRef}
-          onScroll={handleLogScroll}
-          value={logLines.length === 0 ? 'Setting up socket.io..' : logLines.join('\n')}
-          readOnly
-          style={{
-            background: '#111',
-            color: '#0ff',
-            padding: 8,
-            minHeight: 10,
-            maxHeight: 200,
-            width: '100%',
-            fontFamily: 'monospace',
-            fontSize: 14,
-            resize: 'vertical',
-            overflowY: 'auto',
-            borderRadius: 6,
-            border: '1px solid #333'
-          }}
-        />
-        <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            onClick={handleStopSearch}
-            disabled={!canStopJob || stopRequestLoading}
-            style={{
-              padding: '8px 16px',
-              background: !canStopJob || stopRequestLoading ? '#d3d3d3' : '#ff9800',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 6,
-              cursor: !canStopJob || stopRequestLoading ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.2s ease'
-            }}
-          >
-            {stopRequestLoading ? 'Stopping…' : 'Stop Current Job'}
-          </button>
-        </div>
-        {/* Display session status */}
-        {sessionStatus && (
-          <div style={{ marginTop: 12, padding: 8, background: '#222', color: '#fff', borderRadius: 6 }}>
-            <strong>Status:</strong> {sessionStatus.status}
-            <br />
-            {sessionStatus.progress && (
-              <span>
-                {/* Always show progress index/total and video count, even if status is 'Waiting for rate limit' */}
-                {(() => {
-                  let { currentIndex, total, currentVideoIndex, totalVideoPages, videos } = sessionStatus.progress;
-                  // If waiting for rate limit, use last non-zero progress
-                  if (sessionStatus.status === 'Waiting for rate limit') {
-                    currentIndex = lastProgressRef.current.currentIndex;
-                    total = lastProgressRef.current.total;
-                    currentVideoIndex = lastProgressRef.current.currentVideoIndex;
-                    totalVideoPages = lastProgressRef.current.totalVideoPages;
-                    videos = lastProgressRef.current.videos;
-                  }
-                  return (
-                    <>
-                      {typeof currentIndex !== 'undefined' && typeof total !== 'undefined' && total > 0 && 
-                       !(sessionStatus.status === 'Waiting for rate limit' && currentIndex >= total) && (
-                        <span>
-                          Page Progress: {currentIndex} / {total}
-                          <br />
-                        </span>
-                      )}
-                      {typeof currentVideoIndex !== 'undefined' && typeof totalVideoPages !== 'undefined' && totalVideoPages > 0 && (
-                        <span>
-                          Analyzing Release: {currentVideoIndex} / {totalVideoPages}
-                          <br />
-                        </span>
-                      )}
-                      {typeof videos !== 'undefined' && (
-                        <span>
-                          Videos found: {videos}
-                        </span>
-                      )}
-                    </>
-                  );
-                })()}
-              </span>
-            )}
+      {/* Progress - only show when there are logs */}
+      {logLines.length > 0 && (
+        <div style={{
+          padding: 20,
+          border: '1px solid #dee2e6',
+          borderRadius: 8,
+          background: '#ffffff',
+          color: '#000000',
+          marginTop: 24
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#000000', marginBottom: 8 }}>Status:</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#000000', flex: 1, minWidth: 0 }}>
+              {logLines[logLines.length - 1]}
+            </div>
+            <button
+              onClick={handleStopSearch}
+              disabled={!canStopJob || stopRequestLoading}
+              style={{
+                padding: '8px 16px',
+                background: !canStopJob || stopRequestLoading ? '#d3d3d3' : '#ff9800',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: !canStopJob || stopRequestLoading ? 'not-allowed' : 'pointer',
+                transition: 'background-color 0.2s ease',
+                flexShrink: 0
+              }}
+            >
+              {stopRequestLoading ? 'Stopping…' : 'Stop Current Job'}
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* YouTube Playlist Links Section */}
       {playlistLinks.length > 0 && (
-        <div style={{ marginTop: 32, marginBottom: 16 }}>
-          <h3>YouTube Playlists:</h3>
-          <ul style={{ paddingLeft: 20 }}>
+        <div style={{ marginTop: 32, marginBottom: 16, background: '#ffffff', color: '#000000', padding: '20px', borderRadius: 8, border: '1px solid #dee2e6' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+            <h3 style={{ color: '#000000', margin: 0 }}>YouTube Playlists (No Account Needed):</h3>
+            <button
+              onClick={clearListogsData}
+              style={{
+                color: 'white',
+                background: '#dc3545',
+                fontWeight: 'bold',
+                padding: '8px 16px',
+                border: 'none',
+                borderRadius: 6,
+                fontSize: 14,
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+              onMouseOver={e => { e.currentTarget.style.background = '#c82333'; }}
+              onMouseOut={e => { e.currentTarget.style.background = '#dc3545'; }}
+            >
+              Clear All Data
+            </button>
+          </div>
+          <ul style={{ paddingLeft: 20, color: '#000000', margin: 0 }}>
             {playlistLinks.map((url, idx) => (
               <li key={url}>
-                <a href={url} target="_blank" rel="noopener noreferrer">
+                <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>
                   {`YouTube Playlist ${idx + 1} (${Math.min(50, videoIds.length - idx * 50)} videos)`}
                 </a>
               </li>
@@ -1674,20 +1592,28 @@ function DiscogsAuthTestPageInner() {
       )}
 
       {/* YouTube Playlist Creation Section */}
-      {/* {canCreatePlaylists && videoIds.length > 0 && ( */}
-      {false && canCreatePlaylists && videoIds.length > 0 && ( 
-        
-        <div style={{ marginTop: 32, marginBottom: 16 }}>
-          <h3>Create YouTube Playlist:</h3>
+      {videoIds.length > 0 && (
+        <div style={{ marginTop: 32, marginBottom: 16, background: '#ffffff', color: '#000000', padding: '20px', borderRadius: 8, border: '1px solid #dee2e6' }}>
+          <h3 style={{ color: '#000000', marginTop: 0 }}>YouTube Playlist (Sign-In Required):</h3>
+          <div style={{ marginBottom: 16, color: '#000000' }}>
+            <YouTubeAuth
+              compact
+              returnUrl="/listogs"
+              getTokensRef={getTokensRef}
+              onAuthStateChange={setYtAuthState}
+              blackTextOnWhite
+            />
+          </div>
+          {canCreatePlaylists && (
           <div style={{
-            background: '#f8f9fa',
+            background: '#ffffff',
+            color: '#000000',
             border: '1px solid #dee2e6',
             borderRadius: 6,
             padding: '20px',
-            marginTop: 16
           }}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', marginBottom: 12, fontWeight: 'bold' }}>
+              <label style={{ display: 'flex', alignItems: 'center', marginBottom: 12, fontWeight: 'bold', color: '#000000' }}>
                 <input
                   type="checkbox"
                   checked={useExistingPlaylist}
@@ -1700,7 +1626,7 @@ function DiscogsAuthTestPageInner() {
 
             {useExistingPlaylist ? (
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
                   Existing Playlist ID *
                 </label>
                 <input
@@ -1713,17 +1639,19 @@ function DiscogsAuthTestPageInner() {
                     padding: '10px',
                     border: '1px solid #ced4da',
                     borderRadius: 4,
-                    fontSize: 14
+                    fontSize: 14,
+                    color: '#000000',
+                    background: '#ffffff'
                   }}
                 />
-                <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: '#000000', marginTop: 4 }}>
                   You can find the playlist ID in the URL of your YouTube playlist
                 </div>
               </div>
             ) : (
               <>
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
                     Playlist Title *
                   </label>
                   <input
@@ -1736,13 +1664,15 @@ function DiscogsAuthTestPageInner() {
                       padding: '10px',
                       border: '1px solid #ced4da',
                       borderRadius: 4,
-                      fontSize: 14
+                      fontSize: 14,
+                      color: '#000000',
+                      background: '#ffffff'
                     }}
                   />
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
                     Description
                   </label>
                   <textarea
@@ -1756,13 +1686,15 @@ function DiscogsAuthTestPageInner() {
                       border: '1px solid #ced4da',
                       borderRadius: 4,
                       fontSize: 14,
-                      resize: 'vertical'
+                      resize: 'vertical',
+                      color: '#000000',
+                      background: '#ffffff'
                     }}
                   />
                 </div>
 
                 <div style={{ marginBottom: 20 }}>
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
                     Privacy Status
                   </label>
                   <select
@@ -1774,7 +1706,8 @@ function DiscogsAuthTestPageInner() {
                       border: '1px solid #ced4da',
                       borderRadius: 4,
                       fontSize: 14,
-                      background: 'white'
+                      background: '#ffffff',
+                      color: '#000000'
                     }}
                   >
                     <option value="private">Private</option>
@@ -1786,7 +1719,7 @@ function DiscogsAuthTestPageInner() {
             )}
 
             <div style={{ marginBottom: 16 }}>
-              <p style={{ fontSize: 14, color: '#666', margin: 0 }}>
+              <p style={{ fontSize: 14, color: '#000000', margin: 0 }}>
                 This will create a playlist with <strong>{videoIds.length} videos</strong> found in your search results.
               </p>
             </div>
@@ -1825,7 +1758,7 @@ function DiscogsAuthTestPageInner() {
                 <div style={{ marginTop: 12 }}>
                   <div style={{ 
                     fontSize: 14, 
-                    color: '#666', 
+                    color: '#000000', 
                     marginBottom: 8,
                     textAlign: 'center'
                   }}>
@@ -1908,20 +1841,21 @@ function DiscogsAuthTestPageInner() {
               <div style={{
                 marginTop: 16,
                 padding: '12px',
-                background: '#d4edda',
-                border: '1px solid #c3e6cb',
+                background: '#ffffff',
+                color: '#000000',
+                border: '1px solid #dee2e6',
                 borderRadius: 4
               }}>
-                <div style={{ color: '#155724', fontWeight: 'bold', marginBottom: 8 }}>
+                <div style={{ color: '#000000', fontWeight: 'bold', marginBottom: 8 }}>
                   ✅ Playlist Created Successfully!
                 </div>
-                <div style={{ color: '#155724', marginBottom: 4 }}>
+                <div style={{ color: '#000000', marginBottom: 4 }}>
                   <strong>Title:</strong> {playlistCreated.snippet?.title}
                 </div>
-                <div style={{ color: '#155724', marginBottom: 4 }}>
+                <div style={{ color: '#000000', marginBottom: 4 }}>
                   <strong>ID:</strong> {playlistCreated.id}
                 </div>
-                <div style={{ color: '#155724', marginBottom: 8 }}>
+                <div style={{ color: '#000000', marginBottom: 8 }}>
                   <strong>Privacy:</strong> {playlistCreated.status?.privacyStatus}
                 </div>
                 <a
@@ -1929,7 +1863,7 @@ function DiscogsAuthTestPageInner() {
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
-                    color: '#007bff',
+                    color: '#0066cc',
                     textDecoration: 'none',
                     fontWeight: 'bold'
                   }}
@@ -1939,63 +1873,123 @@ function DiscogsAuthTestPageInner() {
               </div>
             )}
           </div>
+          )}
         </div>
-
       )}
 
-      {/* YouTube Auth Status */}
-      {/* {!canCreatePlaylists && videoIds.length > 0 && (
-        <div style={{ marginTop: 32, marginBottom: 16 }}>
-          <h3>YouTube Playlist Creation:</h3>
-          <div style={{
-            background: '#fff3cd',
-            border: '1px solid #ffeaa7',
-            borderRadius: 6,
-            padding: '16px'
-          }}>
-            <p style={{ margin: 0, color: '#856404' }}>
-              To create YouTube playlists with your found videos, you need to authenticate with YouTube first. 
-              Visit the <a href="/youtube" style={{ color: '#007bff' }}>YouTube page</a> to sign in.
-            </p>
-          </div>
+      {/* Videos - tabbed: Table | Video IDs */}
+      <div style={{ marginTop: 32, background: '#ffffff', color: '#000000', padding: '20px', borderRadius: 8, border: '1px solid #dee2e6' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 16, borderBottom: '2px solid #dee2e6' }}>
+          <h3 style={{ color: '#000000', margin: '0 24px 0 0' }}>Videos</h3>
+          <button
+            onClick={() => setVideosViewTab('table')}
+            style={{
+              padding: '8px 16px',
+              fontSize: 14,
+              fontWeight: 600,
+              background: 'none',
+              color: videosViewTab === 'table' ? '#0066cc' : '#6c757d',
+              border: 'none',
+              borderBottom: videosViewTab === 'table' ? '2px solid #0066cc' : '2px solid transparent',
+              marginBottom: -2,
+              cursor: 'pointer'
+            }}
+          >
+            Table
+          </button>
+          <button
+            onClick={() => setVideosViewTab('ids')}
+            disabled={videoIds.length === 0}
+            style={{
+              padding: '8px 16px',
+              fontSize: 14,
+              fontWeight: 600,
+              background: 'none',
+              color: videoIds.length === 0 ? '#adb5bd' : videosViewTab === 'ids' ? '#0066cc' : '#6c757d',
+              border: 'none',
+              borderBottom: videosViewTab === 'ids' ? '2px solid #0066cc' : '2px solid transparent',
+              marginBottom: -2,
+              cursor: videoIds.length === 0 ? 'not-allowed' : 'pointer'
+            }}
+          >
+            Video IDs
+          </button>
         </div>
-      )} */}
 
-      {/* Display results */}
-      <div style={{ marginTop: 32 }}>
-        <h3>
-          {videoCount > 0 ? `Videos Table: ${videoCount} videos Found:` : 'Results:'}
-        </h3>
-        <VideoTable
-          videoData={results}
-          onFilteredDataChange={handleFilteredDataChange}
-        />
-        {/* Export Table to CSV button directly under the table */}
-        <div style={{ marginTop: 16 }}>
-          <ExportCSVButton
-            data={filteredTableRows}
-            fileName={extractedId ? `discogs-${extractedId}-videos.csv` : "videos.csv"}
-            headers={[
-              "releaseTitle",
-              "artist",
-              "year",
-              "releaseType",
-              "labelsAndCompanies",
-              "country",
-              "genres",
-              "styles",
-              "masterId",
-              "isMasterRelease",
-              "title",
-              "videoId",
-              "fullUrl",
-              "discogsUrl"
-            ]}
-          />
-          <div style={{ fontSize: 14, color: '#555', marginTop: 8 }}>
-          Exports the rows exactly as they appear with the active table filters.
+        {videosViewTab === 'table' && (
+          <>
+            <VideoTable
+              videoData={results}
+              onFilteredDataChange={handleFilteredDataChange}
+            />
+            <div style={{ marginTop: 16 }}>
+              <ExportCSVButton
+                data={filteredTableRows}
+                fileName={extractedId ? `discogs-${extractedId}-videos.csv` : "videos.csv"}
+                headers={[
+                  "releaseTitle",
+                  "artist",
+                  "year",
+                  "releaseType",
+                  "labelsAndCompanies",
+                  "country",
+                  "genres",
+                  "styles",
+                  "masterId",
+                  "isMasterRelease",
+                  "title",
+                  "videoId",
+                  "fullUrl",
+                  "discogsUrl"
+                ]}
+              />
+              <div style={{ fontSize: 14, color: '#000000', marginTop: 8 }}>
+                Exports the rows exactly as they appear with the active table filters.
+              </div>
+            </div>
+          </>
+        )}
+
+        {videosViewTab === 'ids' && videoIds.length > 0 && (
+          <div>
+            <p style={{ fontSize: 14, color: '#000000', marginBottom: 12 }}>
+              All YouTube Video IDs (comma separated) - {videoIds.length} videos:
+            </p>
+            <textarea
+              value={allVideoIdsString}
+              readOnly
+              rows={Math.min(6, Math.ceil(allVideoIdsString.length / 80))}
+              style={{
+                width: '100%',
+                fontSize: 14,
+                padding: 8,
+                marginBottom: 8,
+                resize: 'vertical',
+                background: '#ffffff',
+                color: '#000000',
+                border: '1px solid #ccc'
+              }}
+            />
+            <button
+              onClick={handleCopyIds}
+              style={{
+                padding: '8px 16px',
+                fontSize: 16,
+                background: '#ffffff',
+                color: '#000000',
+                border: '2px solid #333',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                transition: 'background-color 0.2s ease'
+              }}
+              onMouseOver={e => { e.currentTarget.style.background = '#f0f0f0'; }}
+              onMouseOut={e => { e.currentTarget.style.background = '#ffffff'; }}
+            >
+              {copyButtonClicked ? `Copied ${videoIds.length} IDs!` : `Copy ${videoIds.length} IDs to Clipboard`}
+            </button>
           </div>
-        </div>
+        )}
 
       {selectedType === 'list' && extractedId && (
         <div style={{
@@ -2100,50 +2094,6 @@ function DiscogsAuthTestPageInner() {
         </div>
       )}
       </div>
-
-      {/* All YouTube Video IDs Section (bottom of page) */}
-      {videoIds.length > 0 && (
-        <div style={{ marginTop: 32, marginBottom: 32 }}>
-          <h3>All YouTube Video IDs (comma separated) - {videoIds.length} videos:</h3>
-          <textarea
-            value={allVideoIdsString}
-            readOnly
-            rows={Math.min(6, Math.ceil(allVideoIdsString.length / 80))}
-            style={{
-              width: '100%',
-              fontSize: 14,
-              padding: 8,
-              marginBottom: 8,
-              resize: 'vertical'
-            }}
-          />
-          <button
-            onClick={handleCopyIds}
-            style={{
-              padding: '8px 16px',
-              fontSize: 16,
-              background: copyButtonClicked ? '#28a745' : buttonColor,
-              color: 'white',
-              border: 'none',
-              borderRadius: 6,
-              cursor: 'pointer',
-              transition: 'background-color 0.3s ease'
-            }}
-            onMouseOver={e => {
-              if (!copyButtonClicked) {
-                e.currentTarget.style.background = darkenColor(buttonColor, 0.2);
-              }
-            }}
-            onMouseOut={e => {
-              if (!copyButtonClicked) {
-                e.currentTarget.style.background = buttonColor;
-              }
-            }}
-          >
-            {copyButtonClicked ? `Copied ${videoIds.length} IDs!` : `Copy ${videoIds.length} IDs to Clipboard`}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
