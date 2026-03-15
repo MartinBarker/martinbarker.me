@@ -2,7 +2,38 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 0.5rem 1rem 1rem 1rem;
-    color: #333;
+    color: #000000;
+}
+
+/* Dark mode overrides for home page */
+:global(.darkContent) .homeContent {
+    color: #ffffff;
+}
+
+:global(.darkContent) .aboutColumn,
+:global(.darkContent) .detailsColumn,
+:global(.darkContent) .section,
+:global(.darkContent) .careerItem,
+:global(.darkContent) .projectNote {
+    background: linear-gradient(135deg, rgba(30, 30, 46, 0.9) 0%, rgba(37, 37, 56, 0.8) 100%);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+:global(.darkContent) .section h2,
+:global(.darkContent) .sectionTitle,
+:global(.darkContent) .careerItem h3 {
+    color: #ffffff;
+    -webkit-text-fill-color: #ffffff;
+    background: none;
+}
+
+:global(.darkContent) .careerItem h4 {
+    color: #ffffff;
+}
+
+:global(.darkContent) .date,
+:global(.darkContent) .location {
+    color: #ffffff;
 }
 
 /* Hero Title Section */
@@ -131,8 +162,8 @@
 
 .section h2 {
     margin-bottom: 0.75rem;
-    color: #2c3e50;
-    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    color: #000000;
+    background: linear-gradient(135deg, #000000 0%, #000000 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -148,12 +179,12 @@
 }
 
 .date {
-    color: #666;
+    color: #000000;
     font-size: 0.9rem;
 }
 
 .location {
-    color: #666;
+    color: #000000;
     font-size: 0.9rem;
     margin-top: 0.2rem;
 }
@@ -165,8 +196,8 @@
 
 .sectionTitle {
     margin-bottom: 1.5rem;
-    color: #2c3e50;
-    background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+    color: #000000;
+    background: linear-gradient(135deg, #000000 0%, #000000 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -203,13 +234,13 @@
 }
 
 .careerItem h3 {
-    color: #2c3e50;
+    color: #000000;
     margin-bottom: 0.25rem;
     font-size: 1.25rem;
 }
 
 .careerItem h4 {
-    color: #34495e;
+    color: #000000;
     margin-bottom: 0.5rem;
     font-size: 1rem;
     font-weight: 500;

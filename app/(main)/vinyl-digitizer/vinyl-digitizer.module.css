@@ -29,7 +29,7 @@
 .titleRow { display: flex; align-items: center; gap: 0.5rem; }
 .vinylIcon { color: #764ba2; flex-shrink: 0; }
 .title { font-size: 1.5rem; font-weight: 700; margin: 0; color: #000000; }
-.subtitle { font-size: 0.82rem; color: #333333; margin: 0; }
+.subtitle { font-size: 0.82rem; color: #000000; margin: 0; }
 .headerRight { display: flex; align-items: flex-end; gap: 0.5rem; color: #000000; flex-shrink: 0; }
 .projectNameInput {
   padding: 5px 10px;
@@ -41,7 +41,7 @@
 }
 .projectNameInput:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 2px rgba(102,126,234,0.12); }
 .projectNameWrap { display: flex; flex-direction: column; gap: 2px; }
-.projectNameLabel { font-size: 0.7rem; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: 0.04em; }
+.projectNameLabel { font-size: 0.7rem; font-weight: 700; color: #000000; text-transform: uppercase; letter-spacing: 0.04em; }
 .historyBtn {
   padding: 5px 12px;
   background: white;
@@ -50,7 +50,7 @@
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -93,7 +93,7 @@
   height: 26px;
   border-radius: 50%;
   background: #e2e8f0;
-  color: #718096;
+  color: #000000;
   font-size: 0.75rem;
   font-weight: 700;
   display: flex;
@@ -107,10 +107,10 @@
 .stepLabel {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #a0aec0;
+  color: #000000;
   white-space: nowrap;
 }
-.stepActive .stepLabel { color: #4a5568; }
+.stepActive .stepLabel { color: #000000; }
 .stepDone .stepLabel { color: #48bb78; }
 .stepLine {
   width: 32px;
@@ -183,7 +183,7 @@
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   transition: all 0.15s;
 }
 .tab:hover { background: #edf2f7; }
@@ -206,8 +206,8 @@
 }
 .dropZone:hover { border-color: #667eea; background: #edf2f7; }
 .dropIcon { font-size: 2rem; margin-bottom: 0.5rem; }
-.dropText { font-size: 0.95rem; font-weight: 600; color: #4a5568; margin: 0 0 0.25rem; }
-.dropHint { font-size: 0.78rem; color: #a0aec0; margin: 0; }
+.dropText { font-size: 0.95rem; font-weight: 600; color: #000000; margin: 0 0 0.25rem; }
+.dropHint { font-size: 0.78rem; color: #000000; margin: 0; }
 .fileInput { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 
 /* ---- File Info ---- */
@@ -270,7 +270,7 @@
   font-weight: 600;
 }
 .stopBtn:hover { background: #2d3748; }
-.recHint { font-size: 0.75rem; color: #a0aec0; text-align: center; margin: 0; }
+.recHint { font-size: 0.75rem; color: #000000; text-align: center; margin: 0; }
 
 /* ---- Step Nav ---- */
 .stepNav { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #edf2f7; }
@@ -290,7 +290,7 @@
 .backBtn {
   background: white;
   border: 1px solid #e2e8f0;
-  color: #4a5568;
+  color: #000000;
   padding: 8px 16px;
   border-radius: 7px;
   cursor: pointer;
@@ -302,8 +302,8 @@
 
 /* ---- Discogs ---- */
 .discogsRow { margin-bottom: 1rem; }
-.label { display: block; font-size: 0.82rem; font-weight: 700; color: #4a5568; margin-bottom: 0.35rem; }
-.labelHint { font-weight: 400; color: #a0aec0; }
+.label { display: block; font-size: 0.82rem; font-weight: 700; color: #000000; margin-bottom: 0.35rem; }
+.labelHint { font-weight: 400; color: #000000; }
 .inputWithBtn { display: flex; gap: 0.5rem; }
 .input {
   flex: 1;
@@ -335,11 +335,11 @@
 .albumArt { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; flex-shrink: 0; }
 .discogsInfo { display: flex; flex-direction: column; gap: 2px; }
 .albumTitle { font-size: 1rem; font-weight: 700; margin: 0 0 2px; color: #1a202c; }
-.discogsMetaLine { font-size: 0.8rem; color: #718096; margin: 0; }
+.discogsMetaLine { font-size: 0.8rem; color: #000000; margin: 0; }
 .tracklist { }
-.tracklistTitle { font-size: 0.82rem; font-weight: 700; color: #4a5568; margin: 0 0 0.5rem; }
+.tracklistTitle { font-size: 0.82rem; font-weight: 700; color: #000000; margin: 0 0 0.5rem; }
 .trackRow { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 4px; }
-.trackPos { font-size: 0.75rem; font-weight: 700; color: #a0aec0; min-width: 24px; text-align: right; flex-shrink: 0; }
+.trackPos { font-size: 0.75rem; font-weight: 700; color: #000000; min-width: 24px; text-align: right; flex-shrink: 0; }
 .trackNameInput {
   flex: 1;
   padding: 3px 8px;
@@ -350,13 +350,13 @@
   min-width: 0;
 }
 .trackNameInput:focus { outline: none; border-color: #667eea; }
-.trackDur { font-size: 0.75rem; color: #a0aec0; white-space: nowrap; flex-shrink: 0; }
+.trackDur { font-size: 0.75rem; color: #000000; white-space: nowrap; flex-shrink: 0; }
 
 /* ---- Tracklist editor ---- */
 .tracklistEditor { margin-top: 1rem; }
 .tracklistHeader { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
 .trackCountRow { display: flex; align-items: center; gap: 0.5rem; }
-.trackCountLabel { font-size: 0.82rem; font-weight: 600; color: #4a5568; }
+.trackCountLabel { font-size: 0.82rem; font-weight: 600; color: #000000; }
 .trackAddBtn {
   padding: 3px 10px;
   font-size: 0.78rem;
@@ -365,7 +365,7 @@
   border: 1px solid #e2e8f0;
   border-radius: 4px;
   cursor: pointer;
-  color: #4a5568;
+  color: #000000;
   transition: background 0.15s;
 }
 .trackAddBtn:hover { background: #e2e8f0; }
@@ -389,7 +389,7 @@
 
 /* ---- Manual section ---- */
 .manualSection { }
-.orLine { font-size: 0.8rem; color: #a0aec0; text-align: center; margin: 0.75rem 0; }
+.orLine { font-size: 0.8rem; color: #000000; text-align: center; margin: 0.75rem 0; }
 .manualRow { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
 .inputSmall { width: 80px; padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.88rem; text-align: center; }
 .inputSmall:focus { outline: none; border-color: #667eea; }
@@ -408,7 +408,7 @@
   border-bottom: none;
 }
 .tbGroup { display: flex; align-items: center; gap: 5px; }
-.tbGroupLabel { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #a0aec0; margin-right: 2px; }
+.tbGroupLabel { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #000000; margin-right: 2px; }
 .tbSep { width: 1px; height: 22px; background: #e2e8f0; margin: 0 4px; flex-shrink: 0; }
 .tbBtn {
   background: #f7fafc;
@@ -418,7 +418,7 @@
   cursor: pointer;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   line-height: 1.4;
   transition: all 0.12s;
 }
@@ -442,7 +442,7 @@
 }
 .playBtnSmall:hover:not(:disabled) { transform: scale(1.1); box-shadow: 0 3px 10px rgba(102,126,234,0.5); }
 .playBtnSmall:disabled { background: #cbd5e0; cursor: not-allowed; box-shadow: none; }
-.timeLabel { font-size: 0.82rem; font-weight: 600; color: #4a5568; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timeLabel { font-size: 0.82rem; font-weight: 600; color: #000000; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .volSlider { width: 64px; height: 4px; -webkit-appearance: none; appearance: none; background: #e2e8f0; border-radius: 2px; cursor: pointer; }
 .volSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: #667eea; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
 .splitAddBtn {
@@ -495,7 +495,7 @@
   justify-content: center;
   height: 280px;
   gap: 0.75rem;
-  color: #718096;
+  color: #000000;
   font-size: 0.85rem;
   position: absolute;
   top: 0;
@@ -504,7 +504,7 @@
   z-index: 10;
   background: rgba(15, 17, 23, 0.85);
 }
-.waveEmpty { display: flex; align-items: center; justify-content: center; height: 280px; color: #4a5568; font-size: 0.85rem; }
+.waveEmpty { display: flex; align-items: center; justify-content: center; height: 280px; color: #000000; font-size: 0.85rem; }
 .spinner { width: 28px; height: 28px; border: 3px solid #2d3748; border-top: 3px solid #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -521,7 +521,7 @@
   margin: 0.6rem 0;
   font-size: 0.82rem;
 }
-.detectLabel { color: #4a5568; font-weight: 500; }
+.detectLabel { color: #000000; font-weight: 500; }
 .detectCount { font-size: 0.95rem; color: #667eea; }
 .detectBtn {
   padding: 5px 14px;
@@ -549,7 +549,7 @@
   white-space: nowrap;
 }
 .cancelBtn:hover { background: #c53030; }
-.msgInline { font-size: 0.78rem; color: #718096; }
+.msgInline { font-size: 0.78rem; color: #000000; }
 
 /* ---- Progress ---- */
 .progressBar { background: #e2e8f0; border-radius: 6px; height: 16px; position: relative; overflow: hidden; margin: 0.4rem 0; }
@@ -577,8 +577,8 @@
 /* ---- Table ---- */
 .tableWrap { overflow-x: auto; margin: 0.5rem 0; }
 .table { width: 100%; border-collapse: collapse; font-size: 0.82rem; background: white; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-.table th { background: #edf2f7; padding: 0.4rem 0.6rem; text-align: left; font-weight: 700; color: #4a5568; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
-.table td { padding: 0.35rem 0.6rem; border-bottom: 1px solid #f0f0f0; color: #4a5568; }
+.table th { background: #edf2f7; padding: 0.4rem 0.6rem; text-align: left; font-weight: 700; color: #000000; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+.table td { padding: 0.35rem 0.6rem; border-bottom: 1px solid #f0f0f0; color: #000000; }
 .table tr:last-child td { border-bottom: none; }
 .table tr:hover td { background: #f7fafc; }
 .rowActive td { background: rgba(102,126,234,0.06) !important; }
@@ -609,7 +609,7 @@
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   background: white;
   display: flex;
   align-items: center;
@@ -620,8 +620,8 @@
 .fmtActive { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border-color: transparent; }
 .metaBadge { background: rgba(255,255,255,0.2); border-radius: 4px; padding: 1px 6px; font-size: 0.68rem; font-weight: 700; }
 .previewSection { margin-bottom: 0.75rem; }
-.sectionTitle { font-size: 0.88rem; font-weight: 700; color: #4a5568; margin: 0 0 0.5rem; }
-.filenameCell { font-family: monospace; font-size: 0.75rem; color: #718096; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sectionTitle { font-size: 0.88rem; font-weight: 700; color: #000000; margin: 0 0 0.5rem; }
+.filenameCell { font-family: monospace; font-size: 0.75rem; color: #000000; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exportRow {
   display: flex;
   align-items: center;
@@ -676,7 +676,7 @@
 .saveHistBtn {
   background: white;
   border: 1px solid #e2e8f0;
-  color: #4a5568;
+  color: #000000;
   padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
@@ -686,7 +686,7 @@
   transition: all 0.15s;
 }
 .saveHistBtn:hover { background: #edf2f7; }
-.exportProg { margin: 0.5rem 0; font-size: 0.82rem; color: #4a5568; }
+.exportProg { margin: 0.5rem 0; font-size: 0.82rem; color: #000000; }
 .exportProgLabel { margin: 0 0 0.25rem; font-size: 0.78rem; }
 .dlBtn {
   background: #667eea;
@@ -719,8 +719,8 @@
 .exportNum { font-size: 0.88rem; font-weight: 700; color: #667eea; flex-shrink: 0; }
 .exportCardInfo { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .exportTitle { font-size: 0.82rem; font-weight: 700; color: #2d3748; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.exportFile { font-size: 0.7rem; color: #718096; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
-.exportDetails { font-size: 0.68rem; color: #a0aec0; }
+.exportFile { font-size: 0.7rem; color: #000000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+.exportDetails { font-size: 0.68rem; color: #000000; }
 .dlBtnCard {
   background: #667eea;
   color: white;
@@ -739,7 +739,7 @@
 .dlBtnCard:hover { background: #5a67d8; }
 
 /* ---- Message ---- */
-.msg { font-size: 0.82rem; color: #718096; margin: 0.4rem 0 0; font-weight: 500; }
+.msg { font-size: 0.82rem; color: #000000; margin: 0.4rem 0 0; font-weight: 500; }
 
 /* ---- History Sidebar ---- */
 .historySidebar {
@@ -766,12 +766,12 @@
   z-index: 1;
 }
 .historyTitle { font-size: 0.9rem; font-weight: 700; margin: 0; color: #2d3748; }
-.closeHistory { background: none; border: none; cursor: pointer; font-size: 1.2rem; color: #a0aec0; padding: 0 4px; line-height: 1; }
+.closeHistory { background: none; border: none; cursor: pointer; font-size: 1.2rem; color: #000000; padding: 0 4px; line-height: 1; }
 .closeHistory:hover { color: #e53e3e; }
 .historyHeadBtns { display: flex; align-items: center; gap: 6px; }
 .clearHistoryBtn { padding: 3px 9px; background: none; border: 1px solid #fc8181; border-radius: 5px; cursor: pointer; font-size: 0.75rem; color: #e53e3e; font-weight: 600; }
 .clearHistoryBtn:hover { background: #fff5f5; }
-.historyEmpty { font-size: 0.8rem; color: #a0aec0; padding: 1rem; text-align: center; }
+.historyEmpty { font-size: 0.8rem; color: #000000; padding: 1rem; text-align: center; }
 .projectList { display: flex; flex-direction: column; gap: 0; }
 .projectCard {
   display: flex;
@@ -785,8 +785,8 @@
 .projectCard:hover { background: #f7fafc; }
 .projectMeta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .projectName { font-size: 0.82rem; font-weight: 700; color: #2d3748; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.projectDate { font-size: 0.7rem; color: #a0aec0; }
-.projectFile { font-size: 0.7rem; color: #718096; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projectDate { font-size: 0.7rem; color: #000000; }
+.projectFile { font-size: 0.7rem; color: #000000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .projectDetails { font-size: 0.7rem; color: #667eea; }
 .projectBtns { display: flex; gap: 4px; flex-shrink: 0; }
 .loadBtn {
@@ -872,7 +872,7 @@
 .volumeLabel {
   font-size: 0.82rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   white-space: nowrap;
 }
 .gainSlider {
@@ -894,7 +894,7 @@
 .gainInput:focus { outline: none; border-color: #667eea; background: #fff; }
 .gainUnit {
   font-size: 0.82rem;
-  color: #718096;
+  color: #000000;
   font-weight: 600;
 }
 .gainReset {
@@ -904,7 +904,7 @@
   background: #fff;
   font-size: 0.75rem;
   cursor: pointer;
-  color: #4a5568;
+  color: #000000;
 }
 .gainReset:hover { background: #edf2f7; }
 
@@ -929,13 +929,13 @@
   background: #fff;
   font-size: 0.75rem;
   cursor: pointer;
-  color: #4a5568;
+  color: #000000;
   font-weight: 600;
 }
 .selectBtn:hover { background: #edf2f7; }
 .selectedCount {
   font-size: 0.78rem;
-  color: #718096;
+  color: #000000;
   white-space: nowrap;
 }
 .chkCol {
@@ -985,11 +985,11 @@
   gap: 0.4rem;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   cursor: pointer;
 }
 .autoSplitCheckLabel input[type="checkbox"] { cursor: pointer; accent-color: #667eea; }
-.autoSplitCheckHint { font-size: 0.74rem; color: #a0aec0; font-weight: 400; }
+.autoSplitCheckHint { font-size: 0.74rem; color: #000000; font-weight: 400; }
 /* Manual split row */
 .manualSplitRow {
   display: flex;
@@ -999,7 +999,7 @@
   padding-top: 0.25rem;
   border-top: 1px solid #e2e8f0;
 }
-.manualSplitLabel { font-size: 0.82rem; color: #4a5568; font-weight: 600; white-space: nowrap; }
+.manualSplitLabel { font-size: 0.82rem; color: #000000; font-weight: 600; white-space: nowrap; }
 .manualSplitInput {
   flex: 1;
   min-width: 160px;
@@ -1029,9 +1029,9 @@
 .analyzeLogWrap { border-top: 1px solid #e2e8f0; padding-top: 0.35rem; }
 .analyzeLogToggle {
   background: none; border: none; cursor: pointer;
-  font-size: 0.78rem; color: #718096; padding: 0; font-weight: 600;
+  font-size: 0.78rem; color: #000000; padding: 0; font-weight: 600;
 }
-.analyzeLogToggle:hover { color: #4a5568; }
+.analyzeLogToggle:hover { color: #000000; }
 .analyzeLog {
   margin-top: 0.35rem;
   background: #1a1a2e;
@@ -1041,8 +1041,8 @@
   overflow-y: auto;
   font-family: monospace;
 }
-.analyzeLogLine { font-size: 0.74rem; color: #a0aec0; line-height: 1.6; }
-.analyzeLogIndent { padding-left: 1rem; color: #718096; }
+.analyzeLogLine { font-size: 0.74rem; color: #000000; line-height: 1.6; }
+.analyzeLogIndent { padding-left: 1rem; color: #000000; }
 .analyzeLogDone { color: #68d391 !important; font-weight: 600; }
 .autoSplitBtn {
   padding: 12px 28px;
@@ -1078,7 +1078,7 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 .autoSplitHint {
   font-size: 0.83rem;
-  color: #718096;
+  color: #000000;
 }
 .autoSplitDone {
   color: #38a169;
@@ -1103,7 +1103,7 @@
   gap: 4px;
   font-size: 0.78rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   white-space: nowrap;
 }
 .silenceParamInput {
@@ -1118,20 +1118,20 @@
 .silenceParamInput:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 2px rgba(102,126,234,0.15); }
 .silenceParamUnit {
   font-size: 0.72rem;
-  color: #718096;
+  color: #000000;
   font-weight: 500;
 }
 .silenceParamHint {
   font-size: 0.72rem;
-  color: #a0aec0;
+  color: #000000;
   font-style: italic;
 }
 
 /* ---- Split tags with N.end / N+1.start labels ---- */
 .splitTagEnd { font-size: 0.75rem; font-weight: 700; color: #c53030; font-family: monospace; }
-.splitTagSep { font-size: 0.72rem; color: #a0aec0; margin: 0 3px; }
+.splitTagSep { font-size: 0.72rem; color: #000000; margin: 0 3px; }
 .splitTagStart { font-size: 0.75rem; font-weight: 700; color: #2b6cb0; font-family: monospace; }
-.splitTagTime { font-size: 0.72rem; color: #718096; font-family: monospace; margin-left: 5px; }
+.splitTagTime { font-size: 0.72rem; color: #000000; font-family: monospace; margin-left: 5px; }
 .splitTagGap { font-size: 0.68rem; color: #d69e2e; font-family: monospace; margin-left: 5px; font-style: italic; }
 
 /* ---- Track marker list ---- */
@@ -1158,13 +1158,13 @@
 .trackMarkerNum {
   font-weight: 700;
   font-size: 0.85rem;
-  color: #4a5568;
+  color: #000000;
   min-width: 1.5em;
   text-align: center;
 }
 .trackMarkerDur {
   font-size: 0.78rem;
-  color: #718096;
+  color: #000000;
   font-family: monospace;
   margin-left: auto;
 }
@@ -1188,7 +1188,7 @@
 }
 .markerLabel {
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   min-width: 2.5em;
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -1196,7 +1196,7 @@
 }
 .markerTime {
   font-size: 0.75rem;
-  color: #a0aec0;
+  color: #000000;
   font-family: monospace;
   min-width: 5em;
 }
@@ -1207,10 +1207,10 @@
   cursor: pointer;
   font-size: 0.82rem;
   padding: 1px 6px;
-  color: #4a5568;
+  color: #000000;
   line-height: 1.4;
 }
-.markerSeekBtn:hover { background: #edf2f7; border-color: #a0aec0; }
+.markerSeekBtn:hover { background: #edf2f7; border-color: #000000; }
 .markerSetBtn {
   background: #edf2f7;
   border: 1px solid #cbd5e0;
@@ -1218,10 +1218,10 @@
   cursor: pointer;
   font-size: 0.72rem;
   padding: 2px 8px;
-  color: #4a5568;
+  color: #000000;
   font-weight: 600;
 }
-.markerSetBtn:hover { background: #e2e8f0; border-color: #a0aec0; }
+.markerSetBtn:hover { background: #e2e8f0; border-color: #000000; }
 .addTrackBtn {
   display: flex;
   align-items: center;
@@ -1231,7 +1231,7 @@
   border: 2px dashed #cbd5e0;
   border-radius: 8px;
   background: transparent;
-  color: #718096;
+  color: #000000;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -1259,7 +1259,7 @@
   border-radius: 3px;
   background: #f7fafc;
   cursor: pointer;
-  color: #4a5568;
+  color: #000000;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -1288,9 +1288,9 @@
 .fmtInput { flex: 1; padding: 7px 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 0.88rem; font-family: monospace; background: #f7fafc; }
 .fmtInput:focus { outline: none; border-color: #667eea; background: #fff; }
 .tokenList { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem; }
-.tokenChip { padding: 2px 8px; border: 1px solid #c6d0e0; border-radius: 12px; font-size: 0.72rem; font-family: monospace; cursor: pointer; background: #edf2f7; color: #4a5568; transition: background 0.15s; }
+.tokenChip { padding: 2px 8px; border: 1px solid #c6d0e0; border-radius: 12px; font-size: 0.72rem; font-family: monospace; cursor: pointer; background: #edf2f7; color: #000000; transition: background 0.15s; }
 .tokenChip:hover { background: #667eea; color: #fff; border-color: #667eea; }
-.fmtHint { font-size: 0.75rem; color: #718096; margin: 0; }
+.fmtHint { font-size: 0.75rem; color: #000000; margin: 0; }
 .fmtCode { background: #edf2f7; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 0.78rem; color: #553c9a; }
 
 /* ---- Discogs search ---- */
@@ -1302,8 +1302,8 @@
 .searchThumb { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
 .searchResultInfo { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .searchResultTitle { font-size: 0.85rem; font-weight: 600; color: #2d3748; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.searchResultMeta { font-size: 0.75rem; color: #718096; }
-.searchLoading { font-size: 0.75rem; color: #718096; margin-left: auto; }
+.searchResultMeta { font-size: 0.75rem; color: #000000; }
+.searchLoading { font-size: 0.75rem; color: #000000; margin-left: auto; }
 
 /* ---- Video step ---- */
 .videoArtSection { margin-bottom: 1.25rem; }
@@ -1336,7 +1336,7 @@
   padding: 5px 9px;
   display: block;
 }
-.videoArtEmpty { width: 120px; height: 120px; border: 2px dashed #cbd5e0; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #a0aec0; text-align: center; }
+.videoArtEmpty { width: 120px; height: 120px; border: 2px dashed #cbd5e0; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #000000; text-align: center; }
 .videoArtBtns { display: flex; flex-direction: column; gap: 0.4rem; }
 .videoSettings { margin-bottom: 1.25rem; }
 
@@ -1359,7 +1359,7 @@
   background: #f7fafc;
   cursor: pointer;
   transition: all 0.15s;
-  color: #4a5568;
+  color: #000000;
   font-size: 0;
 }
 .presetBtn:hover { border-color: #667eea; background: #eef2ff; color: #4338ca; }
@@ -1374,7 +1374,7 @@
   padding-left: 0.75rem;
   border-left: 1px solid #e2e8f0;
 }
-.presetMatchTitle { font-size: 0.72rem; font-weight: 600; color: #718096; }
+.presetMatchTitle { font-size: 0.72rem; font-weight: 600; color: #000000; }
 .presetMatchList { display: flex; gap: 4px; flex-wrap: wrap; }
 .presetMatchBtn {
   display: flex;
@@ -1387,7 +1387,7 @@
   cursor: pointer;
   font-size: 0.7rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   transition: all 0.15s;
 }
 .presetMatchBtn:hover { border-color: #667eea; background: #eef2ff; }
@@ -1442,12 +1442,12 @@
 }
 .renderProgressEta {
   font-size: 0.8rem;
-  color: #718096;
+  color: #000000;
   font-weight: 500;
 }
 
 .videoSettingsGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; margin-top: 0.75rem; }
-.settingLabel { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.82rem; font-weight: 600; color: #4a5568; }
+.settingLabel { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.82rem; font-weight: 600; color: #000000; }
 .videoPreviewSection { margin: 1rem 0; display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-start; }
 .videoPreview { width: 100%; max-width: 640px; max-height: 360px; border-radius: 8px; border: 1px solid #e2e8f0; object-fit: contain; background: #000; display: block; }
 .ytSection { margin-top: 1.5rem; border-top: 1px solid #e2e8f0; padding-top: 1.25rem; }
@@ -1480,7 +1480,7 @@
 .ytCharCount {
   font-size: 0.72rem;
   font-weight: 500;
-  color: #a0aec0;
+  color: #000000;
   font-family: monospace;
 }
 .ytCharOver {
@@ -1545,12 +1545,12 @@
   gap: 3px;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   white-space: nowrap;
 }
 .ytFormatHint {
   font-size: 0.72rem;
-  color: #a0aec0;
+  color: #000000;
   font-weight: 500;
 }
 .ytTitleSuggestions {
@@ -1648,7 +1648,7 @@
 
 .hintText {
   font-size: 0.75rem;
-  color: #a0aec0;
+  color: #000000;
   font-style: italic;
 }
 
@@ -1675,7 +1675,7 @@
   white-space: pre-wrap;
   word-break: break-word;
   padding: 1px 0;
-  color: #a0aec0;
+  color: #000000;
 }
 
 .videoLogError {
@@ -1736,7 +1736,7 @@
   border-radius: 6px;
   cursor: pointer;
   font-size: 18px;
-  color: #718096;
+  color: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1785,7 +1785,7 @@
 }
 
 .imageDropZoneHint {
-  color: #718096;
+  color: #000000;
   font-size: 13px;
   margin: 0;
 }
@@ -1798,7 +1798,7 @@
 .imageModalListTitle {
   font-size: 13px;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   margin: 0 0 10px;
 }
 
@@ -1871,7 +1871,7 @@
 /* ---- Drag handle ---- */
 .dragHandle {
   cursor: grab;
-  color: #a0aec0;
+  color: #000000;
   font-size: 1rem;
   user-select: none;
   text-align: center;
@@ -1907,7 +1907,7 @@
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  color: #718096;
+  color: #000000;
   letter-spacing: 0.04em;
   display: flex;
   align-items: center;
@@ -1956,7 +1956,7 @@
 .timelineTick {
   position: absolute;
   font-size: 0.68rem;
-  color: #718096;
+  color: #000000;
   transform: translateX(-50%);
   top: 4px;
   white-space: nowrap;
@@ -2020,4 +2020,776 @@
 @media (max-width: 480px) {
   .discogsTop { flex-direction: column; }
   .fmtBtn { font-size: 0.78rem; padding: 5px 10px; }
+}
+
+/* ── Dark mode overrides ── */
+:global(.darkContent) .page {
+  background: #1e1e2e;
+  color: #ffffff;
+}
+
+:global(.darkContent) .header {
+  background: #252538;
+  color: #ffffff;
+  border-color: #444;
+}
+
+:global(.darkContent) .headerLeft,
+:global(.darkContent) .headerRight,
+:global(.darkContent) .title {
+  color: #ffffff;
+}
+
+:global(.darkContent) .subtitle {
+  color: #ffffff;
+}
+
+:global(.darkContent) .projectNameInput,
+:global(.darkContent) .historyBtn,
+:global(.darkContent) .table,
+:global(.darkContent) .tableNameInput,
+:global(.darkContent) .imageModal {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #444;
+}
+
+:global(.darkContent) .imageModalTitle {
+  color: #ffffff;
+}
+
+:global(.darkContent) .imageModalHeader {
+  border-color: #444;
+}
+
+:global(.darkContent) .stepBar {
+  background: #252538;
+  border-color: #444;
+}
+
+:global(.darkContent) .body {
+  background: #1e1e2e;
+}
+
+/* Generic white background overrides for dark mode */
+:global(.darkContent) .panel,
+:global(.darkContent) .sidebarSection,
+:global(.darkContent) .card,
+:global(.darkContent) .dropzone,
+:global(.darkContent) .exportCard,
+:global(.darkContent) .historySidebar,
+:global(.darkContent) .historyItem,
+:global(.darkContent) .waveToolbar,
+:global(.darkContent) .discogsPanel {
+  background: #252538;
+  color: #ffffff;
+  border-color: #444;
+}
+
+/* ── Step bar items ── */
+:global(.darkContent) .stepItem .stepCircle {
+  background: #444;
+  color: #ffffff;
+}
+:global(.darkContent) .stepLabel {
+  color: #ffffff;
+}
+:global(.darkContent) .stepActive .stepLabel {
+  color: #ffffff;
+}
+:global(.darkContent) .stepLine {
+  background: #555;
+}
+
+/* ── Card & card title ── */
+:global(.darkContent) .cardTitle {
+  color: #ffffff;
+  border-bottom-color: #444;
+}
+
+/* ── Tabs ── */
+:global(.darkContent) .tab {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .tab:hover {
+  background: #333350;
+}
+
+/* ── Drop zone ── */
+:global(.darkContent) .dropZone {
+  background: #2a2a3d;
+  border-color: #555;
+}
+:global(.darkContent) .dropZone:hover {
+  background: #333350;
+  border-color: #667eea;
+}
+:global(.darkContent) .dropText,
+:global(.darkContent) .dropHint {
+  color: #ffffff;
+}
+
+/* ── Record panel ── */
+:global(.darkContent) .recordPanel {
+  color: #ffffff;
+}
+:global(.darkContent) .recTime {
+  color: #ffffff;
+}
+:global(.darkContent) .recHint {
+  color: #ffffff;
+}
+
+/* ── File info ── */
+:global(.darkContent) .fileInfo {
+  background: #1a3a2a;
+  border-color: #2d5a3d;
+  color: #ffffff;
+}
+
+/* ── Message ── */
+:global(.darkContent) .msg {
+  color: #ffffff;
+}
+
+/* ── Step nav ── */
+:global(.darkContent) .stepNav {
+  border-top-color: #444;
+}
+:global(.darkContent) .backBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .backBtn:hover {
+  background: #333350;
+}
+:global(.darkContent) .nextBtn:disabled {
+  background: #444;
+}
+
+/* ── Labels & inputs ── */
+:global(.darkContent) .label,
+:global(.darkContent) .labelHint {
+  color: #ffffff;
+}
+:global(.darkContent) .input,
+:global(.darkContent) .inputSmall {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .input:focus,
+:global(.darkContent) .inputSmall:focus {
+  background: #333350;
+}
+
+/* ── Discogs card ── */
+:global(.darkContent) .discogsCard {
+  background: #252538;
+  border-color: #444;
+  color: #ffffff;
+}
+:global(.darkContent) .albumTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .discogsMetaLine {
+  color: #ffffff;
+}
+
+/* ── Tracklist editor ── */
+:global(.darkContent) .tracklistTitle,
+:global(.darkContent) .trackCountLabel,
+:global(.darkContent) .trackPos,
+:global(.darkContent) .trackDur {
+  color: #ffffff;
+}
+:global(.darkContent) .trackNameInput {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .trackAddBtn {
+  background: #333350;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .trackAddBtn:hover {
+  background: #444;
+}
+:global(.darkContent) .orLine {
+  color: #ffffff;
+}
+
+/* ── Search results ── */
+:global(.darkContent) .searchResults {
+  border-color: #444;
+  background: #252538;
+}
+:global(.darkContent) .searchResultItem {
+  border-bottom-color: #444;
+}
+:global(.darkContent) .searchResultItem:hover {
+  background: #333350;
+}
+:global(.darkContent) .searchResultTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .searchResultMeta,
+:global(.darkContent) .searchLoading {
+  color: #ffffff;
+}
+
+/* ── Waveform toolbar items ── */
+:global(.darkContent) .tbGroupLabel,
+:global(.darkContent) .timeLabel,
+:global(.darkContent) .detectLabel,
+:global(.darkContent) .msgInline {
+  color: #ffffff;
+}
+:global(.darkContent) .tbBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .tbBtn:hover {
+  background: #333350;
+}
+:global(.darkContent) .tbSep {
+  background: #555;
+}
+:global(.darkContent) .detectRow {
+  background: #252538;
+  border-color: #444;
+  color: #ffffff;
+}
+
+/* ── Table ── */
+:global(.darkContent) .table {
+  background: #252538;
+}
+:global(.darkContent) .table th {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-bottom-color: #444;
+}
+:global(.darkContent) .table td {
+  color: #ffffff;
+  border-bottom-color: #333;
+}
+:global(.darkContent) .table tr:hover td {
+  background: #333350;
+}
+:global(.darkContent) .tableNameInput {
+  color: #ffffff;
+}
+:global(.darkContent) .tableNameInput:focus {
+  background: #2a2a3d;
+}
+
+/* ── Time input ── */
+:global(.darkContent) .timeInput {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .timeInput:focus {
+  background: #333350;
+}
+
+/* ── Volume card ── */
+:global(.darkContent) .volumeCard {
+  background: #252538;
+  border-color: #444;
+  color: #ffffff;
+}
+:global(.darkContent) .volumeLabel,
+:global(.darkContent) .gainUnit {
+  color: #ffffff;
+}
+:global(.darkContent) .gainInput {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .gainInput:focus {
+  background: #333350;
+}
+:global(.darkContent) .gainReset {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .gainReset:hover {
+  background: #333350;
+}
+
+/* ── Auto split panel ── */
+:global(.darkContent) .autoSplitPanel {
+  background: #252538;
+  border-color: #444;
+  color: #ffffff;
+}
+:global(.darkContent) .autoSplitCheckLabel,
+:global(.darkContent) .autoSplitCheckHint,
+:global(.darkContent) .autoSplitHint {
+  color: #ffffff;
+}
+:global(.darkContent) .manualSplitRow {
+  border-top-color: #444;
+}
+:global(.darkContent) .manualSplitLabel {
+  color: #ffffff;
+}
+:global(.darkContent) .manualSplitInput {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+
+/* ── Silence params ── */
+:global(.darkContent) .silenceParams {
+  background: #252538;
+  border-color: #444;
+}
+:global(.darkContent) .silenceParamLabel,
+:global(.darkContent) .silenceParamUnit,
+:global(.darkContent) .silenceParamHint {
+  color: #ffffff;
+}
+:global(.darkContent) .silenceParamInput {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+
+/* ── Analyze log ── */
+:global(.darkContent) .analyzeLogToggle {
+  color: #ffffff;
+}
+:global(.darkContent) .analyzeLogLine,
+:global(.darkContent) .analyzeLogIndent {
+  color: #ffffff;
+}
+
+/* ── Track marker cards ── */
+:global(.darkContent) .trackMarkerCard {
+  background: #252538;
+  border-color: #444;
+  color: #ffffff;
+}
+:global(.darkContent) .trackMarkerActive {
+  background: #2a2a4d;
+  border-color: #667eea;
+}
+:global(.darkContent) .trackMarkerNum,
+:global(.darkContent) .trackMarkerDur,
+:global(.darkContent) .markerLabel,
+:global(.darkContent) .markerTime {
+  color: #ffffff;
+}
+:global(.darkContent) .markerSeekBtn,
+:global(.darkContent) .markerSetBtn {
+  color: #ffffff;
+  border-color: #555;
+  background: #2a2a3d;
+}
+:global(.darkContent) .markerSeekBtn:hover,
+:global(.darkContent) .markerSetBtn:hover {
+  background: #333350;
+}
+:global(.darkContent) .addTrackBtn {
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .addTrackBtn:hover {
+  border-color: #667eea;
+  color: #667eea;
+  background: rgba(102,126,234,0.15);
+}
+
+/* ── Export (step 4) ── */
+:global(.darkContent) .fmtBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .fmtBtn:hover {
+  background: #333350;
+}
+:global(.darkContent) .sectionTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .filenameCell {
+  color: #ffffff;
+}
+:global(.darkContent) .exportRow {
+  background: #2a2a3d;
+  border-color: #555;
+  color: #ffffff;
+}
+:global(.darkContent) .exportProg,
+:global(.darkContent) .exportProgLabel {
+  color: #ffffff;
+}
+:global(.darkContent) .exportTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .exportFile,
+:global(.darkContent) .exportDetails,
+:global(.darkContent) .exportNum {
+  color: #ffffff;
+}
+
+/* ── Save/select buttons ── */
+:global(.darkContent) .saveHistBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .saveHistBtn:hover {
+  background: #333350;
+}
+:global(.darkContent) .selectBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .selectBtn:hover {
+  background: #333350;
+}
+:global(.darkContent) .selectedCount {
+  color: #ffffff;
+}
+
+/* ── Checkbox header ── */
+:global(.darkContent) .chkHeaderBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+
+/* ── Filename format ── */
+:global(.darkContent) .fmtInput {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .fmtInput:focus {
+  background: #333350;
+}
+:global(.darkContent) .tokenChip {
+  background: #333350;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .fmtHint {
+  color: #ffffff;
+}
+:global(.darkContent) .fmtCode {
+  background: #333350;
+  color: #b794f4;
+}
+
+/* ── History sidebar ── */
+:global(.darkContent) .historyHead {
+  background: #252538;
+  border-bottom-color: #444;
+}
+:global(.darkContent) .historyTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .closeHistory {
+  color: #ffffff;
+}
+:global(.darkContent) .historyEmpty {
+  color: #ffffff;
+}
+:global(.darkContent) .projectCard {
+  border-bottom-color: #333;
+}
+:global(.darkContent) .projectCard:hover {
+  background: #333350;
+}
+:global(.darkContent) .projectName {
+  color: #ffffff;
+}
+:global(.darkContent) .projectDate,
+:global(.darkContent) .projectFile {
+  color: #ffffff;
+}
+:global(.darkContent) .deleteBtn {
+  background: #2a2a3d;
+}
+
+/* ── Video step ── */
+:global(.darkContent) .videoArtEmpty {
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .presetBtn {
+  background: #2a2a3d;
+  border-color: #555;
+  color: #ffffff;
+}
+:global(.darkContent) .presetBtn:hover {
+  background: #333350;
+  border-color: #667eea;
+}
+:global(.darkContent) .presetMatchWrap {
+  border-left-color: #555;
+}
+:global(.darkContent) .presetMatchTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .presetMatchBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .presetMatchBtn:hover {
+  background: #333350;
+}
+
+/* ── Render status ── */
+:global(.darkContent) .renderStatusBanner {
+  background: #1a2a3d;
+  border-color: #2a4a6d;
+}
+:global(.darkContent) .renderStatusText {
+  color: #ffffff;
+}
+
+/* ── Image modal ── */
+:global(.darkContent) .imageDropZone {
+  background: #2a2a3d;
+  border-color: #555;
+}
+:global(.darkContent) .imageDropZone:hover {
+  background: #333350;
+  border-color: #667eea;
+}
+:global(.darkContent) .imageDropZoneTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .imageDropZoneHint {
+  color: #ffffff;
+}
+:global(.darkContent) .imageModalListTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .imageModalFooter {
+  border-top-color: #444;
+}
+:global(.darkContent) .imageModalClose {
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .imageModalClose:hover {
+  background: #333350;
+}
+
+/* ── Timeline ── */
+:global(.darkContent) .timelineWrap {
+  border-color: #444;
+  background: #252538;
+}
+:global(.darkContent) .timelineRow {
+  border-bottom-color: #444;
+}
+:global(.darkContent) .timelineLabel {
+  color: #ffffff;
+  background: #2a2a3d;
+  border-right-color: #444;
+}
+:global(.darkContent) .timelineTick {
+  color: #ffffff;
+}
+:global(.darkContent) .timelineAxis {
+  background: #2a2a3d;
+  border-top-color: #444;
+}
+:global(.darkContent) .dragHandle {
+  color: #ffffff;
+}
+
+/* ── YouTube section ── */
+:global(.darkContent) .ytSection {
+  color: #ffffff;
+  border-top-color: #444;
+}
+:global(.darkContent) .ytForm {
+  color: #ffffff;
+}
+:global(.darkContent) .ytFormatSection {
+  color: #ffffff;
+}
+:global(.darkContent) .ytFormatTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .ytFormatLabel {
+  color: #ffffff;
+}
+
+/* ── Waveform loading/empty ── */
+:global(.darkContent) .waveLoading,
+:global(.darkContent) .waveEmpty {
+  color: #ffffff;
+}
+
+/* ── Split tags ── */
+:global(.darkContent) .splitTag {
+  background: #2a2a3d;
+  border-color: #555;
+}
+:global(.darkContent) .splitTagSep,
+:global(.darkContent) .splitTagTime {
+  color: #ffffff;
+}
+
+/* ── Progress bar ── */
+:global(.darkContent) .progressBar {
+  background: #333;
+}
+
+/* ── Volume suggestions ── */
+:global(.darkContent) .volSuggestUp {
+  background: #1a2a3d;
+  border-color: #2a4a6d;
+  color: #90cdf4;
+}
+:global(.darkContent) .volSuggestDown {
+  background: #3a1a1a;
+  border-color: #6b2d2d;
+  color: #feb2b2;
+}
+:global(.darkContent) .volSuggestOk {
+  background: #1a3a2a;
+  border-color: #2d5a3d;
+  color: #9ae6b4;
+}
+
+/* ── Render estimate / info boxes ── */
+:global(.darkContent) .renderEstimate {
+  background: #1a2a3d;
+  border-color: #2a4a6d;
+  color: #ffffff;
+}
+
+/* ── Project name label ── */
+:global(.darkContent) .projectNameLabel {
+  color: #ffffff;
+}
+
+/* ── Img preview row ── */
+:global(.darkContent) .imgPreviewRow {
+  background: #252538;
+}
+
+/* ── YouTube results/links ── */
+:global(.darkContent) .ytResult {
+  background: #1a3a2a;
+  border-color: #2d5a3d;
+  color: #9ae6b4;
+}
+
+/* ── Error msg ── */
+:global(.darkContent) .errorMsg {
+  color: #fc8181;
+}
+
+/* ── No art box ── */
+:global(.darkContent) .noArtBox {
+  background: #3a1a1a;
+  border-color: #6b2d2d;
+  color: #fc8181;
+}
+:global(.darkContent) .noArtNote {
+  background: #3a2a1a;
+  border-color: #6b4d2d;
+  color: #fbd38d;
+}
+
+/* ── YouTube title suggestions ── */
+:global(.darkContent) .ytTitleSugBtn {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+:global(.darkContent) .ytTitleSugBtn:hover {
+  background: #333350;
+}
+:global(.darkContent) .ytTitleSugActive {
+  background: #333350;
+  border-color: #667eea;
+}
+
+/* ── Thumbnail dropzone ── */
+:global(.darkContent) .thumbDropzone {
+  background: #2a2a3d;
+  border-color: #555;
+}
+
+/* ── Video log area ── */
+:global(.darkContent) .videoLogWrap {
+  background: #1a1a2e;
+  border-color: #444;
+}
+
+/* ── Misc remaining text elements ── */
+:global(.darkContent) .recTime {
+  color: #ffffff;
+}
+:global(.darkContent) .stepProgress {
+  color: #90b0ff;
+}
+
+/* ── Render progress ── */
+:global(.darkContent) .renderProgressPct {
+  color: #ffffff;
+}
+:global(.darkContent) .renderProgressEta {
+  color: #ffffff;
+}
+
+/* ── Settings label ── */
+:global(.darkContent) .settingLabel {
+  color: #ffffff;
+}
+
+/* ── Video settings grid inputs ── */
+:global(.darkContent) .videoSettingsGrid input,
+:global(.darkContent) .videoSettingsGrid select {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+
+/* ── YouTube video link ── */
+:global(.darkContent) .ytVideoLink {
+  color: #90cdf4;
+}
+
+/* ── Discogs mode row ── */
+:global(.darkContent) .discogsModeRow {
+  color: #ffffff;
+}
+
+/* ── Render warning ── */
+:global(.darkContent) .renderWarning {
+  background: #3a2a1a;
+  border-color: #6b4d2d;
+  color: #fbd38d;
+}
+
+/* ── YouTube format hint ── */
+:global(.darkContent) .ytFormatHint {
+  color: #ffffff;
+}
+
+/* ── YouTube format actions ── */
+:global(.darkContent) .ytFormatActions {
+  color: #ffffff;
 }

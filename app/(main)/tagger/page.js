@@ -24,7 +24,34 @@ function logDiscogsRequest({ route, payload, response }) {
 
 export default function TaggerPage({ initialUrl }) {
 
-  const { colors } = useColorContext();
+  const { colors, darkMode } = useColorContext();
+
+  // Dark mode color helpers
+  const t = {
+    bg: darkMode ? '#1e1e2e' : '#ffffff',
+    bgAlt: darkMode ? '#252538' : '#f5f7fa',
+    bgHover: darkMode ? '#2d2d40' : '#f9fafb',
+    bgHighlight: darkMode ? '#1e3a5f' : '#f0f8ff',
+    text: darkMode ? '#ffffff' : '#000000',
+    textSecondary: darkMode ? '#ffffff' : '#000000',
+    textMuted: darkMode ? '#ffffff' : '#000000',
+    border: darkMode ? '#444' : '#ccc',
+    borderLight: darkMode ? '#333' : '#e3e8ee',
+    tableHeader: darkMode ? '#2a2a3d' : '#f5f5f5',
+    inputBg: darkMode ? '#2a2a3d' : '#fff',
+    cardBg: darkMode ? '#252538' : '#fff',
+    codeBg: darkMode ? '#2a2a3d' : '#f6f6f6',
+    buttonBg: darkMode ? '#3a3a4d' : '#eee',
+    warnBg: darkMode ? '#3d3520' : '#fffbe6',
+    warnBorder: darkMode ? '#665a30' : '#ffe156',
+    warnText: darkMode ? '#f5c842' : '#d97706',
+    successBg: darkMode ? '#1a3a2a' : '#d1fae5',
+    successBorder: darkMode ? '#2d6b4a' : '#10b981',
+    successText: darkMode ? '#6ee7b7' : '#065f46',
+    errorBg: darkMode ? '#3a1a1a' : '#fee2e2',
+    errorBorder: darkMode ? '#6b2d2d' : '#fca5a5',
+    errorText: darkMode ? '#fca5a5' : '#dc2626',
+  };
   const urlInputContainerRef = useRef(null);
   const [isStacked, setIsStacked] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -2340,17 +2367,28 @@ export default function TaggerPage({ initialUrl }) {
     <div>
       {/* Tagger Info Section */}
       <div style={{
-        background: '#f5f7fa',
-        border: '1px solid #e3e8ee',
+        background: t.bg,
+        color: t.text,
+        border: `1px solid ${t.borderLight}`,
         borderRadius: 8,
-        padding: '24px 20px',
+        padding: '28px 24px',
         marginBottom: 32,
         boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
       }}>
-        <p style={{ fontSize: 17, marginBottom: 8 }}>
-          <strong>Tagger.site</strong> is a tool for automatically generating music metadata and tracklists from audio files, Ableton .als files, and Discogs data.
+        <h1 style={{
+          fontSize: 42,
+          fontWeight: 700,
+          margin: '0 0 12px 0',
+          color: t.text,
+          letterSpacing: '-0.02em',
+          lineHeight: 1.1
+        }}>
+          Tagger
+        </h1>
+        <p style={{ fontSize: 14, marginBottom: 8, color: t.text, lineHeight: 1.5 }}>
+          A tool for automatically generating music metadata and tracklists from audio files, Ableton .als files, and Discogs data.
         </p>
-        <ul style={{ fontSize: 16, marginBottom: 8, paddingLeft: 22 }}>
+        <ul style={{ fontSize: 13, marginBottom: 0, paddingLeft: 20, color: t.text, lineHeight: 1.6 }}>
           <li>Upload audio files, Ableton .als files, or paste a Discogs URL to get metadata and track information.</li>
           <li>Generate formatted tracklists with timestamps, artist names, and track titles.</li>
           <li>Create optimized tags and hashtags for social media and music platforms.</li>
@@ -2359,10 +2397,10 @@ export default function TaggerPage({ initialUrl }) {
       </div>
 
       {/* Input Section Header */}
-      <div className={styles.taggerText} style={{ 
-        fontSize: '1.4rem', 
+      <div className={styles.taggerText} style={{
+        fontSize: '1.4rem',
         marginBottom: '1rem',
-        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        color: t.text,
         fontWeight: '600'
       }}>
         Get Started
@@ -2422,7 +2460,7 @@ export default function TaggerPage({ initialUrl }) {
               style={{ 
                 marginBottom: 0, 
                 marginRight: '0.5rem',
-                color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+                color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff'))
               }}
             >
               URL:
@@ -2438,8 +2476,8 @@ export default function TaggerPage({ initialUrl }) {
                 borderRadius: '6px 0 0 6px',
                 border: '1px solid rgba(255,255,255,0.2)',
                 borderRight: 'none',
-                color: '#222',
-                background: '#fff',
+                color: t.text,
+                background: t.bg,
                 flex: 1,
                 minWidth: 0,
                 width: '100%',
@@ -2457,9 +2495,9 @@ export default function TaggerPage({ initialUrl }) {
               style={{
                 padding: '0.75rem 1.5rem',
                 borderRadius: '0 6px 6px 0',
-                border: '1px solid #ccc',
-                background: 'white',
-                color: 'black',
+                border: `1px solid ${t.border}`,
+                background: t.bg,
+                color: t.text,
                 fontWeight: '600',
                 cursor: 'pointer',
                 transition: 'all 0.2s ease',
@@ -2486,10 +2524,10 @@ export default function TaggerPage({ initialUrl }) {
               style={{
                 marginTop: '0.5rem',
                 padding: '0.75rem',
-                backgroundColor: submitStatus === 'success' ? '#d1fae5' : isRetrying ? '#fff3cd' : '#fee2e2',
-                border: `1px solid ${submitStatus === 'success' ? '#10b981' : isRetrying ? '#ffc107' : '#fca5a5'}`,
+                backgroundColor: submitStatus === 'success' ? t.successBg : isRetrying ? t.warnBg : t.errorBg,
+                border: `1px solid ${submitStatus === 'success' ? t.successBorder : isRetrying ? t.warnBorder : t.errorBorder}`,
                 borderRadius: '6px',
-                color: submitStatus === 'success' ? '#065f46' : isRetrying ? '#856404' : '#dc2626',
+                color: submitStatus === 'success' ? t.successText : isRetrying ? t.warnText : t.errorText,
                 fontSize: '0.9rem',
                 fontWeight: '500',
                 display: 'flex',
@@ -2538,10 +2576,10 @@ export default function TaggerPage({ initialUrl }) {
               style={{
                 marginTop: '0.5rem',
                 padding: '0.75rem',
-                backgroundColor: '#fee2e2',
-                border: '1px solid #fca5a5',
+                backgroundColor: t.errorBg,
+                border: `1px solid ${t.errorBorder}`,
                 borderRadius: '6px',
-                color: '#dc2626',
+                color: t.errorText,
                 fontSize: '0.9rem',
                 fontWeight: '500'
               }}
@@ -2575,7 +2613,7 @@ export default function TaggerPage({ initialUrl }) {
           <div className={styles.taggerText} style={{ 
             fontSize: '1.4rem', 
             marginBottom: '1rem',
-            color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+            color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff')),
             fontWeight: '600'
           }}>
             Input Sources
@@ -2583,28 +2621,28 @@ export default function TaggerPage({ initialUrl }) {
           <table style={{
             width: '100%',
             borderCollapse: 'collapse',
-            border: '1px solid #ccc',
+            border: `1px solid ${t.border}`,
             marginBottom: '1rem',
-            background: '#ffffff'
+            background: t.bg
           }}>
             <thead>
-              <tr style={{ backgroundColor: '#f5f5f5' }}>
-                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '35%' }}>Source</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Filenames</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '25%' }}>Times</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '15%' }}>Remove</th>
+              <tr style={{ backgroundColor: t.tableHeader }}>
+                <th style={{ textAlign: 'left', padding: '0.5rem', border: `1px solid ${t.border}`, width: '35%' }}>Source</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}`, width: '25%' }}>Filenames</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}`, width: '25%' }}>Times</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}`, width: '15%' }}>Remove</th>
               </tr>
             </thead>
             <tbody>
               {inputSources.url.data && (
                 <tr style={{
-                  backgroundColor: inputSources.url.metadata ? '#f0f8ff' : 'transparent',
+                  backgroundColor: inputSources.url.metadata ? t.bgHighlight : 'transparent',
                   transition: 'background-color 0.3s ease'
                 }}>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <strong>URL:</strong> {inputSources.url.label}
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <input
                       type="checkbox"
                       checked={inputSources.url.metadata}
@@ -2616,14 +2654,14 @@ export default function TaggerPage({ initialUrl }) {
                       }}
                     />
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <input
                       type="checkbox"
                       checked={inputSources.url.times}
                       onChange={e => handleInputSourceChange('url', 'times', e.target.checked)}
                     />
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <button
                       onClick={() => {
                         setInputSources(prev => ({
@@ -2687,13 +2725,13 @@ export default function TaggerPage({ initialUrl }) {
               )}
               {inputSources.files.data && (
                 <tr style={{
-                  backgroundColor: inputSources.files.metadata ? '#f0f8ff' : 'transparent',
+                  backgroundColor: inputSources.files.metadata ? t.bgHighlight : 'transparent',
                   transition: 'background-color 0.3s ease'
                 }}>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <strong>Files:</strong> {inputSources.files.label}
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <input
                       type="checkbox"
                       checked={inputSources.files.metadata}
@@ -2705,14 +2743,14 @@ export default function TaggerPage({ initialUrl }) {
                       }}
                     />
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <input
                       type="checkbox"
                       checked={inputSources.files.times}
                       onChange={e => handleInputSourceChange('files', 'times', e.target.checked)}
                     />
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <button
                       onClick={() => {
                         setInputSources(prev => ({
@@ -2776,13 +2814,13 @@ export default function TaggerPage({ initialUrl }) {
               )}
               {inputSources.alsFilenames.data && (
                 <tr style={{
-                  backgroundColor: inputSources.alsFilenames.metadata ? '#f0f8ff' : 'transparent',
+                  backgroundColor: inputSources.alsFilenames.metadata ? t.bgHighlight : 'transparent',
                   transition: 'background-color 0.3s ease'
                 }}>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <strong>ALS Filenames:</strong> {inputSources.alsFilenames.label}
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <input
                       type="checkbox"
                       checked={inputSources.alsFilenames.metadata}
@@ -2794,7 +2832,7 @@ export default function TaggerPage({ initialUrl }) {
                       }}
                     />
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <input
                       type="checkbox"
                       checked={inputSources.alsFilenames.times}
@@ -2802,7 +2840,7 @@ export default function TaggerPage({ initialUrl }) {
                       title="Toggle to show/hide times for ALS filenames"
                     />
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc' }}>
+                  <td style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}` }}>
                     <button
                       onClick={() => {
                         setInputSources(prev => ({
@@ -2866,7 +2904,7 @@ export default function TaggerPage({ initialUrl }) {
       <div className={styles.taggerText} style={{ 
         fontSize: '1.4rem', 
         marginBottom: '1rem',
-        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff')),
         fontWeight: '600'
       }}>
         Timestamps
@@ -3077,7 +3115,7 @@ export default function TaggerPage({ initialUrl }) {
               flex: 1,
               minWidth: 0,
               opacity: draggedIndex === idx ? 0.3 : 1,
-              backgroundColor: dragOverIndex === idx ? '#e3f2fd' : 'transparent',
+              backgroundColor: dragOverIndex === idx ? (darkMode ? '#1e3a5f' : '#e3f2fd') : 'transparent',
               transform: draggedIndex === idx ? 'scale(1.02) rotate(2deg)' : 'none',
               transition: draggedIndex === idx ? 'none' : 'all 0.2s ease',
               cursor: draggedIndex === idx ? 'grabbing' : 'grab',
@@ -3092,17 +3130,17 @@ export default function TaggerPage({ initialUrl }) {
                 padding: 0,
                 paddingLeft: 4,
                 paddingRight: 4,
-                background: draggedIndex === idx ? '#bbdefb' : '#fff',
+                background: draggedIndex === idx ? (darkMode ? '#1e3a5f' : '#bbdefb') : t.bg,
                 borderTopLeftRadius: idx === 0 ? 4 : 0,
                 borderBottomLeftRadius: idx === 0 ? 4 : 0,
                 borderTopRightRadius: 0,
                 borderBottomRightRadius: 0,
-                border: '1px solid #ccc',
+                border: `1px solid ${t.border}`,
                 borderRight: 'none',
                 cursor: draggedIndex === idx ? 'grabbing' : 'grab',
                 userSelect: 'none',
                 transition: 'background-color 0.2s',
-                color: draggedIndex === idx ? '#1976d2' : '#666'
+                color: draggedIndex === idx ? '#4d9fff' : t.textSecondary
               }}
             >
               <GripVertical size={18} />
@@ -3126,12 +3164,12 @@ export default function TaggerPage({ initialUrl }) {
                   : idx === formatOrder.length - 1
                     ? '0 4px 4px 0'
                     : '0',
-                border: '1px solid #ccc',
+                border: `1px solid ${t.border}`,
                 borderLeft: 'none',
-                borderRight: idx !== formatOrder.length - 1 ? 'none' : '1px solid #ccc',
+                borderRight: idx !== formatOrder.length - 1 ? 'none' : `1px solid ${t.border}`,
                 fontSize: '1rem',
                 textAlign: 'center',
-                background: draggedIndex === idx ? '#f5f5f5' : '#fff',
+                background: draggedIndex === idx ? t.bgAlt : t.bg,
                 boxSizing: 'border-box',
                 cursor:
                   ((item.value === 'artist' && artistDisabled) ||
@@ -3157,7 +3195,7 @@ export default function TaggerPage({ initialUrl }) {
         <div style={{ margin: '0.5rem 0' }}>
           <label style={{ 
             fontSize: '0.95rem', 
-            color: '#333',
+            color: t.text,
             display: 'flex',
             alignItems: 'center'
           }}>
@@ -3210,7 +3248,7 @@ export default function TaggerPage({ initialUrl }) {
             minWidth: '100%',
             padding: '0.5rem',
             borderRadius: '4px',
-            border: '1px solid #ccc',
+            border: `1px solid ${t.border}`,
             fontSize: '1rem',
             boxSizing: 'border-box',
             display: 'block',
@@ -3223,8 +3261,9 @@ export default function TaggerPage({ initialUrl }) {
             marginBottom: '0.25rem',
             padding: '0.5rem',
             borderRadius: '4px',
-            border: '1px solid #ccc',
-            background: copyState === 'copied' ? '#ffe156' : '#eee',
+            border: `1px solid ${t.border}`,
+            background: copyState === 'copied' ? '#ffe156' : t.buttonBg,
+            color: copyState === 'copied' ? '#000000' : t.text,
             fontWeight: 600,
             cursor: 'pointer',
             boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
@@ -3245,7 +3284,7 @@ export default function TaggerPage({ initialUrl }) {
               fontSize: '0.9rem', 
               fontWeight: 600, 
               marginBottom: '0.5rem',
-              color: '#666'
+              color: t.textSecondary
             }}>
               Export CUE File:
             </div>
@@ -3256,8 +3295,8 @@ export default function TaggerPage({ initialUrl }) {
                 style={{
                   padding: '0.5rem 1rem',
                   borderRadius: '4px',
-                  border: '1px solid #ccc',
-                  background: cueExportState === 'copied' ? '#ffe156' : '#eee',
+                  border: `1px solid ${t.border}`,
+                  background: cueExportState === 'copied' ? '#ffe156' : t.buttonBg,
                   fontWeight: 600,
                   cursor: 'pointer',
                   boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
@@ -3274,7 +3313,7 @@ export default function TaggerPage({ initialUrl }) {
                 style={{
                   padding: '0.5rem 1rem',
                   borderRadius: '4px',
-                  border: '1px solid #ccc',
+                  border: `1px solid ${t.border}`,
                   background: '#4CAF50',
                   color: 'white',
                   fontWeight: 600,
@@ -3295,14 +3334,14 @@ export default function TaggerPage({ initialUrl }) {
           onClick={handleReset}
           style={{
             margin: '1rem 0 1rem 0',
-            background: '#f6f6f6',
-            border: '1px solid #ccc',
+            background: t.codeBg,
+            border: `1px solid ${t.border}`,
             borderRadius: 4,
             padding: '0.5rem 1.2rem',
             fontWeight: 600,
             fontSize: '1em',
             cursor: 'pointer',
-            color: '#222',
+            color: t.text,
             display: 'block',
             width: '100%',
             transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
@@ -3317,8 +3356,8 @@ export default function TaggerPage({ initialUrl }) {
           <div
             style={{
               marginTop: '1rem',
-              background: '#fffbe6',
-              border: '1px solid #ffe156',
+              background: t.warnBg,
+              border: `1px solid ${t.warnBorder}`,
               borderRadius: 6,
               padding: '1rem',
               boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
@@ -3335,7 +3374,7 @@ export default function TaggerPage({ initialUrl }) {
                 background: 'transparent',
                 border: 'none',
                 fontSize: '1.5rem',
-                color: '#d97706',
+                color: t.warnText,
                 cursor: 'pointer',
                 padding: 0,
                 lineHeight: 1,
@@ -3351,7 +3390,7 @@ export default function TaggerPage({ initialUrl }) {
               onClick={applyFormatSuggestion}
               style={{
                 background: '#ffe156',
-                color: '#222',
+                color: t.text,
                 border: 'none',
                 borderRadius: 4,
                 padding: '0.5rem 1.2rem',
@@ -3378,14 +3417,14 @@ export default function TaggerPage({ initialUrl }) {
               Click to remove duplicate text: "{formatSuggestion.prefix}"
             </button>
             <div style={{ marginBottom: 8, fontWeight: 600 }}>
-              Formatting Suggestion: Remove duplicate text <span style={{ color: '#d97706' }}>"{formatSuggestion.prefix}"</span>
+              Formatting Suggestion: Remove duplicate text <span style={{ color: t.warnText }}>"{formatSuggestion.prefix}"</span>
             </div>
             <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.95em', color: '#888', marginBottom: 2 }}>Before:</div>
+                <div style={{ fontSize: '0.95em', color: t.textMuted, marginBottom: 2 }}>Before:</div>
                 <pre style={{
-                  background: '#f6f6f6',
-                  border: '1px solid #eee',
+                  background: t.codeBg,
+                  border: `1px solid ${t.border}`,
                   borderRadius: 4,
                   padding: 8,
                   margin: 0,
@@ -3394,10 +3433,10 @@ export default function TaggerPage({ initialUrl }) {
                 }}>{formatSuggestion.before}</pre>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.95em', color: '#888', marginBottom: 2 }}>After:</div>
+                <div style={{ fontSize: '0.95em', color: t.textMuted, marginBottom: 2 }}>After:</div>
                 <pre style={{
-                  background: '#f6f6f6',
-                  border: '1px solid #eee',
+                  background: t.codeBg,
+                  border: `1px solid ${t.border}`,
                   borderRadius: 4,
                   padding: 8,
                   margin: 0,
@@ -3419,7 +3458,7 @@ export default function TaggerPage({ initialUrl }) {
             <div className={styles.taggerText} style={{ 
               fontSize: '1.1rem', 
               marginBottom: 0,
-              color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+              color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff'))
             }}>
               <strong>Video Title Recommendations:</strong>
             </div>
@@ -3429,8 +3468,8 @@ export default function TaggerPage({ initialUrl }) {
                 padding: '0.25rem 0.5rem',
                 fontSize: '0.8rem',
                 borderRadius: '4px',
-                border: '1px solid #ccc',
-                background: '#eee',
+                border: `1px solid ${t.border}`,
+                background: t.buttonBg,
                 fontWeight: 600,
                 cursor: 'pointer',
                 transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
@@ -3450,16 +3489,16 @@ export default function TaggerPage({ initialUrl }) {
                   alignItems: 'center',
                   marginBottom: '0.5rem',
                   padding: '0.5rem',
-                  border: '1px solid #ddd',
+                  border: `1px solid ${t.border}`,
                   borderRadius: '4px',
-                  backgroundColor: '#f9f9f9'
+                  backgroundColor: t.bgAlt
                 }}
               >
                 <div
                   style={{
                     flex: 1,
                     fontSize: '0.95rem',
-                    color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+                    color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff')),
                     wordBreak: 'break-word',
                     marginRight: '0.5rem'
                   }}
@@ -3472,8 +3511,8 @@ export default function TaggerPage({ initialUrl }) {
                     padding: '0.25rem 0.5rem',
                     fontSize: '0.8rem',
                     borderRadius: '4px',
-                    border: '1px solid #ccc',
-                    background: videoTitleCopyStates[index] === 'copied' ? '#ffe156' : '#eee',
+                    border: `1px solid ${t.border}`,
+                    background: videoTitleCopyStates[index] === 'copied' ? '#ffe156' : t.buttonBg,
                     fontWeight: 600,
                     cursor: 'pointer',
                     transition: 'background 0.2s, box-shadow 0.2s, color 0.2s',
@@ -3492,7 +3531,7 @@ export default function TaggerPage({ initialUrl }) {
       <div className={styles.taggerText} style={{ 
         fontSize: '1.4rem', 
         marginBottom: '1rem',
-        color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+        color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff')),
         fontWeight: '600'
       }}>
         Tags
@@ -3504,21 +3543,21 @@ export default function TaggerPage({ initialUrl }) {
           <table style={{
             width: '100%',
             borderCollapse: 'collapse',
-            border: '1px solid #ccc',
+            border: `1px solid ${t.border}`,
             marginBottom: '1rem',
-            background: '#ffffff'
+            background: t.bg
           }}>
             <thead>
-              <tr style={{ backgroundColor: '#f5f5f5' }}>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '15%' }}>Include</th>
-                <th style={{ textAlign: 'left', padding: '0.5rem', border: '1px solid #ccc', width: '35%' }}>Tag Type</th>
-                <th style={{ textAlign: 'center', padding: '0.5rem', border: '1px solid #ccc', width: '50%' }}>Percentage</th>
+              <tr style={{ backgroundColor: t.tableHeader }}>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}`, width: '15%' }}>Include</th>
+                <th style={{ textAlign: 'left', padding: '0.5rem', border: `1px solid ${t.border}`, width: '35%' }}>Tag Type</th>
+                <th style={{ textAlign: 'center', padding: '0.5rem', border: `1px solid ${t.border}`, width: '50%' }}>Percentage</th>
               </tr>
             </thead>
             <tbody>
               {parsedTags.artists.length > 0 && (
                 <tr>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
                       type="checkbox"
                       checked={tagFilters.artists.enabled}
@@ -3532,13 +3571,13 @@ export default function TaggerPage({ initialUrl }) {
                       })}
                     />
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, verticalAlign: 'middle' }}>
                     <strong>Artist(s)</strong>
-                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: t.textSecondary, marginTop: '0.25rem' }}>
                       {parsedTags.artists.length} total tags
                     </div>
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                       <input
                         type="range"
@@ -3558,7 +3597,7 @@ export default function TaggerPage({ initialUrl }) {
                         }}
                         style={{ width: '100%' }}
                       />
-                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                      <div style={{ fontSize: '0.8rem', color: t.textSecondary }}>
                         {tagFilters.artists.sliderValue}% ({Math.ceil((parsedTags.artists.length * tagFilters.artists.sliderValue) / 100)} tags)
                       </div>
                     </div>
@@ -3567,7 +3606,7 @@ export default function TaggerPage({ initialUrl }) {
               )}
               {parsedTags.album.length > 0 && (
                 <tr>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
                       type="checkbox"
                       checked={tagFilters.album.enabled}
@@ -3581,13 +3620,13 @@ export default function TaggerPage({ initialUrl }) {
                       })}
                     />
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, verticalAlign: 'middle' }}>
                     <strong>Album</strong>
-                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: t.textSecondary, marginTop: '0.25rem' }}>
                       {parsedTags.album.length} total tags
                     </div>
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                       <input
                         type="range"
@@ -3607,7 +3646,7 @@ export default function TaggerPage({ initialUrl }) {
                         }}
                         style={{ width: '100%' }}
                       />
-                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                      <div style={{ fontSize: '0.8rem', color: t.textSecondary }}>
                         {tagFilters.album.sliderValue}% ({Math.ceil((parsedTags.album.length * tagFilters.album.sliderValue) / 100)} tags)
                       </div>
                     </div>
@@ -3616,7 +3655,7 @@ export default function TaggerPage({ initialUrl }) {
               )}
               {parsedTags.tracklist.length > 0 && (
                 <tr>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
                       type="checkbox"
                       checked={tagFilters.tracklist.enabled}
@@ -3630,13 +3669,13 @@ export default function TaggerPage({ initialUrl }) {
                       })}
                     />
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, verticalAlign: 'middle' }}>
                     <strong>Tracklist</strong>
-                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: t.textSecondary, marginTop: '0.25rem' }}>
                       {parsedTags.tracklist.length} total tags
                     </div>
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                       <input
                         type="range"
@@ -3656,7 +3695,7 @@ export default function TaggerPage({ initialUrl }) {
                         }}
                         style={{ width: '100%' }}
                       />
-                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                      <div style={{ fontSize: '0.8rem', color: t.textSecondary }}>
                         {tagFilters.tracklist.sliderValue}% ({Math.ceil((parsedTags.tracklist.length * tagFilters.tracklist.sliderValue) / 100)} tags)
                       </div>
                     </div>
@@ -3665,7 +3704,7 @@ export default function TaggerPage({ initialUrl }) {
               )}
               {parsedTags.combinations.length > 0 && (
                 <tr>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
                       type="checkbox"
                       checked={tagFilters.combinations.enabled}
@@ -3679,13 +3718,13 @@ export default function TaggerPage({ initialUrl }) {
                       })}
                     />
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, verticalAlign: 'middle' }}>
                     <strong>Combinations</strong>
-                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: t.textSecondary, marginTop: '0.25rem' }}>
                       {parsedTags.combinations.length} total tags
                     </div>
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                       <input
                         type="range"
@@ -3705,7 +3744,7 @@ export default function TaggerPage({ initialUrl }) {
                         }}
                         style={{ width: '100%' }}
                       />
-                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                      <div style={{ fontSize: '0.8rem', color: t.textSecondary }}>
                         {tagFilters.combinations.sliderValue}% ({Math.ceil((parsedTags.combinations.length * tagFilters.combinations.sliderValue) / 100)} tags)
                       </div>
                     </div>
@@ -3714,7 +3753,7 @@ export default function TaggerPage({ initialUrl }) {
               )}
               {includeTrackCredits && parsedTags.credits && parsedTags.credits.length > 0 && (
                 <tr>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
                       type="checkbox"
                       checked={tagFilters.credits && tagFilters.credits.enabled}
@@ -3728,13 +3767,13 @@ export default function TaggerPage({ initialUrl }) {
                       })}
                     />
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, verticalAlign: 'middle' }}>
                     <strong>Track Credits</strong>
-                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: t.textSecondary, marginTop: '0.25rem' }}>
                       {parsedTags.credits.length} total credits
                     </div>
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                       <input
                         type="range"
@@ -3754,7 +3793,7 @@ export default function TaggerPage({ initialUrl }) {
                         }}
                         style={{ width: '100%' }}
                       />
-                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                      <div style={{ fontSize: '0.8rem', color: t.textSecondary }}>
                         {tagFilters.credits ? tagFilters.credits.sliderValue : 100}% ({Math.ceil((parsedTags.credits.length * (tagFilters.credits ? tagFilters.credits.sliderValue : 100)) / 100)} credits)
                       </div>
                     </div>
@@ -3763,7 +3802,7 @@ export default function TaggerPage({ initialUrl }) {
               )}
               {parsedTags.filenames.length > 0 && (
                 <tr>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <input
                       type="checkbox"
                       checked={tagFilters.filenames && tagFilters.filenames.enabled}
@@ -3777,13 +3816,13 @@ export default function TaggerPage({ initialUrl }) {
                       })}
                     />
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, verticalAlign: 'middle' }}>
                     <strong>Filenames</strong>
-                    <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '0.25rem' }}>
+                    <div style={{ fontSize: '0.8rem', color: t.textSecondary, marginTop: '0.25rem' }}>
                       {parsedTags.filenames.length} total filenames
                     </div>
                   </td>
-                  <td style={{ padding: '0.5rem', border: '1px solid #ccc', textAlign: 'center', verticalAlign: 'middle' }}>
+                  <td style={{ padding: '0.5rem', border: `1px solid ${t.border}`, textAlign: 'center', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
                       <input
                         type="range"
@@ -3803,7 +3842,7 @@ export default function TaggerPage({ initialUrl }) {
                         }}
                         style={{ width: '100%' }}
                       />
-                      <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                      <div style={{ fontSize: '0.8rem', color: t.textSecondary }}>
                         {tagFilters.filenames ? tagFilters.filenames.sliderValue : 100}% ({Math.ceil((parsedTags.filenames.length * (tagFilters.filenames ? tagFilters.filenames.sliderValue : 100)) / 100)} filenames)
                       </div>
                     </div>
@@ -3829,7 +3868,7 @@ export default function TaggerPage({ initialUrl }) {
           minWidth: '100%',
           padding: '0.5rem',
           borderRadius: '4px',
-          border: '1px solid #ccc',
+          border: `1px solid ${t.border}`,
           fontSize: '1rem',
           boxSizing: 'border-box',
           display: 'block',
@@ -3844,8 +3883,9 @@ export default function TaggerPage({ initialUrl }) {
           width: '100%',
           padding: '0.5rem',
           borderRadius: '4px',
-          border: '1px solid #ccc',
-          background: tagsCopyState === 'copied' ? '#ffe156' : '#eee',
+          border: `1px solid ${t.border}`,
+          background: tagsCopyState === 'copied' ? '#ffe156' : t.buttonBg,
+          color: tagsCopyState === 'copied' ? '#000000' : t.text,
           fontWeight: 600,
           cursor: 'pointer',
           marginBottom: '0.5rem',
@@ -3871,7 +3911,7 @@ export default function TaggerPage({ initialUrl }) {
           style={{
             padding: '0.5rem',
             borderRadius: '4px',
-            border: '1px solid #ccc',
+            border: `1px solid ${t.border}`,
             width: '80px',
             textAlign: 'center'
           }}
@@ -3882,8 +3922,8 @@ export default function TaggerPage({ initialUrl }) {
           style={{
             padding: '0.5rem 1rem',
             borderRadius: '4px',
-            border: '1px solid #ccc',
-            background: '#eee',
+            border: `1px solid ${t.border}`,
+            background: t.buttonBg,
             fontWeight: 600,
             cursor: 'pointer',
             transition: 'background 0.2s, box-shadow 0.2s, color 0.2s'
@@ -3934,7 +3974,7 @@ export default function TaggerPage({ initialUrl }) {
         {optimizeStatus && (
           <span style={{ 
             fontSize: '0.9rem', 
-            color: getReadableTextColor(colors?.LightMuted || '#ffffff')
+            color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff'))
           }}>
             {optimizeStatus}
           </span>
@@ -3944,7 +3984,7 @@ export default function TaggerPage({ initialUrl }) {
       {/* Hashtags Section */}
       <div>
         <h3 style={{
-          color: getReadableTextColor(colors?.LightMuted || '#ffffff'),
+          color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff')),
           marginBottom: '1rem',
           fontSize: '1.4rem',
           fontWeight: '600'
@@ -3966,7 +4006,7 @@ export default function TaggerPage({ initialUrl }) {
             minWidth: '100%',
             padding: '0.5rem',
             borderRadius: '4px',
-            border: '1px solid #ccc',
+            border: `1px solid ${t.border}`,
             fontSize: '1rem',
             boxSizing: 'border-box',
             display: 'block',
@@ -3979,8 +4019,9 @@ export default function TaggerPage({ initialUrl }) {
             width: '100%',
             padding: '0.5rem',
             borderRadius: '4px',
-            border: '1px solid #ccc',
-            background: hashtagsCopyState === 'copied' ? '#ffe156' : '#eee',
+            border: `1px solid ${t.border}`,
+            background: hashtagsCopyState === 'copied' ? '#ffe156' : t.buttonBg,
+            color: hashtagsCopyState === 'copied' ? '#000000' : t.text,
             fontWeight: 600,
             cursor: 'pointer',
             marginBottom: '0.5rem',

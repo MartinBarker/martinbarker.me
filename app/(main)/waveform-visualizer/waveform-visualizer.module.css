@@ -19,7 +19,7 @@
 }
 
 .header p {
-  color: #666;
+  color: #000000;
   font-size: 1.1rem;
 }
 
@@ -29,7 +29,7 @@
   align-items: center;
   justify-content: center;
   padding: 3rem;
-  color: #666;
+  color: #000000;
 }
 
 .spinner {
@@ -151,7 +151,7 @@
 .containerLoading p {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #333;
+  color: #000000;
   margin: 0;
   text-align: center;
 }
@@ -180,7 +180,7 @@
 
 .audioInfo p {
   margin: 0;
-  color: #333;
+  color: #000000;
   font-weight: 500;
 }
 
@@ -283,7 +283,7 @@
 }
 
 .markersSection h3 {
-  color: #333;
+  color: #000000;
   margin-bottom: 1rem;
   font-size: 1.5rem;
   border-bottom: 2px solid #667eea;
@@ -311,14 +311,14 @@
   padding: 1rem;
   text-align: left;
   font-weight: 600;
-  color: #333;
+  color: #000000;
   border-bottom: 2px solid #e9ecef;
 }
 
 .markersTable td {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #e9ecef;
-  color: #555;
+  color: #000000;
 }
 
 .markersTable tbody tr:hover {
@@ -395,4 +395,38 @@
 
 .tableContainer::-webkit-scrollbar-thumb:hover {
   background: #5a6fd8;
+}
+
+/* ── Dark mode overrides ── */
+:global(.darkContent) .header p,
+:global(.darkContent) .loading,
+:global(.darkContent) .containerLoading p,
+:global(.darkContent) .audioInfo p,
+:global(.darkContent) .markersSection h3,
+:global(.darkContent) .markersTable th,
+:global(.darkContent) .markersTable td {
+  color: #ffffff;
+}
+
+:global(.darkContent) .audioInfo,
+:global(.darkContent) .tableContainer,
+:global(.darkContent) .waveformContainer {
+  background-color: #1e1e2e;
+  border-color: #444;
+}
+
+:global(.darkContent) .markersTable thead {
+  background-color: #2a2a3d;
+}
+
+:global(.darkContent) .markersTable tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+:global(.darkContent) .markersTable th {
+  border-bottom-color: #444;
+}
+
+:global(.darkContent) .markersTable td {
+  border-bottom-color: #444;
 }

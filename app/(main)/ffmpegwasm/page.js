@@ -1,10 +1,11 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useContext, useState, useRef, useEffect } from "react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import styles from "./ffmpegwasm.module.css";
 import Table from "./Table";
 import YouTubeAuth from "../YouTubeAuth/YouTubeAuth";
+import { ColorContext } from "../ColorContext";
 
 // ---------- IndexedDB helpers ----------
 function openIDB() {
@@ -265,6 +266,21 @@ function StepIndicator({ currentStep, onStepClick, isRendering }) {
 
 // ---------- Main Component ----------
 function CombineImageAudioExample() {
+  const { darkMode } = useContext(ColorContext);
+
+  // Dark mode color helpers
+  const t = {
+    bg: darkMode ? '#1e1e2e' : '#ffffff',
+    bgAlt: darkMode ? '#252538' : '#f8f9fa',
+    bgInput: darkMode ? '#2a2a3d' : '#fafafa',
+    text: darkMode ? '#ffffff' : '#000000',
+    textSecondary: darkMode ? '#ffffff' : '#000000',
+    border: darkMode ? '#444' : '#dee2e6',
+    borderInput: darkMode ? '#555' : '#ced4da',
+    errorBg: darkMode ? '#3a1a1a' : '#f8d7da',
+    errorBorder: darkMode ? '#6b2d2d' : '#f5c6cb',
+  };
+
   const [mounted, setMounted] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -711,7 +727,7 @@ function CombineImageAudioExample() {
     </button>
   );
   const BtnSecondary = ({ onClick, disabled, children, style = {} }) => (
-    <button onClick={onClick} disabled={disabled} style={{ padding: "10px 22px", fontSize: 15, fontWeight: "bold", background: "transparent", color: "#6c757d", border: "1px solid #ced4da", borderRadius: 6, cursor: disabled ? "not-allowed" : "pointer", ...style }}>
+    <button onClick={onClick} disabled={disabled} style={{ padding: "10px 22px", fontSize: 15, fontWeight: "bold", background: "transparent", color: t.textSecondary, border: `1px solid ${t.borderInput}`, borderRadius: 6, cursor: disabled ? "not-allowed" : "pointer", ...style }}>
       {children}
     </button>
   );
@@ -755,7 +771,7 @@ function CombineImageAudioExample() {
               onChange={e => { setImageUrlInput(e.target.value); setImageUrlError(""); }}
               onKeyDown={e => { if (e.key === "Enter") addImageFromUrl(); }}
               placeholder="Add image from URL — paste URL and press Enter"
-              style={{ flex: 1, padding: "8px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 13, background: "#fafafa" }}
+              style={{ flex: 1, padding: "8px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 13, background: t.bgInput }}
             />
             <button
               onClick={addImageFromUrl}
@@ -766,7 +782,7 @@ function CombineImageAudioExample() {
             </button>
           </div>
           {imageUrlError && (
-            <div style={{ marginBottom: 16, fontSize: 13, color: "#dc3545", background: "#f8d7da", padding: "6px 10px", borderRadius: 4 }}>{imageUrlError}</div>
+            <div style={{ marginBottom: 16, fontSize: 13, color: darkMode ? "#fca5a5" : "#dc3545", background: t.errorBg, padding: "6px 10px", borderRadius: 4 }}>{imageUrlError}</div>
           )}
 
           <div className={styles["files-display"]}>
@@ -810,9 +826,9 @@ function CombineImageAudioExample() {
                   if (!item) return null;
                   const s = getImageSettings(id);
                   return (
-                    <div key={id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", background: "#f8f9fa", borderRadius: 8, border: "1px solid #dee2e6" }}>
+                    <div key={id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", background: t.bgAlt, borderRadius: 8, border: `1px solid ${t.border}` }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "50%", background: "#007bff", color: "white", fontSize: 11, fontWeight: "bold", flexShrink: 0 }}>{idx + 1}</div>
-                      {item.previewUrl && <img src={item.previewUrl} alt={item.file.name} style={{ width: 56, height: 42, objectFit: "cover", borderRadius: 4, flexShrink: 0, border: "1px solid #dee2e6" }} />}
+                      {item.previewUrl && <img src={item.previewUrl} alt={item.file.name} style={{ width: 56, height: 42, objectFit: "cover", borderRadius: 4, flexShrink: 0, border: `1px solid ${t.border}` }} />}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: "bold", color: "#343a40", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 6 }}>{item.file.name}</div>
                         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
@@ -827,7 +843,7 @@ function CombineImageAudioExample() {
                           {!s.useBlurBackground && !s.stretchImageToFit && (
                             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#495057" }}>
                               <span>Padding:</span>
-                              <input type="color" value={s.paddingColor} onChange={e => updateImageSetting(id, "paddingColor", e.target.value)} style={{ width: 28, height: 24, padding: 2, border: "1px solid #ced4da", borderRadius: 4, cursor: "pointer" }} />
+                              <input type="color" value={s.paddingColor} onChange={e => updateImageSetting(id, "paddingColor", e.target.value)} style={{ width: 28, height: 24, padding: 2, border: `1px solid ${t.borderInput}`, borderRadius: 4, cursor: "pointer" }} />
                               {["#000000", "#ffffff", "#1a1a2e", "#16213e", "#0f3460"].map(c => (
                                 <span key={c} onClick={() => updateImageSetting(id, "paddingColor", c)} title={c} style={{ display: "inline-block", width: 18, height: 18, borderRadius: 3, background: c, border: s.paddingColor === c ? "2px solid #007bff" : "1px solid #adb5bd", cursor: "pointer", flexShrink: 0 }} />
                               ))}
@@ -863,11 +879,11 @@ function CombineImageAudioExample() {
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <span style={{ fontSize: 13, color: "#6c757d" }}>
+              <span style={{ fontSize: 13, color: t.textSecondary }}>
                 FFmpeg core: {loaded ? "✓ Ready" : "Loading…"}
               </span>
               {mediaFiles.length > 0 && (
-                <button onClick={clearAll} style={{ fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: "#dc3545", cursor: "pointer" }}>
+                <button onClick={clearAll} style={{ fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: darkMode ? "#fca5a5" : "#dc3545", cursor: "pointer" }}>
                   Clear all & restart
                 </button>
               )}
@@ -887,12 +903,12 @@ function CombineImageAudioExample() {
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Output Filename</span>
               <input type="text" value={outputFilename} onChange={e => setOutputFilename(e.target.value)} placeholder="output"
-                style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14 }} />
+                style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14 }} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Format</span>
               <select value={outputFormat} onChange={e => setOutputFormat(e.target.value)}
-                style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14, background: "white" }}>
+                style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14, background: t.bg }}>
                 <option value="mp4">mp4</option>
                 <option value="mkv">mkv</option>
                 <option value="webm">webm</option>
@@ -902,24 +918,24 @@ function CombineImageAudioExample() {
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Width (px)</span>
               <input type="number" value={videoWidth} onChange={e => setVideoWidth(e.target.value)} min="1" max="7680"
-                style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14 }} />
+                style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14 }} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Height (px)</span>
               <input type="number" value={videoHeight} onChange={e => setVideoHeight(e.target.value)} min="1" max="4320"
-                style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14 }} />
+                style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14 }} />
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Background Color</span>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="color" value={backgroundColor} onChange={e => setBackgroundColor(e.target.value)}
-                  style={{ width: 44, height: 38, padding: 2, border: "1px solid #ced4da", borderRadius: 6, cursor: "pointer" }} />
-                <span style={{ fontSize: 13, color: "#6c757d", fontFamily: "monospace" }}>{backgroundColor}</span>
+                  style={{ width: 44, height: 38, padding: 2, border: `1px solid ${t.borderInput}`, borderRadius: 6, cursor: "pointer" }} />
+                <span style={{ fontSize: 13, color: t.textSecondary, fontFamily: "monospace" }}>{backgroundColor}</span>
               </div>
             </label>
           </div>
 
-          <div style={{ padding: "12px 16px", background: "#f8f9fa", borderRadius: 6, marginBottom: 24, fontSize: 13, color: "#6c757d" }}>
+          <div style={{ padding: "12px 16px", background: t.bgAlt, borderRadius: 6, marginBottom: 24, fontSize: 13, color: t.textSecondary }}>
             <strong>{selectedAudioIds.length}</strong> audio track{selectedAudioIds.length !== 1 ? "s" : ""} · <strong>{selectedImageIds.length}</strong> image{selectedImageIds.length !== 1 ? "s (slideshow)" : ""} · <strong>{formatDuration(totalSelectedDuration())}</strong> runtime → <strong>{outputFilename || "output"}.{outputFormat}</strong> at {videoWidth}×{videoHeight}
           </div>
 
@@ -928,7 +944,7 @@ function CombineImageAudioExample() {
             <BtnPrimary onClick={() => { setCurrentStep(2); renderVideo(); }} disabled={!loaded}>
               {loaded ? "Render Video →" : "Loading FFmpeg…"}
             </BtnPrimary>
-            <button onClick={clearAll} style={{ marginLeft: "auto", fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: "#dc3545", cursor: "pointer" }}>
+            <button onClick={clearAll} style={{ marginLeft: "auto", fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: darkMode ? "#fca5a5" : "#dc3545", cursor: "pointer" }}>
               Clear all & restart
             </button>
           </div>
@@ -957,7 +973,7 @@ function CombineImageAudioExample() {
           ) : (
             <>
               {renderError && (
-                <div style={{ padding: "16px", background: "#f8d7da", border: "1px solid #f5c6cb", borderRadius: 6, marginBottom: 20 }}>
+                <div style={{ padding: "16px", background: t.errorBg, border: `1px solid ${t.errorBorder}`, borderRadius: 6, marginBottom: 20 }}>
                   <div style={{ color: "#721c24", fontWeight: "bold", marginBottom: 8 }}>Render failed</div>
                   <div style={{ color: "#721c24", fontFamily: "monospace", fontSize: 13 }}>{renderError}</div>
                 </div>
@@ -971,7 +987,7 @@ function CombineImageAudioExample() {
 
           <div style={{ marginTop: 16 }}>
             <button onClick={() => setShowLogs(v => !v)}
-              style={{ background: "none", border: "none", color: "#6c757d", cursor: "pointer", fontSize: 13, padding: 0, marginBottom: 8 }}>
+              style={{ background: "none", border: "none", color: t.textSecondary, cursor: "pointer", fontSize: 13, padding: 0, marginBottom: 8 }}>
               {showLogs ? "▼" : "▶"} FFmpeg Logs {logs.length > 0 ? `(${logs.length} lines)` : ""}
             </button>
             {showLogs && (
@@ -983,7 +999,7 @@ function CombineImageAudioExample() {
 
           {!isRendering && (
             <div style={{ marginTop: 16 }}>
-              <button onClick={clearAll} style={{ fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: "#dc3545", cursor: "pointer" }}>
+              <button onClick={clearAll} style={{ fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: darkMode ? "#fca5a5" : "#dc3545", cursor: "pointer" }}>
                 Clear all & restart
               </button>
             </div>
@@ -1020,8 +1036,8 @@ function CombineImageAudioExample() {
           </button>
 
           {/* YouTube Upload Panel — open by default */}
-          <div style={{ border: "1px solid #dee2e6", borderRadius: 8, overflow: "hidden", marginBottom: 24 }}>
-            <div style={{ padding: "14px 18px", background: "#f8f9fa", borderBottom: "1px solid #dee2e6", fontWeight: "bold", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ border: `1px solid ${t.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 24 }}>
+            <div style={{ padding: "14px 18px", background: t.bgAlt, borderBottom: `1px solid ${t.border}`, fontWeight: "bold", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ color: "#ff0000", fontSize: 18 }}>▶</span> Upload to YouTube
             </div>
             <div style={{ padding: 20 }}>
@@ -1035,22 +1051,22 @@ function CombineImageAudioExample() {
                     <label style={{ display: "flex", flexDirection: "column", gap: 5, gridColumn: "1 / -1" }}>
                       <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Title</span>
                       <input type="text" value={ytUploadData.title} onChange={e => setYtUploadData(p => ({ ...p, title: e.target.value }))} placeholder={outputFilename}
-                        style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14 }} />
+                        style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14 }} />
                     </label>
                     <label style={{ display: "flex", flexDirection: "column", gap: 5, gridColumn: "1 / -1" }}>
                       <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Description</span>
                       <textarea value={ytUploadData.description} onChange={e => setYtUploadData(p => ({ ...p, description: e.target.value }))} rows={2} placeholder="Optional description"
-                        style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14, resize: "vertical" }} />
+                        style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14, resize: "vertical" }} />
                     </label>
                     <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Tags</span>
                       <input type="text" value={ytUploadData.tags} onChange={e => setYtUploadData(p => ({ ...p, tags: e.target.value }))} placeholder="tag1, tag2, tag3"
-                        style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14 }} />
+                        style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14 }} />
                     </label>
                     <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       <span style={{ fontSize: 13, fontWeight: "bold", color: "#495057" }}>Visibility</span>
                       <select value={ytUploadData.privacyStatus} onChange={e => setYtUploadData(p => ({ ...p, privacyStatus: e.target.value }))}
-                        style={{ padding: "9px 12px", border: "1px solid #ced4da", borderRadius: 6, fontSize: 14, background: "white" }}>
+                        style={{ padding: "9px 12px", border: `1px solid ${t.borderInput}`, borderRadius: 6, fontSize: 14, background: t.bg }}>
                         <option value="private">Private</option>
                         <option value="unlisted">Unlisted</option>
                         <option value="public">Public</option>
@@ -1064,7 +1080,7 @@ function CombineImageAudioExample() {
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <div
                         onClick={() => thumbnailInputRef.current?.click()}
-                        style={{ width: 120, height: 68, border: "2px dashed #ced4da", borderRadius: 6, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8f9fa", flexShrink: 0 }}
+                        style={{ width: 120, height: 68, border: `2px dashed ${t.borderInput}`, borderRadius: 6, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", background: t.bgAlt, flexShrink: 0 }}
                       >
                         {thumbnailPreview ? <img src={thumbnailPreview} alt="thumbnail" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 11, color: "#adb5bd", textAlign: "center", padding: 8 }}>Click to upload image</span>}
                       </div>
@@ -1072,7 +1088,7 @@ function CombineImageAudioExample() {
                         onChange={e => { if (e.target.files?.[0]) handleThumbnailFile(e.target.files[0]); }} />
                       {ytUploadData.thumbnail && (
                         <button onClick={() => { setYtUploadData(p => ({ ...p, thumbnail: null })); if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }}
-                          style={{ fontSize: 12, padding: "4px 10px", background: "none", border: "1px solid #ced4da", borderRadius: 4, cursor: "pointer", color: "#6c757d" }}>
+                          style={{ fontSize: 12, padding: "4px 10px", background: "none", border: `1px solid ${t.borderInput}`, borderRadius: 4, cursor: "pointer", color: t.textSecondary }}>
                           Remove
                         </button>
                       )}
@@ -1088,7 +1104,7 @@ function CombineImageAudioExample() {
 
                   {ytUploading && (
                     <div style={{ marginTop: 10 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6c757d", marginBottom: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: t.textSecondary, marginBottom: 4 }}>
                         <span>{ytUploadProgress < 100 ? "Sending to server…" : "Server processing…"}</span>
                         <span>{ytUploadProgress < 100 ? `${ytUploadProgress}%` : "100% ✓"}</span>
                       </div>
@@ -1100,7 +1116,7 @@ function CombineImageAudioExample() {
                         }} />
                       </div>
                       {ytUploadProgress >= 100 && (
-                        <div style={{ fontSize: 11, color: "#6c757d", marginTop: 4 }}>
+                        <div style={{ fontSize: 11, color: t.textSecondary, marginTop: 4 }}>
                           Upload complete — waiting for YouTube to confirm…
                         </div>
                       )}
@@ -1108,7 +1124,7 @@ function CombineImageAudioExample() {
                   )}
 
                   {ytUploadError && (
-                    <div style={{ marginTop: 12, padding: "10px 12px", background: "#f8d7da", border: "1px solid #f5c6cb", borderRadius: 6, fontSize: 13 }}>
+                    <div style={{ marginTop: 12, padding: "10px 12px", background: t.errorBg, border: `1px solid ${t.errorBorder}`, borderRadius: 6, fontSize: 13 }}>
                       <span style={{ color: "#721c24", fontWeight: "bold" }}>Error: </span>
                       <span style={{ color: "#721c24", fontFamily: "monospace" }}>{ytUploadError}</span>
                     </div>
@@ -1123,7 +1139,7 @@ function CombineImageAudioExample() {
                   )}
                 </>
               ) : (
-                <p style={{ margin: 0, fontSize: 13, color: "#6c757d" }}>Sign in above to upload your video to YouTube.</p>
+                <p style={{ margin: 0, fontSize: 13, color: t.textSecondary }}>Sign in above to upload your video to YouTube.</p>
               )}
             </div>
           </div>
@@ -1132,7 +1148,7 @@ function CombineImageAudioExample() {
             <BtnSecondary onClick={() => { setCurrentStep(0); }}>
               ← Back to Files
             </BtnSecondary>
-            <button onClick={clearAll} style={{ fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: "#dc3545", cursor: "pointer" }}>
+            <button onClick={clearAll} style={{ fontSize: 13, padding: "4px 10px", background: "none", border: "1px solid #dc3545", borderRadius: 4, color: darkMode ? "#fca5a5" : "#dc3545", cursor: "pointer" }}>
               Clear all & restart
             </button>
           </div>

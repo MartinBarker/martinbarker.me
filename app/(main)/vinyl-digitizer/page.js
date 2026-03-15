@@ -1,10 +1,11 @@
 "use client";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useContext } from "react";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import JSZip from "jszip";
 import styles from "./vinyl-digitizer.module.css";
 import YouTubeAuth from "../YouTubeAuth/YouTubeAuth";
+import { ColorContext } from "../ColorContext";
 import {
   extractTagsFromDiscogs,
   buildTagString,
@@ -71,6 +72,7 @@ const apiBaseURL = () => process.env.NODE_ENV === "development" ? "http://localh
 
 // ---- Main Component ----
 export default function VinylDigitizerPage() {
+  const { darkMode } = useContext(ColorContext);
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(1);
 
@@ -1617,6 +1619,15 @@ export default function VinylDigitizerPage() {
                 </div>
               )}
               {message && <p className={styles.msg}>{message}</p>}
+
+              {/* YouTube sign-in (optional, for upload later) */}
+              <div style={{ marginTop: 16, padding: '12px 16px', border: `1px solid ${darkMode ? '#444' : '#e2e8f0'}`, borderRadius: 8, background: darkMode ? '#252538' : '#f8f9fa' }}>
+                <p style={{ margin: '0 0 8px 0', fontSize: 13, color: darkMode ? '#ffffff' : '#000000' }}>
+                  Sign in now if you want to upload to YouTube later.
+                </p>
+                <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
+              </div>
+
               <div className={styles.stepNav}>
                 <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Album Info →</button>
               </div>
@@ -2403,10 +2414,23 @@ export default function VinylDigitizerPage() {
               </div>
 
               {/* Render */}
+              {(selectedVideoImages.size === 0 || selectedVideoAudios.size === 0) && !isRenderingVideo && (
+                <div className={styles.renderWarning} style={{background: darkMode ? "#3a2a1a" : "#fffaf0", borderColor: darkMode ? "#6b4d2d" : "#fbd38d", color: darkMode ? "#fbd38d" : "#c05621"}}>
+                  {selectedVideoImages.size === 0 && selectedVideoAudios.size === 0
+                    ? "Add at least one image and select at least one audio track to render."
+                    : selectedVideoImages.size === 0
+                      ? "Add or select at least one image above to render the video."
+                      : "Select at least one audio track above to render the video."}
+                </div>
+              )}
               <div className={styles.exportRow}>
                 <button className={styles.exportBtn} onClick={renderAlbumVideo}
-                  disabled={isRenderingVideo || selectedVideoImages.size === 0 || selectedVideoAudios.size === 0}>
-                  {isRenderingVideo ? "Rendering…" : `Render Video (${selectedVideoImages.size} image${selectedVideoImages.size !== 1 ? "s" : ""}, ${selectedVideoAudios.size} track${selectedVideoAudios.size !== 1 ? "s" : ""})`}
+                  disabled={isRenderingVideo || selectedVideoImages.size === 0 || selectedVideoAudios.size === 0}
+                  style={!isRenderingVideo && (selectedVideoImages.size === 0 || selectedVideoAudios.size === 0) ? {background:"#cbd5e0",cursor:"not-allowed"} : undefined}>
+                  {isRenderingVideo ? "Rendering…"
+                    : selectedVideoImages.size === 0 ? "Render Video — no images selected"
+                    : selectedVideoAudios.size === 0 ? "Render Video — no audio selected"
+                    : `Render Video (${selectedVideoImages.size} image${selectedVideoImages.size !== 1 ? "s" : ""}, ${selectedVideoAudios.size} track${selectedVideoAudios.size !== 1 ? "s" : ""})`}
                 </button>
                 {isRenderingVideo && (
                   <button className={styles.cancelBtn} onClick={() => {
@@ -2492,8 +2516,8 @@ export default function VinylDigitizerPage() {
               )}
 
               {!isRenderingVideo && !renderedVideoSrc && (
-                <div className={styles.renderStatusBanner} style={{background:"#fff5f5",borderColor:"#fed7d7"}}>
-                  <span className={styles.renderStatusText} style={{color:"#c53030"}}>No rendered video yet. Go to Step 5 to render first.</span>
+                <div className={styles.renderStatusBanner} style={{background: darkMode ? "#3a1a1a" : "#fff5f5", borderColor: darkMode ? "#6b2d2d" : "#fed7d7"}}>
+                  <span className={styles.renderStatusText} style={{color: darkMode ? "#fc8181" : "#c53030"}}>No rendered video yet. Go to Step 5 to render first.</span>
                 </div>
               )}
 
@@ -2507,7 +2531,7 @@ export default function VinylDigitizerPage() {
               {/* YouTube upload */}
               <div className={styles.ytSection}>
                 <h3 className={styles.sectionTitle}><span style={{color:"#ff0000"}}>▶</span> Upload to YouTube</h3>
-                <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
+                <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
                 {ytAuthState.canAuth && (() => {
                   const titleLen = ytUploadData.title.length;
                   const descLen = ytUploadData.description.length;

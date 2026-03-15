@@ -1,6 +1,6 @@
 /* Tagger page styles */
 .taggerText {
-  color: #1e293b;
+  color: #000000;
   font-weight: 500;
   line-height: 1.6;
   word-wrap: break-word;
@@ -157,7 +157,7 @@
 .enhancedTable th {
   background: #f8fafc;
   font-weight: 600;
-  color: #374151;
+  color: #000000;
   white-space: normal;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -219,7 +219,7 @@
   font-size: 1.25rem;
   font-weight: 700;
   margin-bottom: 1rem;
-  color: #1e293b;
+  color: #000000;
   word-wrap: break-word;
   overflow-wrap: break-word;
   hyphens: auto;
@@ -739,6 +739,67 @@
   .enhancedTextarea {
     min-height: 80px;
   }
+}
+
+/* ── Dark mode overrides ── */
+:global(.darkContent) .taggerText {
+  color: #ffffff;
+}
+
+:global(.darkContent) .sectionHeader {
+  color: #ffffff;
+}
+
+:global(.darkContent) .enhancedCard {
+  background: #1e1e2e;
+  border-color: #444;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+:global(.darkContent) .enhancedInput,
+:global(.darkContent) .enhancedTextarea,
+:global(.darkContent) .enhancedDropdown {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #555;
+}
+
+:global(.darkContent) .enhancedInput:focus,
+:global(.darkContent) .enhancedTextarea:focus,
+:global(.darkContent) .enhancedDropdown:focus {
+  border-color: #4d9fff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.2);
+}
+
+:global(.darkContent) .enhancedTable {
+  border-color: #444;
+}
+
+:global(.darkContent) .enhancedTable th {
+  background: #2a2a3d;
+  color: #ffffff;
+  border-color: #444;
+}
+
+:global(.darkContent) .enhancedTable td {
+  border-color: #444;
+  color: #ffffff;
+}
+
+:global(.darkContent) .enhancedTable tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+:global(.darkContent) .enhancedRange {
+  background: #444;
+}
+
+:global(.darkContent) .responsiveTable,
+:global(.darkContent) .responsiveInputSourcesTable,
+:global(.darkContent) .responsiveTagsTable {
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.2),
+    0 6px 20px rgba(0, 0, 0, 0.1);
 }
 
 /* Print styles */

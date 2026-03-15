@@ -16,7 +16,7 @@
 .loading {
   padding: 2rem;
   text-align: center;
-  color: #718096;
+  color: #000000;
   font-size: 0.9rem;
 }
 
@@ -35,7 +35,7 @@
 }
 .headerLeft { display: flex; flex-direction: column; gap: 2px; }
 .title { font-size: 1.2rem; font-weight: 700; margin: 0; color: #000000; }
-.shortcuts { font-size: 0.72rem; color: #333333; margin: 0; }
+.shortcuts { font-size: 0.72rem; color: #000000; margin: 0; }
 .headerRight { color: #000000; }
 .progressWrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .progressLabel { font-size: 0.78rem; font-weight: 600; color: #000000; }
@@ -59,7 +59,7 @@
   cursor: pointer;
   font-size: 0.75rem;
   font-weight: 600;
-  color: #4a5568;
+  color: #000000;
   transition: all 0.12s;
   white-space: nowrap;
 }
@@ -82,7 +82,7 @@
 }
 .navBtn:hover:not(:disabled) { background: #667eea; color: white; border-color: #667eea; }
 .navBtn:disabled { opacity: 0.3; cursor: not-allowed; }
-.navCount { font-size: 0.78rem; font-weight: 700; color: #4a5568; white-space: nowrap; padding: 0 4px; }
+.navCount { font-size: 0.78rem; font-weight: 700; color: #000000; white-space: nowrap; padding: 0 4px; }
 .jumpInput {
   width: 60px;
   padding: 4px 6px;
@@ -95,7 +95,7 @@
 .statusArea { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .reviewedBadge { background: #48bb78; color: white; border-radius: 4px; padding: 2px 8px; font-size: 0.72rem; font-weight: 700; }
 .dirtyBadge { background: #ed8936; color: white; border-radius: 4px; padding: 2px 8px; font-size: 0.72rem; font-weight: 700; }
-.statusMsg { font-size: 0.78rem; color: #718096; font-weight: 500; }
+.statusMsg { font-size: 0.78rem; color: #000000; font-weight: 500; }
 
 /* ---- Filename ---- */
 .filenameRow {
@@ -105,7 +105,7 @@
   border-radius: 5px;
   flex-shrink: 0;
 }
-.filenameText { font-size: 0.75rem; font-family: monospace; color: #4a5568; }
+.filenameText { font-size: 0.75rem; font-family: monospace; color: #000000; }
 
 /* ---- 3-column main grid ---- */
 .mainGrid {
@@ -142,7 +142,7 @@
   display: block;
 }
 .imageInfo { display: flex; align-items: center; gap: 0.5rem; padding: 0 2px; flex-shrink: 0; }
-.imgInfoLabel { font-size: 0.72rem; color: #a0aec0; }
+.imgInfoLabel { font-size: 0.72rem; color: #000000; }
 .imgInfoReviewed { font-size: 0.72rem; color: #48bb78; font-weight: 700; }
 
 /* ---- Center: Color pickers ---- */
@@ -153,7 +153,7 @@
   min-height: 0;
   overflow: hidden;
 }
-.panelTitle { font-size: 0.88rem; font-weight: 700; color: #4a5568; margin: 0; flex-shrink: 0; }
+.panelTitle { font-size: 0.88rem; font-weight: 700; color: #000000; margin: 0; flex-shrink: 0; }
 .colorList { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; flex: 1; }
 .colorRow {
   display: flex;
@@ -175,7 +175,7 @@
 }
 .colorMeta { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .colorKey { font-size: 0.78rem; font-weight: 700; color: #2d3748; white-space: nowrap; }
-.colorRole { font-size: 0.65rem; color: #a0aec0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colorRole { font-size: 0.65rem; color: #000000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .colorPicker {
   width: 28px;
   height: 28px;
@@ -214,7 +214,7 @@
 .swapBtn:hover:not(:disabled) { background: #d6bcfa; }
 .rerollBtn { background: #feebc8; color: #7b341e; }
 .rerollBtn:hover:not(:disabled) { background: #fbd38d; }
-.resetBtn { background: #e2e8f0; color: #4a5568; }
+.resetBtn { background: #e2e8f0; color: #000000; }
 .resetBtn:hover:not(:disabled) { background: #cbd5e0; }
 
 /* ---- Right: Preview ---- */
@@ -288,7 +288,7 @@
 }
 .previewCardAccent { height: 4px; }
 .previewCardBody { padding: 5px 6px; display: flex; flex-direction: column; gap: 3px; }
-.previewCardTitle { font-size: 7px; font-weight: 700; color: #333; margin-bottom: 2px; }
+.previewCardTitle { font-size: 7px; font-weight: 700; color: #000000; margin-bottom: 2px; }
 .previewBar { height: 3px; border-radius: 2px; }
 
 /* Swatch summary row */
@@ -300,7 +300,7 @@
 }
 .swatchItem { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .swatchCircle { width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.12); }
-.swatchHex { font-size: 0.58rem; font-family: monospace; color: #718096; }
+.swatchHex { font-size: 0.58rem; font-family: monospace; color: #000000; }
 
 /* ---- Action bar ---- */
 .actionBar {
@@ -331,7 +331,7 @@
 .unreviewBtn {
   padding: 6px 14px;
   background: white;
-  color: #718096;
+  color: #000000;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   cursor: pointer;
@@ -370,7 +370,7 @@
 .saveReviewBtn:hover:not(:disabled) { transform: translateY(-1px); }
 .saveReviewBtn:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; }
 .actionRight { margin-left: auto; }
-.actionHint { font-size: 0.7rem; color: #a0aec0; }
+.actionHint { font-size: 0.7rem; color: #000000; }
 
 /* ---- Responsive ---- */
 @media (max-width: 900px) {
@@ -379,4 +379,38 @@
   .imageWrap { min-height: 250px; height: 300px; }
   .progressBar { width: 140px; }
   .controlRow { flex-direction: column; align-items: flex-start; }
+}
+
+/* ── Dark mode overrides ── */
+:global(.darkContent) .page {
+  background: #1e1e2e;
+  color: #e0e0e0;
+}
+
+:global(.darkContent) .header {
+  background: #252538;
+  color: #e0e0e0;
+  border-color: #444;
+}
+
+:global(.darkContent) .title,
+:global(.darkContent) .headerRight,
+:global(.darkContent) .progressLabel {
+  color: #ffffff;
+}
+
+:global(.darkContent) .panelTitle,
+:global(.darkContent) .navCount,
+:global(.darkContent) .filenameText,
+:global(.darkContent) .colorKey {
+  color: #ffffff;
+}
+
+:global(.darkContent) .previewCardTitle {
+  color: #ffffff;
+}
+
+:global(.darkContent) .resetBtn {
+  background: #3a3a4d;
+  color: #ffffff;
 }
