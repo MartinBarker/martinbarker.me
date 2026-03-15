@@ -33,13 +33,13 @@
 
 .description {
     font-size: 16px;
-    color: #555;
+    color: #000000;
     margin-bottom: 10px;
 }
 
 .authStatus {
     font-size: 16px;
-    color: #333;
+    color: #000000;
     margin-bottom: 10px;
 }
 
@@ -189,7 +189,7 @@
 .progressContainer h3 {
     margin-top: 20px;
     margin-bottom: 10px;
-    color: #333;
+    color: #000000;
     font-size: 18px;
 }
 
@@ -365,7 +365,7 @@
 .taskDetails .artistName, 
 .taskDetails .success, 
 .taskDetails .waitTime {
-    color: #333 !important; /* Force black text for all content in the dropdown */
+    color: #000000 !important; /* Force black text for all content in the dropdown */
 }
 
 /* Override text color for specific status indicators */
@@ -432,7 +432,7 @@
 }
 
 .status-waiting {
-    color: #6c757d;
+    color: #000000;
     background-color: rgba(108, 117, 125, 0.1);
 }
 
@@ -498,7 +498,7 @@
 
 .playlistInfo {
     font-size: 14px;
-    color: #666;
+    color: #000000;
     margin: 10px 0;
 }
 
@@ -552,7 +552,7 @@
 .clearFiltersButton {
     border: none;
     background: none;
-    color: #6c757d;
+    color: #000000;
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -561,7 +561,7 @@
 }
 
 .clearFiltersButton:hover {
-    color: #212529;
+    color: #000000;
 }
 
 .activeFiltersRow {
@@ -637,13 +637,13 @@
     font-size: 12px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #6c757d;
+    color: #000000;
     cursor: pointer;
     transition: color 0.2s ease;
 }
 
 .clearChipButton:hover {
-    color: #212529;
+    color: #000000;
 }
 
 .dropdownRow {
@@ -689,7 +689,7 @@
     border: none;
     background: none;
     font-size: 14px;
-    color: #212529;
+    color: #000000;
     padding: 0;
     cursor: pointer;
 }
@@ -707,7 +707,7 @@
     padding: 0;
     width: 24px;
     height: 24px;
-    color: #6c757d;
+    color: #000000;
     cursor: pointer;
 }
 
@@ -746,24 +746,24 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #6c757d;
+    color: #000000;
     cursor: pointer;
     transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .dropdownItemAction:hover {
     background-color: #f5f5f5;
-    color: #212529;
+    color: #000000;
 }
 
 .dropdownItemAction:disabled {
-    color: #b0b0b0;
+    color: #000000;
     cursor: not-allowed;
 }
 
 .dropdownItemAction:disabled:hover {
     background-color: transparent;
-    color: #b0b0b0;
+    color: #000000;
 }
 
 .dropdownItem {
@@ -773,7 +773,7 @@
     gap: 12px;
     padding: 8px 16px;
     font-size: 14px;
-    color: #212529;
+    color: #000000;
     transition: background-color 0.15s ease;
 }
 
@@ -800,12 +800,12 @@
 
 .dropdownItemLabel {
     flex: 1;
-    color: #212529;
+    color: #000000;
 }
 
 .dropdownItemCount {
     font-size: 12px;
-    color: #6c757d;
+    color: #000000;
     font-weight: 600;
     min-width: 24px;
     text-align: right;
@@ -814,7 +814,7 @@
 .dropdownEmpty {
     padding: 12px 16px;
     font-size: 13px;
-    color: #6c757d;
+    color: #000000;
 }
 
 .simpleSelectWrapper {
@@ -905,7 +905,7 @@
 
 .playlistInfo {
     font-size: 14px;
-    color: #666;
+    color: #000000;
     margin: 10px 0;
 }
 
@@ -922,4 +922,103 @@
 .disconnected {
     color: #dc3545;
     font-weight: bold;
+}
+/* ── Dark mode overrides ── */
+:global(.darkContent) .searchInput,
+:global(.darkContent) .filterDropdown,
+:global(.darkContent) .dropdownMenu,
+:global(.darkContent) .dropdownItem {
+    background: #2a2a3d !important;
+    color: #ffffff !important;
+    border-color: #444 !important;
+}
+
+:global(.darkContent) .dropdownItem:hover {
+    background: #3a3a4d !important;
+}
+
+:global(.darkContent) .filterHeaderTitle,
+:global(.darkContent) .filterByLabel,
+:global(.darkContent) .filterChipPlaceholder,
+:global(.darkContent) .clearFiltersButton,
+:global(.darkContent) .clearChipButton,
+:global(.darkContent) .masterToggleRow,
+:global(.darkContent) .masterToggleRow label,
+:global(.darkContent) .playlistInfo,
+:global(.darkContent) .description,
+:global(.darkContent) .authStatus,
+:global(.darkContent) .progressContainer h3,
+:global(.darkContent) .dropdownLabel,
+:global(.darkContent) .dropdownInput,
+:global(.darkContent) .dropdownButton,
+:global(.darkContent) .dropdownItemAction,
+:global(.darkContent) .dropdownItemLabel,
+:global(.darkContent) .dropdownItemCount,
+:global(.darkContent) .dropdownEmpty,
+:global(.darkContent) .filterFooter {
+    color: #ffffff !important;
+}
+
+:global(.darkContent) .tableWrapper {
+    background: #1e1e2e;
+    color: #ffffff;
+}
+
+:global(.darkContent) .filterCard {
+    background-color: #1e1e2e;
+    color: #ffffff;
+    border-color: #444;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+}
+
+:global(.darkContent) .dropdownBox {
+    background-color: #2a2a3d;
+    border-color: #555;
+    color: #ffffff;
+}
+
+:global(.darkContent) .dropdownBoxOpen {
+    border-color: #6cb6ff;
+    box-shadow: 0 0 0 3px rgba(108, 182, 255, 0.2);
+}
+
+:global(.darkContent) .dropdownList {
+    background-color: #2a2a3d;
+    border-color: #555;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+:global(.darkContent) .dropdownItem {
+    color: #ffffff !important;
+}
+
+:global(.darkContent) .dropdownItem:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+:global(.darkContent) .dropdownItemSelected {
+    background-color: rgba(108, 182, 255, 0.15);
+}
+
+:global(.darkContent) .dropdownItemAction:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+:global(.darkContent) .simpleSelect,
+:global(.darkContent) .rangeInput {
+    background-color: #2a2a3d;
+    color: #ffffff;
+    border-color: #555;
+}
+
+:global(.darkContent) .simpleSelect:focus,
+:global(.darkContent) .rangeInput:focus {
+    border-color: #6cb6ff;
+    box-shadow: 0 0 0 3px rgba(108, 182, 255, 0.2);
+}
+
+:global(.darkContent) .clearFiltersButton:hover,
+:global(.darkContent) .clearChipButton:hover {
+    color: #ffffff;
 }

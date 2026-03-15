@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -8,6 +8,7 @@ import {
   flexRender,
 } from '@tanstack/react-table';
 import styles from './listogs.module.css';
+import { ColorContext } from '../ColorContext';
 
 // Helper to flatten videoData object to array with deduplication
 function flattenVideoData(videoData) {
@@ -46,6 +47,20 @@ function flattenVideoData(videoData) {
 }
 
 export default function VideoTable({ videoData, onFilteredDataChange = () => {} }) {
+  const { darkMode } = useContext(ColorContext);
+
+  // Dark mode color helpers
+  const t = {
+    bg: darkMode ? '#1e1e2e' : '#ffffff',
+    bgAlt: darkMode ? '#252538' : '#f8f9fa',
+    text: darkMode ? '#ffffff' : '#000000',
+    textSecondary: darkMode ? '#ffffff' : '#000000',
+    border: darkMode ? '#444' : '#eee',
+    borderMed: darkMode ? '#444' : '#dee2e6',
+    inputBg: darkMode ? '#2a2a3d' : '#ffffff',
+    hoverBg: darkMode ? '#2d2d40' : '#f5f5f5',
+  };
+
   const [search, setSearch] = useState('');
   const [selectedReleaseTypes, setSelectedReleaseTypes] = useState([]);
   const [isReleaseDropdownOpen, setIsReleaseDropdownOpen] = useState(false);
@@ -1672,7 +1687,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
         </div>
       </div>
       
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16, background: '#ffffff', color: '#000000' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16, background: t.bg, color: t.text }}>
         <thead>
           {table.getHeaderGroups().map(headerGroup => (
             <tr key={headerGroup.id}>
@@ -1680,10 +1695,10 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
                 <th
                   key={header.id}
                   style={{
-                    borderBottom: '1px solid #dee2e6',
+                    borderBottom: `1px solid ${t.borderMed}`,
                     padding: '8px',
-                    background: '#ffffff',
-                    color: '#000000',
+                    background: t.bg,
+                    color: t.text,
                     textAlign: 'left',
                     cursor: header.column.getCanSort() ? 'pointer' : 'default',
                     userSelect: 'none',
@@ -1714,13 +1729,13 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
             <React.Fragment key={row.id}>
               <tr>
                 {row.getVisibleCells().map(cell => (
-                  <td key={cell.id} style={{ padding: '8px', borderBottom: '1px solid #eee', background: '#ffffff', color: '#000000' }}>
+                  <td key={cell.id} style={{ padding: '8px', borderBottom: `1px solid ${t.border}`, background: t.bg, color: t.text }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}
               </tr>
               <tr>
-                <td colSpan={row.getVisibleCells().length} style={{ padding: 0, background: '#ffffff', color: '#000000' }}>
+                <td colSpan={row.getVisibleCells().length} style={{ padding: 0, background: t.bg, color: t.text }}>
                   {row.original.videoId && (
                     <div style={{ padding: '12px 0', textAlign: 'center' }}>
                       <iframe
@@ -1741,7 +1756,7 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
           ))}
         </tbody>
       </table>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#000000', background: '#ffffff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: t.text, background: t.bg }}>
         {/* Pagination controls (left) */}
         <button onClick={() => table.firstPage()} disabled={!table.getCanPreviousPage()}>
           {'<<'}
@@ -1803,8 +1818,8 @@ export default function VideoTable({ videoData, onFilteredDataChange = () => {} 
             width: 140,
             borderRadius: 4,
             border: '1px solid #ccc',
-            background: '#ffffff',
-            color: '#000000',
+            background: t.bg,
+            color: t.text,
           }}
         />
       </div>

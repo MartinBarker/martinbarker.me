@@ -54,4 +54,26 @@
 
 .fileDrop span {
   font-size: 1rem;
+  color: #000000;
+}
+
+/* ── Dark mode overrides ── */
+:global(.darkContent) .fileDrop,
+:global(.darkContent) .enhancedFileDrop {
+  background: rgba(30, 30, 46, 0.9);
+  border-color: rgba(14, 165, 233, 0.4);
+  color: #ffffff;
+}
+
+:global(.darkContent) .fileDrop span,
+:global(.darkContent) .fileDrop small {
+  color: #ffffff;
+}
+
+:global(.darkContent) .enhancedFileDrop:hover {
+  background: rgba(37, 37, 56, 0.95);
+}
+
+:global(.darkContent) .enhancedFileDrop.dragging {
+  background: rgba(37, 37, 56, 0.95);
 }

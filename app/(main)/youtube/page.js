@@ -1,7 +1,8 @@
 'use client';
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useContext, useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import YouTubeAuth from '../YouTubeAuth/YouTubeAuth';
+import { ColorContext } from '../ColorContext';
 
 const apiBaseURL = () =>
   process.env.NODE_ENV === 'development'
@@ -9,12 +10,27 @@ const apiBaseURL = () =>
     : 'https://www.martinbarker.me/internal-api';
 
 function YouTubeAuthPageInner() {
+  const { darkMode } = useContext(ColorContext);
+
+  const t = {
+    bg: darkMode ? '#1e1e2e' : '#ffffff',
+    bgAlt: darkMode ? '#252538' : '#f5f7fa',
+    bgMuted: darkMode ? '#252538' : '#f8f9fa',
+    text: darkMode ? '#ffffff' : '#000000',
+    border: darkMode ? '#444' : '#e3e8ee',
+    borderInput: darkMode ? '#555' : '#ced4da',
+    borderMed: darkMode ? '#444' : '#dee2e6',
+    errorBg: darkMode ? '#3a1a1a' : '#f8d7da',
+    errorBorder: darkMode ? '#6b2d2d' : '#f5c6cb',
+  };
+
   const [playlistData, setPlaylistData] = useState({ title: '', description: '', privacyStatus: 'private' });
   const [playlistLoading, setPlaylistLoading] = useState(false);
   const [playlistCreated, setPlaylistCreated] = useState(null);
   const [error, setError] = useState('');
   const [debugLog, setDebugLog] = useState([]);
   const [canAuth, setCanAuth] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const getTokensRef = useRef(null);
   const params = useSearchParams();
@@ -41,12 +57,18 @@ function YouTubeAuthPageInner() {
       const returnUrl = localStorage.getItem('youtube_auth_return_url');
       if (returnUrl && returnUrl !== '/youtube') {
         localStorage.removeItem('youtube_auth_return_url');
+        setIsRedirecting(true);
         router.push(returnUrl);
       } else {
         router.push('/youtube');
       }
     }
   }, [authCode, scope, router]);
+
+  // Show a redirecting message instead of the full page
+  if (isRedirecting) {
+    return <div style={{ padding: '40px', textAlign: 'center', fontSize: 16 }}>Redirecting...</div>;
+  }
 
   const createPlaylist = async () => {
     if (!playlistData.title.trim()) {
@@ -109,7 +131,7 @@ function YouTubeAuthPageInner() {
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
       {/* Page header */}
       <div style={{
-        background: '#f5f7fa', border: '1px solid #e3e8ee', borderRadius: 8,
+        background: t.bgAlt, border: `1px solid ${t.border}`, borderRadius: 8,
         padding: '24px 20px', marginBottom: 32, boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
       }}>
         <h1 style={{ marginTop: 0, marginBottom: 16, fontSize: 28 }}>YouTube Authentication</h1>
@@ -134,7 +156,7 @@ function YouTubeAuthPageInner() {
 
       {/* Playlist-specific error */}
       {error && (
-        <div style={{ background: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: 6, padding: '16px', marginBottom: 24 }}>
+        <div style={{ background: t.errorBg, border: `1px solid ${t.errorBorder}`, borderRadius: 6, padding: '16px', marginBottom: 24 }}>
           <span style={{ color: '#721c24', fontWeight: 'bold' }}>Error: </span>
           <span style={{ color: '#721c24', fontFamily: 'monospace', fontSize: 13 }}>{error}</span>
         </div>
@@ -144,7 +166,7 @@ function YouTubeAuthPageInner() {
       {canAuth && (
         <div style={{ marginTop: 32 }}>
           <h2 style={{ marginBottom: 16 }}>Create Playlist</h2>
-          <div style={{ background: '#f8f9fa', border: '1px solid #dee2e6', borderRadius: 6, padding: '20px' }}>
+          <div style={{ background: t.bgMuted, border: `1px solid ${t.borderMed}`, borderRadius: 6, padding: '20px' }}>
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold' }}>Playlist Title *</label>
               <input
@@ -170,7 +192,7 @@ function YouTubeAuthPageInner() {
               <select
                 value={playlistData.privacyStatus}
                 onChange={e => setPlaylistData(prev => ({ ...prev, privacyStatus: e.target.value }))}
-                style={{ padding: '10px', border: '1px solid #ced4da', borderRadius: 4, fontSize: 14, background: 'white' }}
+                style={{ padding: '10px', border: `1px solid ${t.borderInput}`, borderRadius: 4, fontSize: 14, background: t.bg }}
               >
                 <option value="private">Private</option>
                 <option value="public">Public</option>

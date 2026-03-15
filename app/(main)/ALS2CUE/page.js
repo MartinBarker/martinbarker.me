@@ -5,7 +5,7 @@ import styles from './ALS2CUE.module.css';
 import { ColorContext } from '../ColorContext';
 
 export default function ALS2CUEPage() {
-  const { colors } = useContext(ColorContext);
+  const { colors, darkMode } = useContext(ColorContext);
   const [selectedFile, setSelectedFile] = useState(null);
   const [markers, setMarkers] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -354,8 +354,8 @@ export default function ALS2CUEPage() {
     <main className={styles.als2cueMain}>
       {/* ALS2CUE Info Section */}
       <div style={{
-        background: '#f5f7fa',
-        border: '1px solid #e3e8ee',
+        background: darkMode ? '#252538' : '#f5f7fa',
+        border: `1px solid ${darkMode ? '#444' : '#e3e8ee'}`,
         borderRadius: 8,
         padding: '24px 20px',
         marginBottom: 32,

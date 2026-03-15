@@ -8,7 +8,7 @@ const apiBaseURL = () =>
     ? 'http://localhost:3030'
     : 'https://www.martinbarker.me/internal-api';
 
-function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, blackTextOnWhite = false }, _ref) {
+function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, blackTextOnWhite = false, darkMode = false }, _ref) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
   const [authUrlLoading, setAuthUrlLoading] = useState(true);
@@ -183,11 +183,12 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
 
   // ---------- COMPACT MODE ----------
   if (compact) {
-    const signedInColor = blackTextOnWhite ? '#000000' : '#155724';
-    const notSignedInColor = blackTextOnWhite ? '#000000' : '#721c24';
-    const errorColor = blackTextOnWhite ? '#000000' : '#721c24';
+    const textColor = darkMode ? '#ffffff' : '#000000';
+    const signedInColor = (blackTextOnWhite || darkMode) ? textColor : '#155724';
+    const notSignedInColor = (blackTextOnWhite || darkMode) ? textColor : '#721c24';
+    const errorColor = (blackTextOnWhite || darkMode) ? textColor : '#721c24';
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 14, color: blackTextOnWhite ? '#000000' : undefined }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 14, color: textColor }}>
         {canAuth ? (
           <>
             <span style={{ color: signedInColor, fontWeight: 'bold' }}>✅ YouTube signed in</span>

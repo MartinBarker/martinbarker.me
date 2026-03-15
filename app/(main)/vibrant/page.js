@@ -5,7 +5,7 @@ import { ColorContext } from '../ColorContext';
 import styles from './vibrant.module.css';
 
 export default function VibrantDemo() {
-  const { colors: contextColors } = useContext(ColorContext);
+  const { colors: contextColors, darkMode } = useContext(ColorContext);
   const [imageUrl, setImageUrl] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [extractedColors, setExtractedColors] = useState(null);
@@ -200,8 +200,8 @@ export default function VibrantDemo() {
     <div className={styles.container}>
       {/* Vibrant.js Info Section */}
       <div style={{
-        background: '#f5f7fa',
-        border: '1px solid #e3e8ee',
+        background: darkMode ? '#252538' : '#f5f7fa',
+        border: `1px solid ${darkMode ? '#444' : '#e3e8ee'}`,
         borderRadius: 8,
         padding: '24px 20px',
         boxShadow: '0 2px 8px rgba(0,0,0,0.03)'

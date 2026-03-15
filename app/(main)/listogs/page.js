@@ -76,7 +76,20 @@ function DiscogsAuthTestPageInner() {
   const router = useRouter();
   const oauthToken = params.get('oauth_token');
   const oauthVerifier = params.get('oauth_verifier');
-  const { colors } = useContext(ColorContext);
+  const { colors, darkMode } = useContext(ColorContext);
+
+  // Dark mode color helpers
+  const t = {
+    bg: darkMode ? '#1e1e2e' : '#ffffff',
+    bgAlt: darkMode ? '#252538' : '#f8f9fa',
+    text: darkMode ? '#ffffff' : '#000000',
+    textSecondary: darkMode ? '#ffffff' : '#000000',
+    border: darkMode ? '#444' : '#dee2e6',
+    inputBg: darkMode ? '#2a2a3d' : '#ffffff',
+    errorBg: darkMode ? '#3a1a1a' : '#fee2e2',
+    warnBg: darkMode ? '#3d3520' : '#fff3cd',
+    hoverBg: darkMode ? '#2d2d40' : '#f0f0f0',
+  };
 
   // Function to darken a color for better contrast
   const darkenColor = (color, amount = 0.3) => {
@@ -1330,8 +1343,8 @@ function DiscogsAuthTestPageInner() {
     <div >
       {/* --- Listogs Info Section --- */}
       <div style={{
-        background: '#ffffff',
-        color: '#000000',
+        background: t.bg,
+        color: t.text,
         border: '1px solid #e3e8ee',
         borderRadius: 8,
         padding: '28px 24px',
@@ -1342,16 +1355,16 @@ function DiscogsAuthTestPageInner() {
           fontSize: 42,
           fontWeight: 700,
           margin: '0 0 12px 0',
-          color: '#000000',
+          color: t.text,
           letterSpacing: '-0.02em',
           lineHeight: 1.1
         }}>
           Listogs
         </h1>
-        <p style={{ fontSize: 14, marginBottom: 8, color: '#333', lineHeight: 1.5 }}>
+        <p style={{ fontSize: 14, marginBottom: 8, color: t.textSecondary, lineHeight: 1.5 }}>
           A tool for converting <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>Discogs</a> artist, label, and list pages into YouTube playlists, CSV exports, and image bundles.
         </p>
-        <ul style={{ fontSize: 13, marginBottom: 0, paddingLeft: 20, color: '#444', lineHeight: 1.6 }}>
+        <ul style={{ fontSize: 13, marginBottom: 0, paddingLeft: 20, color: t.text, lineHeight: 1.6 }}>
           <li>Authenticate with Discogs to access lists, releases, and related media.</li>
           <li>Paste any Discogs artist, label, release, or list URL and submit.</li>
           <li>Generate a YouTube-ready table for every release, with CSV export and copyable video IDs.</li>
@@ -1365,8 +1378,8 @@ function DiscogsAuthTestPageInner() {
         alignItems: 'center',
         gap: 16,
         padding: '16px 20px',
-        background: '#ffffff',
-        color: '#000000',
+        background: t.bg,
+        color: t.text,
         borderRadius: 8,
         border: '1px solid #e3e8ee',
         flexWrap: 'wrap'
@@ -1428,25 +1441,25 @@ function DiscogsAuthTestPageInner() {
               : 'Authorize Discogs'}
           </button>
         )}
-        <strong style={{ color: '#000000' }}>Discogs Auth Status:</strong>{' '}
+        <strong style={{ color: t.text }}>Discogs Auth Status:</strong>{' '}
         {discogsAuthStatus.exists ? (
-          <span style={{ color: '#000000' }}>
+          <span style={{ color: t.text }}>
             Signed In
           </span>
         ) : (
-          <span style={{ color: '#000000' }}>Not signed in</span>
+          <span style={{ color: t.text }}>Not signed in</span>
         )}
       </div>
 
       {/* --- Discogs URL Submit Form --- */}
       <div style={{
         padding: 20,
-        border: '1px solid #dee2e6',
+        border: `1px solid ${t.border}`,
         borderRadius: 8,
-        background: '#ffffff',
-        color: '#000000'
+        background: t.bg,
+        color: t.text
       }}>
-        <h3 style={{ marginTop: 0, color: '#000000' }}>Discogs URL Submit Form</h3>
+        <h3 style={{ marginTop: 0, color: t.text }}>Discogs URL Submit Form</h3>
         {/* Removed Artist/Label/List radio selection */}
         {/* <div style={{ marginBottom: 8 }}>
           ...radio buttons...
@@ -1494,7 +1507,7 @@ function DiscogsAuthTestPageInner() {
             style={{
               marginTop: '8px',
               padding: '8px',
-              backgroundColor: '#fee2e2',
+              backgroundColor: t.errorBg,
               border: '1px solid #fca5a5',
               borderRadius: '6px',
               color: '#dc2626',
@@ -1524,15 +1537,15 @@ function DiscogsAuthTestPageInner() {
       {logLines.length > 0 && (
         <div style={{
           padding: 20,
-          border: '1px solid #dee2e6',
+          border: `1px solid ${t.border}`,
           borderRadius: 8,
-          background: '#ffffff',
-          color: '#000000',
+          background: t.bg,
+          color: t.text,
           marginTop: 24
         }}>
-          <div style={{ fontWeight: 600, fontSize: 14, color: '#000000', marginBottom: 8 }}>Status:</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: t.text, marginBottom: 8 }}>Status:</div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 14, color: '#000000', flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 14, color: t.text, flex: 1, minWidth: 0 }}>
               {logLines[logLines.length - 1]}
             </div>
             <button
@@ -1557,9 +1570,9 @@ function DiscogsAuthTestPageInner() {
 
       {/* YouTube Playlist Links Section */}
       {playlistLinks.length > 0 && (
-        <div style={{ marginTop: 32, marginBottom: 16, background: '#ffffff', color: '#000000', padding: '20px', borderRadius: 8, border: '1px solid #dee2e6' }}>
+        <div style={{ marginTop: 32, marginBottom: 16, background: t.bg, color: t.text, padding: '20px', borderRadius: 8, border: `1px solid ${t.border}` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-            <h3 style={{ color: '#000000', margin: 0 }}>YouTube Playlists (No Account Needed):</h3>
+            <h3 style={{ color: t.text, margin: 0 }}>YouTube Playlists (No Account Needed):</h3>
             <button
               onClick={clearListogsData}
               style={{
@@ -1579,7 +1592,7 @@ function DiscogsAuthTestPageInner() {
               Clear All Data
             </button>
           </div>
-          <ul style={{ paddingLeft: 20, color: '#000000', margin: 0 }}>
+          <ul style={{ paddingLeft: 20, color: t.text, margin: 0 }}>
             {playlistLinks.map((url, idx) => (
               <li key={url}>
                 <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>
@@ -1593,27 +1606,28 @@ function DiscogsAuthTestPageInner() {
 
       {/* YouTube Playlist Creation Section */}
       {videoIds.length > 0 && (
-        <div style={{ marginTop: 32, marginBottom: 16, background: '#ffffff', color: '#000000', padding: '20px', borderRadius: 8, border: '1px solid #dee2e6' }}>
-          <h3 style={{ color: '#000000', marginTop: 0 }}>YouTube Playlist (Sign-In Required):</h3>
-          <div style={{ marginBottom: 16, color: '#000000' }}>
+        <div style={{ marginTop: 32, marginBottom: 16, background: t.bg, color: t.text, padding: '20px', borderRadius: 8, border: `1px solid ${t.border}` }}>
+          <h3 style={{ color: t.text, marginTop: 0 }}>YouTube Playlist (Sign-In Required):</h3>
+          <div style={{ marginBottom: 16, color: t.text }}>
             <YouTubeAuth
               compact
               returnUrl="/listogs"
               getTokensRef={getTokensRef}
               onAuthStateChange={setYtAuthState}
               blackTextOnWhite
+              darkMode={darkMode}
             />
           </div>
           {canCreatePlaylists && (
           <div style={{
-            background: '#ffffff',
-            color: '#000000',
-            border: '1px solid #dee2e6',
+            background: t.bg,
+            color: t.text,
+            border: `1px solid ${t.border}`,
             borderRadius: 6,
             padding: '20px',
           }}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', marginBottom: 12, fontWeight: 'bold', color: '#000000' }}>
+              <label style={{ display: 'flex', alignItems: 'center', marginBottom: 12, fontWeight: 'bold', color: t.text }}>
                 <input
                   type="checkbox"
                   checked={useExistingPlaylist}
@@ -1626,7 +1640,7 @@ function DiscogsAuthTestPageInner() {
 
             {useExistingPlaylist ? (
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: t.text }}>
                   Existing Playlist ID *
                 </label>
                 <input
@@ -1640,18 +1654,18 @@ function DiscogsAuthTestPageInner() {
                     border: '1px solid #ced4da',
                     borderRadius: 4,
                     fontSize: 14,
-                    color: '#000000',
-                    background: '#ffffff'
+                    color: t.text,
+                    background: t.bg
                   }}
                 />
-                <div style={{ fontSize: 12, color: '#000000', marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: t.text, marginTop: 4 }}>
                   You can find the playlist ID in the URL of your YouTube playlist
                 </div>
               </div>
             ) : (
               <>
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: t.text }}>
                     Playlist Title *
                   </label>
                   <input
@@ -1665,14 +1679,14 @@ function DiscogsAuthTestPageInner() {
                       border: '1px solid #ced4da',
                       borderRadius: 4,
                       fontSize: 14,
-                      color: '#000000',
-                      background: '#ffffff'
+                      color: t.text,
+                      background: t.bg
                     }}
                   />
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: t.text }}>
                     Description
                   </label>
                   <textarea
@@ -1687,14 +1701,14 @@ function DiscogsAuthTestPageInner() {
                       borderRadius: 4,
                       fontSize: 14,
                       resize: 'vertical',
-                      color: '#000000',
-                      background: '#ffffff'
+                      color: t.text,
+                      background: t.bg
                     }}
                   />
                 </div>
 
                 <div style={{ marginBottom: 20 }}>
-                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: '#000000' }}>
+                  <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: t.text }}>
                     Privacy Status
                   </label>
                   <select
@@ -1706,8 +1720,8 @@ function DiscogsAuthTestPageInner() {
                       border: '1px solid #ced4da',
                       borderRadius: 4,
                       fontSize: 14,
-                      background: '#ffffff',
-                      color: '#000000'
+                      background: t.bg,
+                      color: t.text
                     }}
                   >
                     <option value="private">Private</option>
@@ -1719,7 +1733,7 @@ function DiscogsAuthTestPageInner() {
             )}
 
             <div style={{ marginBottom: 16 }}>
-              <p style={{ fontSize: 14, color: '#000000', margin: 0 }}>
+              <p style={{ fontSize: 14, color: t.text, margin: 0 }}>
                 This will create a playlist with <strong>{videoIds.length} videos</strong> found in your search results.
               </p>
             </div>
@@ -1758,7 +1772,7 @@ function DiscogsAuthTestPageInner() {
                 <div style={{ marginTop: 12 }}>
                   <div style={{ 
                     fontSize: 14, 
-                    color: '#000000', 
+                    color: t.text, 
                     marginBottom: 8,
                     textAlign: 'center'
                   }}>
@@ -1786,7 +1800,7 @@ function DiscogsAuthTestPageInner() {
               <div style={{
                 marginTop: 16,
                 padding: '12px',
-                background: rateLimited ? '#fff3cd' : '#f8d7da',
+                background: rateLimited ? t.warnBg : t.errorBg,
                 border: `1px solid ${rateLimited ? '#ffeaa7' : '#f5c6cb'}`,
                 borderRadius: 4
               }}>
@@ -1796,7 +1810,7 @@ function DiscogsAuthTestPageInner() {
                 {rateLimited && retryAfter && (
                   <div style={{ marginTop: 8, fontSize: 14 }}>
                     <div>Please wait {Math.ceil(retryAfter / 60)} minutes before trying again.</div>
-                    <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                    <div style={{ marginTop: 4, fontSize: 12, color: t.text }}>
                       YouTube API quota has been exceeded. The system will automatically retry with exponential backoff.
                     </div>
                   </div>
@@ -1815,7 +1829,7 @@ function DiscogsAuthTestPageInner() {
                 <div style={{ color: '#383d41', fontWeight: 'bold', marginBottom: 8 }}>
                   🔄 Retry Information
                 </div>
-                <div style={{ fontSize: 14, color: '#666' }}>
+                <div style={{ fontSize: 14, color: t.text }}>
                   The system is automatically retrying failed requests with exponential backoff.
                   This helps avoid hitting YouTube's API rate limits.
                 </div>
@@ -1841,21 +1855,21 @@ function DiscogsAuthTestPageInner() {
               <div style={{
                 marginTop: 16,
                 padding: '12px',
-                background: '#ffffff',
-                color: '#000000',
-                border: '1px solid #dee2e6',
+                background: t.bg,
+                color: t.text,
+                border: `1px solid ${t.border}`,
                 borderRadius: 4
               }}>
-                <div style={{ color: '#000000', fontWeight: 'bold', marginBottom: 8 }}>
+                <div style={{ color: t.text, fontWeight: 'bold', marginBottom: 8 }}>
                   ✅ Playlist Created Successfully!
                 </div>
-                <div style={{ color: '#000000', marginBottom: 4 }}>
+                <div style={{ color: t.text, marginBottom: 4 }}>
                   <strong>Title:</strong> {playlistCreated.snippet?.title}
                 </div>
-                <div style={{ color: '#000000', marginBottom: 4 }}>
+                <div style={{ color: t.text, marginBottom: 4 }}>
                   <strong>ID:</strong> {playlistCreated.id}
                 </div>
-                <div style={{ color: '#000000', marginBottom: 8 }}>
+                <div style={{ color: t.text, marginBottom: 8 }}>
                   <strong>Privacy:</strong> {playlistCreated.status?.privacyStatus}
                 </div>
                 <a
@@ -1878,9 +1892,9 @@ function DiscogsAuthTestPageInner() {
       )}
 
       {/* Videos - tabbed: Table | Video IDs */}
-      <div style={{ marginTop: 32, background: '#ffffff', color: '#000000', padding: '20px', borderRadius: 8, border: '1px solid #dee2e6' }}>
+      <div style={{ marginTop: 32, background: t.bg, color: t.text, padding: '20px', borderRadius: 8, border: `1px solid ${t.border}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 16, borderBottom: '2px solid #dee2e6' }}>
-          <h3 style={{ color: '#000000', margin: '0 24px 0 0' }}>Videos</h3>
+          <h3 style={{ color: t.text, margin: '0 24px 0 0' }}>Videos</h3>
           <button
             onClick={() => setVideosViewTab('table')}
             style={{
@@ -1888,7 +1902,7 @@ function DiscogsAuthTestPageInner() {
               fontSize: 14,
               fontWeight: 600,
               background: 'none',
-              color: videosViewTab === 'table' ? '#0066cc' : '#6c757d',
+              color: videosViewTab === 'table' ? '#0066cc' : t.text,
               border: 'none',
               borderBottom: videosViewTab === 'table' ? '2px solid #0066cc' : '2px solid transparent',
               marginBottom: -2,
@@ -1905,7 +1919,7 @@ function DiscogsAuthTestPageInner() {
               fontSize: 14,
               fontWeight: 600,
               background: 'none',
-              color: videoIds.length === 0 ? '#adb5bd' : videosViewTab === 'ids' ? '#0066cc' : '#6c757d',
+              color: videoIds.length === 0 ? '#adb5bd' : videosViewTab === 'ids' ? '#0066cc' : t.text,
               border: 'none',
               borderBottom: videosViewTab === 'ids' ? '2px solid #0066cc' : '2px solid transparent',
               marginBottom: -2,
@@ -1943,7 +1957,7 @@ function DiscogsAuthTestPageInner() {
                   "discogsUrl"
                 ]}
               />
-              <div style={{ fontSize: 14, color: '#000000', marginTop: 8 }}>
+              <div style={{ fontSize: 14, color: t.text, marginTop: 8 }}>
                 Exports the rows exactly as they appear with the active table filters.
               </div>
             </div>
@@ -1952,7 +1966,7 @@ function DiscogsAuthTestPageInner() {
 
         {videosViewTab === 'ids' && videoIds.length > 0 && (
           <div>
-            <p style={{ fontSize: 14, color: '#000000', marginBottom: 12 }}>
+            <p style={{ fontSize: 14, color: t.text, marginBottom: 12 }}>
               All YouTube Video IDs (comma separated) - {videoIds.length} videos:
             </p>
             <textarea
@@ -1965,8 +1979,8 @@ function DiscogsAuthTestPageInner() {
                 padding: 8,
                 marginBottom: 8,
                 resize: 'vertical',
-                background: '#ffffff',
-                color: '#000000',
+                background: t.bg,
+                color: t.text,
                 border: '1px solid #ccc'
               }}
             />
@@ -1975,16 +1989,16 @@ function DiscogsAuthTestPageInner() {
               style={{
                 padding: '8px 16px',
                 fontSize: 16,
-                background: '#ffffff',
-                color: '#000000',
+                background: t.bg,
+                color: t.text,
                 border: '2px solid #333',
                 borderRadius: 6,
                 cursor: 'pointer',
                 fontWeight: 'bold',
                 transition: 'background-color 0.2s ease'
               }}
-              onMouseOver={e => { e.currentTarget.style.background = '#f0f0f0'; }}
-              onMouseOut={e => { e.currentTarget.style.background = '#ffffff'; }}
+              onMouseOver={e => { e.currentTarget.style.background = t.hoverBg; }}
+              onMouseOut={e => { e.currentTarget.style.background = t.bg; }}
             >
               {copyButtonClicked ? `Copied ${videoIds.length} IDs!` : `Copy ${videoIds.length} IDs to Clipboard`}
             </button>
@@ -1995,12 +2009,12 @@ function DiscogsAuthTestPageInner() {
         <div style={{
           marginTop: 32,
           padding: 20,
-          border: '1px solid #dee2e6',
+          border: `1px solid ${t.border}`,
           borderRadius: 8,
-          background: '#f8f9fa'
+          background: t.bgAlt
         }}>
           <h3 style={{ marginTop: 0 }}>Discogs List Images</h3>
-          <p style={{ color: '#555', marginBottom: 12 }}>
+          <p style={{ color: t.text, marginBottom: 12 }}>
             Download the first image from each release in this Discogs list as a single .zip archive.
           </p>
           {imageExtractionStatus && imageExtractionStatus.task === 'imageZip' && (
@@ -2009,7 +2023,7 @@ function DiscogsAuthTestPageInner() {
               padding: 12,
               borderRadius: 6,
               background: '#e9ecef',
-              color: '#333',
+              color: t.textSecondary,
               fontSize: 14
             }}>
               <strong>{imageExtractionStatus.status}</strong>
@@ -2039,7 +2053,7 @@ function DiscogsAuthTestPageInner() {
               marginBottom: 12,
               padding: 12,
               borderRadius: 6,
-              background: '#fee2e2',
+              background: t.errorBg,
               border: '1px solid #fca5a5',
               color: '#dc2626',
               fontSize: 14

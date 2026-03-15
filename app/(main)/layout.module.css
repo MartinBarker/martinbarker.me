@@ -237,7 +237,7 @@
 }
 .refreshButton:hover {
   background-color: #d3d3d3; /* Change to a light grey or any color to indicate it's clickable */
-  color: #333; /* Optional: Change text color on hover */
+  color: #000000; /* Optional: Change text color on hover */
 }
 
 .colorImage {
@@ -607,7 +607,7 @@
 .mobileText {
   margin-top: 0;
   font-style: italic;
-  color: #888;
+  color: #000000;
 }
 
 /* Dark mode toggle button */
@@ -651,5 +651,59 @@
 
 /* Dark mode content area */
 .darkContent .contentBody {
-  color: #f0f0f0;
+  color: #ffffff;
+}
+
+/* ── Global dark-mode overrides for all page content ── */
+/* These use !important to override inline styles */
+
+.darkContent table {
+  border-color: #444 !important;
+}
+
+.darkContent th {
+  background-color: #2a2a3d !important;
+  color: #ffffff !important;
+  border-color: #444 !important;
+}
+
+.darkContent td {
+  color: #ffffff !important;
+  border-color: #444 !important;
+}
+
+.darkContent tr:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.darkContent input,
+.darkContent textarea,
+.darkContent select {
+  background-color: #2a2a3d !important;
+  color: #ffffff !important;
+  border-color: #555 !important;
+}
+
+.darkContent input::placeholder,
+.darkContent textarea::placeholder {
+  color: #888 !important;
+}
+
+.darkContent a {
+  color: #6cb6ff;
+}
+
+.darkContent label {
+  color: #ffffff !important;
+}
+
+.darkContent strong {
+  color: #ffffff;
+}
+
+.darkContent p,
+.darkContent li,
+.darkContent span,
+.darkContent div {
+  color: inherit;
 }
