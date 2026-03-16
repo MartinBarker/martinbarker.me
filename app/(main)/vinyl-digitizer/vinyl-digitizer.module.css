@@ -1548,6 +1548,17 @@
   color: #000000;
   white-space: nowrap;
 }
+.ytFormatSelect {
+  min-width: 220px;
+  width: 220px;
+  max-width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.ytFormatSelect option {
+  white-space: nowrap;
+}
 .ytFormatHint {
   font-size: 0.72rem;
   color: #000000;
@@ -1675,7 +1686,7 @@
   white-space: pre-wrap;
   word-break: break-word;
   padding: 1px 0;
-  color: #000000;
+  color: #ffffff;
 }
 
 .videoLogError {
