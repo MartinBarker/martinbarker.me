@@ -555,7 +555,7 @@ export default function RootLayout({ children }) {
               >
                 <span className={styles.darkModeIcon}>{darkMode ? '☀️' : '🌙'}</span>
                 <span className={`${styles.darkModeLabel} ${!sidebarActive ? styles.hidden : ''}`}>
-                  {darkMode ? 'Light Mode' : 'Dark Mode'}
+                  {darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
                 </span>
               </button>
               <button onClick={refreshColors} className={`${styles.refreshButton} ${!sidebarActive && styles.hidden}`} style={{ border: '1px solid black' }}>

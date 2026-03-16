@@ -1475,7 +1475,8 @@ export default function VinylDigitizerPage() {
 
   // Regenerate YouTube metadata when format options change
   const regenerateYtMetadata = useCallback(() => {
-    const audioList = getOrderedAudios();
+    const order = videoAudioOrder.length === exportedTracks.length ? videoAudioOrder : exportedTracks.map((_, i) => i);
+    const audioList = order.filter(i => selectedVideoAudios.has(i)).map(i => exportedTracks[i]).filter(Boolean);
     if (!audioList.length) return;
 
     const trackTimestamps = audioList.map((t, i) => ({
@@ -1489,8 +1490,7 @@ export default function VinylDigitizerPage() {
       suffix: ytDescSuffix,
     });
     setYtUploadData(prev => ({ ...prev, description: desc.slice(0, YT_LIMITS.description) }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix]);
+  }, [ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix, exportedTracks, selectedVideoAudios, videoAudioOrder]);
 
   const regenerateYtTitle = (variation) => {
     const suggestions = generateVideoTitleRecommendations(discogsData, variation);
@@ -1516,8 +1516,23 @@ export default function VinylDigitizerPage() {
         setYtUploadData(prev => ({ ...prev, title: prev.title || suggestions[0].slice(0, YT_LIMITS.title) }));
       }
     }
-    // Generate description if empty
-    if (!ytUploadData.description) regenerateYtMetadata();
+    // Generate description from current selected audio tracks (inline to avoid stale closure)
+    if (!ytUploadData.description) {
+      const audioList = getOrderedAudios();
+      if (audioList.length > 0) {
+        const trackTimestamps = audioList.map((t, i) => ({
+          title: t.title,
+          startOffset: i === 0 ? 0 : audioList.slice(0, i).reduce((s, x) => s + (x.end - x.start), 0),
+        }));
+        const desc = buildTimestampDescription(trackTimestamps, {
+          timestampFormat: ytTimestampFormat,
+          separator: ytTimestampSeparator,
+          includeTrackNumbers: ytIncludeTrackNums,
+          suffix: ytDescSuffix,
+        });
+        setYtUploadData(prev => ({ ...prev, description: desc.slice(0, YT_LIMITS.description) }));
+      }
+    }
     // Generate tags if empty
     if (!ytUploadData.tags && discogsData) regenerateYtTags();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2548,7 +2563,7 @@ export default function VinylDigitizerPage() {
                       <div className={styles.ytFormatGrid}>
                         <label className={styles.ytFormatLabel}>
                           Title style
-                          <select className={styles.inputSmall} value={ytTitleVariation} onChange={e => { const v = parseInt(e.target.value); setYtTitleVariation(v); regenerateYtTitle(v); }}>
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTitleVariation} onChange={e => { const v = parseInt(e.target.value); setYtTitleVariation(v); regenerateYtTitle(v); }}>
                             <option value={0}>Genre-focused</option>
                             <option value={1}>Style-focused</option>
                             <option value={2}>Label & country</option>
@@ -2558,7 +2573,7 @@ export default function VinylDigitizerPage() {
                         </label>
                         <label className={styles.ytFormatLabel}>
                           Timestamp format
-                          <select className={styles.inputSmall} value={ytTimestampFormat} onChange={e => { setYtTimestampFormat(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampFormat} onChange={e => { setYtTimestampFormat(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
                             <option value="auto">Auto (M:SS or H:MM:SS)</option>
                             <option value="M:SS">M:SS</option>
                             <option value="H:MM:SS">H:MM:SS</option>
@@ -2566,7 +2581,7 @@ export default function VinylDigitizerPage() {
                         </label>
                         <label className={styles.ytFormatLabel}>
                           Separator
-                          <select className={styles.inputSmall} value={ytTimestampSeparator} onChange={e => { setYtTimestampSeparator(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampSeparator} onChange={e => { setYtTimestampSeparator(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
                             <option value=" ">(space)</option>
                             <option value=" - "> - (dash)</option>
                             <option value=" | "> | (pipe)</option>
