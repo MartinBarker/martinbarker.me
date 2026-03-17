@@ -36,6 +36,19 @@
     color: #ffffff;
 }
 
+:global(.darkContent) .heroSection {
+    background: linear-gradient(135deg, rgba(30, 30, 46, 0.95) 0%, rgba(20, 20, 35, 0.9) 100%);
+    animation: none;
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+:global(.darkContent) .heroTitle,
+:global(.darkContent) .heroSubtitle {
+    color: #ffffff;
+    text-shadow: none;
+}
+
 /* Hero Title Section */
 .heroSection {
     text-align: center;

@@ -625,7 +625,7 @@ export default function RootLayout({ children }) {
             </div>
           </nav>
           <main
-            className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''} ${darkMode && pathname !== '/vinyl-digitizer' ? styles.darkContent : ''}`}
+            className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''} ${darkMode && pathname !== '/vinyl-digitizer' ? `${styles.darkContent} darkContent` : ''}`}
             style={{ background: darkMode ? colors.DarkMuted : colors.LightMuted }}
           >
             <div className={styles.contentWrapper}>
