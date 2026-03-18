@@ -2702,12 +2702,17 @@ app.post('/youtube/addVideoToPlaylist', async (req, res) => {
   if (process.env.NODE_ENV === 'development') {
     console.log("🎵 [POST /youtube/addVideoToPlaylist] Hit");
   }
-  
+
   try {
-    const youtubeAuth = req.session?.youtubeAuth;
-    
+    let youtubeAuth = req.session?.youtubeAuth;
+
     if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
-      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      const { tokens: bodyTokens } = req.body;
+      if (bodyTokens) {
+        youtubeAuth = { isAuthenticated: true, tokens: bodyTokens };
+      } else {
+        return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      }
     }
 
     const { playlistId, videoId } = req.body;
@@ -2781,12 +2786,17 @@ app.post('/internal-api/youtube/addVideoToPlaylist', async (req, res) => {
   if (process.env.NODE_ENV === 'development') {
     console.log("🎵 [POST /internal-api/youtube/addVideoToPlaylist] Hit");
   }
-  
+
   try {
-    const youtubeAuth = req.session?.youtubeAuth;
-    
+    let youtubeAuth = req.session?.youtubeAuth;
+
     if (!youtubeAuth?.isAuthenticated || !youtubeAuth?.tokens) {
-      return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      const { tokens: bodyTokens } = req.body;
+      if (bodyTokens) {
+        youtubeAuth = { isAuthenticated: true, tokens: bodyTokens };
+      } else {
+        return res.status(401).json({ error: 'Not authenticated with YouTube' });
+      }
     }
 
     const { playlistId, videoId } = req.body;
