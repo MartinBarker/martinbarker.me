@@ -222,7 +222,7 @@ export function buildTimestampDescription(tracks, options = {}) {
     timestampFormat = 'auto',
     separator = ' ',
     includeTrackNumbers = false,
-    suffix = '\n\nDigitized with Vinyl Digitizer – martinbarker.me/vinyl-digitizer',
+    suffix = '\n\nDigitized with Vinyl Digitizer – https://martinbarker.me/vinyl-digitizer',
   } = options;
 
   const lines = tracks.map((t, i) => {
@@ -231,7 +231,7 @@ export function buildTimestampDescription(tracks, options = {}) {
     return `${ts}${separator}${prefix}${t.title}`;
   });
 
-  return lines.join('\n') + suffix;
+  return 'Video rendered with https://martinbarker.me/vinyl-digitizer\n\n' + lines.join('\n') + suffix;
 }
 
 /** YouTube metadata character limits */

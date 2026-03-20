@@ -262,7 +262,7 @@ function DiscogsAuthTestPageInner() {
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
-          : 'https://www.martinbarker.me/internal-api';
+          : `${window.location.origin}/internal-api`;
 
       var queryUrl = `${apiBaseURL}/listogs/discogs/getURL`;
       console.log('🔗 [Frontend] Fetching Discogs auth URL from:', queryUrl);
@@ -524,7 +524,7 @@ function DiscogsAuthTestPageInner() {
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
-          : 'https://www.martinbarker.me/internal-api';
+          : `${window.location.origin}/internal-api`;
 
       if (!discogsType || !discogsId) {
         console.error('❌ [Frontend] discogsApiQuery() - discogsType or discogsId is missing');
@@ -819,7 +819,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       const response = await fetch(`${apiBaseURL}/listogs/discogs/list-images`, {
         method: 'POST',
@@ -880,7 +880,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       const response = await fetch(`${apiBaseURL}/listogs/stop`, {
         method: 'POST',
@@ -940,7 +940,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       console.log('🔍 [Frontend] Fetching Discogs info for URL:', url);
       const response = await fetch(`${apiBaseURL}/discogs/info`, {
@@ -1147,7 +1147,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       // Get tokens via YouTubeAuth component
       const tokens = await getTokensRef.current?.getTokens();
@@ -1221,7 +1221,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       let addedCount = 0;
       let retryCount = 0;
@@ -1567,7 +1567,7 @@ function DiscogsAuthTestPageInner() {
           color: t.text,
           marginTop: 24
         }}>
-          <div style={{ fontWeight: 600, fontSize: 14, color: t.text, marginBottom: 8 }}>Status:</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: t.text, marginBottom: 8 }}>Discogs Fetch Status:</div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div style={{ fontFamily: 'monospace', fontSize: 14, color: t.text, flex: 1, minWidth: 0 }}>
               {logLines[logLines.length - 1]}
@@ -1589,6 +1589,39 @@ function DiscogsAuthTestPageInner() {
               {stopRequestLoading ? 'Stopping…' : 'Stop Current Job'}
             </button>
           </div>
+          {/* Discogs fetch progress bar */}
+          {(() => {
+            const p = sessionStatus?.progress || lastProgressRef.current;
+            const current = p?.currentIndex || 0;
+            const total = p?.total || 0;
+            const videos = p?.videos || 0;
+            if (total > 0) {
+              const pct = Math.min(100, (current / total) * 100);
+              return (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: t.text, marginBottom: 4 }}>
+                    <span>Releases: {current} / {total}</span>
+                    <span>{videos} video{videos !== 1 ? 's' : ''} found</span>
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: 8,
+                    backgroundColor: darkMode ? '#333' : '#e9ecef',
+                    borderRadius: 4,
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      backgroundColor: '#007bff',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
       )}
 
@@ -1794,18 +1827,20 @@ function DiscogsAuthTestPageInner() {
               {/* Progress Display */}
               {playlistLoading && playlistProgress.total > 0 && (
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ 
-                    fontSize: 14, 
-                    color: t.text, 
-                    marginBottom: 8,
-                    textAlign: 'center'
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 14,
+                    color: t.text,
+                    marginBottom: 6
                   }}>
-                    Adding videos: {playlistProgress.added} / {playlistProgress.total}
+                    <span>Adding videos: {playlistProgress.added} / {playlistProgress.total}</span>
+                    <span>{playlistProgress.total - playlistProgress.added} remaining</span>
                   </div>
                   <div style={{
                     width: '100%',
                     height: 8,
-                    backgroundColor: '#e9ecef',
+                    backgroundColor: darkMode ? '#333' : '#e9ecef',
                     borderRadius: 4,
                     overflow: 'hidden'
                   }}>
@@ -1816,6 +1851,9 @@ function DiscogsAuthTestPageInner() {
                       transition: 'width 0.3s ease'
                     }} />
                   </div>
+                  <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 4, textAlign: 'center' }}>
+                    {Math.round((playlistProgress.added / playlistProgress.total) * 100)}% complete
+                  </div>
                 </div>
               )}
             </div>
@@ -1825,16 +1863,17 @@ function DiscogsAuthTestPageInner() {
                 marginTop: 16,
                 padding: '12px',
                 background: rateLimited ? t.warnBg : t.errorBg,
-                border: `1px solid ${rateLimited ? '#ffeaa7' : '#f5c6cb'}`,
-                borderRadius: 4
+                border: `1px solid ${rateLimited ? (darkMode ? '#665a20' : '#ffeaa7') : (darkMode ? '#5a2020' : '#f5c6cb')}`,
+                borderRadius: 4,
+                color: t.text
               }}>
-                <span style={{ color: rateLimited ? '#856404' : '#721c24' }}>
+                <span style={{ color: t.text }}>
                   {rateLimited ? '⚠️ Rate Limited: ' : 'Error: '}{youtubeError}
                 </span>
                 {rateLimited && retryAfter && (
-                  <div style={{ marginTop: 8, fontSize: 14 }}>
+                  <div style={{ marginTop: 8, fontSize: 14, color: t.text }}>
                     <div>Please wait {Math.ceil(retryAfter / 60)} minutes before trying again.</div>
-                    <div style={{ marginTop: 4, fontSize: 12, color: t.text }}>
+                    <div style={{ marginTop: 4, fontSize: 12, color: t.textSecondary }}>
                       YouTube API quota has been exceeded. The system will automatically retry with exponential backoff.
                     </div>
                   </div>
@@ -1846,16 +1885,16 @@ function DiscogsAuthTestPageInner() {
               <div style={{
                 marginTop: 16,
                 padding: '12px',
-                background: '#e2e3e5',
-                border: '1px solid #d6d8db',
+                background: t.bgAlt,
+                border: `1px solid ${t.border}`,
                 borderRadius: 4
               }}>
-                <div style={{ color: '#383d41', fontWeight: 'bold', marginBottom: 8 }}>
+                <div style={{ color: t.text, fontWeight: 'bold', marginBottom: 8 }}>
                   🔄 Retry Information
                 </div>
-                <div style={{ fontSize: 14, color: t.text }}>
+                <div style={{ fontSize: 14, color: t.textSecondary }}>
                   The system is automatically retrying failed requests with exponential backoff.
-                  This helps avoid hitting YouTube's API rate limits.
+                  This helps avoid hitting YouTube&apos;s API rate limits.
                 </div>
                 <button
                   onClick={resetRateLimitState}

@@ -68,7 +68,12 @@ async function fetchDiscogsRelease(id) {
   return res.json();
 }
 
-const apiBaseURL = () => process.env.NODE_ENV === "development" ? "http://localhost:3030" : "https://www.martinbarker.me/internal-api";
+const apiBaseURL = () => {
+  if (process.env.NODE_ENV === "development") return "http://localhost:3030";
+  // Use same origin to avoid CORS issues (martinbarker.me vs www.martinbarker.me)
+  if (typeof window !== "undefined") return `${window.location.origin}/internal-api`;
+  return "https://www.martinbarker.me/internal-api";
+};
 
 // ---- Main Component ----
 export default function VinylDigitizerPage() {
@@ -134,6 +139,8 @@ export default function VinylDigitizerPage() {
 
   // Volume gain (dB) applied at export
   const [volumeDb, setVolumeDb] = useState(0);
+  // RIAA equalization
+  const [riaaEnabled, setRiaaEnabled] = useState(false);
 
   // Per-track export selection
   const [selectedTracks, setSelectedTracks] = useState(new Set());
@@ -162,6 +169,7 @@ export default function VinylDigitizerPage() {
   const [videoHeight, setVideoHeight] = useState("1080");
   const [videoBgColor, setVideoBgColor] = useState("#000000");
   const [ytUploadData, setYtUploadData] = useState({ title: "", description: "", privacyStatus: "private", tags: "" });
+  const ytUploadDataRef = useRef(ytUploadData);
   const [ytUploading, setYtUploading] = useState(false);
   const [ytUploadProgress, setYtUploadProgress] = useState(null);
   const [ytUploadResult, setYtUploadResult] = useState(null);
@@ -176,7 +184,7 @@ export default function VinylDigitizerPage() {
   const [ytTimestampFormat, setYtTimestampFormat] = useState("auto"); // "auto", "M:SS", "H:MM:SS"
   const [ytTimestampSeparator, setYtTimestampSeparator] = useState(" ");
   const [ytIncludeTrackNums, setYtIncludeTrackNums] = useState(false);
-  const [ytDescSuffix, setYtDescSuffix] = useState("\n\nDigitized with Vinyl Digitizer – martinbarker.me/vinyl-digitizer");
+  const [ytDescSuffix, setYtDescSuffix] = useState("\n\nDigitized with Vinyl Digitizer – https://martinbarker.me/vinyl-digitizer");
   const [ytTitleSuggestions, setYtTitleSuggestions] = useState([]);
 
   // Video timeline / ordering (Step 5)
@@ -185,6 +193,8 @@ export default function VinylDigitizerPage() {
   const [manualImageTimings, setManualImageTimings] = useState({}); // {imgId: {startTime, endTime}}
   const [expandedImgPreviews, setExpandedImgPreviews] = useState(new Set());
   const [videoAudioOrder, setVideoAudioOrder] = useState([]); // ordered indices into exportedTracks
+  const [imageLoadingStatus, setImageLoadingStatus] = useState(null); // {loaded, total, current}
+  const [discogsArtStatus, setDiscogsArtStatus] = useState(null); // {loaded, total, current, images}
 
   // Refs
   const ffmpegRef = useRef(null);
@@ -212,6 +222,51 @@ export default function VinylDigitizerPage() {
   const playbackTimerRef = useRef(null);
   const previewCheckRef = useRef(null);
 
+  // Reset entire workflow to fresh state
+  const resetAll = () => {
+    if (!window.confirm("Start over? This will clear all current work.")) return;
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
+    exportedTracks.forEach(t => URL.revokeObjectURL(t.url));
+    videoImages.forEach(img => { if (img.thumbUrl) URL.revokeObjectURL(img.thumbUrl); if (img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
+    if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc);
+    if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
+    setAudioFile(null); setChannelData(null); setDuration(0); setTracks([]); setCurrentTime(0); setIsPlaying(false);
+    setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount(""); setProjectName("My Album");
+    setExportedTracks([]); setSelectedTracks(new Set()); setMessage("");
+    setVideoImages([]); setSelectedVideoImages(new Set()); setSelectedVideoAudios(new Set()); setRenderedVideoSrc(null);
+    setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" }); setYtTitleSuggestions([]);
+    setYtUploadResult(null); setYtUploadError(""); setThumbnailFile(null); setThumbnailPreview(null);
+    setRiaaEnabled(false); setVolumeDb(0); setStep(1);
+    autoSplitDoneRef.current = false;
+    lastYtDiscogsUrlRef.current = null;
+  };
+
+  // Reset just the current step
+  const resetStep = (stepNum) => {
+    if (stepNum === 1) {
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      setAudioFile(null); setChannelData(null); setDuration(0); setMessage("");
+      if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
+    } else if (stepNum === 2) {
+      setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount("");
+    } else if (stepNum === 3) {
+      setTracks([]); setSilenceRegions([]); autoSplitDoneRef.current = false;
+      if (peaksRef.current) peaksRef.current.segments.removeAll();
+    } else if (stepNum === 4) {
+      exportedTracks.forEach(t => URL.revokeObjectURL(t.url)); setExportedTracks([]);
+    } else if (stepNum === 5) {
+      videoImages.forEach(img => { if (img.thumbUrl) URL.revokeObjectURL(img.thumbUrl); if (img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
+      setVideoImages([]); setSelectedVideoImages(new Set()); setSelectedVideoAudios(new Set());
+      if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc); setRenderedVideoSrc(null);
+    } else if (stepNum === 6) {
+      setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" }); setYtTitleSuggestions([]);
+      setYtUploadResult(null); setYtUploadError(""); setThumbnailFile(null);
+      if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null);
+      lastYtDiscogsUrlRef.current = null;
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
     ffmpegRef.current = new FFmpeg();
@@ -219,6 +274,7 @@ export default function VinylDigitizerPage() {
   }, []);
 
   useEffect(() => { autoUploadYtRef.current = autoUploadYt; }, [autoUploadYt]);
+  useEffect(() => { ytUploadDataRef.current = ytUploadData; }, [ytUploadData]);
 
   // Decode audio when file changes (for silence detection + volume analysis)
   useEffect(() => {
@@ -506,7 +562,12 @@ export default function VinylDigitizerPage() {
   // Initialize peaks.js when entering Step 3 with audio loaded
   useEffect(() => {
     if (step !== 3 || !audioFile || !audioRef.current) return;
-    if (peaksRef.current) return; // already initialized
+    if (peaksRef.current) {
+      // Already initialized — just resize to handle display:none→block transition
+      try { peaksRef.current.views.getView('zoomview')?.fitToContainer(); } catch {}
+      try { peaksRef.current.views.getView('overview')?.fitToContainer(); } catch {}
+      return;
+    }
 
     let cancelled = false;
     const init = async () => {
@@ -568,6 +629,44 @@ export default function VinylDigitizerPage() {
   // Zoom controls for peaks.js
   const zoomIn = () => { if (peaksRef.current) peaksRef.current.zoom.zoomIn(); };
   const zoomOut = () => { if (peaksRef.current) peaksRef.current.zoom.zoomOut(); };
+
+  // Keyboard shortcuts for waveform editor (spacebar=play, comma=zoom out, period=zoom in)
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (step !== 3) return;
+      // Ignore if user is typing in an input/textarea/select
+      const tag = e.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === "," || e.key === "<") {
+        e.preventDefault();
+        zoomOut();
+      } else if (e.key === "." || e.key === ">") {
+        e.preventDefault();
+        zoomIn();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [step]);
+
+  // Scroll wheel zoom on waveform container
+  const handleWaveWheel = useCallback((e) => {
+    if (!peaksRef.current) return;
+    e.preventDefault();
+    if (e.deltaY < 0) zoomIn();
+    else if (e.deltaY > 0) zoomOut();
+  }, []);
+
+  // Attach wheel listener to zoomview (needs {passive: false} to preventDefault)
+  useEffect(() => {
+    const el = zoomviewRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", handleWaveWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWaveWheel);
+  }, [handleWaveWheel]);
 
   // ---- Track manipulation ----
   const generateTrackId = () => `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -674,7 +773,14 @@ export default function VinylDigitizerPage() {
   };
 
   // ---- Upload ----
-  const handleDrop = e => { e.preventDefault(); const f = Array.from(e.dataTransfer.files).find(f => f.type.startsWith("audio/")); if (f) setAudioFile(f); };
+  const handleDrop = e => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    const audioF = files.find(f => f.type.startsWith("audio/"));
+    const imageFiles = files.filter(f => f.type.startsWith("image/"));
+    if (audioF) setAudioFile(audioF);
+    if (imageFiles.length > 0) addImagesToVideo(imageFiles);
+  };
   const handleFileInput = e => { if (e.target.files.length > 0) setAudioFile(e.target.files[0]); };
 
   // ---- Discogs ----
@@ -765,8 +871,27 @@ export default function VinylDigitizerPage() {
   };
 
   // Pure-JS silence detection — instant, no FFmpeg loading required
+  // Rename existing tracks using Discogs tracklist / trackNames without changing positions
+  const applyTrackNames = () => {
+    if (tracks.length === 0) return;
+    const updated = tracks.map((track, i) => {
+      const name = trackNames[i] || discogsData?.tracklist?.[i]?.title || track.name;
+      return { ...track, name };
+    });
+    setTracks(updated);
+    if (peaksRef.current) {
+      updated.forEach((track, i) => {
+        const seg = peaksRef.current.segments.getSegment(track.id);
+        if (seg) seg.update({ labelText: `${i + 1}. ${track.name}` });
+      });
+    }
+    setMessage(`✓ Updated ${updated.length} track name(s)`);
+  };
+
   const detectSilence = () => {
     if (!channelData || channelData.length === 0) { setMessage("Load audio first"); return; }
+    // If tracks already exist, just update names without re-splitting
+    if (tracks.length > 0) { applyTrackNames(); return; }
     const n = parseInt(manualTrackCount) || discogsData?.tracklist?.length;
     if (!detectAll && (!n || n < 2)) { setMessage("Set number of tracks (at least 2), or enable \"Find all silences\""); return; }
     setIsAnalyzing(true); cancelRef.current = false; setExportedTracks([]);
@@ -921,7 +1046,8 @@ export default function VinylDigitizerPage() {
     const rawPos = discogsData?.tracklist?.[i]?.position || "";
     const sideMatch = rawPos.match(/^([A-Za-z]+)/);
     const trackNumMatch = rawPos.match(/(\d+)$/);
-    const safe = s => (s || "").replace(/[^a-zA-Z0-9 ._\-]/g, "").trim();
+    // Allow Unicode word characters (letters from any script), digits, spaces, dots, dashes
+    const safe = s => (s || "").replace(/[\/\\<>:"|?*\x00-\x1f]/g, "").trim();
     const tokens = {
       "%num%": String(i + 1).padStart(2, "0"),
       "%title%": safe(trackNames[i] || `Track ${i + 1}`),
@@ -935,7 +1061,8 @@ export default function VinylDigitizerPage() {
     };
     let result = filenameFormat;
     for (const [t, v] of Object.entries(tokens)) result = result.split(t).join(v);
-    result = result.replace(/[^a-zA-Z0-9 ._\-]/g, "").trim().replace(/\s{2,}/g, " ");
+    // Only strip filesystem-unsafe characters, preserve Unicode
+    result = result.replace(/[\/\\<>:"|?*\x00-\x1f]/g, "").trim().replace(/\s{2,}/g, " ");
     return `${result || `track ${String(i+1).padStart(2,"0")}`}.${outputFormat}`;
   };
 
@@ -952,7 +1079,15 @@ export default function VinylDigitizerPage() {
       const total = tracksToExport.length;
       const mime = outputFormat === "flac" ? "audio/flac" : "audio/wav";
       const codec = outputFormat === "flac" ? ["-c:a", "flac"] : ["-c:a", "pcm_s16le"];
-      const volFilter = volumeDb !== 0 ? ["-af", `volume=${volumeDb}dB`] : [];
+      // Build audio filter chain: RIAA EQ + volume
+      const afParts = [];
+      if (riaaEnabled) {
+        // RIAA inverse equalization curve for vinyl playback
+        // Bass boost below 500Hz, treble cut above 2122Hz per RIAA standard
+        afParts.push("highshelf=f=2122:g=-13.5:t=s,lowshelf=f=500:g=16.5:t=s,highshelf=f=50:g=17:t=s");
+      }
+      if (volumeDb !== 0) afParts.push(`volume=${volumeDb}dB`);
+      const volFilter = afParts.length > 0 ? ["-af", afParts.join(",")] : [];
       const exported = [];
       for (let idx = 0; idx < tracksToExport.length; idx++) {
         const track = tracksToExport[idx];
@@ -1111,16 +1246,20 @@ export default function VinylDigitizerPage() {
     });
   };
 
-  const addImagesToVideo = (files) => {
+  const addImagesToVideo = async (files) => {
     const imageFiles = Array.from(files || []).filter(f => f?.type?.startsWith("image/"));
     if (!imageFiles.length) return;
-    imageFiles.forEach(async (f) => {
+    setImageLoadingStatus({ loaded: 0, total: imageFiles.length, current: imageFiles[0].name });
+    for (let i = 0; i < imageFiles.length; i++) {
+      const f = imageFiles[i];
+      setImageLoadingStatus({ loaded: i, total: imageFiles.length, current: f.name });
       const id = `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
       const thumbUrl = await createThumbnail(f);
       const previewUrl = URL.createObjectURL(f);
       setVideoImages(prev => [...prev, { id, file: f, thumbUrl, previewUrl, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
-    });
+    }
+    setImageLoadingStatus(null);
   };
 
   const toggleVideoImage = (id) => {
@@ -1243,25 +1382,55 @@ export default function VinylDigitizerPage() {
   };
 
   const fetchDiscogsImage = async () => {
-    const url = discogsData?.images?.[0]?.uri || discogsData?.images?.[0]?.uri150;
-    if (!url) { setMessage("No Discogs image available"); return; }
-    try {
-      setMessage("Fetching album art…");
-      const blob = await fetch(url).then(r => r.blob());
-      const file = new File([blob], "album-art.jpg", { type: blob.type || "image/jpeg" });
-      addImagesToVideo([file]);
-      setMessage("Album art added");
-    } catch (err) { setMessage("Could not fetch Discogs image (CORS?). Upload manually. " + err.message); }
+    const images = discogsData?.images;
+    if (!images?.length) { setMessage("No Discogs images available"); return; }
+    const total = images.length;
+    setDiscogsArtStatus({ loaded: 0, total, current: "Starting…", images: [] });
+    const fetchedFiles = [];
+    for (let i = 0; i < total; i++) {
+      const url = images[i].uri || images[i].uri150;
+      if (!url) continue;
+      const label = `Image ${i + 1}/${total}`;
+      setDiscogsArtStatus(prev => ({ ...prev, loaded: i, current: `Fetching ${label}…` }));
+      try {
+        const proxyUrl = `${apiBaseURL()}/discogs/image-proxy?url=${encodeURIComponent(url)}`;
+        const blob = await fetch(proxyUrl).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); });
+        const ext = (blob.type || "image/jpeg").split("/")[1] || "jpg";
+        const file = new File([blob], `discogs-art-${i + 1}.${ext}`, { type: blob.type || "image/jpeg" });
+        fetchedFiles.push(file);
+      } catch (err) {
+        setDiscogsArtStatus(prev => ({ ...prev, current: `Failed ${label}: ${err.message}` }));
+      }
+    }
+    setDiscogsArtStatus(prev => ({ ...prev, loaded: total, current: `Adding ${fetchedFiles.length} image(s)…` }));
+    if (fetchedFiles.length > 0) {
+      await addImagesToVideo(fetchedFiles);
+      setMessage(`${fetchedFiles.length} Discogs image(s) added`);
+    } else {
+      setMessage("Could not fetch any Discogs images (CORS?). Upload manually.");
+    }
+    setDiscogsArtStatus(null);
   };
 
   // ---- Video Resolution helpers ----
   const VIDEO_PRESETS = [
-    { label: "1080p Landscape", w: 1920, h: 1080, icon: "landscape" },
-    { label: "720p Landscape", w: 1280, h: 720, icon: "landscape" },
-    { label: "4K Landscape", w: 3840, h: 2160, icon: "landscape" },
-    { label: "1080p Portrait", w: 1080, h: 1920, icon: "portrait" },
-    { label: "720p Portrait", w: 720, h: 1280, icon: "portrait" },
-    { label: "1080×1080 Square", w: 1080, h: 1080, icon: "square" },
+    { group: "Landscape (16:9)", presets: [
+      { label: "4K", w: 3840, h: 2160, icon: "landscape" },
+      { label: "1440p", w: 2560, h: 1440, icon: "landscape" },
+      { label: "1080p", w: 1920, h: 1080, icon: "landscape" },
+      { label: "720p", w: 1280, h: 720, icon: "landscape" },
+      { label: "480p", w: 854, h: 480, icon: "landscape" },
+      { label: "360p", w: 640, h: 360, icon: "landscape" },
+      { label: "240p", w: 426, h: 240, icon: "landscape" },
+    ]},
+    { group: "Portrait (9:16)", presets: [
+      { label: "1080p", w: 1080, h: 1920, icon: "portrait" },
+      { label: "720p", w: 720, h: 1280, icon: "portrait" },
+    ]},
+    { group: "Square (1:1)", presets: [
+      { label: "1080p", w: 1080, h: 1080, icon: "square" },
+      { label: "720p", w: 720, h: 720, icon: "square" },
+    ]},
   ];
 
   const applyImageResolution = (img) => {
@@ -1274,6 +1443,25 @@ export default function VinylDigitizerPage() {
     };
     image.onerror = () => URL.revokeObjectURL(url);
     image.src = url;
+  };
+
+  // YouTube API upload limit: 256 GB (practically limited by our server's 2GB multer limit)
+  const YT_UPLOAD_LIMIT_MB = 2048; // server multer limit
+  const YT_MAX_DURATION_SEC = 12 * 60 * 60; // 12 hours
+
+  const estimateVideoSize = () => {
+    const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+    const audios = exportedTracks.filter((_, i) => selectedVideoAudios.has(i));
+    const totalDur = audios.reduce((s, t) => s + (t.end - t.start), 0);
+    if (totalDur <= 0) return null;
+    // Rough estimate: CRF 18 stillimage ≈ 0.05-0.15 bits/pixel/frame at 2fps + AAC 320k audio
+    const pixelsPerFrame = w * h;
+    const bitsPerPixelPerFrame = 0.1; // conservative for stillimage
+    const videoBitsPerSec = pixelsPerFrame * bitsPerPixelPerFrame * 2; // 2fps
+    const audioBitsPerSec = 320 * 1000; // 320kbps AAC
+    const totalBits = (videoBitsPerSec + audioBitsPerSec) * totalDur;
+    const totalMB = totalBits / (8 * 1024 * 1024);
+    return { totalMB, totalDur, overLimit: totalMB > YT_UPLOAD_LIMIT_MB, nearLimit: totalMB > YT_UPLOAD_LIMIT_MB * 0.8, overDuration: totalDur > YT_MAX_DURATION_SEC };
   };
 
   const formatEta = () => {
@@ -1437,16 +1625,24 @@ export default function VinylDigitizerPage() {
     try {
       const tokens = await getTokensRef.current?.getTokens();
       if (!tokens) { setYtUploadError("Not signed in to YouTube."); setYtUploading(false); return; }
+      const currentYtData = ytUploadDataRef.current;
       const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_");
       const videoBlob = await fetch(videoUrl).then(r => r.blob());
       const fd = new FormData();
-      fd.append("video", videoBlob, `${ytUploadData.title || name}.mp4`);
-      fd.append("title", ytUploadData.title || name);
-      fd.append("description", ytUploadData.description || "");
-      fd.append("privacyStatus", ytUploadData.privacyStatus || "private");
-      fd.append("tags", ytUploadData.tags || "");
+      fd.append("video", videoBlob, `${currentYtData.title || name}.mp4`);
+      fd.append("title", currentYtData.title || name);
+      fd.append("description", currentYtData.description || "");
+      fd.append("privacyStatus", currentYtData.privacyStatus || "private");
+      fd.append("tags", currentYtData.tags || "");
       fd.append("tokens", JSON.stringify(tokens));
       if (thumbnailFile) fd.append("thumbnail", thumbnailFile, thumbnailFile.name);
+      const fileSizeMB = (videoBlob.size / (1024 * 1024)).toFixed(1);
+      const maxSizeMB = 2048; // 2 GB server limit
+      if (videoBlob.size > maxSizeMB * 1024 * 1024) {
+        setYtUploadError(`Video file is ${fileSizeMB} MB — exceeds the ${maxSizeMB} MB upload limit. Try a lower resolution or shorter duration.`);
+        setYtUploading(false);
+        return;
+      }
       await new Promise(resolve => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${apiBaseURL()}/youtube/uploadVideo`);
@@ -1458,15 +1654,16 @@ export default function VinylDigitizerPage() {
             if (xhr.status >= 200 && xhr.status < 300) setYtUploadResult(data);
             else {
               let errMsg = data.error || `Upload failed (${xhr.status})`;
-              if (/invalid.*title|empty.*title/i.test(errMsg)) errMsg += " — Try shortening the title (max 100 characters).";
+              if (xhr.status === 413) errMsg = `File too large (${fileSizeMB} MB). Maximum upload size is ${maxSizeMB} MB. Try a lower resolution.`;
+              else if (/invalid.*title|empty.*title/i.test(errMsg)) errMsg += " — Try shortening the title (max 100 characters).";
               else if (/description/i.test(errMsg)) errMsg += " — Try shortening the description (max 5,000 characters).";
               else if (/tag/i.test(errMsg)) errMsg += " — Try reducing tags (max 500 characters total, each tag max 30 chars).";
               setYtUploadError(errMsg);
             }
-          } catch { setYtUploadError("Failed to parse server response"); }
+          } catch { setYtUploadError(`Failed to parse server response (HTTP ${xhr.status})`); }
           resolve();
         };
-        xhr.onerror = () => { setYtUploadError("Network error"); resolve(); };
+        xhr.onerror = () => { setYtUploadError(`Network error uploading ${fileSizeMB} MB video. Check your connection and try again.`); resolve(); };
         xhr.send(fd);
       });
     } catch (err) { setYtUploadError(err.message || "Upload failed"); }
@@ -1505,19 +1702,27 @@ export default function VinylDigitizerPage() {
     setYtUploadData(prev => ({ ...prev, tags: tags.slice(0, YT_LIMITS.tags) }));
   };
 
-  // Pre-fill YouTube metadata when entering Step 6
+  // Track last discogs URL used to generate YouTube metadata
+  const lastYtDiscogsUrlRef = useRef(null);
+
+  // Pre-fill YouTube metadata when entering Step 6 or when discogs data changes
   useEffect(() => {
     if (step !== 6) return;
-    // Generate title suggestions if not already populated
-    if (ytTitleSuggestions.length === 0 && discogsData) {
+    const discogsChanged = discogsData && discogsUrl && lastYtDiscogsUrlRef.current !== discogsUrl;
+    const needsTitle = !ytUploadData.title || discogsChanged;
+    const needsDesc = !ytUploadData.description || discogsChanged;
+    const needsTags = !ytUploadData.tags || discogsChanged;
+
+    if (discogsChanged) lastYtDiscogsUrlRef.current = discogsUrl;
+
+    if (needsTitle && discogsData) {
       const suggestions = generateVideoTitleRecommendations(discogsData, ytTitleVariation);
       setYtTitleSuggestions(suggestions);
-      if (suggestions[0] && !ytUploadData.title) {
-        setYtUploadData(prev => ({ ...prev, title: prev.title || suggestions[0].slice(0, YT_LIMITS.title) }));
+      if (suggestions[0]) {
+        setYtUploadData(prev => ({ ...prev, title: suggestions[0].slice(0, YT_LIMITS.title) }));
       }
     }
-    // Generate description from current selected audio tracks (inline to avoid stale closure)
-    if (!ytUploadData.description) {
+    if (needsDesc) {
       const audioList = getOrderedAudios();
       if (audioList.length > 0) {
         const trackTimestamps = audioList.map((t, i) => ({
@@ -1533,10 +1738,9 @@ export default function VinylDigitizerPage() {
         setYtUploadData(prev => ({ ...prev, description: desc.slice(0, YT_LIMITS.description) }));
       }
     }
-    // Generate tags if empty
-    if (!ytUploadData.tags && discogsData) regenerateYtTags();
+    if (needsTags && discogsData) regenerateYtTags();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  }, [step, discogsData]);
 
   // ---- Derived ----
   const canGoStep2 = !!audioFile;
@@ -1546,7 +1750,7 @@ export default function VinylDigitizerPage() {
   if (!mounted) return null;
 
   return (
-    <div className={styles.page}>
+    <div className={styles.page} onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
@@ -1569,21 +1773,33 @@ export default function VinylDigitizerPage() {
         </div>
       </div>
 
-      {/* Steps */}
-      <div className={styles.stepBar}>
-        {["Audio Source", "Album Info", "Waveform & Markers", "Audio Export", "Video Render", "YouTube Upload"].map((label, i) => (
-          <div key={i} className={`${styles.stepItem} ${step === i + 1 ? styles.stepActive : ""} ${step > i + 1 ? styles.stepDone : ""}`}
-            onClick={() => setStep(i + 1)}
-            style={{ cursor: "pointer" }}
-          >
-            <div className={styles.stepCircle}>{step > i + 1 ? "✓" : i + 1}</div>
-            <span className={styles.stepLabel}>{label}</span>
-            {i === 4 && isRenderingVideo && (
-              <span className={styles.stepProgress}>{videoRenderProgress !== null ? ` ${(videoRenderProgress * 100).toFixed(0)}%` : " …"}</span>
-            )}
-            {i < 5 && <div className={styles.stepLine} />}
+      {/* Steps — sticky when rendering/uploading */}
+      <div className={`${styles.stepBarWrap} ${(isRenderingVideo || ytUploading) ? styles.stepBarSticky : ""}`}>
+        <div className={styles.stepBar}>
+          {["Audio Source", "Album Info", "Waveform & Markers", "Audio Export", "Video Render", "YouTube Upload"].map((label, i) => (
+            <div key={i} className={`${styles.stepItem} ${step === i + 1 ? styles.stepActive : ""} ${step > i + 1 ? styles.stepDone : ""}`}
+              onClick={() => setStep(i + 1)}
+              style={{ cursor: "pointer" }}
+            >
+              <div className={styles.stepCircle}>{step > i + 1 ? "✓" : i + 1}</div>
+              <span className={styles.stepLabel}>{label}</span>
+              {i === 4 && isRenderingVideo && (
+                <span className={styles.stepProgress}>{videoRenderProgress !== null ? ` ${(videoRenderProgress * 100).toFixed(0)}%` : " …"}</span>
+              )}
+              {i < 5 && <div className={styles.stepLine} />}
+            </div>
+          ))}
+        </div>
+        {(isRenderingVideo || ytUploading) && (
+          <div className={styles.renderingWarningBanner}>
+            ⚠️ WARNING: {isRenderingVideo ? `Video is rendering${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}` : `Video is uploading${ytUploadProgress !== null ? ` (${ytUploadProgress}%)` : ""}`} — do not navigate away from this page!
           </div>
-        ))}
+        )}
+        {ytUploadError && !ytUploading && (
+          <div className={styles.renderingWarningBanner} style={{animation:"none"}}>
+            Upload Error: {ytUploadError}
+          </div>
+        )}
       </div>
 
       <div className={styles.body}>
@@ -1645,6 +1861,10 @@ export default function VinylDigitizerPage() {
 
               <div className={styles.stepNav}>
                 <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Album Info →</button>
+                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(5)}>Skip to Video Render →→</button>}
+                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(6)}>Skip to YouTube Upload →→</button>}
+                {audioFile && <button className={styles.skipBtn} onClick={() => resetStep(1)}>Clear Audio</button>}
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
           )}
@@ -1783,13 +2003,16 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(1)}>← Back</button>
                 <button className={styles.nextBtn} disabled={!canGoStep3} onClick={() => setStep(3)}>Next: Waveform Editor →</button>
+                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(5)}>Skip to Video Render →→</button>}
+                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(6)}>Skip to YouTube Upload →→</button>}
+                <button className={styles.skipBtn} onClick={() => resetStep(2)}>Clear Album Info</button>
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
           )}
 
-          {/* ---- STEP 3 ---- */}
-          {step === 3 && (
-            <div className={styles.card}>
+          {/* ---- STEP 3 ---- (always mounted to preserve waveform) */}
+          <div className={styles.card} style={{ display: step === 3 ? undefined : "none" }}>
               <h2 className={styles.cardTitle}>Step 3: Waveform &amp; Markers</h2>
 
               {/* Toolbar */}
@@ -1809,20 +2032,6 @@ export default function VinylDigitizerPage() {
                   <span className={styles.tbGroupLabel}>Vol</span>
                   <input type="range" min="0" max="1" step="0.01" value={volume} onChange={e => setVolume(parseFloat(e.target.value))} className={styles.volSlider} title="Playback volume" />
                 </div>
-                {tracks.length > 0 && (
-                  <>
-                    <div className={styles.tbSep} />
-                    <div className={styles.tbGroup}>
-                      <button className={styles.clearBtn} onClick={() => {
-                        setTracks([]);
-                        setSilenceRegions([]);
-                        setExportedTracks([]);
-                        autoSplitDoneRef.current = false;
-                        if (peaksRef.current) peaksRef.current.segments.removeAll();
-                      }}>Clear Tracks</button>
-                    </div>
-                  </>
-                )}
               </div>
 
               {/* peaks.js Waveform */}
@@ -1845,8 +2054,10 @@ export default function VinylDigitizerPage() {
                     >
                       {isAnalyzing ? (
                         <><span className={styles.spinnerInline} /> Analyzing…</>
+                      ) : tracks.length > 0 ? (
+                        <>⚡ Update track names</>
                       ) : (
-                        <>⚡ Add track names</>
+                        <>⚡ Auto-split &amp; name tracks</>
                       )}
                     </button>
                     {isAnalyzing && (
@@ -1946,9 +2157,18 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(2)}>← Back</button>
                 <button className={styles.nextBtn} disabled={!canExport} onClick={() => setStep(4)}>Next: Audio Export →</button>
+                <button className={styles.skipBtn} onClick={() => {
+                  if (tracks.length === 0 && duration > 0) {
+                    const id = `track-full-${Date.now()}`;
+                    setTracks([{ id, startTime: 0, endTime: duration, name: trackNames[0] || projectName || "Full Recording" }]);
+                    setSelectedTracks(new Set([id]));
+                  }
+                  setStep(4);
+                }}>Skip (Export Full File) →→</button>
+                <button className={styles.skipBtn} onClick={() => resetStep(3)}>Clear Markers</button>
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
-            </div>
-          )}
+          </div>
 
           {/* ---- STEP 4 ---- */}
           {step === 4 && (
@@ -1962,6 +2182,11 @@ export default function VinylDigitizerPage() {
                   FLAC {discogsData && <span className={styles.metaBadge}>+ Discogs metadata</span>}
                 </button>
                 <button className={`${styles.fmtBtn} ${outputFormat === "wav" ? styles.fmtActive : ""}`} onClick={() => { setOutputFormat("wav"); setExportedTracks([]); }}>WAV</button>
+                <label className={styles.tbCheckLabel} style={{marginLeft:16}} title="Apply RIAA inverse equalization for vinyl recorded without a phono preamp">
+                  <input type="checkbox" checked={riaaEnabled} onChange={e => setRiaaEnabled(e.target.checked)} />
+                  RIAA EQ
+                </label>
+                {riaaEnabled && <span className={styles.metaBadge}>RIAA curve applied</span>}
               </div>
 
               {/* Filename format */}
@@ -2084,6 +2309,9 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(3)}>← Back to Editor</button>
                 <button className={styles.nextBtn} onClick={() => setStep(5)} disabled={exportedTracks.length === 0}>Continue to Video Render →</button>
+                <button className={styles.skipBtn} onClick={() => setStep(6)}>Skip to YouTube Upload →→</button>
+                {exportedTracks.length > 0 && <button className={styles.skipBtn} onClick={() => resetStep(4)}>Clear Exports</button>}
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
           )}
@@ -2148,8 +2376,10 @@ export default function VinylDigitizerPage() {
                 <h3 className={styles.sectionTitle}>Images ({selectedVideoImages.size}/{videoImages.length} selected)</h3>
                 <div className={styles.videoImgActions}>
                   <button className={styles.fetchBtn} onClick={() => setShowImageModal(true)}>+ Add Image</button>
-                  {discogsData?.images?.[0] && (
-                    <button className={styles.fetchBtn} onClick={fetchDiscogsImage}>Use Discogs Art</button>
+                  {discogsData?.images?.length > 0 && (
+                    <button className={styles.fetchBtn} onClick={fetchDiscogsImage} disabled={!!discogsArtStatus}>
+                      {discogsArtStatus ? "Fetching…" : `Use Discogs Art (${discogsData.images.length})`}
+                    </button>
                   )}
                   <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
@@ -2170,6 +2400,26 @@ export default function VinylDigitizerPage() {
                     )}
                   </div>
                 </div>
+                {/* Discogs art fetch progress */}
+                {discogsArtStatus && (
+                  <div className={styles.imageStatusBar}>
+                    <span className={styles.spinnerInline} /> {discogsArtStatus.current}
+                    <div className={styles.progressBar} style={{marginTop:6}}>
+                      <div className={styles.progressFill} style={{width:`${(discogsArtStatus.loaded / discogsArtStatus.total) * 100}%`, background:"#667eea"}} />
+                    </div>
+                    <span className={styles.imageStatusCount}>{discogsArtStatus.loaded}/{discogsArtStatus.total}</span>
+                  </div>
+                )}
+                {/* Image loading progress */}
+                {imageLoadingStatus && (
+                  <div className={styles.imageStatusBar}>
+                    <span className={styles.spinnerInline} /> Loading: {imageLoadingStatus.current}
+                    <div className={styles.progressBar} style={{marginTop:6}}>
+                      <div className={styles.progressFill} style={{width:`${(imageLoadingStatus.loaded / imageLoadingStatus.total) * 100}%`, background:"#48bb78"}} />
+                    </div>
+                    <span className={styles.imageStatusCount}>{imageLoadingStatus.loaded}/{imageLoadingStatus.total}</span>
+                  </div>
+                )}
                 {videoImages.length > 0 && (
                   <div className={styles.tableWrap} style={{ marginTop: 12 }}>
                     <table className={styles.table}>
@@ -2374,28 +2624,35 @@ export default function VinylDigitizerPage() {
                 <h3 className={styles.sectionTitle}>Video Settings</h3>
 
                 {/* Aspect ratio presets */}
-                <div className={styles.presetRow}>
-                  {VIDEO_PRESETS.map(p => {
-                    const active = videoWidth === String(p.w) && videoHeight === String(p.h);
-                    return (
-                      <button key={p.label} className={`${styles.presetBtn} ${active ? styles.presetActive : ""}`}
-                        onClick={() => { setVideoWidth(String(p.w)); setVideoHeight(String(p.h)); }}
-                        title={`${p.w}×${p.h}`}
-                      >
-                        <svg className={styles.presetIcon} viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2">
-                          {p.icon === "landscape" && <rect x="2" y="7" width="28" height="18" rx="2" />}
-                          {p.icon === "portrait" && <rect x="7" y="2" width="18" height="28" rx="2" />}
-                          {p.icon === "square" && <rect x="4" y="4" width="24" height="24" rx="2" />}
-                        </svg>
-                        <span className={styles.presetLabel}>{p.label}</span>
-                      </button>
-                    );
-                  })}
-                  {/* Match image button */}
+                <div className={styles.presetGroups}>
+                  {VIDEO_PRESETS.map(group => (
+                    <div key={group.group} className={styles.presetGroup}>
+                      <span className={styles.presetGroupTitle}>{group.group}</span>
+                      <div className={styles.presetRow}>
+                        {group.presets.map(p => {
+                          const active = videoWidth === String(p.w) && videoHeight === String(p.h);
+                          return (
+                            <button key={`${p.w}x${p.h}`} className={`${styles.presetBtn} ${active ? styles.presetActive : ""}`}
+                              onClick={() => { setVideoWidth(String(p.w)); setVideoHeight(String(p.h)); }}
+                              title={`${p.w}×${p.h}`}
+                            >
+                              <svg className={styles.presetIcon} viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2">
+                                {p.icon === "landscape" && <rect x="2" y="7" width="28" height="18" rx="2" />}
+                                {p.icon === "portrait" && <rect x="7" y="2" width="18" height="28" rx="2" />}
+                                {p.icon === "square" && <rect x="4" y="4" width="24" height="24" rx="2" />}
+                              </svg>
+                              <span className={styles.presetLabel}>{p.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {/* Set video resolution to image */}
                   {videoImages.length > 0 && (
-                    <div className={styles.presetMatchWrap}>
-                      <span className={styles.presetMatchTitle}>Match image:</span>
-                      <div className={styles.presetMatchList}>
+                    <div className={styles.presetGroup}>
+                      <span className={styles.presetGroupTitle}>Set video resolution to image</span>
+                      <div className={styles.presetRow}>
                         {videoImages.map((img, i) => (
                           <button key={img.id} className={styles.presetMatchBtn} onClick={() => applyImageResolution(img)}
                             title={`Set resolution to match ${img.file.name}`}>
@@ -2413,19 +2670,43 @@ export default function VinylDigitizerPage() {
                     Output name
                     <input type="text" className={styles.input} value={videoOutputName} onChange={e => setVideoOutputName(e.target.value)} placeholder={projectName || "album"} />
                   </label>
-                  <label className={styles.settingLabel}>
-                    Width (px)
-                    <input type="number" className={styles.inputSmall} value={videoWidth} onChange={e => setVideoWidth(e.target.value)} min="1" max="3840" />
-                  </label>
-                  <label className={styles.settingLabel}>
-                    Height (px)
-                    <input type="number" className={styles.inputSmall} value={videoHeight} onChange={e => setVideoHeight(e.target.value)} min="1" max="2160" />
-                  </label>
+                  <div className={styles.settingLabel}>
+                    Resolution
+                    <div className={styles.dimensionRow}>
+                      <input type="number" className={styles.dimensionInput} value={videoWidth} onChange={e => setVideoWidth(e.target.value)} min="1" max="3840" placeholder="W" title="Width" />
+                      <span className={styles.dimensionX}>×</span>
+                      <input type="number" className={styles.dimensionInput} value={videoHeight} onChange={e => setVideoHeight(e.target.value)} min="1" max="2160" placeholder="H" title="Height" />
+                    </div>
+                  </div>
                   <label className={styles.settingLabel}>
                     Background color
                     <input type="color" value={videoBgColor} onChange={e => setVideoBgColor(e.target.value)} style={{ width: 44, height: 34, padding: 2, borderRadius: 4, border: "1px solid #cbd5e0", cursor: "pointer" }} />
                   </label>
                 </div>
+                {/* Video estimate */}
+                {(() => {
+                  const est = estimateVideoSize();
+                  if (!est) return null;
+                  const durMin = Math.floor(est.totalDur / 60);
+                  const durSec = Math.round(est.totalDur % 60);
+                  return (
+                    <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 6, fontSize: "0.82rem",
+                      background: est.overLimit ? (darkMode ? "#5a1a1a" : "#fff5f5") : (darkMode ? "#252538" : "#f7fafc"),
+                      border: `1px solid ${est.overLimit ? (darkMode ? "#822727" : "#fc8181") : est.nearLimit ? "#fbd38d" : (darkMode ? "#444" : "#e2e8f0")}`,
+                      color: darkMode ? "#fff" : "#2d3748"
+                    }}>
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                        <span>Duration: <strong>{durMin}:{String(durSec).padStart(2,"0")}</strong></span>
+                        <span>Resolution: <strong>{videoWidth}×{videoHeight}</strong></span>
+                        <span>Est. size: <strong>{est.totalMB < 1024 ? `${est.totalMB.toFixed(0)} MB` : `${(est.totalMB/1024).toFixed(1)} GB`}</strong></span>
+                        <span>Upload limit: <strong>{YT_UPLOAD_LIMIT_MB / 1024} GB</strong></span>
+                      </div>
+                      {est.overLimit && <div style={{ marginTop: 6, color: darkMode ? "#fc8181" : "#c53030", fontWeight: 700 }}>⚠️ Estimated size exceeds the upload limit. Lower the resolution or shorten the audio.</div>}
+                      {!est.overLimit && est.nearLimit && <div style={{ marginTop: 6, color: darkMode ? "#fbd38d" : "#c05621" }}>⚠️ Approaching upload limit — consider a lower resolution.</div>}
+                      {est.overDuration && <div style={{ marginTop: 6, color: darkMode ? "#fc8181" : "#c53030", fontWeight: 700 }}>⚠️ Duration exceeds YouTube&apos;s 12-hour limit.</div>}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Render */}
@@ -2504,6 +2785,8 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(4)}>← Back to Audio Export</button>
                 <button className={styles.nextBtn} onClick={() => setStep(6)}>Next: YouTube Upload →</button>
+                <button className={styles.skipBtn} onClick={() => resetStep(5)}>Clear Video</button>
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
           )}
@@ -2593,19 +2876,30 @@ export default function VinylDigitizerPage() {
                           Track numbers
                         </label>
                       </div>
-                      {ytTitleSuggestions.length > 1 && (
+                      {ytTitleSuggestions.length > 0 && (
                         <div className={styles.ytTitleSuggestions}>
-                          <span className={styles.ytFormatHint}>Title suggestions (click to use):</span>
-                          {ytTitleSuggestions.map((s, i) => (
-                            <button key={i} className={`${styles.ytTitleSugBtn} ${ytUploadData.title === s ? styles.ytTitleSugActive : ""}`}
-                              onClick={() => setYtUploadData(p => ({...p, title: s.slice(0, YT_LIMITS.title)}))}
-                            >{s}</button>
-                          ))}
+                          <span className={styles.ytFormatHint}>Title suggestions:</span>
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} style={{flex:1,minWidth:200}}
+                            value={ytUploadData.title}
+                            onChange={e => setYtUploadData(p => ({...p, title: e.target.value.slice(0, YT_LIMITS.title)}))}
+                          >
+                            <option value="">— Select a suggestion —</option>
+                            {ytTitleSuggestions.map((s, i) => (
+                              <option key={i} value={s}>{s}</option>
+                            ))}
+                          </select>
                         </div>
                       )}
                       <div className={styles.ytFormatActions}>
                         <button className={styles.selectBtn} onClick={() => regenerateYtMetadata()}>Regenerate Description</button>
                         <button className={styles.selectBtn} onClick={() => regenerateYtTags()}>Regenerate Tags</button>
+                        <button className={styles.selectBtn} style={{background: darkMode ? "#5a2020" : "#fed7d7", color: darkMode ? "#fc8181" : "#c53030", border: "none"}} onClick={() => {
+                          setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" });
+                          setYtTitleSuggestions([]);
+                          lastYtDiscogsUrlRef.current = null;
+                          setThumbnailFile(null);
+                          if (thumbnailPreview) { URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }
+                        }}>Clear All Fields</button>
                       </div>
                     </div>
 
@@ -2616,13 +2910,13 @@ export default function VinylDigitizerPage() {
                       </div>
                       <input type="text" className={`${styles.input} ${titleOver ? styles.ytInputOver : ""}`} value={ytUploadData.title} onChange={e => setYtUploadData(p => ({...p, title: e.target.value}))} />
                     </label>
-                    <label className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
+                    <div className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
                       <div className={styles.ytFieldHeader}>
                         <span>Description</span>
                         <span className={`${styles.ytCharCount} ${descOver ? styles.ytCharOver : ""}`}>{descLen}/{YT_LIMITS.description}</span>
                       </div>
-                      <textarea className={`${styles.input} ${descOver ? styles.ytInputOver : ""}`} value={ytUploadData.description} onChange={e => setYtUploadData(p => ({...p, description: e.target.value}))} rows={4} style={{resize:"vertical"}} />
-                    </label>
+                      <textarea className={`${styles.input} ${descOver ? styles.ytInputOver : ""}`} value={ytUploadData.description} onChange={e => setYtUploadData(p => ({...p, description: e.target.value}))} rows={6} style={{resize:"vertical"}} />
+                    </div>
                     <label className={styles.settingLabel}>
                       <div className={styles.ytFieldHeader}>
                         <span>Tags</span>
@@ -2700,6 +2994,9 @@ export default function VinylDigitizerPage() {
 
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(5)}>← Back to Video Render</button>
+                <button className={styles.backBtn} onClick={() => setStep(1)}>← Back to Start</button>
+                <button className={styles.skipBtn} onClick={() => resetStep(6)}>Clear Upload</button>
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
           )}
@@ -2753,6 +3050,15 @@ export default function VinylDigitizerPage() {
                     onChange={e => { addImagesToVideo(e.target.files); e.target.value = ""; }} />
                 </div>
 
+                {imageLoadingStatus && (
+                  <div className={styles.imageStatusBar}>
+                    <span className={styles.spinnerInline} /> Loading: {imageLoadingStatus.current}
+                    <div className={styles.progressBar} style={{marginTop:4,flex:1,minWidth:100}}>
+                      <div className={styles.progressFill} style={{width:`${(imageLoadingStatus.loaded / imageLoadingStatus.total) * 100}%`, background:"#48bb78"}} />
+                    </div>
+                    <span className={styles.imageStatusCount}>{imageLoadingStatus.loaded}/{imageLoadingStatus.total}</span>
+                  </div>
+                )}
                 {videoImages.length > 0 && (
                   <div className={styles.imageModalList}>
                     <p className={styles.imageModalListTitle}>{videoImages.length} image{videoImages.length !== 1 ? "s" : ""} added:</p>
