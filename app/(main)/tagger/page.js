@@ -1067,22 +1067,25 @@ export default function TaggerPage({ initialUrl }) {
       // Check if response is ok before parsing JSON
       if (!res.ok) {
         const errorText = await res.text();
-        
+        console.error(`[TAGGER] Server error response (HTTP ${res.status}):`, errorText);
+
         // Try to parse error response as JSON
         let errorData;
         try {
           errorData = JSON.parse(errorText);
+          console.error(`[TAGGER] Parsed error data:`, errorData);
         } catch (parseErr) {
           errorData = { error: 'Unknown error', details: errorText };
         }
 
         const errorMessage = errorData.details || errorData.error || 'Unknown error';
-        
-        // Check if this is a rate limit error (500 with rate limit message)
-        const isRateLimitError = res.status === 500 && 
-          (errorMessage.includes('Rate limit exceeded') || 
+
+        // Check if this is a rate limit error (429, or 500 with rate limit message)
+        const isRateLimitError = (res.status === 429) || (res.status === 500 &&
+          (errorMessage.includes('Rate limit exceeded') ||
            errorMessage.includes('Too many requests') ||
-           errorMessage.includes('rate limit'));
+           errorMessage.includes('rate limit') ||
+           errorMessage.includes('429')));
 
         if (isRateLimitError) {
           // Calculate exponential backoff delay (seconds)
@@ -1167,7 +1170,7 @@ export default function TaggerPage({ initialUrl }) {
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
-          : 'https://www.martinbarker.me/internal-api';
+          : `${window.location.origin}/internal-api`;
 
       var route = `${apiBaseURL}/discogsFetch`;
       
