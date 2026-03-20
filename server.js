@@ -2875,7 +2875,17 @@ const ytVideoUpload = multer({
 ]);
 
 // Upload video to YouTube (dev route)
-app.post('/youtube/uploadVideo', ytVideoUpload, async (req, res) => {
+app.post('/youtube/uploadVideo', (req, res, next) => {
+  ytVideoUpload(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: `File too large. Maximum upload size is 2 GB.`, maxSize: 2 * 1024 * 1024 * 1024 });
+      }
+      return res.status(400).json({ error: 'Upload error: ' + err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
   console.log('📹 [POST /youtube/uploadVideo] Hit');
   try {
     let youtubeAuth = req.session?.youtubeAuth;
@@ -2936,7 +2946,17 @@ app.post('/youtube/uploadVideo', ytVideoUpload, async (req, res) => {
 });
 
 // Upload video to YouTube (production route)
-app.post('/internal-api/youtube/uploadVideo', ytVideoUpload, async (req, res) => {
+app.post('/internal-api/youtube/uploadVideo', (req, res, next) => {
+  ytVideoUpload(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: `File too large. Maximum upload size is 2 GB.`, maxSize: 2 * 1024 * 1024 * 1024 });
+      }
+      return res.status(400).json({ error: 'Upload error: ' + err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
   console.log('📹 [POST /internal-api/youtube/uploadVideo] Hit');
   try {
     let youtubeAuth = req.session?.youtubeAuth;
@@ -2993,6 +3013,48 @@ app.post('/internal-api/youtube/uploadVideo', ytVideoUpload, async (req, res) =>
     console.error('Error uploading video:', error.message, JSON.stringify(googleErrors));
     const statusCode = error.code === 403 ? 403 : error.code === 401 ? 401 : 500;
     res.status(statusCode).json({ error: error.message || 'Failed to upload video', details: JSON.stringify(googleErrors) });
+  }
+});
+
+// Proxy Discogs images to avoid CORS issues
+app.get('/discogs/image-proxy', async (req, res) => {
+  const { url } = req.query;
+  if (!url || !url.includes('discogs')) {
+    return res.status(400).json({ error: 'Invalid Discogs image URL' });
+  }
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'VinylDigitizer/1.0 +https://martinbarker.me' }
+    });
+    if (!response.ok) throw new Error(`Discogs returned ${response.status}`);
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    console.error('Discogs image proxy error:', err.message);
+    res.status(502).json({ error: 'Failed to fetch Discogs image: ' + err.message });
+  }
+});
+app.get('/internal-api/discogs/image-proxy', async (req, res) => {
+  const { url } = req.query;
+  if (!url || !url.includes('discogs')) {
+    return res.status(400).json({ error: 'Invalid Discogs image URL' });
+  }
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'VinylDigitizer/1.0 +https://martinbarker.me' }
+    });
+    if (!response.ok) throw new Error(`Discogs returned ${response.status}`);
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    console.error('Discogs image proxy error:', err.message);
+    res.status(502).json({ error: 'Failed to fetch Discogs image: ' + err.message });
   }
 });
 

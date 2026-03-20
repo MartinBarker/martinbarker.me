@@ -262,7 +262,7 @@ function DiscogsAuthTestPageInner() {
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
-          : 'https://www.martinbarker.me/internal-api';
+          : `${window.location.origin}/internal-api`;
 
       var queryUrl = `${apiBaseURL}/listogs/discogs/getURL`;
       console.log('🔗 [Frontend] Fetching Discogs auth URL from:', queryUrl);
@@ -524,7 +524,7 @@ function DiscogsAuthTestPageInner() {
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
-          : 'https://www.martinbarker.me/internal-api';
+          : `${window.location.origin}/internal-api`;
 
       if (!discogsType || !discogsId) {
         console.error('❌ [Frontend] discogsApiQuery() - discogsType or discogsId is missing');
@@ -819,7 +819,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       const response = await fetch(`${apiBaseURL}/listogs/discogs/list-images`, {
         method: 'POST',
@@ -880,7 +880,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       const response = await fetch(`${apiBaseURL}/listogs/stop`, {
         method: 'POST',
@@ -940,7 +940,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       console.log('🔍 [Frontend] Fetching Discogs info for URL:', url);
       const response = await fetch(`${apiBaseURL}/discogs/info`, {
@@ -1147,7 +1147,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       // Get tokens via YouTubeAuth component
       const tokens = await getTokensRef.current?.getTokens();
@@ -1221,7 +1221,7 @@ function DiscogsAuthTestPageInner() {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
-        : 'https://www.martinbarker.me/internal-api';
+        : `${window.location.origin}/internal-api`;
 
       let addedCount = 0;
       let retryCount = 0;
