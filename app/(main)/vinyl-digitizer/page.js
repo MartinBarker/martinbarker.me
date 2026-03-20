@@ -60,12 +60,22 @@ function parseDiscogsId(url) {
   const m = url.match(/\/release\/(\d+)/);
   return m ? m[1] : null;
 }
-async function fetchDiscogsRelease(id) {
-  const res = await fetch(`https://api.discogs.com/releases/${id}`, {
-    headers: { "User-Agent": "VinylDigitizer/1.0 +https://martinbarker.me" },
+async function fetchDiscogsRelease(id, base) {
+  const url = `${base}/discogsFetch`;
+  console.log(`[VINYL] Fetching Discogs release ${id} via ${url}`);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "release", id: String(id) }),
   });
-  if (!res.ok) throw new Error(`Discogs API error: ${res.status}`);
-  return res.json();
+  const data = await res.json().catch(() => null);
+  console.log(`[VINYL] Discogs response (HTTP ${res.status}):`, data);
+  if (!res.ok) {
+    const errMsg = data?.error || data?.message || `HTTP ${res.status}`;
+    const details = data?.details || "";
+    throw new Error(`Discogs API error: ${errMsg}${details ? ` — ${details}` : ""}`);
+  }
+  return data;
 }
 
 const apiBaseURL = () => {
@@ -790,7 +800,7 @@ export default function VinylDigitizerPage() {
     if (!id) { setDiscogsError("Could not parse release ID. Use: https://www.discogs.com/release/XXXXX"); return; }
     setIsFetchingDiscogs(true);
     try {
-      const data = await fetchDiscogsRelease(id);
+      const data = await fetchDiscogsRelease(id, apiBaseURL());
       setDiscogsData(data);
       setProjectName(data.title || "My Album");
       setManualTrackCount(String(data.tracklist.length));
@@ -803,12 +813,16 @@ export default function VinylDigitizerPage() {
     if (!discogsSearchQuery.trim()) return;
     setIsSearching(true); setDiscogsSearchError(""); setDiscogsSearchResults([]);
     try {
-      const res = await fetch(
-        `https://api.discogs.com/database/search?q=${encodeURIComponent(discogsSearchQuery)}&type=release&per_page=12`,
-        { headers: { "User-Agent": "VinylDigitizer/1.0 +https://martinbarker.me" } }
-      );
-      if (!res.ok) throw new Error(`Search error: ${res.status}`);
-      const data = await res.json();
+      const url = `${apiBaseURL()}/discogsFetch`;
+      console.log(`[VINYL] Searching Discogs: "${discogsSearchQuery}" via ${url}`);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "search", query: discogsSearchQuery }),
+      });
+      const data = await res.json().catch(() => null);
+      console.log(`[VINYL] Search response (HTTP ${res.status}):`, data);
+      if (!res.ok) throw new Error(data?.error || `Search error: ${res.status}`);
       setDiscogsSearchResults(data.results || []);
       if (!(data.results?.length)) setDiscogsSearchError("No results found.");
     } catch (err) { setDiscogsSearchError(err.message); }
@@ -818,7 +832,7 @@ export default function VinylDigitizerPage() {
   const selectSearchResult = async (result) => {
     setDiscogsSearchError(""); setIsFetchingDiscogs(true);
     try {
-      const data = await fetchDiscogsRelease(result.id);
+      const data = await fetchDiscogsRelease(result.id, apiBaseURL());
       setDiscogsData(data);
       setProjectName(data.title || "My Album");
       setManualTrackCount(String(data.tracklist.length));

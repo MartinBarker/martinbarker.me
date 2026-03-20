@@ -851,6 +851,8 @@ async function fetchDiscogsData(type, id) {
       url = `${DISCOGS_API_URL}/releases/${id}`;
     } else if (type === 'master') {
       url = `${DISCOGS_API_URL}/masters/${id}`;
+    } else if (type === 'search') {
+      url = `${DISCOGS_API_URL}/database/search?q=${encodeURIComponent(id)}&type=release&per_page=12`;
     } else {
       const errorMsg = `Invalid type provided: ${type}. Valid types are: label, artist, list, release, master`;
       logger.error(`❌ [fetchDiscogsData] ${errorMsg}`);
@@ -858,10 +860,14 @@ async function fetchDiscogsData(type, id) {
     }
 
     logger.debug(`🌐 [fetchDiscogsData] Making request to URL: ${url}`);
-    logger.debug(`📋 [fetchDiscogsData] Request headers:`, { 'User-Agent': USER_AGENT });
-    
+    const headers = { 'User-Agent': USER_AGENT };
+    if (discogsConsumerKey && discogsConsumerSecret) {
+      headers['Authorization'] = `Discogs key=${discogsConsumerKey}, secret=${discogsConsumerSecret}`;
+    }
+    logger.debug(`📋 [fetchDiscogsData] Request headers:`, { 'User-Agent': USER_AGENT, hasAuth: !!headers['Authorization'] });
+
     const response = await axios.get(url, {
-      headers: { 'User-Agent': USER_AGENT },
+      headers,
       timeout: 30000, // 30 second timeout
     });
 
@@ -869,8 +875,8 @@ async function fetchDiscogsData(type, id) {
     logger.debug(`📊 [fetchDiscogsData] Response headers:`, response.headers);
     logger.debug(`📊 [fetchDiscogsData] Response data keys:`, Object.keys(response.data || {}));
 
-    // For release/master, return full JSON
-    if (type === 'release' || type === 'master') {
+    // For release/master/search, return full JSON
+    if (type === 'release' || type === 'master' || type === 'search') {
       logger.debug(`✅ [fetchDiscogsData] Returning full data for ${type}`);
       return response.data;
     }
@@ -1143,13 +1149,13 @@ app.post('/discogsFetch', async (req, res) => {
     userAgent: req.get('User-Agent')
   });
   
-  const { type, id } = req.body;
+  const { type, id, query } = req.body;
 
   // Validate input parameters
-  if (!type || !id) {
+  if (!type || (!id && type !== 'search')) {
     const errorMsg = `Missing required parameters. Received: type=${type}, id=${id}`;
     logger.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: 'Type and ID are required.',
       details: errorMsg,
       requestId,
@@ -1158,7 +1164,7 @@ app.post('/discogsFetch', async (req, res) => {
   }
 
   // Validate type parameter
-  const validTypes = ['label', 'artist', 'list', 'release', 'master'];
+  const validTypes = ['label', 'artist', 'list', 'release', 'master', 'search'];
   if (!validTypes.includes(type)) {
     const errorMsg = `Invalid type '${type}'. Valid types are: ${validTypes.join(', ')}`;
     logger.error(`❌ [POST /discogsFetch] Request ${requestId} - ${errorMsg}`);
@@ -1217,7 +1223,7 @@ app.post('/discogsFetch', async (req, res) => {
     });
     
     const startTime = Date.now();
-    const data = await fetchDiscogsData(type, id);
+    const data = await fetchDiscogsData(type, type === 'search' ? query : id);
     const duration = Date.now() - startTime;
     
     logger.info(`✅ [POST /discogsFetch] Request ${requestId} - Success in ${duration}ms`);
@@ -1284,7 +1290,8 @@ app.post('/discogsFetch', async (req, res) => {
       }
     };
     
-    res.status(500).json(errorResponse);
+    const statusCode = error.originalError?.response?.status || error.response?.status || 500;
+    res.status(statusCode).json(errorResponse);
   }
 });
 
