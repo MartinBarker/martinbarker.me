@@ -60,9 +60,9 @@ function parseDiscogsId(url) {
   const m = url.match(/\/release\/(\d+)/);
   return m ? m[1] : null;
 }
-async function fetchDiscogsRelease(id, base) {
+async function fetchDiscogsRelease(id, base, { attempt = 0, maxAttempts = 5, onRetry } = {}) {
   const url = `${base}/discogsFetch`;
-  console.log(`[VINYL] Fetching Discogs release ${id} via ${url}`);
+  console.log(`[VINYL] Fetching Discogs release ${id} via ${url} (attempt ${attempt + 1})`);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,6 +70,13 @@ async function fetchDiscogsRelease(id, base) {
   });
   const data = await res.json().catch(() => null);
   console.log(`[VINYL] Discogs response (HTTP ${res.status}):`, data);
+  if (res.status === 429 && attempt < maxAttempts - 1) {
+    const delay = Math.min(5 * Math.pow(2, attempt), 120);
+    console.warn(`[VINYL] Rate limited. Retrying in ${delay}s (attempt ${attempt + 2}/${maxAttempts})`);
+    if (onRetry) onRetry(attempt + 1, delay);
+    await new Promise(r => setTimeout(r, delay * 1000));
+    return fetchDiscogsRelease(id, base, { attempt: attempt + 1, maxAttempts, onRetry });
+  }
   if (!res.ok) {
     const errMsg = data?.error || data?.message || `HTTP ${res.status}`;
     const details = data?.details || "";
@@ -187,6 +194,9 @@ export default function VinylDigitizerPage() {
   const [ytAuthState, setYtAuthState] = useState({ canAuth: false });
   const [thumbnailFile, setThumbnailFile] = useState(null);
   const [thumbnailPreview, setThumbnailPreview] = useState(null);
+  const [embedArtFile, setEmbedArtFile] = useState(null); // album art to embed in FLAC exports
+  const [embedArtPreview, setEmbedArtPreview] = useState(null);
+  const embedArtInputRef = useRef(null);
   const [autoUploadYt, setAutoUploadYt] = useState(false);
   const autoUploadYtRef = useRef(false);
   // YouTube metadata formatting options
@@ -800,7 +810,10 @@ export default function VinylDigitizerPage() {
     if (!id) { setDiscogsError("Could not parse release ID. Use: https://www.discogs.com/release/XXXXX"); return; }
     setIsFetchingDiscogs(true);
     try {
-      const data = await fetchDiscogsRelease(id, apiBaseURL());
+      const data = await fetchDiscogsRelease(id, apiBaseURL(), {
+        onRetry: (attempt, delay) => setDiscogsError(`Rate limited. Retrying in ${delay}s (attempt ${attempt + 1})…`),
+      });
+      setDiscogsError("");
       setDiscogsData(data);
       setProjectName(data.title || "My Album");
       setManualTrackCount(String(data.tracklist.length));
@@ -832,7 +845,10 @@ export default function VinylDigitizerPage() {
   const selectSearchResult = async (result) => {
     setDiscogsSearchError(""); setIsFetchingDiscogs(true);
     try {
-      const data = await fetchDiscogsRelease(result.id, apiBaseURL());
+      const data = await fetchDiscogsRelease(result.id, apiBaseURL(), {
+        onRetry: (attempt, delay) => setDiscogsSearchError(`Rate limited. Retrying in ${delay}s (attempt ${attempt + 1})…`),
+      });
+      setDiscogsSearchError("");
       setDiscogsData(data);
       setProjectName(data.title || "My Album");
       setManualTrackCount(String(data.tracklist.length));
@@ -1090,6 +1106,11 @@ export default function VinylDigitizerPage() {
       if (!loaded) { setMessage("Loading FFmpeg.wasm…"); await loadFFmpeg(); }
       const ff = ffmpegRef.current;
       await ff.writeFile("input", await fetchFile(audioFile));
+      // Write album art image if embedding in FLAC
+      const hasEmbedArt = outputFormat === "flac" && embedArtFile;
+      if (hasEmbedArt) {
+        await ff.writeFile("cover.jpg", await fetchFile(embedArtFile));
+      }
       const total = tracksToExport.length;
       const mime = outputFormat === "flac" ? "audio/flac" : "audio/wav";
       const codec = outputFormat === "flac" ? ["-c:a", "flac"] : ["-c:a", "pcm_s16le"];
@@ -1110,12 +1131,14 @@ export default function VinylDigitizerPage() {
         const fn = getFilename(i), out = `track_${i}.${outputFormat}`;
         setExportProgress({ current: idx + 1, total, name: fn });
         setMessage(`Exporting ${idx + 1}/${total}: ${fn}`);
-        await ff.exec(["-i", "input", "-ss", track.startTime.toFixed(4), "-to", track.endTime.toFixed(4), ...volFilter, ...codec, ...metaArgs(i), "-y", out]);
+        const artArgs = hasEmbedArt ? ["-i", "cover.jpg", "-map", "0:a", "-map", "1:v", "-c:v", "mjpeg", "-disposition:v", "attached_pic"] : [];
+        await ff.exec(["-i", "input", ...artArgs, "-ss", track.startTime.toFixed(4), "-to", track.endTime.toFixed(4), ...volFilter, ...codec, ...metaArgs(i), "-y", out]);
         const data = await ff.readFile(out);
         const blob = new Blob([data.buffer], { type: mime });
         exported.push({ index: i, name: fn, url: URL.createObjectURL(blob), size: blob.size, start: track.startTime, end: track.endTime, title: trackNames[i] || track.name });
         try { await ff.deleteFile(out); } catch {}
       }
+      if (hasEmbedArt) { try { await ff.deleteFile("cover.jpg"); } catch {} }
       setExportedTracks(exported);
       if (!cancelRef.current) { setMessage(`Exported ${exported.length} tracks`); saveProject(exported); }
     } catch (err) { if (!cancelRef.current) setMessage("Export error: " + err.message); }
@@ -2168,6 +2191,31 @@ export default function VinylDigitizerPage() {
                 style={{ marginTop: 8 }}
               >+ Add Track</button>
 
+              {/* Track list preview */}
+              {tracks.length > 0 && (
+                <div className={styles.tracklistPreview}>
+                  <h3 className={styles.sectionTitle}>Tracklist ({tracks.length} tracks · {formatTime(tracks.reduce((s, t) => s + (t.endTime - t.startTime), 0))} total)</h3>
+                  <table className={styles.tracklistTable}>
+                    <thead>
+                      <tr><th>#</th><th>Name</th><th>Start</th><th>End</th><th>Duration</th></tr>
+                    </thead>
+                    <tbody>
+                      {tracks.map((track, i) => (
+                        <tr key={track.id} className={styles.tracklistRow} onClick={() => {
+                          if (audioRef.current) { audioRef.current.currentTime = track.startTime; setCurrentTime(track.startTime); }
+                        }}>
+                          <td>{i + 1}</td>
+                          <td>{trackNames[i] || track.name}</td>
+                          <td className={styles.tracklistMono}>{formatTime(track.startTime)}</td>
+                          <td className={styles.tracklistMono}>{formatTime(track.endTime)}</td>
+                          <td className={styles.tracklistMono}>{formatTime(track.endTime - track.startTime)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(2)}>← Back</button>
                 <button className={styles.nextBtn} disabled={!canExport} onClick={() => setStep(4)}>Next: Audio Export →</button>
@@ -2202,6 +2250,57 @@ export default function VinylDigitizerPage() {
                 </label>
                 {riaaEnabled && <span className={styles.metaBadge}>RIAA curve applied</span>}
               </div>
+
+              {/* Album art embedding (FLAC only) */}
+              {outputFormat === "flac" && (
+                <div className={styles.fmtSection}>
+                  <h3 className={styles.sectionTitle}>Album Art</h3>
+                  <div className={styles.embedArtRow}>
+                    {embedArtPreview ? (
+                      <img src={embedArtPreview} alt="Album art" className={styles.embedArtThumb} />
+                    ) : (
+                      <div className={styles.embedArtEmpty}>No art</div>
+                    )}
+                    <div className={styles.embedArtBtns}>
+                      <input ref={embedArtInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
+                        setEmbedArtFile(file);
+                        setEmbedArtPreview(URL.createObjectURL(file));
+                        setExportedTracks([]);
+                      }} />
+                      <button className={styles.selectBtn} onClick={() => embedArtInputRef.current?.click()}>Upload Image</button>
+                      {discogsData?.images?.[0] && !embedArtFile && (
+                        <button className={styles.selectBtn} onClick={async () => {
+                          try {
+                            setMessage("Fetching Discogs album art…");
+                            const imgUrl = `${apiBaseURL()}/discogs/image-proxy?url=${encodeURIComponent(discogsData.images[0].uri)}`;
+                            const res = await fetch(imgUrl);
+                            if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+                            const blob = await res.blob();
+                            const file = new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" });
+                            if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
+                            setEmbedArtFile(file);
+                            setEmbedArtPreview(URL.createObjectURL(file));
+                            setExportedTracks([]);
+                            setMessage("Album art loaded from Discogs");
+                          } catch (err) { setMessage("Failed to fetch album art: " + err.message); }
+                        }}>Use Discogs Art</button>
+                      )}
+                      {embedArtFile && (
+                        <button className={styles.selectBtn} style={{ color: "#e53e3e" }} onClick={() => {
+                          if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
+                          setEmbedArtFile(null);
+                          setEmbedArtPreview(null);
+                          setExportedTracks([]);
+                        }}>Remove</button>
+                      )}
+                    </div>
+                    {embedArtFile && <span className={styles.embedArtName}>{embedArtFile.name}</span>}
+                  </div>
+                </div>
+              )}
 
               {/* Filename format */}
               <div className={styles.fmtSection}>

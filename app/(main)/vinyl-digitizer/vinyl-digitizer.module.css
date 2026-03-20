@@ -1461,6 +1461,71 @@
 .presetMatchBtn:hover { border-color: #667eea; background: #eef2ff; }
 .presetMatchThumb { width: 24px; height: 24px; object-fit: cover; border-radius: 3px; }
 
+/* Tracklist preview (Step 3) */
+.tracklistPreview {
+  margin-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.75rem;
+}
+.tracklistTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.tracklistTable th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 2px solid #e2e8f0;
+  font-weight: 600;
+  color: #64748b;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.tracklistTable td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #000;
+}
+.tracklistRow { cursor: pointer; transition: background 0.1s; }
+.tracklistRow:hover { background: #f8fafc; }
+.tracklistMono { font-family: monospace; font-size: 0.78rem; color: #64748b; }
+
+/* Album art embedding */
+.embedArtRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.embedArtThumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+.embedArtEmpty {
+  width: 64px;
+  height: 64px;
+  border: 2px dashed #cbd5e0;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: #a0aec0;
+}
+.embedArtBtns {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.embedArtName {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
 /* Render progress */
 .renderEstimate {
   background: #ebf8ff;
@@ -2842,6 +2907,18 @@
 :global(.darkContent) .renderProgressEta {
   color: #ffffff;
 }
+
+/* ── Tracklist preview dark mode ── */
+:global(.darkContent) .tracklistPreview { border-top-color: #444; }
+:global(.darkContent) .tracklistTable th { border-bottom-color: #444; color: #94a3b8; }
+:global(.darkContent) .tracklistTable td { border-bottom-color: #333; color: #e2e8f0; }
+:global(.darkContent) .tracklistRow:hover { background: #2a2a3d; }
+:global(.darkContent) .tracklistMono { color: #94a3b8; }
+
+/* ── Album art embed dark mode ── */
+:global(.darkContent) .embedArtThumb { border-color: #555; }
+:global(.darkContent) .embedArtEmpty { border-color: #555; color: #888; }
+:global(.darkContent) .embedArtName { color: #94a3b8; }
 
 /* ── Settings label ── */
 :global(.darkContent) .settingLabel {
