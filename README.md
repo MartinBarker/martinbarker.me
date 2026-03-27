@@ -104,10 +104,27 @@ If you encounter 502 Bad Gateway errors:
 # Install dependencies
 npm install
 
-# Run development server
+# Run both Next.js dev server and Express API server concurrently (uses Turbo TUI)
+npm run start-dev
+```
+
+This starts both services in a single terminal with the Turborepo terminal UI:
+- **Next.js** on http://localhost:3001
+- **Express API** on http://localhost:3030
+
+You can also run them individually:
+
+```bash
+# Next.js dev server only
 npm run dev
 
-# Run internal server locally
+# Express server only
+npm run server
+
+# Express server with nodemon (auto-restart on changes)
+npm run serverDev
+
+# Express server with local=true flag
 npm run serverLocal
 ```
 

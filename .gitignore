@@ -3,6 +3,7 @@ node_modules/
 package-lock.json
 .next/
 .swc/
+.turbo/
 .*.env
 # dependencies
 /node_modules
