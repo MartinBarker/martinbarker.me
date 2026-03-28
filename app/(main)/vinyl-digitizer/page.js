@@ -237,6 +237,8 @@ export default function VinylDigitizerPage() {
   const getTokensRef = useRef(null);
   const thumbnailInputRef = useRef(null);
   const modalFileInputRef = useRef(null);
+  const directFileInputRef = useRef(null);
+  const [directDropDragOver, setDirectDropDragOver] = useState(false);
   const audioDragRef = useRef(null);
   const imageDragRef = useRef(null);
   const playbackTimerRef = useRef(null);
@@ -1297,6 +1299,47 @@ export default function VinylDigitizerPage() {
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
     }
     setImageLoadingStatus(null);
+  };
+
+  // Add audio files directly as "exported tracks" for video render (bypass steps 1-4)
+  const addDirectAudioFiles = async (files) => {
+    const audioFiles = Array.from(files || []).filter(f => f?.type?.startsWith("audio/"));
+    if (!audioFiles.length) return;
+    const newTracks = [];
+    for (const f of audioFiles) {
+      const url = URL.createObjectURL(f);
+      // Decode to get duration
+      let dur = 0;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = await f.arrayBuffer();
+        const decoded = await ctx.decodeAudioData(buf);
+        dur = decoded.duration;
+        ctx.close();
+      } catch { /* fallback: duration unknown */ }
+      const name = f.name.replace(/\.[^.]+$/, "");
+      newTracks.push({ title: name, name: f.name, start: 0, end: dur, url, blob: f, file: f });
+    }
+    setExportedTracks(prev => {
+      const updated = [...prev, ...newTracks];
+      // Auto-select all new tracks for video
+      setSelectedVideoAudios(prevSel => {
+        const next = new Set(prevSel);
+        for (let i = prev.length; i < updated.length; i++) next.add(i);
+        return next;
+      });
+      setVideoAudioOrder(Array.from({ length: updated.length }, (_, i) => i));
+      return updated;
+    });
+  };
+
+  // Handle drop of mixed audio + image files in step 5
+  const handleDirectFileDrop = async (files) => {
+    const allFiles = Array.from(files || []);
+    const audioFiles = allFiles.filter(f => f.type.startsWith("audio/"));
+    const imageFiles = allFiles.filter(f => f.type.startsWith("image/"));
+    if (audioFiles.length > 0) await addDirectAudioFiles(audioFiles);
+    if (imageFiles.length > 0) await addImagesToVideo(imageFiles);
   };
 
   const toggleVideoImage = (id) => {
@@ -2434,6 +2477,22 @@ export default function VinylDigitizerPage() {
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Step 5: Video Render</h2>
 
+              {/* Direct file drop zone for audio + image files */}
+              <div className={styles.videoSection}>
+                <div
+                  className={`${styles.directDropZone} ${directDropDragOver ? styles.directDropZoneActive : ""}`}
+                  onDragOver={e => { e.preventDefault(); setDirectDropDragOver(true); }}
+                  onDragLeave={() => setDirectDropDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setDirectDropDragOver(false); handleDirectFileDrop(e.dataTransfer.files); }}
+                  onClick={() => directFileInputRef.current?.click()}
+                >
+                  <p className={styles.directDropTitle}>Drop audio and image files here</p>
+                  <p className={styles.directDropHint}>or click to browse — add files directly to render a video</p>
+                  <input ref={directFileInputRef} type="file" accept="audio/*,image/*" multiple style={{ display: "none" }}
+                    onChange={e => { handleDirectFileDrop(e.target.files); e.target.value = ""; }} />
+                </div>
+              </div>
+
               {/* Audio Tracks to include */}
               <div className={styles.videoSection}>
                 <h3 className={styles.sectionTitle}>Audio Tracks ({selectedVideoAudios.size}/{exportedTracks.length} selected)</h3>
@@ -2736,44 +2795,39 @@ export default function VinylDigitizerPage() {
               <div className={styles.videoSettings}>
                 <h3 className={styles.sectionTitle}>Video Settings</h3>
 
-                {/* Aspect ratio presets */}
-                <div className={styles.presetGroups}>
-                  {VIDEO_PRESETS.map(group => (
-                    <div key={group.group} className={styles.presetGroup}>
-                      <span className={styles.presetGroupTitle}>{group.group}</span>
-                      <div className={styles.presetRow}>
-                        {group.presets.map(p => {
-                          const active = videoWidth === String(p.w) && videoHeight === String(p.h);
-                          return (
-                            <button key={`${p.w}x${p.h}`} className={`${styles.presetBtn} ${active ? styles.presetActive : ""}`}
-                              onClick={() => { setVideoWidth(String(p.w)); setVideoHeight(String(p.h)); }}
-                              title={`${p.w}×${p.h}`}
-                            >
-                              <svg className={styles.presetIcon} viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2">
-                                {p.icon === "landscape" && <rect x="2" y="7" width="28" height="18" rx="2" />}
-                                {p.icon === "portrait" && <rect x="7" y="2" width="18" height="28" rx="2" />}
-                                {p.icon === "square" && <rect x="4" y="4" width="24" height="24" rx="2" />}
-                              </svg>
-                              <span className={styles.presetLabel}>{p.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {/* Set video resolution to image */}
+                {/* Aspect ratio preset selector */}
+                <div className={styles.aspectRatioRow}>
+                  <label className={styles.settingLabel}>
+                    Aspect Ratio
+                    <select
+                      className={styles.input}
+                      value={`${videoWidth}x${videoHeight}`}
+                      onChange={e => {
+                        const [w, h] = e.target.value.split("x");
+                        if (w && h) { setVideoWidth(w); setVideoHeight(h); }
+                      }}
+                    >
+                      {VIDEO_PRESETS.map(group => (
+                        <optgroup key={group.group} label={group.group}>
+                          {group.presets.map(p => (
+                            <option key={`${p.w}x${p.h}`} value={`${p.w}x${p.h}`}>
+                              {p.label} ({p.w}×{p.h})
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </label>
                   {videoImages.length > 0 && (
-                    <div className={styles.presetGroup}>
-                      <span className={styles.presetGroupTitle}>Set video resolution to image</span>
-                      <div className={styles.presetRow}>
-                        {videoImages.map((img, i) => (
-                          <button key={img.id} className={styles.presetMatchBtn} onClick={() => applyImageResolution(img)}
-                            title={`Set resolution to match ${img.file.name}`}>
-                            <img src={img.thumbUrl} alt="" className={styles.presetMatchThumb} />
-                            <span>{i + 1}</span>
-                          </button>
-                        ))}
-                      </div>
+                    <div className={styles.presetMatchRow}>
+                      <span className={styles.presetMatchLabel}>Match image:</span>
+                      {videoImages.map((img, i) => (
+                        <button key={img.id} className={styles.presetMatchBtn} onClick={() => applyImageResolution(img)}
+                          title={`Set resolution to match ${img.file.name}`}>
+                          <img src={img.thumbUrl} alt="" className={styles.presetMatchThumb} />
+                          <span>{i + 1}</span>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>

@@ -1461,6 +1461,62 @@
 .presetMatchBtn:hover { border-color: #667eea; background: #eef2ff; }
 .presetMatchThumb { width: 24px; height: 24px; object-fit: cover; border-radius: 3px; }
 
+/* Aspect ratio compact row */
+.aspectRatioRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.aspectRatioRow .settingLabel {
+  min-width: 180px;
+}
+.presetMatchRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.presetMatchLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* Direct drop zone for audio + image files in Step 5 */
+.directDropZone {
+  border: 2px dashed #cbd5e0;
+  border-radius: 10px;
+  padding: 20px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: #f7fafc;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+.directDropZone:hover {
+  border-color: #667eea;
+  background: #ebf4ff;
+}
+.directDropZoneActive {
+  border-color: #667eea !important;
+  background: #ebf4ff !important;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.18);
+}
+.directDropTitle {
+  font-weight: 600;
+  color: #2d3748;
+  margin: 0 0 4px;
+  font-size: 0.88rem;
+}
+.directDropHint {
+  color: #718096;
+  font-size: 0.78rem;
+  margin: 0;
+}
+
 /* Tracklist preview (Step 3) */
 .tracklistPreview {
   margin-top: 1rem;
@@ -2730,6 +2786,23 @@
 }
 :global(.darkContent) .imageDropZoneHint {
   color: #ffffff;
+}
+:global(.darkContent) .directDropZone {
+  background: #2a2a3d;
+  border-color: #555;
+}
+:global(.darkContent) .directDropZone:hover {
+  background: #333350;
+  border-color: #667eea;
+}
+:global(.darkContent) .directDropTitle {
+  color: #ffffff;
+}
+:global(.darkContent) .directDropHint {
+  color: #94a3b8;
+}
+:global(.darkContent) .presetMatchLabel {
+  color: #94a3b8;
 }
 :global(.darkContent) .imageModalListTitle {
   color: #ffffff;
