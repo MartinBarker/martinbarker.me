@@ -10,10 +10,10 @@
     "lint": "next lint",
     "ingestImages": "cross-env node public/images/aesthetic-images/ingestImages.js",
     "regenerateThumbnails": "cross-env node public/images/aesthetic-images/ingestImages.js --regenerate-thumbnails",
-    "serverLocal": "nodemon server.js local=true",
-    "serverDev": "nodemon server.js",
+    "serverLocal": "nodemon --legacy-watch server.js local=true",
+    "serverDev": "nodemon --legacy-watch server.js",
     "server": "node server.js",
-    "start-dev": "turbo run dev server --ui tui"
+    "start-dev": "WATCHPACK_POLLING=true turbo run dev serverDev --ui tui"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.803.0",

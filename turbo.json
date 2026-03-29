@@ -8,6 +8,10 @@
     "server": {
       "cache": false,
       "persistent": true
+    },
+    "serverDev": {
+      "cache": false,
+      "persistent": true
     }
   }
 }

@@ -1472,6 +1472,88 @@
 .aspectRatioRow .settingLabel {
   min-width: 180px;
 }
+/* Custom aspect ratio dropdown */
+.aspectDropdown {
+  position: relative;
+  width: 100%;
+}
+.aspectDropdownTrigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #2d3748;
+  text-align: left;
+}
+.aspectDropdownTrigger:hover {
+  border-color: #667eea;
+}
+.aspectDropdownArrow {
+  margin-left: auto;
+  font-size: 0.65rem;
+  color: #a0aec0;
+}
+.aspectDropdownMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #cbd5e0;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  z-index: 50;
+  padding: 4px 0;
+}
+.aspectDropdownGroupLabel {
+  padding: 6px 12px 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.aspectDropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: #2d3748;
+  text-align: left;
+  transition: background 0.1s;
+}
+.aspectDropdownItem:hover {
+  background: #eef2ff;
+}
+.aspectDropdownItemActive {
+  background: #eef2ff;
+  color: #4338ca;
+  font-weight: 600;
+}
+.aspectDropdownDims {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: #a0aec0;
+}
+.aspectFrameIcon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
 .presetMatchRow {
   display: flex;
   align-items: center;
@@ -1515,6 +1597,48 @@
   color: #718096;
   font-size: 0.78rem;
   margin: 0;
+}
+
+/* File loading progress bar (Step 5 drop zone) */
+.fileLoadingBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 0.8rem;
+  animation: fileLoadingPulse 1.5s ease-in-out infinite;
+}
+@keyframes fileLoadingPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0); }
+  50% { box-shadow: 0 0 12px 2px rgba(102, 126, 234, 0.25); }
+}
+.fileLoadingSpinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #667eea;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.fileLoadingName {
+  color: #2d3748;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+.fileLoadingCount {
+  color: #718096;
+  font-weight: 600;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 /* Tracklist preview (Step 3) */
@@ -2801,8 +2925,51 @@
 :global(.darkContent) .directDropHint {
   color: #94a3b8;
 }
+:global(.darkContent) .fileLoadingBar {
+  background: #2a2a3d;
+  border-color: #555;
+}
+:global(.darkContent) .fileLoadingSpinner {
+  border-color: #555;
+  border-top-color: #667eea;
+}
+:global(.darkContent) .fileLoadingName {
+  color: #e2e8f0;
+}
+:global(.darkContent) .fileLoadingCount {
+  color: #94a3b8;
+}
 :global(.darkContent) .presetMatchLabel {
   color: #94a3b8;
+}
+:global(.darkContent) .aspectDropdownTrigger {
+  background: #2a2a3d;
+  border-color: #555;
+  color: #e2e8f0;
+}
+:global(.darkContent) .aspectDropdownTrigger:hover {
+  border-color: #667eea;
+}
+:global(.darkContent) .aspectDropdownMenu {
+  background: #1e1e30;
+  border-color: #555;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+:global(.darkContent) .aspectDropdownGroupLabel {
+  color: #94a3b8;
+}
+:global(.darkContent) .aspectDropdownItem {
+  color: #e2e8f0;
+}
+:global(.darkContent) .aspectDropdownItem:hover {
+  background: #333350;
+}
+:global(.darkContent) .aspectDropdownItemActive {
+  background: #333350;
+  color: #a5b4fc;
+}
+:global(.darkContent) .aspectDropdownDims {
+  color: #718096;
 }
 :global(.darkContent) .imageModalListTitle {
   color: #ffffff;
