@@ -237,6 +237,11 @@ export default function VinylDigitizerPage() {
   const getTokensRef = useRef(null);
   const thumbnailInputRef = useRef(null);
   const modalFileInputRef = useRef(null);
+  const directFileInputRef = useRef(null);
+  const [directDropDragOver, setDirectDropDragOver] = useState(false);
+  const [audioLoadingStatus, setAudioLoadingStatus] = useState(null); // {loaded, total, current}
+  const [aspectDropdownOpen, setAspectDropdownOpen] = useState(false);
+  const aspectDropdownRef = useRef(null);
   const audioDragRef = useRef(null);
   const imageDragRef = useRef(null);
   const playbackTimerRef = useRef(null);
@@ -286,6 +291,16 @@ export default function VinylDigitizerPage() {
       lastYtDiscogsUrlRef.current = null;
     }
   };
+
+  // Close aspect ratio dropdown on outside click
+  useEffect(() => {
+    if (!aspectDropdownOpen) return;
+    const handleClickOutside = (e) => {
+      if (aspectDropdownRef.current && !aspectDropdownRef.current.contains(e.target)) setAspectDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [aspectDropdownOpen]);
 
   useEffect(() => {
     setMounted(true);
@@ -367,12 +382,14 @@ export default function VinylDigitizerPage() {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  // Auto-select all exported tracks when entering step 5 and init order
+  // Auto-select all exported tracks when entering step 5 and sync order
   useEffect(() => {
     if (step === 5 && exportedTracks.length > 0) {
       setSelectedVideoAudios(prev => {
-        if (prev.size === 0) return new Set(exportedTracks.map((_, i) => i));
-        return prev;
+        // Select any new tracks that aren't already in the set
+        const next = new Set(prev);
+        exportedTracks.forEach((_, i) => next.add(i));
+        return next.size !== prev.size ? next : prev;
       });
       setVideoAudioOrder(prev => {
         if (prev.length !== exportedTracks.length) return exportedTracks.map((_, i) => i);
@@ -1299,6 +1316,39 @@ export default function VinylDigitizerPage() {
     setImageLoadingStatus(null);
   };
 
+  // Add audio files directly as "exported tracks" for video render (bypass steps 1-4)
+  const addDirectAudioFiles = async (files) => {
+    const audioFiles = Array.from(files || []).filter(f => f?.type?.startsWith("audio/"));
+    if (!audioFiles.length) return;
+    setAudioLoadingStatus({ loaded: 0, total: audioFiles.length, current: audioFiles[0].name });
+    for (let i = 0; i < audioFiles.length; i++) {
+      const f = audioFiles[i];
+      setAudioLoadingStatus({ loaded: i, total: audioFiles.length, current: f.name });
+      const url = URL.createObjectURL(f);
+      let dur = 0;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = await f.slice().arrayBuffer();
+        const decoded = await ctx.decodeAudioData(buf);
+        dur = decoded.duration;
+        ctx.close();
+      } catch { /* fallback */ }
+      const title = f.name.replace(/\.[^.]+$/, "");
+      // Add each track immediately so it appears in the table as it loads
+      setExportedTracks(prev => [...prev, { title, name: f.name, start: 0, end: dur, url, file: f }]);
+    }
+    setAudioLoadingStatus(null);
+  };
+
+  // Handle drop of mixed audio + image files in step 5
+  const handleDirectFileDrop = async (files) => {
+    const allFiles = Array.from(files || []);
+    const audioFiles = allFiles.filter(f => f.type.startsWith("audio/"));
+    const imageFiles = allFiles.filter(f => f.type.startsWith("image/"));
+    if (audioFiles.length > 0) await addDirectAudioFiles(audioFiles);
+    if (imageFiles.length > 0) await addImagesToVideo(imageFiles);
+  };
+
   const toggleVideoImage = (id) => {
     setSelectedVideoImages(prev => {
       const next = new Set(prev);
@@ -1544,10 +1594,15 @@ export default function VinylDigitizerPage() {
 
       appendVideoLog(`Writing ${selectedAudioList.length} audio + ${selectedImageList.length} image file(s)…`);
 
-      // Write audio files
-      for (const t of selectedAudioList) {
-        const blob = await (await fetch(t.url)).blob();
-        await ffV.writeFile(t.name, await fetchFile(blob));
+      // Write audio files — use sanitized names for ffmpeg VFS
+      const audioVfsNames = [];
+      for (let i = 0; i < selectedAudioList.length; i++) {
+        const t = selectedAudioList[i];
+        const ext = (t.name || t.file?.name || "audio").split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "wav";
+        const vfsName = `audio${i}.${ext}`;
+        audioVfsNames.push(vfsName);
+        const blob = t.file ? t.file : await (await fetch(t.url)).blob();
+        await ffV.writeFile(vfsName, await fetchFile(blob));
       }
 
       // Write image files
@@ -1561,7 +1616,7 @@ export default function VinylDigitizerPage() {
       const args = ["-y"];
 
       // Audio inputs
-      for (const t of selectedAudioList) args.push("-i", t.name);
+      for (const vfsName of audioVfsNames) args.push("-i", vfsName);
 
       // Image inputs (at 2fps)
       for (let i = 0; i < selectedImageList.length; i++) {
@@ -2434,11 +2489,49 @@ export default function VinylDigitizerPage() {
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Step 5: Video Render</h2>
 
+              {/* Direct file drop zone for audio + image files */}
+              <div className={styles.videoSection}>
+                <div
+                  className={`${styles.directDropZone} ${directDropDragOver ? styles.directDropZoneActive : ""}`}
+                  onDragOver={e => { e.preventDefault(); setDirectDropDragOver(true); }}
+                  onDragLeave={() => setDirectDropDragOver(false)}
+                  onDrop={e => { e.preventDefault(); e.stopPropagation(); setDirectDropDragOver(false); handleDirectFileDrop(e.dataTransfer.files); }}
+                  onClick={() => directFileInputRef.current?.click()}
+                >
+                  <p className={styles.directDropTitle}>Drop audio and image files here</p>
+                  <p className={styles.directDropHint}>or click to browse — add files directly to render a video</p>
+                  <input ref={directFileInputRef} type="file" accept="audio/*,image/*" multiple style={{ display: "none" }}
+                    onChange={e => { handleDirectFileDrop(e.target.files); e.target.value = ""; }} />
+                </div>
+                {/* Audio loading progress */}
+                {audioLoadingStatus && (
+                  <div className={styles.fileLoadingBar}>
+                    <span className={styles.fileLoadingSpinner} style={{borderTopColor:"#667eea"}} />
+                    <span className={styles.fileLoadingName}>Loading audio: {audioLoadingStatus.current}</span>
+                    <div className={styles.progressBar}>
+                      <div className={styles.progressFill} style={{width:`${(audioLoadingStatus.loaded / audioLoadingStatus.total) * 100}%`, background:"#667eea"}} />
+                    </div>
+                    <span className={styles.fileLoadingCount}>{audioLoadingStatus.loaded}/{audioLoadingStatus.total}</span>
+                  </div>
+                )}
+                {/* Image loading progress */}
+                {imageLoadingStatus && (
+                  <div className={styles.fileLoadingBar}>
+                    <span className={styles.fileLoadingSpinner} style={{borderTopColor:"#48bb78"}} />
+                    <span className={styles.fileLoadingName}>Loading image: {imageLoadingStatus.current}</span>
+                    <div className={styles.progressBar}>
+                      <div className={styles.progressFill} style={{width:`${(imageLoadingStatus.loaded / imageLoadingStatus.total) * 100}%`, background:"#48bb78"}} />
+                    </div>
+                    <span className={styles.fileLoadingCount}>{imageLoadingStatus.loaded}/{imageLoadingStatus.total}</span>
+                  </div>
+                )}
+              </div>
+
               {/* Audio Tracks to include */}
               <div className={styles.videoSection}>
                 <h3 className={styles.sectionTitle}>Audio Tracks ({selectedVideoAudios.size}/{exportedTracks.length} selected)</h3>
-                {exportedTracks.length === 0 ? (
-                  <p className={styles.hintText}>No exported tracks yet. Go back to Export first.</p>
+                {exportedTracks.length === 0 && !audioLoadingStatus ? (
+                  <p className={styles.hintText}>No audio tracks yet. Drop audio files above or go back to Export.</p>
                 ) : (
                   <div className={styles.tableWrap}>
                     <table className={styles.table}>
@@ -2526,7 +2619,7 @@ export default function VinylDigitizerPage() {
                 {/* Image loading progress */}
                 {imageLoadingStatus && (
                   <div className={styles.imageStatusBar}>
-                    <span className={styles.spinnerInline} /> Loading: {imageLoadingStatus.current}
+                    <span className={styles.fileLoadingSpinner} style={{borderTopColor:"#48bb78"}} /> Loading: {imageLoadingStatus.current}
                     <div className={styles.progressBar} style={{marginTop:6}}>
                       <div className={styles.progressFill} style={{width:`${(imageLoadingStatus.loaded / imageLoadingStatus.total) * 100}%`, background:"#48bb78"}} />
                     </div>
@@ -2736,44 +2829,71 @@ export default function VinylDigitizerPage() {
               <div className={styles.videoSettings}>
                 <h3 className={styles.sectionTitle}>Video Settings</h3>
 
-                {/* Aspect ratio presets */}
-                <div className={styles.presetGroups}>
-                  {VIDEO_PRESETS.map(group => (
-                    <div key={group.group} className={styles.presetGroup}>
-                      <span className={styles.presetGroupTitle}>{group.group}</span>
-                      <div className={styles.presetRow}>
-                        {group.presets.map(p => {
-                          const active = videoWidth === String(p.w) && videoHeight === String(p.h);
+                {/* Aspect ratio preset selector */}
+                <div className={styles.aspectRatioRow}>
+                  <div className={styles.settingLabel}>
+                    Aspect Ratio
+                    <div className={styles.aspectDropdown} ref={aspectDropdownRef}>
+                      <button
+                        className={styles.aspectDropdownTrigger}
+                        onClick={() => setAspectDropdownOpen(v => !v)}
+                        type="button"
+                      >
+                        {(() => {
+                          const match = VIDEO_PRESETS.flatMap(g => g.presets).find(p => String(p.w) === videoWidth && String(p.h) === videoHeight);
+                          const icon = match?.icon || "landscape";
                           return (
-                            <button key={`${p.w}x${p.h}`} className={`${styles.presetBtn} ${active ? styles.presetActive : ""}`}
-                              onClick={() => { setVideoWidth(String(p.w)); setVideoHeight(String(p.h)); }}
-                              title={`${p.w}×${p.h}`}
-                            >
-                              <svg className={styles.presetIcon} viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2">
-                                {p.icon === "landscape" && <rect x="2" y="7" width="28" height="18" rx="2" />}
-                                {p.icon === "portrait" && <rect x="7" y="2" width="18" height="28" rx="2" />}
-                                {p.icon === "square" && <rect x="4" y="4" width="24" height="24" rx="2" />}
+                            <>
+                              <svg className={styles.aspectFrameIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                {icon === "landscape" && <rect x="1" y="5" width="22" height="14" rx="2" />}
+                                {icon === "portrait" && <rect x="5" y="1" width="14" height="22" rx="2" />}
+                                {icon === "square" && <rect x="3" y="3" width="18" height="18" rx="2" />}
                               </svg>
-                              <span className={styles.presetLabel}>{p.label}</span>
-                            </button>
+                              <span>{match ? `${match.label} (${match.w}×${match.h})` : `${videoWidth}×${videoHeight}`}</span>
+                              <span className={styles.aspectDropdownArrow}>{aspectDropdownOpen ? "▲" : "▼"}</span>
+                            </>
                           );
-                        })}
-                      </div>
+                        })()}
+                      </button>
+                      {aspectDropdownOpen && (
+                        <div className={styles.aspectDropdownMenu}>
+                          {VIDEO_PRESETS.map(group => (
+                            <div key={group.group}>
+                              <div className={styles.aspectDropdownGroupLabel}>{group.group}</div>
+                              {group.presets.map(p => {
+                                const active = videoWidth === String(p.w) && videoHeight === String(p.h);
+                                return (
+                                  <button
+                                    key={`${p.w}x${p.h}`}
+                                    className={`${styles.aspectDropdownItem} ${active ? styles.aspectDropdownItemActive : ""}`}
+                                    onClick={() => { setVideoWidth(String(p.w)); setVideoHeight(String(p.h)); setAspectDropdownOpen(false); }}
+                                  >
+                                    <svg className={styles.aspectFrameIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                      {p.icon === "landscape" && <rect x="1" y="5" width="22" height="14" rx="2" />}
+                                      {p.icon === "portrait" && <rect x="5" y="1" width="14" height="22" rx="2" />}
+                                      {p.icon === "square" && <rect x="3" y="3" width="18" height="18" rx="2" />}
+                                    </svg>
+                                    <span>{p.label}</span>
+                                    <span className={styles.aspectDropdownDims}>{p.w}×{p.h}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                  {/* Set video resolution to image */}
+                  </div>
                   {videoImages.length > 0 && (
-                    <div className={styles.presetGroup}>
-                      <span className={styles.presetGroupTitle}>Set video resolution to image</span>
-                      <div className={styles.presetRow}>
-                        {videoImages.map((img, i) => (
-                          <button key={img.id} className={styles.presetMatchBtn} onClick={() => applyImageResolution(img)}
-                            title={`Set resolution to match ${img.file.name}`}>
-                            <img src={img.thumbUrl} alt="" className={styles.presetMatchThumb} />
-                            <span>{i + 1}</span>
-                          </button>
-                        ))}
-                      </div>
+                    <div className={styles.presetMatchRow}>
+                      <span className={styles.presetMatchLabel}>Match image:</span>
+                      {videoImages.map((img, i) => (
+                        <button key={img.id} className={styles.presetMatchBtn} onClick={() => applyImageResolution(img)}
+                          title={`Set resolution to match ${img.file.name}`}>
+                          <img src={img.thumbUrl} alt="" className={styles.presetMatchThumb} />
+                          <span>{i + 1}</span>
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -3153,7 +3273,7 @@ export default function VinylDigitizerPage() {
                   className={`${styles.imageDropZone} ${modalDragOver ? styles.imageDropZoneActive : ""}`}
                   onDragOver={e => { e.preventDefault(); setModalDragOver(true); }}
                   onDragLeave={() => setModalDragOver(false)}
-                  onDrop={e => { e.preventDefault(); setModalDragOver(false); addImagesToVideo(e.dataTransfer.files); }}
+                  onDrop={e => { e.preventDefault(); e.stopPropagation(); setModalDragOver(false); addImagesToVideo(e.dataTransfer.files); }}
                   onClick={() => modalFileInputRef.current?.click()}
                 >
                   <div className={styles.imageDropZoneIcon}>🖼️</div>
@@ -3165,7 +3285,7 @@ export default function VinylDigitizerPage() {
 
                 {imageLoadingStatus && (
                   <div className={styles.imageStatusBar}>
-                    <span className={styles.spinnerInline} /> Loading: {imageLoadingStatus.current}
+                    <span className={styles.fileLoadingSpinner} style={{borderTopColor:"#48bb78"}} /> Loading: {imageLoadingStatus.current}
                     <div className={styles.progressBar} style={{marginTop:4,flex:1,minWidth:100}}>
                       <div className={styles.progressFill} style={{width:`${(imageLoadingStatus.loaded / imageLoadingStatus.total) * 100}%`, background:"#48bb78"}} />
                     </div>

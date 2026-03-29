@@ -43,10 +43,22 @@
     color: #ffffff;
 }
 
-:global(.darkContent) .heroTitle,
+:global(.darkContent) .heroTitle {
+    color: #ffffff;
+    text-shadow:
+        0 0 10px rgba(255, 255, 255, 0.8),
+        0 0 20px rgba(255, 255, 255, 0.6),
+        0 0 40px rgba(255, 255, 255, 0.3),
+        0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
 :global(.darkContent) .heroSubtitle {
     color: #ffffff;
-    text-shadow: none;
+    text-shadow:
+        0 0 8px rgba(255, 255, 255, 0.7),
+        0 0 16px rgba(255, 255, 255, 0.5),
+        0 0 30px rgba(255, 255, 255, 0.25),
+        0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 /* Hero Title Section */
@@ -79,15 +91,21 @@
     font-size: 3.5rem;
     font-weight: 700;
     margin: 0 0 0.5rem 0;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    text-shadow:
+        0 0 10px rgba(255, 255, 255, 0.8),
+        0 0 20px rgba(255, 255, 255, 0.6),
+        0 0 40px rgba(255, 255, 255, 0.3),
+        0 2px 4px rgba(0, 0, 0, 0.3);
     line-height: 1.2;
 }
 
-/* White glow only for light backgrounds */
+/* Even stronger glow for light backgrounds */
 .heroTitle[data-light-background="true"] {
-    text-shadow: 
-        0 0 5px rgba(255, 255, 255, 0.6),
-        0 0 10px rgba(255, 255, 255, 0.4),
+    text-shadow:
+        0 0 10px rgba(255, 255, 255, 0.9),
+        0 0 20px rgba(255, 255, 255, 0.7),
+        0 0 40px rgba(255, 255, 255, 0.5),
+        0 0 60px rgba(255, 255, 255, 0.3),
         0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
@@ -96,13 +114,18 @@
     font-weight: 400;
     margin: 0;
     opacity: 0.9;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    text-shadow:
+        0 0 8px rgba(255, 255, 255, 0.7),
+        0 0 16px rgba(255, 255, 255, 0.5),
+        0 0 30px rgba(255, 255, 255, 0.25),
+        0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .heroSubtitle[data-light-background="true"] {
-    text-shadow: 
-        0 0 4px rgba(255, 255, 255, 0.7),
-        0 0 8px rgba(255, 255, 255, 0.5),
+    text-shadow:
+        0 0 8px rgba(255, 255, 255, 0.9),
+        0 0 16px rgba(255, 255, 255, 0.7),
+        0 0 30px rgba(255, 255, 255, 0.4),
         0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
