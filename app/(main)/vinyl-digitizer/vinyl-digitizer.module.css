@@ -501,6 +501,40 @@
 }
 .clearBtn:hover { background: rgba(229,62,62,0.25); }
 
+.controlsHelpBox {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  background: #f0f4ff;
+  border: 1px solid #cbd5e1;
+  border-bottom: none;
+  border-radius: 0;
+  font-size: 0.78rem;
+  color: #475569;
+  line-height: 1.5;
+}
+.controlsHelpBox strong {
+  margin-right: 0.15rem;
+  color: #334155;
+}
+.controlsHelpBox kbd {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 0.75rem;
+  box-shadow: 0 1px 0 #94a3b8;
+  color: #334155;
+}
+.controlsSep {
+  color: #cbd5e1;
+  margin: 0 0.1rem;
+}
+
 .waveContainer {
   position: relative;
   overflow: hidden;
@@ -2404,11 +2438,15 @@
 :global(.darkContent) .historySidebar,
 :global(.darkContent) .historyItem,
 :global(.darkContent) .waveToolbar,
-:global(.darkContent) .discogsPanel {
+:global(.darkContent) .discogsPanel,
+:global(.darkContent) .controlsHelpBox {
   background: #252538;
-  color: #ffffff;
+  color: #c8cdd3;
   border-color: #444;
 }
+:global(.darkContent) .controlsHelpBox strong { color: #e2e8f0; }
+:global(.darkContent) .controlsHelpBox kbd { background: #1e1e2e; border-color: #555; color: #e2e8f0; box-shadow: 0 1px 0 #333; }
+:global(.darkContent) .controlsSep { color: #555; }
 
 /* ── Step bar items ── */
 :global(.darkContent) .stepItem .stepCircle {

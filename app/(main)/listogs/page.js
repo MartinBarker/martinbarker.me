@@ -127,6 +127,11 @@ function DiscogsAuthTestPageInner() {
   const [rateLimited, setRateLimited] = useState(false);
   const [retryAfter, setRetryAfter] = useState(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
+  const [countdownSeconds, setCountdownSeconds] = useState(0);
+  const countdownRef = useRef(null);
+  useEffect(() => {
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, []);
   const [useExistingPlaylist, setUseExistingPlaylist] = useState(false);
   const [existingPlaylistId, setExistingPlaylistId] = useState('');
   const [filteredTableRows, setFilteredTableRows] = useState([]);
@@ -1161,8 +1166,14 @@ function DiscogsAuthTestPageInner() {
       let playlistResult;
 
       if (useExistingPlaylist) {
-        // Use existing playlist
-        playlistId = existingPlaylistId.trim();
+        // Use existing playlist - extract ID from URL if a full URL was provided
+        let rawId = existingPlaylistId.trim();
+        try {
+          const url = new URL(rawId);
+          const listParam = url.searchParams.get('list');
+          if (listParam) rawId = listParam;
+        } catch {}
+        playlistId = rawId;
         playlistResult = { id: playlistId, title: 'Existing Playlist' };
         if (process.env.NODE_ENV === 'development') {
           console.log('Using existing playlist ID:', playlistId);
@@ -1216,73 +1227,206 @@ function DiscogsAuthTestPageInner() {
     }
   };
 
-  // Add videos to playlist
+  // Helper: get set of video IDs already confirmed in a playlist from localStorage
+  const getPlaylistAddedIds = (playlistId) => {
+    try {
+      const raw = localStorage.getItem(`listogs_playlist_videos_${playlistId}`);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  };
+
+  // Helper: mark a video ID as added to a playlist in localStorage
+  const markVideoAdded = (playlistId, videoId, addedSet) => {
+    addedSet.add(videoId);
+    try {
+      localStorage.setItem(`listogs_playlist_videos_${playlistId}`, JSON.stringify([...addedSet]));
+    } catch {}
+  };
+
+  // Start a visible countdown timer, returns a promise that resolves when done
+  const startCountdown = (seconds) => {
+    return new Promise((resolve) => {
+      setCountdownSeconds(seconds);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      countdownRef.current = setInterval(() => {
+        setCountdownSeconds(prev => {
+          if (prev <= 1) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      setTimeout(() => {
+        if (countdownRef.current) {
+          clearInterval(countdownRef.current);
+          countdownRef.current = null;
+        }
+        setCountdownSeconds(0);
+        resolve();
+      }, seconds * 1000);
+    });
+  };
+
+  // Add videos to playlist with duplicate check via localStorage and auto-retry
   const addVideosToPlaylist = async (playlistId, videoIds, tokens) => {
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
         ? 'http://localhost:3030'
         : `${window.location.origin}/internal-api`;
 
-      let addedCount = 0;
-      let retryCount = 0;
-      
-      for (const videoId of videoIds) {
-        try {
-          const response = await fetch(`${apiBaseURL}/youtube/addVideoToPlaylist`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            credentials: 'include',
-            body: JSON.stringify({
-              playlistId: playlistId,
-              videoId: videoId,
-              tokens: tokens
-            })
-          });
+      // Load already-added video IDs for this playlist from localStorage
+      const confirmedAdded = getPlaylistAddedIds(playlistId);
 
-          if (response.status === 429) {
-            // Rate limited
-            const errorData = await response.json();
-            setRateLimited(true);
-            setRetryAfter(errorData.retryAfter || 3600);
-            setYoutubeError(`Rate limited: ${errorData.error}. Please try again in ${Math.ceil((errorData.retryAfter || 3600) / 60)} minutes.`);
-            break;
-          } else if (!response.ok) {
-            let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
-            try {
-              const errorData = await response.json();
-              if (errorData.error) errorMsg = errorData.error;
-              if (errorData.reason) errorMsg += ` (${errorData.reason})`;
-            } catch {}
-            throw new Error(errorMsg);
-          }
+      // Deduplicate input
+      const seen = new Set();
+      const uniqueVideoIds = videoIds.filter(id => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
 
-          addedCount++;
-          setPlaylistProgress({ added: addedCount, total: videoIds.length });
-          retryCount = 0; // Reset retry count on success
-        } catch (err) {
-          console.error(`Error adding video ${videoId} to playlist:`, err);
-          
-          // Check if it's a rate limit error
-          if (err.message.includes('429') || err.message.includes('quota')) {
-            setRateLimited(true);
-            setRetryAfter(3600); // Default to 1 hour
-            setYoutubeError('Rate limited by YouTube API. Please try again later.');
-            break;
-          }
-          
-          // For other errors, continue with next video
-          retryCount++;
-          if (retryCount > 3) {
-            setYoutubeError('Too many consecutive errors. Please try again later.');
-            break;
+      // Count how many we can skip upfront
+      const skippedCount = uniqueVideoIds.filter(id => confirmedAdded.has(id)).length;
+      let addedCount = skippedCount;
+      let consecutiveErrors = 0;
+      const MAX_CONSECUTIVE_ERRORS = 10;
+      const MAX_RATE_LIMIT_RETRIES = 12;
+
+      setPlaylistProgress({ added: addedCount, total: uniqueVideoIds.length });
+      if (skippedCount > 0) {
+        setYoutubeError(`Skipping ${skippedCount} videos already in playlist...`);
+        await new Promise(r => setTimeout(r, 500));
+        setYoutubeError('');
+      }
+
+      for (let i = 0; i < uniqueVideoIds.length; i++) {
+        const videoId = uniqueVideoIds[i];
+
+        // Skip videos we already know are in the playlist
+        if (confirmedAdded.has(videoId)) continue;
+
+        let success = false;
+        let rateLimitRetries = 0;
+
+        while (!success) {
+          try {
+            const response = await fetch(`${apiBaseURL}/youtube/addVideoToPlaylist`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ playlistId, videoId, tokens })
+            });
+
+            // Video already in playlist (409) - mark and continue
+            if (response.status === 409) {
+              markVideoAdded(playlistId, videoId, confirmedAdded);
+              addedCount++;
+              setPlaylistProgress({ added: addedCount, total: uniqueVideoIds.length });
+              consecutiveErrors = 0;
+              success = true;
+              continue;
+            }
+
+            if (response.status === 429 || response.status === 403) {
+              const errorData = await response.json().catch(() => ({}));
+              rateLimitRetries++;
+
+              if (rateLimitRetries > MAX_RATE_LIMIT_RETRIES) {
+                setRateLimited(false);
+                setYoutubeError(`Gave up after ${MAX_RATE_LIMIT_RETRIES} rate-limit retries. ${addedCount}/${uniqueVideoIds.length} videos added.`);
+                return;
+              }
+
+              // Exponential backoff: 10s, 20s, 40s, 80s, ... capped at 5 min
+              const backoffSec = Math.min(10 * Math.pow(2, rateLimitRetries - 1), 300);
+              const delaySec = errorData.retryAfter ? Math.max(errorData.retryAfter, backoffSec) : backoffSec;
+
+              setRateLimited(true);
+              setRetryAfter(delaySec);
+              setRetryAttempt(rateLimitRetries);
+              setYoutubeError(`Rate limited. Auto-retrying in ${delaySec}s (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})...`);
+
+              await startCountdown(delaySec);
+
+              setRateLimited(false);
+              setYoutubeError(`Retrying... (${addedCount}/${uniqueVideoIds.length} added so far)`);
+              continue; // Retry same video
+            }
+
+            if (!response.ok) {
+              let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+              try {
+                const errorData = await response.json();
+                if (errorData.error) errorMsg = errorData.error;
+                if (errorData.reason) errorMsg += ` (${errorData.reason})`;
+              } catch {}
+              throw new Error(errorMsg);
+            }
+
+            // Success - mark in localStorage
+            markVideoAdded(playlistId, videoId, confirmedAdded);
+            addedCount++;
+            setPlaylistProgress({ added: addedCount, total: uniqueVideoIds.length });
+            consecutiveErrors = 0;
+            success = true;
+
+            // Clear rate limit UI on success after backoff
+            if (rateLimitRetries > 0) {
+              setRateLimited(false);
+              setRetryAfter(null);
+              setRetryAttempt(0);
+              setYoutubeError('');
+              rateLimitRetries = 0;
+            }
+          } catch (err) {
+            console.error(`Error adding video ${videoId} to playlist:`, err);
+
+            // Rate limit caught in error
+            if (err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('403'))) {
+              rateLimitRetries++;
+              if (rateLimitRetries > MAX_RATE_LIMIT_RETRIES) {
+                setYoutubeError(`Gave up after ${MAX_RATE_LIMIT_RETRIES} rate-limit retries. ${addedCount}/${uniqueVideoIds.length} videos added.`);
+                return;
+              }
+              const backoffSec = Math.min(10 * Math.pow(2, rateLimitRetries - 1), 300);
+              setRateLimited(true);
+              setRetryAfter(backoffSec);
+              setRetryAttempt(rateLimitRetries);
+              setYoutubeError(`Rate limited. Auto-retrying in ${backoffSec}s (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})...`);
+              await startCountdown(backoffSec);
+              setRateLimited(false);
+              setYoutubeError(`Retrying... (${addedCount}/${uniqueVideoIds.length} added so far)`);
+              continue; // Retry same video
+            }
+
+            // Non-rate-limit error - skip video
+            consecutiveErrors++;
+            success = true; // Move to next video
+
+            if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
+              setYoutubeError(`Too many consecutive errors (${MAX_CONSECUTIVE_ERRORS}). ${addedCount}/${uniqueVideoIds.length} videos added.`);
+              return;
+            }
           }
         }
       }
-      
+
+      // All done
+      setRateLimited(false);
+      setRetryAfter(null);
+      setRetryAttempt(0);
+      if (addedCount === uniqueVideoIds.length) {
+        setYoutubeError('');
+      } else {
+        setYoutubeError(`Finished: ${addedCount}/${uniqueVideoIds.length} videos added.`);
+      }
+
       if (process.env.NODE_ENV === 'development') {
-        console.log(`Successfully added ${addedCount} videos to playlist`);
+        console.log(`Playlist done: ${addedCount}/${uniqueVideoIds.length} videos (${skippedCount} already in playlist)`);
       }
     } catch (err) {
       console.error('Error adding videos to playlist:', err);
@@ -1870,12 +2014,34 @@ function DiscogsAuthTestPageInner() {
                 <span style={{ color: t.text }}>
                   {rateLimited ? '⚠️ Rate Limited: ' : 'Error: '}{youtubeError}
                 </span>
-                {rateLimited && retryAfter && (
+                {rateLimited && countdownSeconds > 0 && (
                   <div style={{ marginTop: 8, fontSize: 14, color: t.text }}>
-                    <div>Please wait {Math.ceil(retryAfter / 60)} minutes before trying again.</div>
-                    <div style={{ marginTop: 4, fontSize: 12, color: t.textSecondary }}>
-                      YouTube API quota has been exceeded. The system will automatically retry with exponential backoff.
+                    <div style={{ fontWeight: 'bold', fontSize: 18 }}>
+                      Auto-retrying in: {Math.floor(countdownSeconds / 60)}:{String(countdownSeconds % 60).padStart(2, '0')}
                     </div>
+                    <div style={{ marginTop: 4, fontSize: 12, color: t.textSecondary }}>
+                      Attempt {retryAttempt} &mdash; YouTube API rate limit hit. Will automatically retry with exponential backoff.
+                    </div>
+                    <div style={{
+                      marginTop: 8,
+                      height: 6,
+                      background: darkMode ? '#333' : '#e0e0e0',
+                      borderRadius: 3,
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${retryAfter ? ((retryAfter - countdownSeconds) / retryAfter) * 100 : 0}%`,
+                        background: '#ffc107',
+                        borderRadius: 3,
+                        transition: 'width 1s linear'
+                      }} />
+                    </div>
+                  </div>
+                )}
+                {rateLimited && countdownSeconds === 0 && retryAfter && (
+                  <div style={{ marginTop: 8, fontSize: 14, color: t.text }}>
+                    <div>Retrying now...</div>
                   </div>
                 )}
               </div>
@@ -1890,27 +2056,11 @@ function DiscogsAuthTestPageInner() {
                 borderRadius: 4
               }}>
                 <div style={{ color: t.text, fontWeight: 'bold', marginBottom: 8 }}>
-                  🔄 Retry Information
+                  🔄 Auto-Retry Active (Attempt {retryAttempt})
                 </div>
                 <div style={{ fontSize: 14, color: t.textSecondary }}>
-                  The system is automatically retrying failed requests with exponential backoff.
-                  This helps avoid hitting YouTube&apos;s API rate limits.
+                  Automatically retrying with exponential backoff. You can leave this page open &mdash; it will resume on its own.
                 </div>
-                <button
-                  onClick={resetRateLimitState}
-                  style={{
-                    marginTop: 8,
-                    padding: '6px 12px',
-                    fontSize: 12,
-                    background: '#007bff',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 4,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Reset Rate Limit Status
-                </button>
               </div>
             )}
 

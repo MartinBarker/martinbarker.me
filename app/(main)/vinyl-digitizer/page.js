@@ -311,6 +311,19 @@ export default function VinylDigitizerPage() {
   useEffect(() => { autoUploadYtRef.current = autoUploadYt; }, [autoUploadYt]);
   useEffect(() => { ytUploadDataRef.current = ytUploadData; }, [ytUploadData]);
 
+  // Update browser tab title with progress during render/upload
+  useEffect(() => {
+    const base = "Vinyl Digitizer – Record Audio Splitter | Martin Barker";
+    if (isRenderingVideo && videoRenderProgress !== null) {
+      document.title = `${(videoRenderProgress * 100).toFixed(0)}% ${base}`;
+    } else if (ytUploading && ytUploadProgress !== null) {
+      document.title = `${ytUploadProgress}% ${base}`;
+    } else {
+      document.title = base;
+    }
+    return () => { document.title = base; };
+  }, [isRenderingVideo, videoRenderProgress, ytUploading, ytUploadProgress]);
+
   // Decode audio when file changes (for silence detection + volume analysis)
   useEffect(() => {
     if (!audioFile) return;
@@ -410,6 +423,30 @@ export default function VinylDigitizerPage() {
       return `Track ${i + 1}`;
     }));
   }, [trackCount, discogsData, tracks]);
+
+  // Auto-apply Discogs track names to tracks and waveform labels when tracks are created with generic names
+  const autoNameAppliedRef = useRef(false);
+  useEffect(() => { autoNameAppliedRef.current = false; }, [trackCount]);
+  useEffect(() => {
+    if (autoNameAppliedRef.current) return;
+    if (!discogsData?.tracklist?.length || tracks.length === 0) return;
+    const hasGenericName = tracks.some((t, i) => t.name === `Track ${i + 1}` && discogsData.tracklist[i]?.title);
+    if (!hasGenericName) return;
+    autoNameAppliedRef.current = true;
+    const updated = tracks.map((track, i) => {
+      if (track.name === `Track ${i + 1}` && discogsData.tracklist[i]?.title) {
+        return { ...track, name: discogsData.tracklist[i].title };
+      }
+      return track;
+    });
+    setTracks(updated);
+    if (peaksRef.current) {
+      updated.forEach((track, i) => {
+        const seg = peaksRef.current.segments.getSegment(track.id);
+        if (seg) seg.update({ labelText: `${i + 1}. ${track.name}` });
+      });
+    }
+  }, [tracks, discogsData]);
 
   // Sync selectedTracks (id-based) when tracks change
   const trackIds = tracks.map(t => t.id).join(',');
@@ -650,6 +687,17 @@ export default function VinylDigitizerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, audioFile]);
 
+  // Resize peaks.js waveform views when the window is resized
+  useEffect(() => {
+    const handleResize = () => {
+      if (!peaksRef.current) return;
+      try { peaksRef.current.views.getView('zoomview')?.fitToContainer(); } catch {}
+      try { peaksRef.current.views.getView('overview')?.fitToContainer(); } catch {}
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Cleanup peaks.js on unmount
   useEffect(() => {
     return () => {
@@ -667,7 +715,7 @@ export default function VinylDigitizerPage() {
   const zoomIn = () => { if (peaksRef.current) peaksRef.current.zoom.zoomIn(); };
   const zoomOut = () => { if (peaksRef.current) peaksRef.current.zoom.zoomOut(); };
 
-  // Keyboard shortcuts for waveform editor (spacebar=play, comma=zoom out, period=zoom in)
+  // Keyboard shortcuts for waveform editor
   useEffect(() => {
     const handleKey = (e) => {
       if (step !== 3) return;
@@ -676,18 +724,67 @@ export default function VinylDigitizerPage() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.key === " " || e.code === "Space") {
         e.preventDefault();
-        togglePlay();
-      } else if (e.key === "," || e.key === "<") {
+        // Read paused state directly from the audio element to avoid stale closure
+        if (!audioRef.current) return;
+        if (audioRef.current.paused) {
+          const p = audioRef.current.play();
+          if (p && p.catch) p.catch(() => {});
+          setIsPlaying(true);
+        } else {
+          audioRef.current.pause();
+          setIsPlaying(false);
+        }
+      } else if (e.key === "," || e.key === "<" || e.key === "-" || e.key === "_") {
         e.preventDefault();
         zoomOut();
-      } else if (e.key === "." || e.key === ">") {
+      } else if (e.key === "." || e.key === ">" || e.key === "+" || e.key === "=") {
         e.preventDefault();
         zoomIn();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (!audioRef.current) return;
+        if (e.shiftKey) {
+          // Shift+Left: jump to previous track boundary
+          const ct = audioRef.current.currentTime;
+          const boundaries = tracks.flatMap(t => [t.startTime, t.endTime])
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .sort((a, b) => a - b);
+          const prev = [...boundaries].reverse().find(b => b < ct - 0.05);
+          if (prev != null) { audioRef.current.currentTime = prev; setCurrentTime(prev); }
+        } else {
+          // Left arrow: nudge back 5 seconds
+          const t = Math.max(0, audioRef.current.currentTime - 5);
+          audioRef.current.currentTime = t;
+          setCurrentTime(t);
+        }
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        if (!audioRef.current) return;
+        if (e.shiftKey) {
+          // Shift+Right: jump to next track boundary
+          const ct = audioRef.current.currentTime;
+          const boundaries = tracks.flatMap(t => [t.startTime, t.endTime])
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .sort((a, b) => a - b);
+          const next = boundaries.find(b => b > ct + 0.05);
+          if (next != null) { audioRef.current.currentTime = next; setCurrentTime(next); }
+        } else {
+          // Right arrow: nudge forward 5 seconds
+          const t = Math.min(duration, audioRef.current.currentTime + 5);
+          audioRef.current.currentTime = t;
+          setCurrentTime(t);
+        }
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        zoomIn();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        zoomOut();
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [step]);
+  }, [step, tracks, duration]);
 
   // Scroll wheel zoom on waveform container
   const handleWaveWheel = useCallback((e) => {
@@ -1690,8 +1787,8 @@ export default function VinylDigitizerPage() {
 
       setYtUploadData(prev => ({
         ...prev,
-        title: prev.title || autoTitle.slice(0, YT_LIMITS.title),
-        description: prev.description || autoDesc.slice(0, YT_LIMITS.description),
+        title: autoTitle.slice(0, YT_LIMITS.title),
+        description: autoDesc.slice(0, YT_LIMITS.description),
         tags: prev.tags || autoTags.slice(0, YT_LIMITS.tags),
       }));
       appendVideoLog("✓ Done!");
@@ -1745,6 +1842,7 @@ export default function VinylDigitizerPage() {
             const data = JSON.parse(xhr.responseText);
             if (xhr.status >= 200 && xhr.status < 300) setYtUploadResult(data);
             else {
+              console.error("YouTube upload error — full server response:", data);
               let errMsg = data.error || `Upload failed (${xhr.status})`;
               if (xhr.status === 413) errMsg = `File too large (${fileSizeMB} MB). Maximum upload size is ${maxSizeMB} MB. Try a lower resolution.`;
               else if (/invalid.*title|empty.*title/i.test(errMsg)) errMsg += " — Try shortening the title (max 100 characters).";
@@ -1752,13 +1850,13 @@ export default function VinylDigitizerPage() {
               else if (/tag/i.test(errMsg)) errMsg += " — Try reducing tags (max 500 characters total, each tag max 30 chars).";
               setYtUploadError(errMsg);
             }
-          } catch { setYtUploadError(`Failed to parse server response (HTTP ${xhr.status})`); }
+          } catch (parseErr) { console.error("YouTube upload error — failed to parse response. Status:", xhr.status, "Raw response:", xhr.responseText, parseErr); setYtUploadError(`Failed to parse server response (HTTP ${xhr.status})`); }
           resolve();
         };
-        xhr.onerror = () => { setYtUploadError(`Network error uploading ${fileSizeMB} MB video. Check your connection and try again.`); resolve(); };
+        xhr.onerror = () => { console.error("YouTube upload network error — XHR onerror fired. Status:", xhr.status, "Response:", xhr.responseText); setYtUploadError(`Network error uploading ${fileSizeMB} MB video. Check your connection and try again.`); resolve(); };
         xhr.send(fd);
       });
-    } catch (err) { setYtUploadError(err.message || "Upload failed"); }
+    } catch (err) { console.error("YouTube upload error:", err); setYtUploadError(err.message || "Upload failed"); }
     finally { setYtUploading(false); setYtUploadProgress(null); }
   };
 
@@ -1794,18 +1892,21 @@ export default function VinylDigitizerPage() {
     setYtUploadData(prev => ({ ...prev, tags: tags.slice(0, YT_LIMITS.tags) }));
   };
 
-  // Track last discogs URL used to generate YouTube metadata
+  // Track last discogs URL and rendered video used to generate YouTube metadata
   const lastYtDiscogsUrlRef = useRef(null);
+  const lastYtVideoSrcRef = useRef(null);
 
-  // Pre-fill YouTube metadata when entering Step 6 or when discogs data changes
+  // Pre-fill YouTube metadata when entering Step 6 or when discogs data / rendered video changes
   useEffect(() => {
     if (step !== 6) return;
     const discogsChanged = discogsData && discogsUrl && lastYtDiscogsUrlRef.current !== discogsUrl;
+    const videoChanged = renderedVideoSrc && lastYtVideoSrcRef.current !== renderedVideoSrc;
     const needsTitle = !ytUploadData.title || discogsChanged;
-    const needsDesc = !ytUploadData.description || discogsChanged;
+    const needsDesc = !ytUploadData.description || discogsChanged || videoChanged;
     const needsTags = !ytUploadData.tags || discogsChanged;
 
     if (discogsChanged) lastYtDiscogsUrlRef.current = discogsUrl;
+    if (videoChanged) lastYtVideoSrcRef.current = renderedVideoSrc;
 
     if (needsTitle && discogsData) {
       const suggestions = generateVideoTitleRecommendations(discogsData, ytTitleVariation);
@@ -1832,7 +1933,7 @@ export default function VinylDigitizerPage() {
     }
     if (needsTags && discogsData) regenerateYtTags();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, discogsData]);
+  }, [step, discogsData, renderedVideoSrc]);
 
   // ---- Derived ----
   const canGoStep2 = !!audioFile;
@@ -1953,9 +2054,6 @@ export default function VinylDigitizerPage() {
 
               <div className={styles.stepNav}>
                 <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Album Info →</button>
-                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(5)}>Skip to Video Render →→</button>}
-                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(6)}>Skip to YouTube Upload →→</button>}
-                {audioFile && <button className={styles.skipBtn} onClick={() => resetStep(1)}>Clear Audio</button>}
                 <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
@@ -2095,9 +2193,6 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(1)}>← Back</button>
                 <button className={styles.nextBtn} disabled={!canGoStep3} onClick={() => setStep(3)}>Next: Waveform Editor →</button>
-                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(5)}>Skip to Video Render →→</button>}
-                {canGoStep2 && <button className={styles.skipBtn} onClick={() => setStep(6)}>Skip to YouTube Upload →→</button>}
-                <button className={styles.skipBtn} onClick={() => resetStep(2)}>Clear Album Info</button>
                 <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
@@ -2124,6 +2219,18 @@ export default function VinylDigitizerPage() {
                   <span className={styles.tbGroupLabel}>Vol</span>
                   <input type="range" min="0" max="1" step="0.01" value={volume} onChange={e => setVolume(parseFloat(e.target.value))} className={styles.volSlider} title="Playback volume" />
                 </div>
+              </div>
+
+              {/* Controls / Keybinds help */}
+              <div className={styles.controlsHelpBox}>
+                <strong>Keybinds/Shortcuts:</strong>
+                <span><kbd>Space</kbd> Play / Pause</span>
+                <span className={styles.controlsSep}>|</span>
+                <span><kbd>←</kbd> / <kbd>→</kbd> Skip 5s</span>
+                <span className={styles.controlsSep}>|</span>
+                <span><kbd>Shift</kbd>+<kbd>←</kbd> / <kbd>→</kbd> Prev / Next track boundary</span>
+                <span className={styles.controlsSep}>|</span>
+                <span><kbd>↑</kbd> / <kbd>↓</kbd> Zoom in / out</span>
               </div>
 
               {/* peaks.js Waveform */}
@@ -2274,15 +2381,6 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(2)}>← Back</button>
                 <button className={styles.nextBtn} disabled={!canExport} onClick={() => setStep(4)}>Next: Audio Export →</button>
-                <button className={styles.skipBtn} onClick={() => {
-                  if (tracks.length === 0 && duration > 0) {
-                    const id = `track-full-${Date.now()}`;
-                    setTracks([{ id, startTime: 0, endTime: duration, name: trackNames[0] || projectName || "Full Recording" }]);
-                    setSelectedTracks(new Set([id]));
-                  }
-                  setStep(4);
-                }}>Skip (Export Full File) →→</button>
-                <button className={styles.skipBtn} onClick={() => resetStep(3)}>Clear Markers</button>
                 <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
           </div>
@@ -2477,8 +2575,6 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(3)}>← Back to Editor</button>
                 <button className={styles.nextBtn} onClick={() => setStep(5)} disabled={exportedTracks.length === 0}>Continue to Video Render →</button>
-                <button className={styles.skipBtn} onClick={() => setStep(6)}>Skip to YouTube Upload →→</button>
-                {exportedTracks.length > 0 && <button className={styles.skipBtn} onClick={() => resetStep(4)}>Clear Exports</button>}
                 <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
@@ -3018,7 +3114,6 @@ export default function VinylDigitizerPage() {
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(4)}>← Back to Audio Export</button>
                 <button className={styles.nextBtn} onClick={() => setStep(6)}>Next: YouTube Upload →</button>
-                <button className={styles.skipBtn} onClick={() => resetStep(5)}>Clear Video</button>
                 <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
@@ -3227,8 +3322,6 @@ export default function VinylDigitizerPage() {
 
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(5)}>← Back to Video Render</button>
-                <button className={styles.backBtn} onClick={() => setStep(1)}>← Back to Start</button>
-                <button className={styles.skipBtn} onClick={() => resetStep(6)}>Clear Upload</button>
                 <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
