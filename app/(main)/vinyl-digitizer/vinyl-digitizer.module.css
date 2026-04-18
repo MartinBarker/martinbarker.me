@@ -473,6 +473,7 @@
 .playBtnSmall:hover:not(:disabled) { transform: scale(1.1); box-shadow: 0 3px 10px rgba(102,126,234,0.5); }
 .playBtnSmall:disabled { background: #cbd5e0; cursor: not-allowed; box-shadow: none; }
 .timeLabel { font-size: 0.82rem; font-weight: 600; color: #000000; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timeMono { display: inline-block; min-width: 5.5em; text-align: right; font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace; }
 .volSlider { width: 64px; height: 4px; -webkit-appearance: none; appearance: none; background: #e2e8f0; border-radius: 2px; cursor: pointer; }
 .volSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: #667eea; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
 .splitAddBtn {
@@ -534,6 +535,40 @@
   color: #cbd5e1;
   margin: 0 0.1rem;
 }
+
+/* Right-click context menu on waveform */
+.waveCtxMenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  padding: 4px 0;
+  font-size: 0.82rem;
+}
+.waveCtxHeader {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  border-bottom: 1px solid #e5e7eb;
+}
+.waveCtxItem {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: #1f2937;
+  font-size: 0.82rem;
+}
+.waveCtxItem:hover { background: #f3f4f6; }
+.waveCtxDivider { height: 1px; background: #e5e7eb; margin: 4px 0; }
+.waveCtxDisabled { padding: 7px 12px; color: #9ca3af; font-style: italic; font-size: 0.82rem; }
 
 .waveContainer {
   position: relative;
@@ -2447,6 +2482,12 @@
 :global(.darkContent) .controlsHelpBox strong { color: #e2e8f0; }
 :global(.darkContent) .controlsHelpBox kbd { background: #1e1e2e; border-color: #555; color: #e2e8f0; box-shadow: 0 1px 0 #333; }
 :global(.darkContent) .controlsSep { color: #555; }
+:global(.darkContent) .waveCtxMenu { background: #252538; border-color: #444; }
+:global(.darkContent) .waveCtxHeader { color: #9ca3af; border-color: #444; }
+:global(.darkContent) .waveCtxItem { color: #e2e8f0; }
+:global(.darkContent) .waveCtxItem:hover { background: #333352; }
+:global(.darkContent) .waveCtxDivider { background: #444; }
+:global(.darkContent) .waveCtxDisabled { color: #6b7280; }
 
 /* ── Step bar items ── */
 :global(.darkContent) .stepItem .stepCircle {
