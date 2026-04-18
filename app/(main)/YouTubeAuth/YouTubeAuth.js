@@ -158,13 +158,13 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     addDebugLog('Cleared stored tokens. Will re-exchange code on next attempt.', 'info');
   };
 
-  // Initiate sign-in — store returnUrl first so /youtube can redirect back
+  // Initiate sign-in — opens in a new tab so current page state is preserved
   const handleSignIn = () => {
     if (!authUrl || authUrlLoading) return;
-    if (returnUrl && returnUrl !== '/youtube') {
-      localStorage.setItem('youtube_auth_return_url', returnUrl);
-    }
-    window.location.href = authUrl;
+    // Mark that sign-in was initiated from a page that wants popup-style auth
+    localStorage.setItem('youtube_auth_return_url', returnUrl || '/youtube');
+    localStorage.setItem('youtube_auth_popup', 'true');
+    window.open(authUrl, '_blank', 'noopener');
   };
 
   // Mount: read localStorage, check server, fetch auth URL
@@ -172,6 +172,20 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     refreshLocalAuthStatus();
     checkAuthStatus();
     getYouTubeAuthUrl();
+  }, []);
+
+  // Listen for auth completion from the popup tab via BroadcastChannel
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const channel = new BroadcastChannel('youtube_auth');
+    channel.onmessage = (event) => {
+      if (event.data?.type === 'youtube_auth_complete') {
+        // The popup tab saved the auth code to localStorage — re-read it
+        refreshLocalAuthStatus();
+        checkAuthStatus();
+      }
+    };
+    return () => channel.close();
   }, []);
 
   // Notify parent when auth state changes
