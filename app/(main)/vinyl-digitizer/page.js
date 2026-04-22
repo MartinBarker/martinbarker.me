@@ -15,6 +15,51 @@ import {
   YT_LIMITS,
 } from "../../utils/musicMetadata";
 
+// ---- IndexedDB helpers for persisting large blobs (rendered video) ----
+const IDB_NAME = 'vinyl_digitizer_store';
+const IDB_VERSION = 1;
+const IDB_STORE = 'blobs';
+
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbSave(key, blob) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(blob, key);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
+    db.close();
+  } catch (e) { console.warn('IDB save failed:', e); }
+}
+
+async function idbLoad(key) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    const result = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = rej; });
+    db.close();
+    return result || null;
+  } catch { return null; }
+}
+
+async function idbDelete(key) {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
+    db.close();
+  } catch {}
+}
+
 // ---- Helpers ----
 function formatTime(s) {
   if (!s || s < 0) return "00:00:00";
@@ -268,6 +313,7 @@ export default function VinylDigitizerPage() {
     autoSplitDoneRef.current = false;
     lastYtDiscogsUrlRef.current = null;
     try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    idbDelete('rendered_video');
   };
 
   // Reset just the current step
@@ -287,6 +333,7 @@ export default function VinylDigitizerPage() {
       videoImages.forEach(img => { if (img.thumbUrl) URL.revokeObjectURL(img.thumbUrl); if (img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
       setVideoImages([]); setSelectedVideoImages(new Set()); setSelectedVideoAudios(new Set());
       if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc); setRenderedVideoSrc(null);
+      idbDelete('rendered_video');
     } else if (stepNum === 6) {
       setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" }); setYtTitleSuggestions([]);
       setYtUploadResult(null); setYtUploadError(""); setThumbnailFile(null);
@@ -343,9 +390,20 @@ export default function VinylDigitizerPage() {
         if (saved.ytIncludeTrackNums != null) setYtIncludeTrackNums(saved.ytIncludeTrackNums);
         if (saved.ytDescSuffix != null) setYtDescSuffix(saved.ytDescSuffix);
         if (saved.discogsInputMode) setDiscogsInputMode(saved.discogsInputMode);
+        if (saved.videoOutputName) setVideoOutputName(saved.videoOutputName);
         if (saved.audioFileName) {
           // We can't restore the actual File object, but we can note what was loaded
           restoredRef.current = true;
+        }
+
+        // Restore rendered video from IndexedDB
+        if (saved.hasRenderedVideo) {
+          idbLoad('rendered_video').then(blob => {
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              setRenderedVideoSrc(url);
+            }
+          });
         }
       }
     } catch {}
@@ -380,6 +438,8 @@ export default function VinylDigitizerPage() {
         ytDescSuffix,
         discogsInputMode,
         audioFileName: audioFile?.name || null,
+        videoOutputName,
+        hasRenderedVideo: !!renderedVideoSrc,
         savedAt: Date.now(),
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -388,7 +448,7 @@ export default function VinylDigitizerPage() {
       tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
       videoWidth, videoHeight, videoBgColor, slideshowMode, loopInterval,
       ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
-      ytDescSuffix, discogsInputMode, audioFile]);
+      ytDescSuffix, discogsInputMode, audioFile, videoOutputName, renderedVideoSrc]);
 
   useEffect(() => { autoUploadYtRef.current = autoUploadYt; }, [autoUploadYt]);
   useEffect(() => { ytUploadDataRef.current = ytUploadData; }, [ytUploadData]);
@@ -1912,6 +1972,9 @@ export default function VinylDigitizerPage() {
       const renderedUrl = URL.createObjectURL(blob);
       setRenderedVideoSrc(renderedUrl);
 
+      // Persist rendered video to IndexedDB so it survives page refresh
+      idbSave('rendered_video', blob);
+
       // Pre-fill YouTube metadata using shared utilities
       const titleSuggestions = generateVideoTitleRecommendations(discogsData, ytTitleVariation);
       setYtTitleSuggestions(titleSuggestions);
@@ -2421,10 +2484,8 @@ export default function VinylDigitizerPage() {
                     >
                       {isAnalyzing ? (
                         <><span className={styles.spinnerInline} /> Analyzing…</>
-                      ) : tracks.length > 0 ? (
-                        <>⚡ Update track names</>
                       ) : (
-                        <>⚡ Auto-split &amp; name tracks</>
+                        <>⚡ Re-scan for silence / split points</>
                       )}
                     </button>
                     {isAnalyzing && (
@@ -3315,10 +3376,11 @@ export default function VinylDigitizerPage() {
                 </div>
               )}
 
-              {renderedVideoSrc && !isRenderingVideo && (
+              {renderedVideoSrc && (
                 <div className={styles.videoPreviewSection} style={{ marginBottom: 20 }}>
                   <video src={renderedVideoSrc} controls className={styles.videoPreview} />
                   <button className={styles.dlAllBtn} onClick={() => { const a = document.createElement("a"); a.href = renderedVideoSrc; a.download = `${videoOutputName || projectName || "album"}.mp4`; a.click(); }}>Download Video</button>
+                  {isRenderingVideo && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>A new video is rendering — this is the previous render.</div>}
                 </div>
               )}
 

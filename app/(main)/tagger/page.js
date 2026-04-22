@@ -3458,10 +3458,10 @@ export default function TaggerPage({ initialUrl }) {
         <>
           {/* <hr style={{ border: 'none', borderTop: '1px solid black', height: '1px' }} /> */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <div className={styles.taggerText} style={{ 
-              fontSize: '1.1rem', 
+            <div className={styles.taggerText} style={{
+              fontSize: '1.1rem',
               marginBottom: 0,
-              color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff'))
+              color: t.text
             }}>
               <strong>Video Title Recommendations:</strong>
             </div>
@@ -3501,7 +3501,7 @@ export default function TaggerPage({ initialUrl }) {
                   style={{
                     flex: 1,
                     fontSize: '0.95rem',
-                    color: getReadableTextColor(darkMode ? (colors?.DarkMuted || '#1e1e2e') : (colors?.LightMuted || '#ffffff')),
+                    color: t.text,
                     wordBreak: 'break-word',
                     marginRight: '0.5rem'
                   }}
