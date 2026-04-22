@@ -62,11 +62,11 @@ async function idbDelete(key) {
 
 // ---- Helpers ----
 function formatTime(s) {
-  if (!s || s < 0) return "00:00:00";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
+  if (!s || s < 0) return "0:00.00";
+  const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+  const ms = Math.floor((s % 1) * 100);
+  return `${m}:${sec.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
 }
 
 function formatBytes(b) {
@@ -286,8 +286,6 @@ export default function VinylDigitizerPage() {
   const [directDropDragOver, setDirectDropDragOver] = useState(false);
   const [audioLoadingStatus, setAudioLoadingStatus] = useState(null); // {loaded, total, current}
   const [aspectDropdownOpen, setAspectDropdownOpen] = useState(false);
-  // Right-click context menu on waveform
-  const [waveCtxMenu, setWaveCtxMenu] = useState(null); // {x, y, time, trackIdx}
   const aspectDropdownRef = useRef(null);
   const audioDragRef = useRef(null);
   const imageDragRef = useRef(null);
@@ -352,11 +350,6 @@ export default function VinylDigitizerPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [aspectDropdownOpen]);
 
-  // ---- localStorage persistence: save/restore progress ----
-  const STORAGE_KEY = 'vinyl_digitizer_progress';
-  const restoredRef = useRef(false);
-
-  // Restore saved progress on mount
   useEffect(() => {
     setMounted(true);
     ffmpegRef.current = new FFmpeg();
@@ -636,8 +629,6 @@ export default function VinylDigitizerPage() {
       const options = {
         zoomview: {
           container: zoomviewRef.current,
-          autoScroll: false,
-          autoScrollOffset: 0,
         },
         overview: {
           container: overviewRef.current,
@@ -656,12 +647,12 @@ export default function VinylDigitizerPage() {
           overlayBorderWidth: 1,
           overlayCornerRadius: 0,
           overlayOffset: 0,
-          overlayLabelAlign: 'left',
+          overlayLabelAlign: 'center',
           overlayLabelVerticalAlign: 'top',
           overlayLabelPadding: 6,
-          overlayLabelColor: '#ffffff',
+          overlayLabelColor: 'rgba(255, 255, 255, 0.9)',
           overlayFontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace',
-          overlayFontSize: 13,
+          overlayFontSize: 12,
           overlayFontStyle: 'bold',
         },
       };
@@ -945,69 +936,6 @@ export default function VinylDigitizerPage() {
     el.addEventListener("wheel", handleWaveWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWaveWheel);
   }, [handleWaveWheel]);
-
-  // Right-click context menu on waveform
-  useEffect(() => {
-    const el = zoomviewRef.current;
-    if (!el) return;
-    const handleCtx = (e) => {
-      if (!peaksRef.current || !duration) return;
-      e.preventDefault();
-      // Convert click position to time via the zoomview
-      const view = peaksRef.current.views.getView('zoomview');
-      if (!view) return;
-      const rect = el.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const time = view.pixelOffsetToTime(x);
-      if (time < 0 || time > duration) return;
-      // Find which track this time falls in
-      const trackIdx = tracks.findIndex(t => time >= t.startTime && time <= t.endTime);
-      setWaveCtxMenu({ x: e.clientX, y: e.clientY, time, trackIdx });
-    };
-    el.addEventListener('contextmenu', handleCtx);
-    return () => el.removeEventListener('contextmenu', handleCtx);
-  }, [tracks, duration]);
-
-  // Close context menu on click anywhere
-  useEffect(() => {
-    if (!waveCtxMenu) return;
-    const close = () => setWaveCtxMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close);
-    return () => { window.removeEventListener('click', close); window.removeEventListener('contextmenu', close); };
-  }, [waveCtxMenu]);
-
-  // Context menu actions
-  const ctxSetStart = () => {
-    if (!waveCtxMenu || waveCtxMenu.trackIdx < 0) return;
-    const t = tracks[waveCtxMenu.trackIdx];
-    if (waveCtxMenu.time >= t.endTime - 0.05) return;
-    const updated = [...tracks];
-    updated[waveCtxMenu.trackIdx] = { ...t, startTime: waveCtxMenu.time };
-    setTracks(updated);
-    // Update peaks segment
-    const seg = peaksRef.current?.segments.getSegment(t.id);
-    if (seg) seg.update({ startTime: waveCtxMenu.time });
-    setExportedTracks([]);
-    setWaveCtxMenu(null);
-  };
-  const ctxSetEnd = () => {
-    if (!waveCtxMenu || waveCtxMenu.trackIdx < 0) return;
-    const t = tracks[waveCtxMenu.trackIdx];
-    if (waveCtxMenu.time <= t.startTime + 0.05) return;
-    const updated = [...tracks];
-    updated[waveCtxMenu.trackIdx] = { ...t, endTime: waveCtxMenu.time };
-    setTracks(updated);
-    const seg = peaksRef.current?.segments.getSegment(t.id);
-    if (seg) seg.update({ endTime: waveCtxMenu.time });
-    setExportedTracks([]);
-    setWaveCtxMenu(null);
-  };
-  const ctxSplitHere = () => {
-    if (!waveCtxMenu) return;
-    splitTrackAtTime(waveCtxMenu.time);
-    setWaveCtxMenu(null);
-  };
 
   // ---- Track manipulation ----
   const generateTrackId = () => `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -2416,7 +2344,7 @@ export default function VinylDigitizerPage() {
               <div className={styles.waveToolbar}>
                 <div className={styles.tbGroup}>
                   <button className={styles.playBtnSmall} onClick={togglePlay} disabled={!duration}>{isPlaying ? "⏸" : "▶"}</button>
-                  <span className={styles.timeLabel}><span className={styles.timeMono}>{formatTime(currentTime)}</span> / <span className={styles.timeMono}>{formatTime(duration)}</span></span>
+                  <span className={styles.timeLabel}>{formatTime(currentTime)} / {formatTime(duration)}</span>
                 </div>
                 <div className={styles.tbSep} />
                 <div className={styles.tbGroup}>
@@ -2441,10 +2369,6 @@ export default function VinylDigitizerPage() {
                 <span><kbd>Shift</kbd>+<kbd>←</kbd> / <kbd>→</kbd> Prev / Next track boundary</span>
                 <span className={styles.controlsSep}>|</span>
                 <span><kbd>↑</kbd> / <kbd>↓</kbd> Zoom in / out</span>
-                <span className={styles.controlsSep}>|</span>
-                <span><kbd>Scroll wheel</kbd> Zoom in / out</span>
-                <span className={styles.controlsSep}>|</span>
-                <span><kbd>Right-click</kbd> Set start / end / split</span>
               </div>
 
               {/* peaks.js Waveform */}
@@ -2455,23 +2379,6 @@ export default function VinylDigitizerPage() {
                 <div ref={zoomviewRef} className={styles.zoomview} />
                 <div ref={overviewRef} className={styles.overview} />
               </div>
-
-              {/* Right-click context menu */}
-              {waveCtxMenu && (
-                <div className={styles.waveCtxMenu} style={{ left: waveCtxMenu.x, top: waveCtxMenu.y }}>
-                  <div className={styles.waveCtxHeader}>Time: {formatTime(waveCtxMenu.time)}</div>
-                  {waveCtxMenu.trackIdx >= 0 ? (
-                    <>
-                      <button className={styles.waveCtxItem} onClick={ctxSetStart}>Set start of &quot;{tracks[waveCtxMenu.trackIdx]?.name}&quot; here</button>
-                      <button className={styles.waveCtxItem} onClick={ctxSetEnd}>Set end of &quot;{tracks[waveCtxMenu.trackIdx]?.name}&quot; here</button>
-                      <div className={styles.waveCtxDivider} />
-                      <button className={styles.waveCtxItem} onClick={ctxSplitHere}>Split track here</button>
-                    </>
-                  ) : (
-                    <div className={styles.waveCtxDisabled}>No track at this position</div>
-                  )}
-                </div>
-              )}
 
               {/* Auto Split */}
               <div className={styles.autoSplitPanel}>

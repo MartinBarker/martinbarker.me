@@ -44,7 +44,7 @@ function YouTubeAuthPageInner() {
     console.log(`[YT Debug][${type.toUpperCase()}] ${msg}`);
   };
 
-  // On OAuth redirect: store code, notify opener tab (if popup), then close or redirect
+  // On OAuth redirect: store code, check for returnUrl, redirect
   useEffect(() => {
     if (authCode && scope) {
       try {
@@ -54,24 +54,6 @@ function YouTubeAuthPageInner() {
       } catch (err) {
         console.error('Failed to save YouTube auth code:', err);
       }
-
-      const isPopup = localStorage.getItem('youtube_auth_popup') === 'true';
-      localStorage.removeItem('youtube_auth_popup');
-
-      if (isPopup) {
-        // Notify the original tab that auth is complete via BroadcastChannel
-        try {
-          const channel = new BroadcastChannel('youtube_auth');
-          channel.postMessage({ type: 'youtube_auth_complete' });
-          channel.close();
-        } catch {}
-        // Close this tab — the original tab stays intact with all its state
-        setIsRedirecting(true);
-        window.close();
-        // Fallback if window.close() is blocked by the browser
-        return;
-      }
-
       const returnUrl = localStorage.getItem('youtube_auth_return_url');
       if (returnUrl && returnUrl !== '/youtube') {
         localStorage.removeItem('youtube_auth_return_url');
@@ -83,14 +65,9 @@ function YouTubeAuthPageInner() {
     }
   }, [authCode, scope, router]);
 
-  // Show a message — either "you can close this tab" (popup) or "redirecting" (same-window)
+  // Show a redirecting message instead of the full page
   if (isRedirecting) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center', fontSize: 16 }}>
-        <p>YouTube sign-in complete!</p>
-        <p style={{ fontSize: 14, color: '#666', marginTop: 8 }}>You can close this tab and return to your previous page.</p>
-      </div>
-    );
+    return <div style={{ padding: '40px', textAlign: 'center', fontSize: 16 }}>Redirecting...</div>;
   }
 
   const createPlaylist = async () => {
