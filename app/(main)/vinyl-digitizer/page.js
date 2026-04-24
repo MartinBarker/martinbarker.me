@@ -14,6 +14,9 @@ import {
   formatTimestamp,
   YT_LIMITS,
 } from "../../utils/musicMetadata";
+import { initFirebase } from "../../utils/firebase";
+import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 // ---- IndexedDB helpers for persisting large blobs (rendered video) ----
 const IDB_NAME = 'vinyl_digitizer_store';
@@ -81,6 +84,7 @@ const IMG_COLORS   = ["#f7971e","#12c2e9","#f64f59","#c471ed","#11998e","#ee0979
 
 // ---- History (localStorage) ----
 const HISTORY_KEY = "vinyl_digitizer_projects";
+const STORAGE_KEY = "vinyl_digitizer_progress";
 function loadHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
   catch { return []; }
@@ -212,6 +216,15 @@ export default function VinylDigitizerPage() {
   const [projects, setProjects] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [currentProjectId] = useState(() => Date.now().toString());
+
+  // Cloud sync (hidden — enable via window.showauth() in the console)
+  const [showAuthPanel, setShowAuthPanel] = useState(false);
+  const [fb, setFb] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState("");
+  const [cloudError, setCloudError] = useState("");
+  const [cloudSavedAt, setCloudSavedAt] = useState(null);
 
   // Video render (Step 5)
   const [videoImages, setVideoImages] = useState([]);  // [{id, file, thumbUrl, previewUrl, stretchToFit, useBlurBg, paddingColor}]
@@ -445,6 +458,132 @@ export default function VinylDigitizerPage() {
 
   useEffect(() => { autoUploadYtRef.current = autoUploadYt; }, [autoUploadYt]);
   useEffect(() => { ytUploadDataRef.current = ytUploadData; }, [ytUploadData]);
+
+  // Expose window.showauth() to reveal the hidden cloud-sync panel from the console.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.showauth = () => {
+      setShowAuthPanel(true);
+      console.log("[vinyl-digitizer] Cloud sync panel shown");
+    };
+    return () => { try { delete window.showauth; } catch {} };
+  }, []);
+
+  // Lazily init Firebase + subscribe to auth state once the panel is opened.
+  useEffect(() => {
+    if (!showAuthPanel) return;
+    let unsub = () => {};
+    let cancelled = false;
+    (async () => {
+      try {
+        const firebase = await initFirebase();
+        if (cancelled) return;
+        setFb(firebase);
+        unsub = onAuthStateChanged(firebase.auth, (u) => setAuthUser(u));
+      } catch (e) {
+        if (!cancelled) setCloudError(`Firebase init failed: ${e.message || e}`);
+      }
+    })();
+    return () => { cancelled = true; unsub(); };
+  }, [showAuthPanel]);
+
+  // Build the same progress payload we persist to localStorage, for cloud sync.
+  const buildProgressPayload = () => ({
+    step, projectName, discogsUrl, discogsData, trackNames, manualTrackCount,
+    tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
+    videoWidth, videoHeight, videoBgColor, slideshowMode, loopInterval,
+    ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
+    ytDescSuffix, discogsInputMode,
+    audioFileName: audioFile?.name || null,
+    videoOutputName,
+    hasRenderedVideo: !!renderedVideoSrc,
+    savedAt: Date.now(),
+  });
+
+  // Apply a progress payload back into component state (same shape as localStorage restore).
+  const applyProgressPayload = (saved) => {
+    if (!saved || typeof saved !== "object") return;
+    if (saved.step) setStep(saved.step);
+    if (saved.projectName) setProjectName(saved.projectName);
+    if (saved.discogsUrl) setDiscogsUrl(saved.discogsUrl);
+    if (saved.discogsData) setDiscogsData(saved.discogsData);
+    if (saved.trackNames) setTrackNames(saved.trackNames);
+    if (saved.manualTrackCount) setManualTrackCount(saved.manualTrackCount);
+    if (saved.tracks) setTracks(saved.tracks);
+    if (saved.outputFormat) setOutputFormat(saved.outputFormat);
+    if (saved.filenameFormat) setFilenameFormat(saved.filenameFormat);
+    if (saved.volumeDb != null) setVolumeDb(saved.volumeDb);
+    if (saved.riaaEnabled != null) setRiaaEnabled(saved.riaaEnabled);
+    if (saved.ytUploadData) setYtUploadData(saved.ytUploadData);
+    if (saved.videoWidth) setVideoWidth(saved.videoWidth);
+    if (saved.videoHeight) setVideoHeight(saved.videoHeight);
+    if (saved.videoBgColor) setVideoBgColor(saved.videoBgColor);
+    if (saved.slideshowMode) setSlideshowMode(saved.slideshowMode);
+    if (saved.loopInterval != null) setLoopInterval(saved.loopInterval);
+    if (saved.ytTitleVariation != null) setYtTitleVariation(saved.ytTitleVariation);
+    if (saved.ytTimestampFormat) setYtTimestampFormat(saved.ytTimestampFormat);
+    if (saved.ytTimestampSeparator != null) setYtTimestampSeparator(saved.ytTimestampSeparator);
+    if (saved.ytIncludeTrackNums != null) setYtIncludeTrackNums(saved.ytIncludeTrackNums);
+    if (saved.ytDescSuffix != null) setYtDescSuffix(saved.ytDescSuffix);
+    if (saved.discogsInputMode) setDiscogsInputMode(saved.discogsInputMode);
+    if (saved.videoOutputName) setVideoOutputName(saved.videoOutputName);
+  };
+
+  const handleCloudSignIn = async () => {
+    if (!fb) return;
+    setCloudError(""); setCloudStatus(""); setAuthBusy(true);
+    try { await signInWithPopup(fb.auth, fb.googleProvider); }
+    catch (e) { setCloudError(e.message || String(e)); }
+    finally { setAuthBusy(false); }
+  };
+
+  const handleCloudSignOut = async () => {
+    if (!fb) return;
+    setCloudError(""); setCloudStatus(""); setAuthBusy(true);
+    try { await signOut(fb.auth); setCloudSavedAt(null); }
+    catch (e) { setCloudError(e.message || String(e)); }
+    finally { setAuthBusy(false); }
+  };
+
+  const handleCloudSave = async () => {
+    if (!fb || !authUser) return;
+    setCloudError(""); setCloudStatus("Saving…"); setAuthBusy(true);
+    try {
+      const ref = doc(fb.db, "users", authUser.uid);
+      const progress = buildProgressPayload();
+      await setDoc(ref, {
+        email: authUser.email || null,
+        vinylDigitizerProgress: progress,
+        vinylDigitizerSavedAt: serverTimestamp(),
+      }, { merge: true });
+      setCloudSavedAt(Date.now());
+      setCloudStatus("Saved to cloud");
+    } catch (e) { setCloudError(e.message || String(e)); setCloudStatus(""); }
+    finally { setAuthBusy(false); }
+  };
+
+  const handleCloudLoad = async () => {
+    if (!fb || !authUser) return;
+    setCloudError(""); setCloudStatus("Loading…"); setAuthBusy(true);
+    try {
+      const ref = doc(fb.db, "users", authUser.uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists() || !snap.data().vinylDigitizerProgress) {
+        setCloudStatus("No cloud save found");
+        return;
+      }
+      const saved = snap.data().vinylDigitizerProgress;
+      if (!window.confirm("Restore progress from cloud? This will overwrite your current session state (audio/video files stay local).")) {
+        setCloudStatus("");
+        return;
+      }
+      applyProgressPayload(saved);
+      const ts = snap.data().vinylDigitizerSavedAt;
+      setCloudSavedAt(ts?.toMillis ? ts.toMillis() : Date.now());
+      setCloudStatus("Loaded from cloud");
+    } catch (e) { setCloudError(e.message || String(e)); setCloudStatus(""); }
+    finally { setAuthBusy(false); }
+  };
 
   // Update browser tab title with progress during render/upload
   useEffect(() => {
@@ -2103,6 +2242,72 @@ export default function VinylDigitizerPage() {
           </button>
         </div>
       </div>
+
+      {showAuthPanel && (
+        <div style={{
+          margin: "0 1rem 1rem", padding: "0.75rem 1rem", border: "1px solid #444",
+          borderRadius: 8, background: "rgba(0,0,0,0.35)", color: "#fff",
+          display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem",
+          fontSize: 14,
+        }}>
+          <strong>Cloud sync</strong>
+          {!authUser ? (
+            <>
+              <span style={{ opacity: 0.8 }}>Sign in to save/restore project progress across devices.</span>
+              <button
+                onClick={handleCloudSignIn}
+                disabled={!fb || authBusy}
+                style={{ padding: "0.35rem 0.75rem", borderRadius: 6, border: "1px solid #888", background: "#fff", color: "#111", cursor: "pointer", fontWeight: 600 }}
+              >
+                {fb ? "Sign in with Google" : "Loading…"}
+              </button>
+            </>
+          ) : (
+            <>
+              <span>Signed in as <strong>{authUser.email || authUser.displayName}</strong></span>
+              <button
+                onClick={handleCloudSave}
+                disabled={authBusy}
+                style={{ padding: "0.35rem 0.75rem", borderRadius: 6, border: "1px solid #888", background: "#fff", color: "#111", cursor: "pointer", fontWeight: 600 }}
+              >
+                Save progress to cloud
+              </button>
+              <button
+                onClick={handleCloudLoad}
+                disabled={authBusy}
+                style={{ padding: "0.35rem 0.75rem", borderRadius: 6, border: "1px solid #888", background: "#fff", color: "#111", cursor: "pointer", fontWeight: 600 }}
+              >
+                Load from cloud
+              </button>
+              <button
+                onClick={handleCloudSignOut}
+                disabled={authBusy}
+                style={{ padding: "0.35rem 0.75rem", borderRadius: 6, border: "1px solid #888", background: "transparent", color: "#fff", cursor: "pointer" }}
+              >
+                Sign out
+              </button>
+              {cloudSavedAt && (
+                <span style={{ opacity: 0.7, fontSize: 12 }}>
+                  Last cloud save: {new Date(cloudSavedAt).toLocaleString()}
+                </span>
+              )}
+            </>
+          )}
+          <button
+            onClick={() => setShowAuthPanel(false)}
+            style={{ marginLeft: "auto", padding: "0.25rem 0.5rem", borderRadius: 6, border: "1px solid #666", background: "transparent", color: "#fff", cursor: "pointer" }}
+            aria-label="Hide cloud sync panel"
+            title="Hide (re-open with showauth() in the console)"
+          >
+            ✕
+          </button>
+          {cloudStatus && <span style={{ color: "#9f9", width: "100%" }}>{cloudStatus}</span>}
+          {cloudError && <span style={{ color: "#f99", width: "100%" }}>{cloudError}</span>}
+          <span style={{ width: "100%", fontSize: 11, opacity: 0.65 }}>
+            Note: cloud sync stores project settings, track splits, Discogs metadata, and step state only. Audio files and rendered video stay on this device.
+          </span>
+        </div>
+      )}
 
       {/* Steps — sticky when rendering/uploading */}
       <div className={`${styles.stepBarWrap} ${(isRenderingVideo || ytUploading) ? styles.stepBarSticky : ""}`}>
