@@ -1475,6 +1475,20 @@ app.get('/health', (req, res) => {
   res.status(200).json(health);
 });
 
+// Firebase client config endpoint — returns the public web-app config so the
+// browser can initialize the Firebase SDK. These values are not secret (they
+// ship to the client by design and are protected by Firebase security rules +
+// authorized domains), but we still source them from .env in dev and AWS
+// Secrets Manager in prod to keep the config in one place.
+function firebaseConfigHandler(req, res) {
+  if (!firebaseConfig.apiKey) {
+    return res.status(503).json({ error: 'Firebase config not initialized' });
+  }
+  res.status(200).json(firebaseConfig);
+}
+app.get('/firebase/config', firebaseConfigHandler);
+app.get('/internal-api/firebase/config', firebaseConfigHandler);
+
 // Discogs configuration check endpoint
 app.get('/discogs/config', (req, res) => {
   const config = {
@@ -1844,6 +1858,14 @@ var discogsConsumerKey = '';
 var discogsConsumerSecret = '';
 var gcpClientId = '';
 var gcpClientSecret = '';
+var firebaseConfig = {
+  apiKey: '',
+  authDomain: '',
+  projectId: '',
+  storageBucket: '',
+  messagingSenderId: '',
+  appId: '',
+};
 
 async function setSecrets() {
   try {
@@ -1857,11 +1879,20 @@ async function setSecrets() {
       gcpClientSecret = process.env.GCP_CLIENT_SECRET || '';
       discogsConsumerKey = process.env.DISCOGS_CONSUMER_KEY || '';
       discogsConsumerSecret = process.env.DISCOGS_CONSUMER_SECRET || '';
+      firebaseConfig = {
+        apiKey: process.env.FIREBASE_APIKEY || '',
+        authDomain: process.env.FIREBASE_AUTHDOMAIN || '',
+        projectId: process.env.FIREBASE_PROJECTID || '',
+        storageBucket: process.env.FIREBASE_STORAGEBUCKET || '',
+        messagingSenderId: process.env.FIREBASE_MESSAGINGSENDERID || '',
+        appId: process.env.FIREBASE_APPID || '',
+      };
       console.log('setSecrets() Local environment variables loaded.');
       console.log('gcpClientId loaded:', gcpClientId ? 'YES' : 'NO');
       console.log('gcpClientSecret loaded:', gcpClientSecret ? 'YES' : 'NO');
       console.log('discogsConsumerKey loaded:', discogsConsumerKey ? 'YES' : 'NO');
       console.log('discogsConsumerSecret loaded:', discogsConsumerSecret ? 'YES' : 'NO');
+      console.log('firebaseConfig loaded:', firebaseConfig.apiKey ? 'YES' : 'NO');
     } else {
       console.log('setSecrets() Loading AWS secrets for production...');
       try {
@@ -1879,11 +1910,29 @@ async function setSecrets() {
         discogsConsumerSecret = discogsSecretsJson.DISCOGS_CONSUMER_SECRET || '';
         console.log('setSecrets() Discogs secrets loaded successfully');
 
+        console.log('setSecrets() Fetching Firebase secrets...');
+        try {
+          const firebaseSecrets = await getAwsSecret("firebaseAuth");
+          const firebaseSecretsJson = JSON.parse(firebaseSecrets);
+          firebaseConfig = {
+            apiKey: firebaseSecretsJson.FIREBASE_APIKEY || '',
+            authDomain: firebaseSecretsJson.FIREBASE_AUTHDOMAIN || '',
+            projectId: firebaseSecretsJson.FIREBASE_PROJECTID || '',
+            storageBucket: firebaseSecretsJson.FIREBASE_STORAGEBUCKET || '',
+            messagingSenderId: firebaseSecretsJson.FIREBASE_MESSAGINGSENDERID || '',
+            appId: firebaseSecretsJson.FIREBASE_APPID || '',
+          };
+          console.log('setSecrets() Firebase secrets loaded successfully');
+        } catch (firebaseError) {
+          console.error('setSecrets() ERROR: Failed to fetch Firebase secrets:', firebaseError.message || firebaseError);
+        }
+
         console.log('setSecrets() AWS secrets loaded.');
         console.log('gcpClientId loaded:', gcpClientId ? 'YES' : 'NO');
         console.log('gcpClientSecret loaded:', gcpClientSecret ? 'YES' : 'NO');
         console.log('discogsConsumerKey loaded:', discogsConsumerKey ? 'YES' : 'NO');
         console.log('discogsConsumerSecret loaded:', discogsConsumerSecret ? 'YES' : 'NO');
+        console.log('firebaseConfig loaded:', firebaseConfig.apiKey ? 'YES' : 'NO');
       } catch (awsError) {
         console.error('setSecrets() ERROR: Failed to fetch AWS secrets:', awsError.message || awsError);
         console.error('setSecrets() AWS Error details:', awsError);
