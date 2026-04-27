@@ -1,0 +1,24 @@
+{
+  "watch": [
+    "server.js",
+    "app",
+    "public",
+    "next.config.mjs",
+    "package.json",
+    ".env"
+  ],
+  "ext": "js,jsx,ts,tsx,mjs,cjs,json,css,html",
+  "ignore": [
+    "node_modules",
+    ".next",
+    ".git",
+    "out.log",
+    "*.log",
+    "public/gifs/**",
+    "public/images/**",
+    "discogs_images/**",
+    "**/*.test.*"
+  ],
+  "legacyWatch": true,
+  "delay": 500
+}
