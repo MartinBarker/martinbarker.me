@@ -1932,6 +1932,36 @@ export default function VinylDigitizerPage() {
     return `~${Math.floor(remaining / 60)}m ${Math.round(remaining % 60)}s remaining`;
   };
 
+  // Pre-shrink huge source images: a 7000+ px PNG decodes to >200 MB of RGBA in the wasm heap, which combined with x264's frame buffers exceeds the ~2 GB wasm ceiling.
+  const downscaleImageForRender = (file, maxDim) => new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const { naturalWidth: nw, naturalHeight: nh } = img;
+      if (!nw || !nh || Math.max(nw, nh) <= maxDim) {
+        URL.revokeObjectURL(url);
+        resolve({ file, resized: false, original: { w: nw, h: nh } });
+        return;
+      }
+      const scale = maxDim / Math.max(nw, nh);
+      const w = Math.max(1, Math.round(nw * scale));
+      const h = Math.max(1, Math.round(nh * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob) { resolve({ file, resized: false, original: { w: nw, h: nh } }); return; }
+        const newName = file.name.replace(/(\.[^.]+)?$/, `_resized_${w}x${h}.png`);
+        const newFile = new File([blob], newName, { type: "image/png" });
+        resolve({ file: newFile, resized: true, original: { w: nw, h: nh }, resizedTo: { w, h } });
+      }, "image/png");
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve({ file, resized: false }); };
+    img.src = url;
+  });
+
   // ---- Video Render ----
   const renderAlbumVideo = async () => {
     const selectedAudioList = getOrderedAudios();
@@ -1948,8 +1978,14 @@ export default function VinylDigitizerPage() {
     try {
       const ffV = new FFmpeg();
       videoFfmpegRef.current = ffV;
+      const oomState = { detected: false, lastSignal: "" };
+      const OOM_PATTERNS = /(malloc of size \d+ failed|Cannot enlarge memory|Out of memory|memory access out of bounds|Aborted\(\)|Error submitting video frame to the encoder)/i;
       ffV.on("log", ({ message: msg }) => {
         appendVideoLog(msg);
+        if (!oomState.detected && OOM_PATTERNS.test(msg)) {
+          oomState.detected = true;
+          oomState.lastSignal = msg.trim();
+        }
         // Parse time= from FFmpeg log for accurate 0–1 progress (progress event overshoots)
         const m = msg.match(/time=(\d+):(\d+):(\d+\.\d+)/);
         if (m && totalDur > 0) {
@@ -1976,13 +2012,28 @@ export default function VinylDigitizerPage() {
         await ffV.writeFile(vfsName, await fetchFile(blob));
       }
 
-      // Write image files
+      const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+
+      const imgMaxDim = Math.round(Math.max(w, h) * 1.25);
+      const resizedImageFiles = [];
       for (let i = 0; i < selectedImageList.length; i++) {
-        const ext = selectedImageList[i].file.name.split(".").pop() || "jpg";
-        await ffV.writeFile(`img${i}.${ext}`, await fetchFile(selectedImageList[i].file));
+        const original = selectedImageList[i].file;
+        const result = await downscaleImageForRender(original, imgMaxDim);
+        if (result.resized) {
+          appendVideoLog(`Pre-resized ${original.name}: ${result.original.w}×${result.original.h} → ${result.resizedTo.w}×${result.resizedTo.h}`);
+        }
+        resizedImageFiles.push(result.file);
       }
 
-      const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+      // Write image files (using resized versions where applicable)
+      const imgVfsNames = [];
+      for (let i = 0; i < resizedImageFiles.length; i++) {
+        const f = resizedImageFiles[i];
+        const ext = f.name.split(".").pop() || "jpg";
+        const vfsName = `img${i}.${ext}`;
+        imgVfsNames.push(vfsName);
+        await ffV.writeFile(vfsName, await fetchFile(f));
+      }
       const n = selectedAudioList.length;
       const args = ["-y"];
 
@@ -1990,9 +2041,8 @@ export default function VinylDigitizerPage() {
       for (const vfsName of audioVfsNames) args.push("-i", vfsName);
 
       // Image inputs (at 2fps)
-      for (let i = 0; i < selectedImageList.length; i++) {
-        const ext = selectedImageList[i].file.name.split(".").pop() || "jpg";
-        args.push("-r", "2", "-i", `img${i}.${ext}`);
+      for (let i = 0; i < imgVfsNames.length; i++) {
+        args.push("-r", "2", "-i", imgVfsNames[i]);
       }
 
       // Filter complex
@@ -2019,19 +2069,35 @@ export default function VinylDigitizerPage() {
           fc += `[${imgIdx}:v]${scale}${pad},setsar=1,loop=${loop}:${loop}[v${i}];`;
         }
       }
-      appendVideoLog(`Running FFmpeg (${w}×${h}, ${Math.ceil(totalDur)}s)…`);
+      // At 1440p+, drop -tune stillimage and use -preset veryfast so x264's lookahead/ref/bframes buffers don't blow the wasm heap.
+      const isHighRes = (w * h) >= (2560 * 1440);
+      const x264Args = isHighRes
+        ? ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
+        : ["-c:v", "libx264", "-tune", "stillimage", "-crf", "18"];
+      appendVideoLog(`Running FFmpeg (${w}×${h}, ${Math.ceil(totalDur)}s${isHighRes ? ", high-res preset" : ""})…`);
       fc += selectedImageList.map((_, i) => `[v${i}]`).join("") + `concat=n=${selectedImageList.length}:v=1:a=0,pad=ceil(iw/2)*2:ceil(ih/2)*2[v]`;
 
-      await ffV.exec([
+      const exitCode = await ffV.exec([
         ...args,
         "-filter_complex", fc,
         "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-tune", "stillimage", "-crf", "18",
+        ...x264Args,
         "-c:a", "aac", "-b:a", "320k",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-t", String(Math.ceil(totalDur)),
         `${name}.mp4`
       ]);
+
+      if (oomState.detected) {
+        const err = new Error("__OOM__");
+        err.oom = true;
+        err.signal = oomState.lastSignal;
+        err.dimensions = { w, h };
+        throw err;
+      }
+      if (typeof exitCode === "number" && exitCode !== 0) {
+        throw new Error(`FFmpeg exited with code ${exitCode}. See logs above.`);
+      }
 
       const data = await ffV.readFile(`${name}.mp4`);
       const blob = new Blob([data.buffer], { type: "video/mp4" });
@@ -2077,8 +2143,26 @@ export default function VinylDigitizerPage() {
         setTimeout(() => uploadToYouTube(renderedUrl), 500);
       }
     } catch (err) {
-      setVideoRenderLogs(prev => [...prev, `ERROR: ${err.message}`]);
-      setMessage("Video render error: " + err.message);
+      const isOom = err?.oom || /malloc of size|Cannot enlarge memory|Out of memory|memory access out of bounds|Aborted\(\)|Error submitting video frame/i.test(err?.message || "");
+      if (isOom) {
+        const dims = err?.dimensions ? `${err.dimensions.w}×${err.dimensions.h}` : `${videoWidth}×${videoHeight}`;
+        const friendlyLines = [
+          `ERROR: Ran out of memory while encoding at ${dims}.`,
+          "",
+          "FFmpeg runs in your browser (WebAssembly) and is capped at ~2 GB of memory.",
+          "This job exceeded that limit. To get it to render, try one or more of:",
+          "  • Lower the output resolution (e.g. 1080p instead of 4K).",
+          "  • Use fewer images, or shorter total duration.",
+          "  • Use smaller source images (very large PNGs are decoded uncompressed and use hundreds of MB each).",
+          "",
+          err?.signal ? `Underlying ffmpeg signal: ${err.signal}` : "",
+        ].filter(Boolean);
+        setVideoRenderLogs(prev => [...prev, ...friendlyLines]);
+        setMessage(`Out of memory at ${dims}. Try a lower resolution.`);
+      } else {
+        setVideoRenderLogs(prev => [...prev, `ERROR: ${err.message}`]);
+        setMessage("Video render error: " + err.message);
+      }
     }
     finally { setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null); }
   };
