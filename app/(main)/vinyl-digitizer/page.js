@@ -236,7 +236,10 @@ export default function VinylDigitizerPage() {
   const [videoRenderProgress, setVideoRenderProgress] = useState(null);
   const [videoRenderStartTime, setVideoRenderStartTime] = useState(null);
   const [videoRenderLogs, setVideoRenderLogs] = useState([]);
+  const [videoRenderError, setVideoRenderError] = useState(null);
   const [showVideoLogs, setShowVideoLogs] = useState(false);
+  // Image downscale ceiling: cap source images at this pixel dimension before rendering. "auto" = 1.25× output max dim.
+  const [imageMaxDim, setImageMaxDim] = useState("auto");
   const videoLogsEndRef = useRef(null);
   const [renderedVideoSrc, setRenderedVideoSrc] = useState(null);
   const [videoOutputName, setVideoOutputName] = useState("");
@@ -388,6 +391,7 @@ export default function VinylDigitizerPage() {
         if (saved.videoWidth) setVideoWidth(saved.videoWidth);
         if (saved.videoHeight) setVideoHeight(saved.videoHeight);
         if (saved.videoBgColor) setVideoBgColor(saved.videoBgColor);
+        if (saved.imageMaxDim !== undefined) setImageMaxDim(saved.imageMaxDim);
         if (saved.slideshowMode) setSlideshowMode(saved.slideshowMode);
         if (saved.loopInterval != null) setLoopInterval(saved.loopInterval);
         if (saved.ytTitleVariation != null) setYtTitleVariation(saved.ytTitleVariation);
@@ -435,6 +439,7 @@ export default function VinylDigitizerPage() {
         videoWidth,
         videoHeight,
         videoBgColor,
+        imageMaxDim,
         slideshowMode,
         loopInterval,
         ytTitleVariation,
@@ -452,7 +457,7 @@ export default function VinylDigitizerPage() {
     } catch {}
   }, [mounted, step, projectName, discogsUrl, discogsData, trackNames, manualTrackCount,
       tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
-      videoWidth, videoHeight, videoBgColor, slideshowMode, loopInterval,
+      videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval,
       ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
       ytDescSuffix, discogsInputMode, audioFile, videoOutputName, renderedVideoSrc]);
 
@@ -491,7 +496,7 @@ export default function VinylDigitizerPage() {
   const buildProgressPayload = () => ({
     step, projectName, discogsUrl, discogsData, trackNames, manualTrackCount,
     tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
-    videoWidth, videoHeight, videoBgColor, slideshowMode, loopInterval,
+    videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval,
     ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
     ytDescSuffix, discogsInputMode,
     audioFileName: audioFile?.name || null,
@@ -518,6 +523,7 @@ export default function VinylDigitizerPage() {
     if (saved.videoWidth) setVideoWidth(saved.videoWidth);
     if (saved.videoHeight) setVideoHeight(saved.videoHeight);
     if (saved.videoBgColor) setVideoBgColor(saved.videoBgColor);
+    if (saved.imageMaxDim !== undefined) setImageMaxDim(saved.imageMaxDim);
     if (saved.slideshowMode) setSlideshowMode(saved.slideshowMode);
     if (saved.loopInterval != null) setLoopInterval(saved.loopInterval);
     if (saved.ytTitleVariation != null) setYtTitleVariation(saved.ytTitleVariation);
@@ -1651,21 +1657,22 @@ export default function VinylDigitizerPage() {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => {
-        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
+        const naturalWidth = img.width, naturalHeight = img.height;
+        const scale = Math.min(maxSize / naturalWidth, maxSize / naturalHeight, 1);
+        const w = Math.round(naturalWidth * scale);
+        const h = Math.round(naturalHeight * scale);
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
         canvas.toBlob((blob) => {
-          resolve(blob ? URL.createObjectURL(blob) : URL.createObjectURL(file));
+          resolve({ thumbUrl: blob ? URL.createObjectURL(blob) : URL.createObjectURL(file), naturalWidth, naturalHeight });
         }, 'image/jpeg', 0.7);
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        resolve(URL.createObjectURL(file));
+        resolve({ thumbUrl: URL.createObjectURL(file), naturalWidth: 0, naturalHeight: 0 });
       };
       img.src = url;
     });
@@ -1679,9 +1686,9 @@ export default function VinylDigitizerPage() {
       const f = imageFiles[i];
       setImageLoadingStatus({ loaded: i, total: imageFiles.length, current: f.name });
       const id = `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
-      const thumbUrl = await createThumbnail(f);
+      const { thumbUrl, naturalWidth, naturalHeight } = await createThumbnail(f);
       const previewUrl = URL.createObjectURL(f);
-      setVideoImages(prev => [...prev, { id, file: f, thumbUrl, previewUrl, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
+      setVideoImages(prev => [...prev, { id, file: f, thumbUrl, previewUrl, naturalWidth, naturalHeight, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
     }
     setImageLoadingStatus(null);
@@ -1922,6 +1929,42 @@ export default function VinylDigitizerPage() {
     return { totalMB, totalDur, overLimit: totalMB > YT_UPLOAD_LIMIT_MB, nearLimit: totalMB > YT_UPLOAD_LIMIT_MB * 0.8, overDuration: totalDur > YT_MAX_DURATION_SEC };
   };
 
+  // Rough peak-wasm-memory estimate so the user can predict whether ffmpeg.wasm will OOM.
+  // Components: ffmpeg base runtime, biggest decoded source image (RGBA), x264 buffered yuv420 frames, mux/audio overhead.
+  // The wasm single-threaded build ceiling is ~2 GB; we warn at ~1.5 GB.
+  const WASM_MEMORY_LIMIT_MB = 2048;
+  const WASM_MEMORY_WARN_MB = 1500;
+  const estimateMemoryUsage = () => {
+    const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+    const selectedImgs = videoImages.filter(img => selectedVideoImages.has(img.id));
+    if (selectedImgs.length === 0) return null;
+    const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
+    const effectiveMaxDim = parsedMax === 0 ? Infinity
+      : (parsedMax && parsedMax > 0 ? parsedMax : Math.round(Math.max(w, h) * 1.25));
+    let largestSourceBytes = 0;
+    for (const img of selectedImgs) {
+      const nw = img.naturalWidth || 0, nh = img.naturalHeight || 0;
+      if (!nw || !nh) continue;
+      const longest = Math.max(nw, nh);
+      const scale = longest > effectiveMaxDim ? effectiveMaxDim / longest : 1;
+      const eW = Math.max(1, Math.round(nw * scale)), eH = Math.max(1, Math.round(nh * scale));
+      largestSourceBytes = Math.max(largestSourceBytes, eW * eH * 4);
+    }
+    const baseMB = 150;
+    const sourceMB = (largestSourceBytes * 2) / (1024 * 1024);
+    const isHighRes = (w * h) >= (2560 * 1440);
+    const refFrames = isHighRes ? 4 : 8;
+    const encoderMB = (w * h * 1.5 * refFrames) / (1024 * 1024);
+    const muxMB = 80;
+    const totalMB = baseMB + sourceMB + encoderMB + muxMB;
+    return {
+      totalMB, baseMB, sourceMB, encoderMB, muxMB,
+      effectiveMaxDim,
+      overLimit: totalMB > WASM_MEMORY_LIMIT_MB,
+      nearLimit: totalMB > WASM_MEMORY_WARN_MB,
+    };
+  };
+
   const formatEta = () => {
     if (!videoRenderStartTime || !videoRenderProgress || videoRenderProgress <= 0.01) return null;
     const elapsed = (Date.now() - videoRenderStartTime) / 1000;
@@ -1971,6 +2014,7 @@ export default function VinylDigitizerPage() {
     setIsRenderingVideo(true); setVideoRenderProgress(0);
     setVideoRenderStartTime(Date.now());
     setVideoRenderLogs(["Starting FFmpeg…"]);
+    setVideoRenderError(null);
     setShowVideoLogs(true);
     const appendVideoLog = (line) => setVideoRenderLogs(prev => { const next = [...prev, line]; return next.length > 300 ? next.slice(-300) : next; });
     const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || "album";
@@ -1978,11 +2022,17 @@ export default function VinylDigitizerPage() {
     try {
       const ffV = new FFmpeg();
       videoFfmpegRef.current = ffV;
-      const oomState = { detected: false, lastSignal: "" };
-      const OOM_PATTERNS = /(malloc of size \d+ failed|Cannot enlarge memory|Out of memory|memory access out of bounds|Aborted\(\)|Error submitting video frame to the encoder)/i;
+      const oomState = { detected: false, lastSignal: "", encodeCompleted: false };
+      // "hard" patterns mean the encode definitely failed; "soft" (plain Aborted()) only counts if Lsize= never appeared.
+      const HARD_OOM = /(malloc of size \d+ failed|Cannot enlarge memory|Out of memory|memory access out of bounds|Error submitting video frame to the encoder)/i;
+      const SOFT_OOM = /Aborted\(\)/i;
       ffV.on("log", ({ message: msg }) => {
         appendVideoLog(msg);
-        if (!oomState.detected && OOM_PATTERNS.test(msg)) {
+        if (/Lsize=\s*\d+/.test(msg)) oomState.encodeCompleted = true;
+        if (!oomState.detected && HARD_OOM.test(msg)) {
+          oomState.detected = true;
+          oomState.lastSignal = msg.trim();
+        } else if (!oomState.detected && !oomState.encodeCompleted && SOFT_OOM.test(msg)) {
           oomState.detected = true;
           oomState.lastSignal = msg.trim();
         }
@@ -2014,7 +2064,9 @@ export default function VinylDigitizerPage() {
 
       const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
 
-      const imgMaxDim = Math.round(Math.max(w, h) * 1.25);
+      const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
+      const imgMaxDim = parsedMax === 0 ? Infinity
+        : (parsedMax && parsedMax > 0 ? parsedMax : Math.round(Math.max(w, h) * 1.25));
       const resizedImageFiles = [];
       for (let i = 0; i < selectedImageList.length; i++) {
         const original = selectedImageList[i].file;
@@ -2088,18 +2140,41 @@ export default function VinylDigitizerPage() {
         `${name}.mp4`
       ]);
 
-      if (oomState.detected) {
+      // If a hard OOM was detected before encoding finished, bail out early.
+      if (oomState.detected && !oomState.encodeCompleted) {
         const err = new Error("__OOM__");
         err.oom = true;
         err.signal = oomState.lastSignal;
         err.dimensions = { w, h };
         throw err;
       }
-      if (typeof exitCode === "number" && exitCode !== 0) {
+
+      // Try to read the output file. If encoding finished (Lsize= seen), trust it even if a
+      // late Aborted() fired during ffmpeg's shutdown. If the read fails or the file is empty,
+      // surface an OOM/render error.
+      let data;
+      try {
+        data = await ffV.readFile(`${name}.mp4`);
+      } catch (readErr) {
+        if (oomState.detected || oomState.encodeCompleted) {
+          const err = new Error("__OOM__");
+          err.oom = true;
+          err.signal = oomState.lastSignal || readErr?.message || "Could not read output file";
+          err.dimensions = { w, h };
+          throw err;
+        }
+        throw readErr;
+      }
+      if (!data || !data.byteLength) {
+        const err = new Error("__OOM__");
+        err.oom = true;
+        err.signal = oomState.lastSignal || "Output file was empty";
+        err.dimensions = { w, h };
+        throw err;
+      }
+      if (typeof exitCode === "number" && exitCode !== 0 && !oomState.encodeCompleted) {
         throw new Error(`FFmpeg exited with code ${exitCode}. See logs above.`);
       }
-
-      const data = await ffV.readFile(`${name}.mp4`);
       const blob = new Blob([data.buffer], { type: "video/mp4" });
       if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc);
       const renderedUrl = URL.createObjectURL(blob);
@@ -2159,9 +2234,20 @@ export default function VinylDigitizerPage() {
         ].filter(Boolean);
         setVideoRenderLogs(prev => [...prev, ...friendlyLines]);
         setMessage(`Out of memory at ${dims}. Try a lower resolution.`);
+        setVideoRenderError({
+          kind: "oom",
+          dims,
+          signal: err?.signal,
+          tips: [
+            "Lower the output resolution (e.g. 1080p instead of 4K).",
+            "Use fewer images or shorten the total audio duration.",
+            "Cap source images via the Image Settings panel above (very large PNGs decode to hundreds of MB each).",
+          ],
+        });
       } else {
         setVideoRenderLogs(prev => [...prev, `ERROR: ${err.message}`]);
         setMessage("Video render error: " + err.message);
+        setVideoRenderError({ kind: "generic", message: err?.message || "Render failed" });
       }
     }
     finally { setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null); }
@@ -3212,7 +3298,13 @@ export default function VinylDigitizerPage() {
                                 </td>
                                 <td>{i + 1}</td>
                                 <td><img src={img.thumbUrl} alt={img.file.name} className={styles.videoThumb} /></td>
-                                <td className={styles.filenameCell}>{img.file.name}</td>
+                                <td className={styles.filenameCell}>
+                                  <div>{img.file.name}</div>
+                                  <div style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: 2 }}>
+                                    {img.file.size ? formatBytes(img.file.size) : "—"}
+                                    {(img.naturalWidth && img.naturalHeight) ? ` · ${img.naturalWidth}×${img.naturalHeight}` : ""}
+                                  </div>
+                                </td>
                                 <td onClick={e => e.stopPropagation()}>
                                   <label className={styles.videoCheckLabel}>
                                     <input type="checkbox" checked={img.useBlurBg} onChange={e => updateVideoImage(img.id, "useBlurBg", e.target.checked)} />
@@ -3346,6 +3438,50 @@ export default function VinylDigitizerPage() {
                 );
               })()}
 
+              {/* Image Settings — controls how source images are pre-processed before render */}
+              {videoImages.length > 0 && (() => {
+                const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+                const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
+                const effectiveMaxDim = parsedMax === 0 ? Infinity
+                  : (parsedMax && parsedMax > 0 ? parsedMax : Math.round(Math.max(w, h) * 1.25));
+                const selectedImgs = videoImages.filter(img => selectedVideoImages.has(img.id));
+                const oversized = selectedImgs.filter(img => Math.max(img.naturalWidth || 0, img.naturalHeight || 0) > effectiveMaxDim);
+                const maxDimLabel = effectiveMaxDim === Infinity ? "no" : `${effectiveMaxDim}px`;
+                return (
+                  <div className={styles.videoSettings} style={{ marginBottom: 16 }}>
+                    <h3 className={styles.sectionTitle}>Image Settings</h3>
+                    <div className={styles.videoSettingsGrid}>
+                      <label className={styles.settingLabel}>
+                        Max source image size
+                        <select
+                          className={styles.input}
+                          value={imageMaxDim}
+                          onChange={e => setImageMaxDim(e.target.value)}
+                          title="Source images will be downscaled to this max dimension before rendering. Reduces memory use."
+                        >
+                          <option value="auto">Auto ({effectiveMaxDim}px — 1.25× output)</option>
+                          <option value="1080">1080px</option>
+                          <option value="1440">1440px</option>
+                          <option value="1920">1920px</option>
+                          <option value="2560">2560px</option>
+                          <option value="3840">3840px</option>
+                          <option value="0">No limit (use originals)</option>
+                        </select>
+                      </label>
+                      <div className={styles.settingLabel} style={{ alignSelf: "end" }}>
+                        <span style={{ fontSize: "0.78rem", opacity: 0.75 }}>
+                          {effectiveMaxDim === Infinity
+                            ? `Source images will be passed to ffmpeg at full resolution. Large images may exhaust browser memory.`
+                            : oversized.length > 0
+                              ? `${oversized.length} of ${selectedImgs.length} selected image${selectedImgs.length === 1 ? "" : "s"} will be shrunk to ${maxDimLabel} before render.`
+                              : `All ${selectedImgs.length} selected image${selectedImgs.length === 1 ? "" : "s"} are within the ${maxDimLabel} limit — no resizing needed.`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Video settings */}
               <div className={styles.videoSettings}>
                 <h3 className={styles.sectionTitle}>Video Settings</h3>
@@ -3461,6 +3597,57 @@ export default function VinylDigitizerPage() {
                     </div>
                   );
                 })()}
+
+                {/* Memory estimate */}
+                {(() => {
+                  const mem = estimateMemoryUsage();
+                  if (!mem) return null;
+                  const fmt = (mb) => mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`;
+                  const tone = mem.overLimit ? "danger" : mem.nearLimit ? "warn" : "ok";
+                  const bgByTone = {
+                    ok:     darkMode ? "#252538" : "#f7fafc",
+                    warn:   darkMode ? "#3a2a1a" : "#fffaf0",
+                    danger: darkMode ? "#5a1a1a" : "#fff5f5",
+                  };
+                  const borderByTone = {
+                    ok:     darkMode ? "#444"    : "#e2e8f0",
+                    warn:   "#fbd38d",
+                    danger: darkMode ? "#822727" : "#fc8181",
+                  };
+                  const pct = Math.min(100, (mem.totalMB / WASM_MEMORY_LIMIT_MB) * 100);
+                  return (
+                    <div style={{
+                      marginTop: 12, padding: "10px 14px", borderRadius: 6, fontSize: "0.82rem",
+                      background: bgByTone[tone], border: `1px solid ${borderByTone[tone]}`,
+                      color: darkMode ? "#fff" : "#2d3748"
+                    }}>
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                        <span>Est. peak browser memory: <strong>{fmt(mem.totalMB)}</strong></span>
+                        <span style={{ opacity: 0.7 }}>(limit ≈ {fmt(WASM_MEMORY_LIMIT_MB)})</span>
+                        <span title="Largest source image after downscale (×2 for decode + filter)">sources <strong>{fmt(mem.sourceMB)}</strong></span>
+                        <span title="x264 frame buffers at this output resolution">encoder <strong>{fmt(mem.encoderMB)}</strong></span>
+                      </div>
+                      <div style={{ marginTop: 8, height: 6, background: darkMode ? "#444" : "#e2e8f0", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%",
+                          width: `${pct}%`,
+                          background: tone === "danger" ? (darkMode ? "#fc8181" : "#c53030") : tone === "warn" ? "#dd6b20" : (darkMode ? "#48bb78" : "#38a169"),
+                          transition: "width 0.2s"
+                        }} />
+                      </div>
+                      {mem.overLimit && (
+                        <div style={{ marginTop: 8, color: darkMode ? "#fc8181" : "#c53030", fontWeight: 700 }}>
+                          ⚠️ Estimated memory exceeds the ~2 GB browser ceiling — this render will likely fail. Lower the resolution or reduce the max source image size in Image Settings.
+                        </div>
+                      )}
+                      {!mem.overLimit && mem.nearLimit && (
+                        <div style={{ marginTop: 8, color: darkMode ? "#fbd38d" : "#c05621" }}>
+                          ⚠️ Estimated memory is close to the browser limit — render may fail. Consider lowering the resolution or shrinking source images.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Render */}
@@ -3505,6 +3692,55 @@ export default function VinylDigitizerPage() {
                     <span className={styles.renderProgressPct}>{(videoRenderProgress * 100).toFixed(1)}%</span>
                     {formatEta() && <span className={styles.renderProgressEta}>{formatEta()}</span>}
                   </div>
+                </div>
+              )}
+
+              {/* Render error banner */}
+              {videoRenderError && (
+                <div role="alert" style={{
+                  marginTop: 16, padding: "14px 16px", borderRadius: 8,
+                  background: darkMode ? "#3a1a1a" : "#fff5f5",
+                  border: `1px solid ${darkMode ? "#822727" : "#fc8181"}`,
+                  color: darkMode ? "#feb2b2" : "#742a2a",
+                }}>
+                  {videoRenderError.kind === "oom" ? (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ fontWeight: 700, fontSize: "1rem" }}>
+                          ⚠️ Render failed: ran out of memory at {videoRenderError.dims}
+                        </div>
+                        <button onClick={() => setVideoRenderError(null)} style={{
+                          background: "transparent", border: "none", color: "inherit",
+                          cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0
+                        }} aria-label="Dismiss">×</button>
+                      </div>
+                      <p style={{ margin: "8px 0 6px", fontSize: "0.88rem" }}>
+                        FFmpeg runs in your browser (WebAssembly) and is capped at about 2 GB of memory. This job exceeded the limit, so the encoder aborted before producing a usable video.
+                      </p>
+                      <p style={{ margin: "10px 0 4px", fontSize: "0.85rem", fontWeight: 600 }}>Try one or more of:</p>
+                      <ul style={{ margin: "0 0 8px 20px", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                        {videoRenderError.tips.map((tip, i) => <li key={i}>{tip}</li>)}
+                      </ul>
+                      {videoRenderError.signal && (
+                        <p style={{ margin: "8px 0 0", fontSize: "0.75rem", opacity: 0.75, fontFamily: "monospace" }}>
+                          ffmpeg signal: {videoRenderError.signal}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ fontWeight: 700, fontSize: "1rem" }}>⚠️ Render failed</div>
+                        <button onClick={() => setVideoRenderError(null)} style={{
+                          background: "transparent", border: "none", color: "inherit",
+                          cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0
+                        }} aria-label="Dismiss">×</button>
+                      </div>
+                      <p style={{ margin: "8px 0 0", fontSize: "0.88rem", fontFamily: "monospace" }}>
+                        {videoRenderError.message}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
