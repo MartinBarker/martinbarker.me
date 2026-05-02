@@ -674,35 +674,110 @@ function CombineImageAudioExample() {
     setYtUploadResult(null);
     try {
       const tokens = await getTokensRef.current?.getTokens();
-      if (!tokens) { setYtUploadError("Not signed in to YouTube."); setYtUploading(false); return; }
+      if (!tokens) { setYtUploadError("Not signed in to YouTube."); return; }
       const videoBlob = await fetch(videoSrc).then(r => r.blob());
-      const fd = new FormData();
-      fd.append("video", videoBlob, `${ytUploadData.title || outputFilename}.${outputFormat}`);
-      fd.append("title", ytUploadData.title || outputFilename);
-      fd.append("description", ytUploadData.description || "");
-      fd.append("privacyStatus", ytUploadData.privacyStatus || "private");
-      fd.append("tags", ytUploadData.tags || "");
-      fd.append("tokens", JSON.stringify(tokens));
-      if (ytUploadData.thumbnail) fd.append("thumbnail", ytUploadData.thumbnail, ytUploadData.thumbnail.name);
 
-      await new Promise((resolve) => {
+      const sessionRes = await fetch(`${apiBaseURL()}/youtube/createUploadSession`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tokens,
+          title: ytUploadData.title || outputFilename,
+          description: ytUploadData.description || "",
+          privacyStatus: ytUploadData.privacyStatus || "private",
+          tags: ytUploadData.tags || "",
+          fileSize: videoBlob.size,
+          mimeType: videoBlob.type || "video/mp4",
+        }),
+      });
+      if (!sessionRes.ok) {
+        let errMsg;
+        try { errMsg = (await sessionRes.json()).error; } catch { errMsg = await sessionRes.text(); }
+        setYtUploadError(errMsg || `Failed to start upload session (${sessionRes.status})`);
+        return;
+      }
+      const { uploadUrl } = await sessionRes.json();
+
+      const CHUNK_SIZE = 8 * 1024 * 1024;
+      const total = videoBlob.size;
+      let offset = 0;
+      let videoData = null;
+      let aborted = false;
+
+      const putChunk = (start, end) => new Promise((resolve, reject) => {
+        const chunk = videoBlob.slice(start, end);
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", `${apiBaseURL()}/youtube/uploadVideo`);
-        xhr.withCredentials = true;
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) setYtUploadProgress(Math.round((e.loaded / e.total) * 100));
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${total}`);
+        xhr.timeout = 10 * 60 * 1000;
+
+        let lastProgressAt = Date.now();
+        const watchdog = setInterval(() => {
+          if (Date.now() - lastProgressAt >= 120000) { try { xhr.abort(); } catch {} }
+        }, 5000);
+        const cleanup = () => clearInterval(watchdog);
+
+        xhr.upload.onprogress = e => {
+          if (!e.lengthComputable) return;
+          lastProgressAt = Date.now();
+          setYtUploadProgress(Math.round(((start + e.loaded) / total) * 100));
         };
         xhr.onload = () => {
-          try {
-            const data = JSON.parse(xhr.responseText);
-            if (xhr.status >= 200 && xhr.status < 300) setYtUploadResult(data);
-            else setYtUploadError(data.error || `Upload failed (${xhr.status})`);
-          } catch { setYtUploadError("Failed to parse server response"); }
-          resolve();
+          cleanup();
+          if (xhr.status === 200 || xhr.status === 201) {
+            try { videoData = JSON.parse(xhr.responseText); }
+            catch { return reject(new Error("Could not parse YouTube response")); }
+            resolve({ done: true });
+          } else if (xhr.status === 308) {
+            const range = xhr.getResponseHeader("Range") || "";
+            const m = /bytes=0-(\d+)/.exec(range);
+            resolve({ done: false, next: m ? parseInt(m[1], 10) + 1 : end });
+          } else {
+            reject(new Error(`Chunk upload failed (${xhr.status})`));
+          }
         };
-        xhr.onerror = () => { setYtUploadError("Network error during upload"); resolve(); };
-        xhr.send(fd);
+        xhr.onerror = () => { cleanup(); reject(new Error("Network error during chunk upload")); };
+        xhr.onabort = () => { cleanup(); aborted = true; reject(new Error("Upload aborted")); };
+        xhr.ontimeout = () => { cleanup(); reject(new Error("Chunk upload timed out")); };
+        xhr.send(chunk);
       });
+
+      try {
+        while (offset < total) {
+          const end = Math.min(offset + CHUNK_SIZE, total);
+          const result = await putChunk(offset, end);
+          if (result.done) break;
+          offset = result.next ?? end;
+        }
+      } catch (err) {
+        setYtUploadError(aborted
+          ? "Upload aborted — connection stalled. Try again or use a smaller video."
+          : `Upload failed: ${err.message}`);
+        return;
+      }
+
+      if (!videoData) { setYtUploadError("Upload completed but YouTube didn't return video metadata."); return; }
+
+      let thumbnailUploaded = false;
+      if (ytUploadData.thumbnail && videoData.id) {
+        try {
+          const thumbRes = await fetch(
+            `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoData.id)}&uploadType=media`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${tokens.access_token}`,
+                "Content-Type": ytUploadData.thumbnail.type || "image/jpeg",
+              },
+              body: ytUploadData.thumbnail,
+            }
+          );
+          thumbnailUploaded = thumbRes.ok;
+        } catch {}
+      }
+
+      setYtUploadResult({ id: videoData.id, title: videoData.snippet?.title, thumbnailUploaded });
     } catch (err) { setYtUploadError(err.message || "Upload failed"); }
     finally { setYtUploading(false); setYtUploadProgress(null); }
   };

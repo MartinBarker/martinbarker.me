@@ -2296,128 +2296,148 @@ export default function VinylDigitizerPage() {
         return;
       }
 
-      const fd = new FormData();
-      fd.append("video", videoBlob, `${currentYtData.title || name}.mp4`);
-      fd.append("title", currentYtData.title || name);
-      fd.append("description", currentYtData.description || "");
-      fd.append("privacyStatus", currentYtData.privacyStatus || "private");
-      fd.append("tags", currentYtData.tags || "");
-      fd.append("tokens", JSON.stringify(tokens));
-      if (thumbnailFile) fd.append("thumbnail", thumbnailFile, thumbnailFile.name);
-
-      const endpoint = `${apiBaseURL()}/youtube/uploadVideo`;
-      log("info", `[${elapsed()}] POST ${endpoint}`, {
+      const sessionEndpoint = `${apiBaseURL()}/youtube/createUploadSession`;
+      log("info", `[${elapsed()}] POST ${sessionEndpoint} (init resumable session)`, {
         titleLen: (currentYtData.title || name).length,
         descLen: (currentYtData.description || "").length,
         tagsLen: (currentYtData.tags || "").length,
         privacyStatus: currentYtData.privacyStatus || "private",
         hasThumbnail: !!thumbnailFile,
         thumbnailSize: thumbnailFile?.size || 0,
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-        online: typeof navigator !== "undefined" ? navigator.onLine : null,
+        sizeBytes: videoBlob.size,
       });
 
-      await new Promise(resolve => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", endpoint);
-        xhr.withCredentials = true;
-        // 30-minute hard cap so a stalled upload surfaces a real error instead of spinning indefinitely.
-        xhr.timeout = 30 * 60 * 1000;
+      const sessionRes = await fetch(sessionEndpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tokens,
+          title: currentYtData.title || name,
+          description: currentYtData.description || "",
+          privacyStatus: currentYtData.privacyStatus || "private",
+          tags: currentYtData.tags || "",
+          fileSize: videoBlob.size,
+          mimeType: videoBlob.type || "video/mp4",
+        }),
+      });
+      if (!sessionRes.ok) {
+        const errBody = await sessionRes.text();
+        log("error", `[${elapsed()}] createUploadSession failed`, { status: sessionRes.status, body: errBody.slice(0, 300) });
+        let errMsg;
+        try { errMsg = JSON.parse(errBody).error; } catch { errMsg = errBody; }
+        setYtUploadError(errMsg || `Failed to start upload session (${sessionRes.status})`);
+        return;
+      }
+      const { uploadUrl } = await sessionRes.json();
+      log("info", `[${elapsed()}] resumable session created`, { uploadUrl: uploadUrl?.slice(0, 80) + "…" });
 
-        // Stall watchdog: if no progress for >30s, log to console; if >5min, abort.
+      // Chunked PUT directly to YouTube. 8 MB chunks (must be a multiple of 256 KB; final chunk can be any size).
+      const CHUNK_SIZE = 8 * 1024 * 1024;
+      const total = videoBlob.size;
+      let offset = 0;
+      let aborted = false;
+      let videoData = null;
+
+      const putChunk = (start, end) => new Promise((resolve, reject) => {
+        const chunk = videoBlob.slice(start, end);
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${total}`);
+        xhr.timeout = 10 * 60 * 1000;
+
         let lastBytes = 0;
         let lastProgressAt = Date.now();
         let stallWarned = false;
         const watchdog = setInterval(() => {
           const stuckSec = Math.round((Date.now() - lastProgressAt) / 1000);
-          if (stuckSec >= 300) {
-            log("error", `[${elapsed()}] upload stalled ${stuckSec}s — aborting`, { lastBytes });
+          if (stuckSec >= 120) {
+            log("error", `[${elapsed()}] chunk stalled ${stuckSec}s — aborting`, { start, lastBytes });
             try { xhr.abort(); } catch {}
             return;
           }
           if (stuckSec >= 30 && !stallWarned) {
             stallWarned = true;
-            log("warn", `[${elapsed()}] upload stalled — no progress in ${stuckSec}s at ${lastBytes} bytes (${(lastBytes/1024/1024).toFixed(1)} MB sent so far). Will abort at 5min.`);
+            log("warn", `[${elapsed()}] chunk stalled ${stuckSec}s at ${(start + lastBytes)/1024/1024 | 0} MB`);
           }
-        }, 10000);
+        }, 5000);
         const cleanup = () => clearInterval(watchdog);
 
-        // upload events (request body streaming)
-        xhr.upload.onloadstart = e => log("info", `[${elapsed()}] xhr.upload.loadstart`, { lengthComputable: e.lengthComputable, total: e.total });
         xhr.upload.onprogress = e => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            const prevPct = Math.round((lastBytes / e.total) * 100);
-            lastBytes = e.loaded;
-            lastProgressAt = Date.now();
-            stallWarned = false;
-            setYtUploadProgress(pct);
-            if (pct !== prevPct) {
-              log("debug", `[${elapsed()}] upload ${pct}% (${(e.loaded/1024/1024).toFixed(1)} / ${(e.total/1024/1024).toFixed(1)} MB)`);
-            }
-          } else {
-            log("debug", `[${elapsed()}] xhr.upload.progress (not lengthComputable)`, { loaded: e.loaded });
-          }
-        };
-        xhr.upload.onload = () => log("info", `[${elapsed()}] xhr.upload.load — all request bytes sent. Waiting on server response…`);
-        xhr.upload.onerror = () => log("error", `[${elapsed()}] xhr.upload.error`, { status: xhr.status });
-        xhr.upload.onabort = () => log("warn", `[${elapsed()}] xhr.upload.abort`);
-        xhr.upload.ontimeout = () => log("error", `[${elapsed()}] xhr.upload.timeout`);
-
-        // response-side events
-        xhr.onreadystatechange = () => {
-          const stateNames = ["UNSENT","OPENED","HEADERS_RECEIVED","LOADING","DONE"];
-          log("debug", `[${elapsed()}] xhr.readyState=${xhr.readyState} (${stateNames[xhr.readyState] || "?"})`,
-            xhr.readyState >= 2 ? `status=${xhr.status} ${xhr.statusText}` : "");
+          if (!e.lengthComputable) return;
+          lastBytes = e.loaded;
+          lastProgressAt = Date.now();
+          stallWarned = false;
+          const sent = start + e.loaded;
+          setYtUploadProgress(Math.round((sent / total) * 100));
         };
         xhr.onload = () => {
           cleanup();
-          log("info", `[${elapsed()}] xhr.onload`, {
-            status: xhr.status,
-            statusText: xhr.statusText,
-            responseLen: xhr.responseText?.length || 0,
-            responseSnippet: (xhr.responseText || "").slice(0, 300),
-          });
-          try {
-            const data = JSON.parse(xhr.responseText);
-            if (xhr.status >= 200 && xhr.status < 300) setYtUploadResult(data);
-            else {
-              console.error("[yt-upload] server response (non-2xx):", data);
-              let errMsg = data.error || `Upload failed (${xhr.status})`;
-              if (xhr.status === 413) errMsg = `File too large (${fileSizeMB} MB). Maximum upload size is ${maxSizeMB} MB. Try a lower resolution.`;
-              else if (/invalid.*title|empty.*title/i.test(errMsg)) errMsg += " — Try shortening the title (max 100 characters).";
-              else if (/description/i.test(errMsg)) errMsg += " — Try shortening the description (max 5,000 characters).";
-              else if (/tag/i.test(errMsg)) errMsg += " — Try reducing tags (max 500 characters total, each tag max 30 chars).";
-              setYtUploadError(errMsg);
-            }
-          } catch (parseErr) {
-            log("error", "failed to parse server response", { status: xhr.status, raw: xhr.responseText, parseErr });
-            setYtUploadError(`Failed to parse server response (HTTP ${xhr.status}): ${(xhr.responseText || "").slice(0, 200)}`);
+          if (xhr.status === 200 || xhr.status === 201) {
+            try { videoData = JSON.parse(xhr.responseText); }
+            catch { return reject(new Error("Could not parse YouTube response")); }
+            resolve({ done: true });
+          } else if (xhr.status === 308) {
+            const range = xhr.getResponseHeader("Range") || "";
+            const m = /bytes=0-(\d+)/.exec(range);
+            const next = m ? parseInt(m[1], 10) + 1 : end;
+            resolve({ done: false, next });
+          } else {
+            reject(new Error(`Chunk upload failed (${xhr.status}): ${(xhr.responseText || "").slice(0, 200)}`));
           }
-          resolve();
         };
-        xhr.onerror = () => {
-          cleanup();
-          log("error", `[${elapsed()}] xhr.onerror — network failure`, { status: xhr.status, response: xhr.responseText });
-          setYtUploadError(`Network error uploading ${fileSizeMB} MB video. Check your connection and try again.`);
-          resolve();
-        };
-        xhr.onabort = () => {
-          cleanup();
-          log("warn", `[${elapsed()}] xhr.onabort`);
-          setYtUploadError(`Upload aborted after ${Math.round((Date.now() - lastProgressAt)/1000)}s without progress. Try again, or render a smaller video.`);
-          resolve();
-        };
-        xhr.ontimeout = () => {
-          cleanup();
-          log("error", `[${elapsed()}] xhr.ontimeout — exceeded ${xhr.timeout}ms`);
-          setYtUploadError(`Upload timed out after ${xhr.timeout / 60000} minutes. The server or network may be slow — try again.`);
-          resolve();
-        };
-
-        log("info", `[${elapsed()}] calling xhr.send()`);
-        xhr.send(fd);
+        xhr.onerror = () => { cleanup(); reject(new Error("Network error during chunk upload")); };
+        xhr.onabort = () => { cleanup(); aborted = true; reject(new Error("Upload aborted (no progress)")); };
+        xhr.ontimeout = () => { cleanup(); reject(new Error("Chunk upload timed out")); };
+        xhr.send(chunk);
       });
+
+      try {
+        while (offset < total) {
+          const end = Math.min(offset + CHUNK_SIZE, total);
+          log("debug", `[${elapsed()}] PUT chunk ${offset}-${end - 1}/${total}`);
+          const result = await putChunk(offset, end);
+          if (result.done) break;
+          offset = result.next ?? end;
+        }
+      } catch (err) {
+        log("error", `[${elapsed()}] chunked upload failed`, err);
+        setYtUploadError(aborted
+          ? `Upload aborted — connection stalled. Try again or use a smaller video.`
+          : `Upload failed: ${err.message}`);
+        return;
+      }
+
+      if (!videoData) {
+        setYtUploadError("Upload completed but YouTube didn't return video metadata.");
+        return;
+      }
+
+      log("info", `[${elapsed()}] video upload complete`, { videoId: videoData.id });
+
+      let thumbnailUploaded = false;
+      if (thumbnailFile && videoData.id) {
+        try {
+          log("info", `[${elapsed()}] uploading thumbnail directly to YouTube`);
+          const thumbRes = await fetch(
+            `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoData.id)}&uploadType=media`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${tokens.access_token}`,
+                "Content-Type": thumbnailFile.type || "image/jpeg",
+              },
+              body: thumbnailFile,
+            }
+          );
+          if (thumbRes.ok) thumbnailUploaded = true;
+          else log("warn", `[${elapsed()}] thumbnail upload failed`, { status: thumbRes.status, body: (await thumbRes.text()).slice(0, 200) });
+        } catch (thumbErr) {
+          log("warn", `[${elapsed()}] thumbnail upload threw`, thumbErr);
+        }
+      }
+
+      setYtUploadResult({ id: videoData.id, title: videoData.snippet?.title, thumbnailUploaded });
     } catch (err) {
       log("error", `[${elapsed()}] uploadToYouTube threw`, err);
       setYtUploadError(err.message || "Upload failed");
