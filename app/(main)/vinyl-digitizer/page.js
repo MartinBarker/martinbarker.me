@@ -2255,15 +2255,47 @@ export default function VinylDigitizerPage() {
 
   // ---- YouTube Upload ----
   const uploadToYouTube = async (videoUrlOverride) => {
+    const log = (level, ...args) => { try { (console[level] || console.log)("[yt-upload]", ...args); } catch {} };
+    const tStart = performance.now();
+    const elapsed = () => `${Math.round(performance.now() - tStart)}ms`;
     const videoUrl = videoUrlOverride || renderedVideoSrc;
-    if (!videoUrl || ytUploading) return;
+
+    log("info", "uploadToYouTube called", {
+      hasOverride: !!videoUrlOverride,
+      hasRenderedVideoSrc: !!renderedVideoSrc,
+      ytUploading,
+      videoUrl: videoUrl ? videoUrl.slice(0, 64) + (videoUrl.length > 64 ? "…" : "") : null,
+    });
+
+    if (!videoUrl) { log("warn", "abort: no videoUrl"); return; }
+    if (ytUploading) { log("warn", "abort: ytUploading already true"); return; }
     setYtUploading(true); setYtUploadProgress(0); setYtUploadError(""); setYtUploadResult(null);
     try {
+      log("info", `[${elapsed()}] requesting tokens via getTokensRef…`);
       const tokens = await getTokensRef.current?.getTokens();
-      if (!tokens) { setYtUploadError("Not signed in to YouTube."); setYtUploading(false); return; }
+      log("info", `[${elapsed()}] tokens received`, {
+        hasTokens: !!tokens,
+        hasAccessToken: !!tokens?.access_token,
+        hasRefreshToken: !!tokens?.refresh_token,
+        scope: tokens?.scope,
+        expiresIn: tokens?.expires_in,
+      });
+      if (!tokens) { log("error", "no tokens returned by getTokens()"); setYtUploadError("Not signed in to YouTube."); setYtUploading(false); return; }
       const currentYtData = ytUploadDataRef.current;
       const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_");
+      log("info", `[${elapsed()}] fetching rendered video blob…`, videoUrl);
       const videoBlob = await fetch(videoUrl).then(r => r.blob());
+      const fileSizeMB = (videoBlob.size / (1024 * 1024)).toFixed(1);
+      log("info", `[${elapsed()}] blob ready`, { sizeMB: fileSizeMB, sizeBytes: videoBlob.size, type: videoBlob.type });
+
+      const maxSizeMB = 2048; // 2 GB server limit
+      if (videoBlob.size > maxSizeMB * 1024 * 1024) {
+        log("error", "video exceeds upload limit", { sizeMB: fileSizeMB, maxSizeMB });
+        setYtUploadError(`Video file is ${fileSizeMB} MB — exceeds the ${maxSizeMB} MB upload limit. Try a lower resolution or shorter duration.`);
+        setYtUploading(false);
+        return;
+      }
+
       const fd = new FormData();
       fd.append("video", videoBlob, `${currentYtData.title || name}.mp4`);
       fd.append("title", currentYtData.title || name);
@@ -2272,24 +2304,85 @@ export default function VinylDigitizerPage() {
       fd.append("tags", currentYtData.tags || "");
       fd.append("tokens", JSON.stringify(tokens));
       if (thumbnailFile) fd.append("thumbnail", thumbnailFile, thumbnailFile.name);
-      const fileSizeMB = (videoBlob.size / (1024 * 1024)).toFixed(1);
-      const maxSizeMB = 2048; // 2 GB server limit
-      if (videoBlob.size > maxSizeMB * 1024 * 1024) {
-        setYtUploadError(`Video file is ${fileSizeMB} MB — exceeds the ${maxSizeMB} MB upload limit. Try a lower resolution or shorter duration.`);
-        setYtUploading(false);
-        return;
-      }
+
+      const endpoint = `${apiBaseURL()}/youtube/uploadVideo`;
+      log("info", `[${elapsed()}] POST ${endpoint}`, {
+        titleLen: (currentYtData.title || name).length,
+        descLen: (currentYtData.description || "").length,
+        tagsLen: (currentYtData.tags || "").length,
+        privacyStatus: currentYtData.privacyStatus || "private",
+        hasThumbnail: !!thumbnailFile,
+        thumbnailSize: thumbnailFile?.size || 0,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+        online: typeof navigator !== "undefined" ? navigator.onLine : null,
+      });
+
       await new Promise(resolve => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", `${apiBaseURL()}/youtube/uploadVideo`);
+        xhr.open("POST", endpoint);
         xhr.withCredentials = true;
-        xhr.upload.onprogress = e => { if (e.lengthComputable) setYtUploadProgress(Math.round((e.loaded / e.total) * 100)); };
+        // 30-minute hard cap so a stalled upload surfaces a real error instead of spinning indefinitely.
+        xhr.timeout = 30 * 60 * 1000;
+
+        // Stall watchdog: if no progress for >30s, log to console; if >5min, abort.
+        let lastBytes = 0;
+        let lastProgressAt = Date.now();
+        let stallWarned = false;
+        const watchdog = setInterval(() => {
+          const stuckSec = Math.round((Date.now() - lastProgressAt) / 1000);
+          if (stuckSec >= 300) {
+            log("error", `[${elapsed()}] upload stalled ${stuckSec}s — aborting`, { lastBytes });
+            try { xhr.abort(); } catch {}
+            return;
+          }
+          if (stuckSec >= 30 && !stallWarned) {
+            stallWarned = true;
+            log("warn", `[${elapsed()}] upload stalled — no progress in ${stuckSec}s at ${lastBytes} bytes (${(lastBytes/1024/1024).toFixed(1)} MB sent so far). Will abort at 5min.`);
+          }
+        }, 10000);
+        const cleanup = () => clearInterval(watchdog);
+
+        // upload events (request body streaming)
+        xhr.upload.onloadstart = e => log("info", `[${elapsed()}] xhr.upload.loadstart`, { lengthComputable: e.lengthComputable, total: e.total });
+        xhr.upload.onprogress = e => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            const prevPct = Math.round((lastBytes / e.total) * 100);
+            lastBytes = e.loaded;
+            lastProgressAt = Date.now();
+            stallWarned = false;
+            setYtUploadProgress(pct);
+            if (pct !== prevPct) {
+              log("debug", `[${elapsed()}] upload ${pct}% (${(e.loaded/1024/1024).toFixed(1)} / ${(e.total/1024/1024).toFixed(1)} MB)`);
+            }
+          } else {
+            log("debug", `[${elapsed()}] xhr.upload.progress (not lengthComputable)`, { loaded: e.loaded });
+          }
+        };
+        xhr.upload.onload = () => log("info", `[${elapsed()}] xhr.upload.load — all request bytes sent. Waiting on server response…`);
+        xhr.upload.onerror = () => log("error", `[${elapsed()}] xhr.upload.error`, { status: xhr.status });
+        xhr.upload.onabort = () => log("warn", `[${elapsed()}] xhr.upload.abort`);
+        xhr.upload.ontimeout = () => log("error", `[${elapsed()}] xhr.upload.timeout`);
+
+        // response-side events
+        xhr.onreadystatechange = () => {
+          const stateNames = ["UNSENT","OPENED","HEADERS_RECEIVED","LOADING","DONE"];
+          log("debug", `[${elapsed()}] xhr.readyState=${xhr.readyState} (${stateNames[xhr.readyState] || "?"})`,
+            xhr.readyState >= 2 ? `status=${xhr.status} ${xhr.statusText}` : "");
+        };
         xhr.onload = () => {
+          cleanup();
+          log("info", `[${elapsed()}] xhr.onload`, {
+            status: xhr.status,
+            statusText: xhr.statusText,
+            responseLen: xhr.responseText?.length || 0,
+            responseSnippet: (xhr.responseText || "").slice(0, 300),
+          });
           try {
             const data = JSON.parse(xhr.responseText);
             if (xhr.status >= 200 && xhr.status < 300) setYtUploadResult(data);
             else {
-              console.error("YouTube upload error — full server response:", data);
+              console.error("[yt-upload] server response (non-2xx):", data);
               let errMsg = data.error || `Upload failed (${xhr.status})`;
               if (xhr.status === 413) errMsg = `File too large (${fileSizeMB} MB). Maximum upload size is ${maxSizeMB} MB. Try a lower resolution.`;
               else if (/invalid.*title|empty.*title/i.test(errMsg)) errMsg += " — Try shortening the title (max 100 characters).";
@@ -2297,14 +2390,42 @@ export default function VinylDigitizerPage() {
               else if (/tag/i.test(errMsg)) errMsg += " — Try reducing tags (max 500 characters total, each tag max 30 chars).";
               setYtUploadError(errMsg);
             }
-          } catch (parseErr) { console.error("YouTube upload error — failed to parse response. Status:", xhr.status, "Raw response:", xhr.responseText, parseErr); setYtUploadError(`Failed to parse server response (HTTP ${xhr.status})`); }
+          } catch (parseErr) {
+            log("error", "failed to parse server response", { status: xhr.status, raw: xhr.responseText, parseErr });
+            setYtUploadError(`Failed to parse server response (HTTP ${xhr.status}): ${(xhr.responseText || "").slice(0, 200)}`);
+          }
           resolve();
         };
-        xhr.onerror = () => { console.error("YouTube upload network error — XHR onerror fired. Status:", xhr.status, "Response:", xhr.responseText); setYtUploadError(`Network error uploading ${fileSizeMB} MB video. Check your connection and try again.`); resolve(); };
+        xhr.onerror = () => {
+          cleanup();
+          log("error", `[${elapsed()}] xhr.onerror — network failure`, { status: xhr.status, response: xhr.responseText });
+          setYtUploadError(`Network error uploading ${fileSizeMB} MB video. Check your connection and try again.`);
+          resolve();
+        };
+        xhr.onabort = () => {
+          cleanup();
+          log("warn", `[${elapsed()}] xhr.onabort`);
+          setYtUploadError(`Upload aborted after ${Math.round((Date.now() - lastProgressAt)/1000)}s without progress. Try again, or render a smaller video.`);
+          resolve();
+        };
+        xhr.ontimeout = () => {
+          cleanup();
+          log("error", `[${elapsed()}] xhr.ontimeout — exceeded ${xhr.timeout}ms`);
+          setYtUploadError(`Upload timed out after ${xhr.timeout / 60000} minutes. The server or network may be slow — try again.`);
+          resolve();
+        };
+
+        log("info", `[${elapsed()}] calling xhr.send()`);
         xhr.send(fd);
       });
-    } catch (err) { console.error("YouTube upload error:", err); setYtUploadError(err.message || "Upload failed"); }
-    finally { setYtUploading(false); setYtUploadProgress(null); }
+    } catch (err) {
+      log("error", `[${elapsed()}] uploadToYouTube threw`, err);
+      setYtUploadError(err.message || "Upload failed");
+    }
+    finally {
+      log("info", `[${elapsed()}] uploadToYouTube finally — clearing state`);
+      setYtUploading(false); setYtUploadProgress(null);
+    }
   };
 
   // Regenerate YouTube metadata when format options change
