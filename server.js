@@ -2972,6 +2972,10 @@ app.post('/youtube/createUploadSession', async (req, res) => {
           'Content-Type': 'application/json; charset=UTF-8',
           'X-Upload-Content-Length': String(sizeNum),
           'X-Upload-Content-Type': mimeType,
+          // Google ties the resumable session's CORS allow-list to the Origin
+          // on this init request. Without it, the browser's PUT to uploadUrl
+          // is blocked by CORS even though Google accepts the bytes.
+          Origin: req.get('origin') || 'https://martinbarker.me',
         },
         validateStatus: () => true,
         maxRedirects: 0,

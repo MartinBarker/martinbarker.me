@@ -324,23 +324,17 @@ export default function TaggerPage({ initialUrl }) {
 
     let currentTrack = null;
 
+    // Strip surrounding quotes if present, otherwise return the bare token.
+    // CUE values may be quoted ("foo") or unquoted (foo).
+    const parseValue = (rest) => {
+      const quoted = rest.match(/^"([^"]*)"/);
+      if (quoted) return quoted[1];
+      return rest.trim();
+    };
+
     for (const line of lines) {
-      // Parse TITLE (album title)
-      if (line.startsWith('TITLE ')) {
-        const match = line.match(/TITLE\s+"([^"]+)"/);
-        if (match) {
-          result.title = match[1];
-        }
-      }
-      // Parse PERFORMER (artist)
-      else if (line.startsWith('PERFORMER ')) {
-        const match = line.match(/PERFORMER\s+"([^"]+)"/);
-        if (match) {
-          result.performer = match[1];
-        }
-      }
-      // Parse TRACK entries
-      else if (line.startsWith('TRACK ')) {
+      // TRACK starts a new track block — anything before this is album-level.
+      if (line.startsWith('TRACK ')) {
         if (currentTrack) {
           result.tracks.push(currentTrack);
         }
@@ -351,35 +345,31 @@ export default function TaggerPage({ initialUrl }) {
           startTime: 0,
           formattedTime: '00:00'
         };
-        
         const trackMatch = line.match(/TRACK\s+(\d+)/);
         if (trackMatch) {
-          currentTrack.number = parseInt(trackMatch[1]);
+          currentTrack.number = parseInt(trackMatch[1], 10);
         }
       }
-      // Parse track TITLE
-      else if (line.startsWith('TITLE ') && currentTrack) {
-        const match = line.match(/TITLE\s+"([^"]+)"/);
-        if (match) {
-          currentTrack.title = match[1];
-        }
+      // TITLE / PERFORMER apply to the current track once one is open,
+      // otherwise to the album.
+      else if (line.startsWith('TITLE ')) {
+        const value = parseValue(line.slice('TITLE '.length));
+        if (currentTrack) currentTrack.title = value;
+        else result.title = value;
       }
-      // Parse track PERFORMER
-      else if (line.startsWith('PERFORMER ') && currentTrack) {
-        const match = line.match(/PERFORMER\s+"([^"]+)"/);
-        if (match) {
-          currentTrack.performer = match[1];
-        }
+      else if (line.startsWith('PERFORMER ')) {
+        const value = parseValue(line.slice('PERFORMER '.length));
+        if (currentTrack) currentTrack.performer = value;
+        else result.performer = value;
       }
-      // Parse INDEX 01 (start time)
+      // INDEX 01 is the playable start time of the current track.
+      // CUE time format is MM:SS:FF where FF is 1/75th-second frames.
       else if (line.startsWith('INDEX 01 ') && currentTrack) {
-        const match = line.match(/INDEX\s+01\s+(\d{2}):(\d{2}):(\d{2})/);
+        const match = line.match(/INDEX\s+01\s+(\d+):(\d{2}):(\d{2})/);
         if (match) {
-          const minutes = parseInt(match[1]);
-          const seconds = parseInt(match[2]);
-          const frames = parseInt(match[3]);
-          
-          // Convert to seconds (frames are typically 1/75th of a second)
+          const minutes = parseInt(match[1], 10);
+          const seconds = parseInt(match[2], 10);
+          const frames = parseInt(match[3], 10);
           const startTime = (minutes * 60) + seconds + (frames / 75);
           currentTrack.startTime = startTime;
           currentTrack.formattedTime = formatTime(startTime);
