@@ -2368,7 +2368,11 @@
   .projectNameInput { flex: 1; }
   .stepBar { gap: 0; padding: 0.5rem; }
   .stepLabel { display: none; }
-  .body { flex-direction: column; }
+  /* Stretch children to full width when stacking — otherwise the row-layout
+     `align-items: flex-start` collapses .main/.card to their content width
+     and leaves blank space on the right. */
+  .body { flex-direction: column; align-items: stretch; }
+  .main { width: 100%; }
   .historySidebar { width: 100%; max-height: none; }
   .exportGrid { grid-template-columns: 1fr; }
   .waveToolbar { gap: 0.35rem; }
