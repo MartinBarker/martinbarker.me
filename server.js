@@ -2973,6 +2973,73 @@ const ytVideoUpload = multer({
   { name: 'thumbnail', maxCount: 1 }
 ]);
 
+// Initiate a YouTube resumable upload session.
+// Returns the per-upload session URL the browser then PUTs video bytes to,
+// streaming directly to Google rather than buffering through this server.
+app.post('/youtube/createUploadSession', async (req, res) => {
+  console.log('📹 [POST /youtube/createUploadSession] Hit');
+  try {
+    const {
+      tokens: bodyTokens,
+      title = 'Untitled',
+      description = '',
+      tags = '',
+      privacyStatus = 'private',
+      fileSize,
+      mimeType = 'video/mp4',
+    } = req.body || {};
+
+    let tokens = req.session?.youtubeAuth?.tokens;
+    if ((!tokens || !tokens.access_token) && bodyTokens?.access_token) tokens = bodyTokens;
+    if (!tokens?.access_token) return res.status(401).json({ error: 'Not authenticated with YouTube' });
+
+    const sizeNum = Number(fileSize);
+    if (!Number.isFinite(sizeNum) || sizeNum <= 0) {
+      return res.status(400).json({ error: 'fileSize (bytes) is required' });
+    }
+
+    oauth2Client.setCredentials(tokens);
+    const { token: accessToken } = await oauth2Client.getAccessToken();
+    if (!accessToken) return res.status(401).json({ error: 'Could not obtain access token' });
+
+    const tagList = Array.isArray(tags)
+      ? tags
+      : (typeof tags === 'string' && tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []);
+
+    const initResponse = await axios.post(
+      'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+      { snippet: { title, description, tags: tagList }, status: { privacyStatus } },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Length': String(sizeNum),
+          'X-Upload-Content-Type': mimeType,
+          // Google ties the resumable session's CORS allow-list to the Origin
+          // on this init request. Without it, the browser's PUT to uploadUrl
+          // is blocked by CORS even though Google accepts the bytes.
+          Origin: req.get('origin') || 'https://martinbarker.me',
+        },
+        validateStatus: () => true,
+        maxRedirects: 0,
+      }
+    );
+
+    const uploadUrl = initResponse.headers?.location;
+    if (initResponse.status !== 200 || !uploadUrl) {
+      console.error('createUploadSession init failed', initResponse.status, initResponse.data);
+      const errMsg = (initResponse.data && initResponse.data.error && initResponse.data.error.message)
+        || `YouTube upload init failed (${initResponse.status})`;
+      return res.status(initResponse.status >= 400 ? initResponse.status : 500).json({ error: errMsg });
+    }
+
+    res.status(200).json({ uploadUrl });
+  } catch (err) {
+    console.error('createUploadSession error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to create upload session' });
+  }
+});
+
 // Upload video to YouTube (dev route)
 app.post('/youtube/uploadVideo', (req, res, next) => {
   ytVideoUpload(req, res, (err) => {
