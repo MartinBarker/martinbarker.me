@@ -107,26 +107,8 @@ export function extractTagsFromDiscogs(response, filenames = []) {
 }
 
 /**
- * Sanitize a single tag for YouTube. Strips characters that cause
- * invalidVideoMetadata errors (angle brackets, quotes, control chars),
- * collapses whitespace, and enforces the 30-char per-tag limit.
- */
-export function sanitizeYouTubeTag(tag) {
-  if (tag == null) return '';
-  return String(tag)
-    .replace(/[<>"']/g, '')
-    .replace(/[\x00-\x1F\x7F]/g, '')
-    .replace(/[,;]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 30)
-    .trim();
-}
-
-/**
  * Build a comma-separated tag string from categorized tags + per-category filters.
  * filters: { artists: { enabled, sliderValue }, album: { ... }, ... }
- * Tags are sanitized to remove YouTube-illegal characters and enforce length limits.
  */
 export function buildTagString(tags, filters) {
   const all = new Set();
@@ -135,10 +117,7 @@ export function buildTagString(tags, filters) {
     const arr = tags[cat];
     if (!f?.enabled || !arr?.length) continue;
     const count = Math.ceil((arr.length * (f.sliderValue ?? 100)) / 100);
-    arr.slice(0, count).forEach(t => {
-      const clean = sanitizeYouTubeTag(t);
-      if (clean) all.add(clean);
-    });
+    arr.slice(0, count).forEach(t => all.add(t));
   }
   return Array.from(all).join(', ');
 }
