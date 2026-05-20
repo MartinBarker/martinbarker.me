@@ -15,6 +15,9 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
   const [clearAuthLoading, setClearAuthLoading] = useState(false);
   const [error, setError] = useState('');
   const [debugLog, setDebugLog] = useState([]);
+  // 'unknown' | 'checking' | 'valid' | 'invalid'
+  const [tokenValidity, setTokenValidity] = useState('unknown');
+  const [tokenValidityReason, setTokenValidityReason] = useState('');
   const [youtubeAuthStatus, setYoutubeAuthStatus] = useState({
     exists: false,
     code: null,
@@ -23,11 +26,15 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     expiresAt: null,
   });
 
-  const canAuth =
+  // Only show signed-in once tokens have been verified against Google.
+  // If verification hasn't completed yet, we treat the user as signed-out so
+  // they can't attempt an upload that will fail with invalid_grant.
+  const hasLocalAuth =
     isAuthenticated ||
     (youtubeAuthStatus.exists &&
       youtubeAuthStatus.expiresAt &&
       new Date(youtubeAuthStatus.expiresAt) > new Date());
+  const canAuth = hasLocalAuth && tokenValidity === 'valid';
 
   const addDebugLog = (msg, type = 'info') => {
     setDebugLog(prev => [...prev, { msg, type, time: new Date().toLocaleTimeString() }]);
@@ -147,6 +154,8 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
       k => localStorage.removeItem(k)
     );
     setYoutubeAuthStatus({ exists: false, code: null, scope: null, setTime: null, expiresAt: null });
+    setTokenValidity('unknown');
+    setTokenValidityReason('');
     getYouTubeAuthUrl();
     setClearAuthLoading(false);
   };
@@ -158,28 +167,133 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     addDebugLog('Cleared stored tokens. Will re-exchange code on next attempt.', 'info');
   };
 
-  // Initiate sign-in — store returnUrl first so /youtube can redirect back
+  // Initiate sign-in — open in a new tab so the user keeps their current page state.
+  // The new tab handles the OAuth round-trip and writes the resulting auth code to
+  // localStorage; this tab listens for that change via the `storage` event and
+  // re-runs token verification automatically.
   const handleSignIn = () => {
     if (!authUrl || authUrlLoading) return;
-    if (returnUrl && returnUrl !== '/youtube') {
-      localStorage.setItem('youtube_auth_return_url', returnUrl);
+    // Hint to the callback page that it was opened in a popup-style tab
+    try { localStorage.setItem('youtube_auth_popup_flow', '1'); } catch {}
+    const w = window.open(authUrl, '_blank', 'noopener,noreferrer');
+    if (!w) {
+      // Popup blocked — fall back to in-page redirect with returnUrl behavior
+      if (returnUrl && returnUrl !== '/youtube') {
+        try { localStorage.setItem('youtube_auth_return_url', returnUrl); } catch {}
+      }
+      window.location.href = authUrl;
     }
-    window.location.href = authUrl;
   };
 
-  // Mount: read localStorage, check server, fetch auth URL
+  // Verify cached tokens actually work against Google (catches invalid_grant
+  // before the user attempts an upload).
+  const verifyTokens = async () => {
+    setTokenValidity('checking');
+    setTokenValidityReason('');
+    // 1. Read any cached tokens from localStorage.
+    let storedTokens = null;
+    try {
+      const raw = localStorage.getItem('youtube_tokens');
+      if (raw) storedTokens = JSON.parse(raw);
+    } catch {}
+    // 2. If no tokens yet but we have an unexchanged auth code, exchange it.
+    //    This is the normal post-OAuth state: callback stored the code but
+    //    nothing has called /exchangeCode yet.
+    let exchangeFailed = false;
+    if (!storedTokens?.access_token && !storedTokens?.refresh_token) {
+      const hasCode = !!localStorage.getItem('youtube_auth_code');
+      if (hasCode) {
+        addDebugLog('No stored tokens — exchanging auth code for tokens before verification…', 'info');
+        const exchanged = await getTokens();
+        if (exchanged?.access_token || exchanged?.refresh_token) {
+          storedTokens = exchanged;
+        } else {
+          exchangeFailed = true;
+        }
+      }
+    }
+    if (exchangeFailed) {
+      setTokenValidity('invalid');
+      setTokenValidityReason('exchange_failed');
+      addDebugLog('Token exchange failed — auth code was rejected.', 'error');
+      return false;
+    }
+    try {
+      const res = await fetch(`${apiBaseURL()}/youtube/validateTokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tokens: storedTokens || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.valid) {
+        setTokenValidity('valid');
+        setTokenValidityReason('');
+        return true;
+      }
+      setTokenValidity('invalid');
+      setTokenValidityReason(data?.reason || 'unknown');
+      addDebugLog(`Token verification failed: ${data?.reason || 'unknown'}`, 'warn');
+      return false;
+    } catch (err) {
+      // Network failure — don't lock the user out, but flag as unknown.
+      setTokenValidity('unknown');
+      setTokenValidityReason(err?.message || 'network_error');
+      addDebugLog(`Token verification network error: ${err?.message}`, 'warn');
+      return false;
+    }
+  };
+
+  // Mount: read localStorage, check server, fetch auth URL, validate tokens
   useEffect(() => {
-    refreshLocalAuthStatus();
+    const status = refreshLocalAuthStatus();
     checkAuthStatus();
     getYouTubeAuthUrl();
+    // Only verify if we actually have something to verify
+    if (status.exists) {
+      verifyTokens();
+    } else {
+      setTokenValidity('unknown');
+    }
   }, []);
+
+  // Re-verify when the server confirms a session is authenticated but we
+  // haven't validated yet (e.g., session cookie present without localStorage).
+  useEffect(() => {
+    if (isAuthenticated && tokenValidity === 'unknown') verifyTokens();
+  }, [isAuthenticated]);
+
+  // Listen for the OAuth-callback tab to publish a fresh auth code. When it
+  // does, refresh local state and re-verify so this tab updates without a reload.
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (!e || e.storageArea !== window.localStorage) return;
+      if (e.key === 'youtube_auth_code' || e.key === 'youtube_tokens') {
+        // A sibling tab updated YouTube credentials — refresh and re-validate.
+        const status = refreshLocalAuthStatus();
+        addDebugLog(`Detected auth update from another tab (${e.key}) — re-verifying…`, 'info');
+        if (status.exists || e.key === 'youtube_tokens') {
+          verifyTokens();
+        }
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Expose verifyTokens via ref so the upload flow can re-check on demand
+  useEffect(() => {
+    if (getTokensRef && getTokensRef.current) {
+      getTokensRef.current.verifyTokens = verifyTokens;
+    }
+  });
 
   // Notify parent when auth state changes
   useEffect(() => {
     if (onAuthStateChange) {
-      onAuthStateChange({ isAuthenticated, youtubeAuthStatus, canAuth });
+      onAuthStateChange({ isAuthenticated, youtubeAuthStatus, canAuth, tokenValidity, tokenValidityReason });
     }
-  }, [isAuthenticated, youtubeAuthStatus.exists, canAuth]);
+  }, [isAuthenticated, youtubeAuthStatus.exists, canAuth, tokenValidity, tokenValidityReason]);
 
   // ---------- COMPACT MODE ----------
   if (compact) {
@@ -187,11 +301,26 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     const signedInColor = (blackTextOnWhite || darkMode) ? textColor : '#155724';
     const notSignedInColor = (blackTextOnWhite || darkMode) ? textColor : '#721c24';
     const errorColor = (blackTextOnWhite || darkMode) ? textColor : '#721c24';
+    const reasonLabel = (() => {
+      const r = (tokenValidityReason || '').toLowerCase();
+      if (r.includes('invalid_grant')) return 'Your YouTube sign-in expired or was revoked.';
+      if (r.includes('exchange_failed')) return 'The OAuth code returned by Google could not be exchanged for tokens. The code may have already been used or expired.';
+      if (r.includes('no_tokens')) return 'Your sign-in did not produce any usable tokens. This usually means the OAuth code expired before exchange — please sign in again.';
+      if (r.includes('oauth_client')) return 'YouTube OAuth is not configured on the server.';
+      if (r.includes('network')) return 'Could not reach the server to verify your YouTube sign-in.';
+      if (tokenValidityReason) return `YouTube sign-in problem: ${tokenValidityReason}`;
+      return '';
+    })();
+
+    // Show the expired/invalid state when we have local auth but verification failed
+    const showInvalidBanner = hasLocalAuth && tokenValidity === 'invalid';
+    const isChecking = hasLocalAuth && tokenValidity === 'checking';
+
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 14, color: textColor }}>
         {canAuth ? (
           <>
-            <span style={{ color: signedInColor, fontWeight: 'bold' }}>✅ YouTube signed in</span>
+            <span style={{ color: signedInColor, fontWeight: 'bold' }}>✅ YouTube signed in (verified)</span>
             <button
               onClick={clearAuth}
               disabled={clearAuthLoading}
@@ -203,6 +332,38 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
               {clearAuthLoading ? 'Clearing...' : 'Clear YouTube Auth'}
             </button>
           </>
+        ) : isChecking ? (
+          <>
+            <span style={{ color: textColor }}>⏳ Verifying YouTube sign-in…</span>
+          </>
+        ) : showInvalidBanner ? (
+          <div style={{
+            width: '100%',
+            display: 'flex', flexDirection: 'column', gap: 8,
+            padding: '10px 12px',
+            background: darkMode ? 'rgba(220,53,69,0.15)' : '#fff5f5',
+            border: `1px solid ${darkMode ? '#b14b56' : '#feb2b2'}`,
+            borderRadius: 6, color: textColor,
+          }}>
+            <div style={{ fontWeight: 700, color: darkMode ? '#fc8181' : '#c53030' }}>
+              ⚠️ YouTube sign-in is invalid — uploads will fail
+            </div>
+            <div style={{ fontSize: 13 }}>
+              {reasonLabel || 'Your stored YouTube credentials are no longer valid.'} Please sign in again to continue.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                onClick={handleSignIn}
+                disabled={authUrlLoading || !authUrl}
+                style={{
+                  padding: '6px 14px', fontSize: 13, background: authUrlLoading ? '#6c757d' : '#007bff',
+                  color: 'white', border: 'none', borderRadius: 4, cursor: authUrlLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold',
+                }}
+              >
+                {authUrlLoading ? 'Loading…' : 'Sign in to YouTube again'}
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             <span style={{ color: notSignedInColor }}>Not signed in to YouTube</span>
