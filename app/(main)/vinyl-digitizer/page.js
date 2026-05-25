@@ -243,6 +243,7 @@ export default function VinylDigitizerPage() {
   const videoLogsEndRef = useRef(null);
   const [renderedVideoSrc, setRenderedVideoSrc] = useState(null);
   const [videoOutputName, setVideoOutputName] = useState("");
+  const [showOutputNamePicker, setShowOutputNamePicker] = useState(false);
   const [videoWidth, setVideoWidth] = useState("1920");
   const [videoHeight, setVideoHeight] = useState("1080");
   const [videoBgColor, setVideoBgColor] = useState("#000000");
@@ -405,18 +406,24 @@ export default function VinylDigitizerPage() {
           // We can't restore the actual File object, but we can note what was loaded
           restoredRef.current = true;
         }
-
-        // Restore rendered video from IndexedDB
-        if (saved.hasRenderedVideo) {
-          idbLoad('rendered_video').then(blob => {
-            if (blob) {
-              const url = URL.createObjectURL(blob);
-              setRenderedVideoSrc(url);
-            }
-          });
-        }
       }
     } catch {}
+
+    // Always try to restore the rendered video from IndexedDB — IDB is the
+    // source of truth, not the localStorage `hasRenderedVideo` flag. There's a
+    // race between this mount-restore (which uses async idbLoad) and the
+    // autosave effect: the autosave runs after `setMounted(true)` and writes
+    // `hasRenderedVideo: false` because `renderedVideoSrc` is still null while
+    // IDB is loading. If the page were torn down during that window
+    // (e.g., another navigation) the flag would persist as false and the
+    // restore on the next mount would silently skip the blob. Probing IDB
+    // unconditionally side-steps that.
+    idbLoad('rendered_video').then(blob => {
+      if (blob && blob.size > 0) {
+        const url = URL.createObjectURL(blob);
+        setRenderedVideoSrc(url);
+      }
+    }).catch(() => {});
   }, []);
 
   // Save progress to localStorage whenever key state changes
@@ -674,6 +681,26 @@ export default function VinylDigitizerPage() {
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
+
+  // Auto-import audio files dropped in Step 1 into the Step 5 video audio
+  // table when the user has not gone through the Step 4 export flow. Lets the
+  // user drop audio in Step 1 and Skip directly to the video render step.
+  // `audioLoadingStatus` is set synchronously by addDirectAudioFiles, so the
+  // re-renders it triggers will short-circuit this effect and prevent a
+  // double-import.
+  useEffect(() => {
+    if (
+      step === 5 &&
+      exportedTracks.length === 0 &&
+      allAudioFiles.length > 0 &&
+      !audioLoadingStatus
+    ) {
+      addDirectAudioFiles(allAudioFiles);
+    }
+    // addDirectAudioFiles is a stable inline function — intentionally omitted
+    // from deps to avoid retriggering when unrelated state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, exportedTracks.length, allAudioFiles, audioLoadingStatus]);
 
   // Auto-select all exported tracks when entering step 5 and sync order
   useEffect(() => {
@@ -1703,14 +1730,19 @@ export default function VinylDigitizerPage() {
       const f = audioFiles[i];
       setAudioLoadingStatus({ loaded: i, total: audioFiles.length, current: f.name });
       const url = URL.createObjectURL(f);
-      let dur = 0;
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const buf = await f.slice().arrayBuffer();
-        const decoded = await ctx.decodeAudioData(buf);
-        dur = decoded.duration;
-        ctx.close();
-      } catch { /* fallback */ }
+      // Reuse the cached duration computed in Step 1 if available; otherwise
+      // decode the file here to determine duration.
+      const cacheKey = `${f.name}:${f.size}`;
+      let dur = typeof audioDurations[cacheKey] === "number" ? audioDurations[cacheKey] : 0;
+      if (!dur) {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const buf = await f.slice().arrayBuffer();
+          const decoded = await ctx.decodeAudioData(buf);
+          dur = decoded.duration;
+          ctx.close();
+        } catch { /* fallback — leave dur = 0 */ }
+      }
       const title = f.name.replace(/\.[^.]+$/, "");
       // Add each track immediately so it appears in the table as it loads
       setExportedTracks(prev => [...prev, { title, name: f.name, start: 0, end: dur, url, file: f }]);
@@ -2178,15 +2210,23 @@ export default function VinylDigitizerPage() {
       const blob = new Blob([data.buffer], { type: "video/mp4" });
       if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc);
       const renderedUrl = URL.createObjectURL(blob);
+
+      // Persist rendered video to IndexedDB BEFORE exposing it to the UI, so
+      // a user clicking the YouTube "Sign in" link (which does a full-page
+      // redirect) immediately after the render can't navigate away while the
+      // IDB write is still in flight. For typical render sizes this commits
+      // in well under a second.
+      await idbSave('rendered_video', blob);
+
       setRenderedVideoSrc(renderedUrl);
 
-      // Persist rendered video to IndexedDB so it survives page refresh
-      idbSave('rendered_video', blob);
-
-      // Pre-fill YouTube metadata using shared utilities
+      // Pre-fill YouTube metadata using shared utilities. The title is NOT
+      // set here — it's bound to videoOutputName by a dedicated effect, so a
+      // user pick in the Output-name picker drives the YT title too. We still
+      // generate ytTitleSuggestions so the dropdown of alternates stays
+      // populated for manual override.
       const titleSuggestions = generateVideoTitleRecommendations(discogsData, ytTitleVariation);
       setYtTitleSuggestions(titleSuggestions);
-      const autoTitle = titleSuggestions[0] || name;
 
       const trackTimestamps = selectedAudioList.map((t, i) => ({
         title: t.title,
@@ -2205,7 +2245,6 @@ export default function VinylDigitizerPage() {
 
       setYtUploadData(prev => ({
         ...prev,
-        title: autoTitle.slice(0, YT_LIMITS.title),
         description: autoDesc.slice(0, YT_LIMITS.description),
         tags: prev.tags || autoTags.slice(0, YT_LIMITS.tags),
       }));
@@ -2473,6 +2512,19 @@ export default function VinylDigitizerPage() {
     if (suggestions[0]) setYtUploadData(prev => ({ ...prev, title: suggestions[0].slice(0, YT_LIMITS.title) }));
   };
 
+  // Keep the YouTube upload title bound to the Output name field. The Output
+  // name is the user's chosen "canonical name" (set by typing or via the
+  // Select… picker, which collects metadata from Discogs and dropped files),
+  // and we want one source of truth for that name across the rendered file
+  // and the YouTube video. Only sync when there's actually a value to copy
+  // and the target differs, to avoid clobbering an explicit user edit with
+  // an identical string or wiping the title when Output name is blanked.
+  useEffect(() => {
+    if (!videoOutputName) return;
+    const next = videoOutputName.slice(0, YT_LIMITS.title);
+    setYtUploadData(prev => (prev.title === next ? prev : { ...prev, title: next }));
+  }, [videoOutputName]);
+
   const regenerateYtTags = () => {
     const extracted = extractTagsFromDiscogs(discogsData);
     const filters = { artists: { enabled: true, sliderValue: 100 }, album: { enabled: true, sliderValue: 100 }, tracklist: { enabled: true, sliderValue: 100 }, combinations: { enabled: true, sliderValue: 100 }, credits: { enabled: false, sliderValue: 100 }, filenames: { enabled: false, sliderValue: 100 } };
@@ -2497,11 +2549,12 @@ export default function VinylDigitizerPage() {
     if (videoChanged) lastYtVideoSrcRef.current = renderedVideoSrc;
 
     if (needsTitle && discogsData) {
+      // Refresh the alternate-title dropdown options, but do NOT touch
+      // ytUploadData.title here — that's now bound to videoOutputName by a
+      // dedicated effect so the Output-name field is the single source of
+      // truth for the YT title.
       const suggestions = generateVideoTitleRecommendations(discogsData, ytTitleVariation);
       setYtTitleSuggestions(suggestions);
-      if (suggestions[0]) {
-        setYtUploadData(prev => ({ ...prev, title: suggestions[0].slice(0, YT_LIMITS.title) }));
-      }
     }
     if (needsDesc) {
       const audioList = getOrderedAudios();
@@ -2527,6 +2580,97 @@ export default function VinylDigitizerPage() {
   const canGoStep2 = !!audioFile;
   const canGoStep3 = !!audioFile && (parseInt(manualTrackCount) > 0 || (discogsData?.tracklist?.length > 0));
   const canExport = tracks.length > 0 && !!audioFile;
+  // True when nothing has been done yet — used to disable the "Start Over" button
+  // so it isn't an actionable target on a brand-new / freshly reset session.
+  const isFreshStart =
+    step === 1 &&
+    !audioFile &&
+    allAudioFiles.length === 0 &&
+    tracks.length === 0 &&
+    exportedTracks.length === 0 &&
+    videoImages.length === 0 &&
+    !renderedVideoSrc &&
+    !discogsData &&
+    !discogsUrl &&
+    !thumbnailFile &&
+    (projectName === "My Album" || !projectName);
+
+  // Candidate names for the Output-name picker: collected from Discogs data,
+  // dropped/queued audio filenames, the project name, and any folder name
+  // available via webkitRelativePath. Grouped + de-duped so the popup is
+  // useful even with partial data.
+  const buildOutputNameCandidates = () => {
+    const groups = [];
+    const seen = new Set();
+    const add = (group, value) => {
+      if (!value) return;
+      const v = String(value).trim();
+      if (!v || seen.has(v)) return;
+      seen.add(v);
+      group.items.push(v);
+    };
+
+    const projectGroup = { label: "Project", items: [] };
+    add(projectGroup, projectName);
+
+    const discogsGroup = { label: "Discogs", items: [] };
+    if (discogsData) {
+      const artist = discogsData.artists?.[0]?.name?.replace(/\s+\(\d+\)$/, "") || "";
+      const albumTitle = discogsData.title || "";
+      const year = discogsData.released ? discogsData.released.substring(0, 4) : (discogsData.year ? String(discogsData.year) : "");
+      add(discogsGroup, albumTitle);
+      add(discogsGroup, artist);
+      if (artist && albumTitle) {
+        add(discogsGroup, `${artist} - ${albumTitle}`);
+        add(discogsGroup, `${albumTitle} - ${artist}`);
+        if (year) {
+          add(discogsGroup, `${artist} - ${albumTitle} (${year})`);
+          add(discogsGroup, `${albumTitle} (${year})`);
+        }
+      }
+      // Roll the auto-generated recommendations into the same group so the
+      // user sees ready-to-use long-form titles too.
+      try {
+        for (let v = 0; v < 5; v++) {
+          const recs = generateVideoTitleRecommendations(discogsData, v);
+          recs.forEach(r => add(discogsGroup, r));
+        }
+      } catch {}
+    }
+
+    const fileGroup = { label: "Files", items: [] };
+    // Each filename without its extension.
+    const stripExt = (n) => n.replace(/\.[^./\\]+$/, "");
+    const seenFolders = new Set();
+    allAudioFiles.forEach(f => {
+      add(fileGroup, stripExt(f.name));
+      // webkitRelativePath captures the source folder when files arrive via
+      // an <input type="file" webkitdirectory> or directory-aware drop.
+      const rel = f.webkitRelativePath || "";
+      if (rel.includes("/")) {
+        const folder = rel.split("/")[0];
+        if (folder && !seenFolders.has(folder)) {
+          seenFolders.add(folder);
+          add(fileGroup, folder);
+        }
+      }
+    });
+    // Common prefix across all filenames (often the album/release name when a
+    // CD rip uses "01 - Album - Track.flac" style naming).
+    if (allAudioFiles.length > 1) {
+      const stems = allAudioFiles.map(f => stripExt(f.name));
+      let prefix = stems[0];
+      for (let i = 1; i < stems.length && prefix.length > 0; i++) {
+        while (!stems[i].startsWith(prefix)) prefix = prefix.slice(0, -1);
+      }
+      // Trim trailing separators / track numbers so the suggestion is clean.
+      prefix = prefix.replace(/[\s\-_.\d]+$/g, "").trim();
+      if (prefix.length >= 3) add(fileGroup, prefix);
+    }
+
+    [projectGroup, discogsGroup, fileGroup].forEach(g => { if (g.items.length) groups.push(g); });
+    return groups;
+  };
 
   if (!mounted) return null;
 
@@ -2542,15 +2686,6 @@ export default function VinylDigitizerPage() {
             <h1 className={styles.title}>Vinyl Digitizer</h1>
           </div>
           <p className={styles.subtitle}>Record or upload vinyl audio → detect tracks → export with Discogs metadata</p>
-        </div>
-        <div className={styles.headerRight}>
-          <div className={styles.projectNameWrap}>
-            <label className={styles.projectNameLabel}>Project Title</label>
-            <input className={styles.projectNameInput} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="Project name…" />
-          </div>
-          <button className={styles.historyBtn} onClick={() => setShowHistory(v => !v)}>
-            📚 History {projects.length > 0 && <span className={styles.historyBadge}>{projects.length}</span>}
-          </button>
         </div>
       </div>
 
@@ -2622,9 +2757,27 @@ export default function VinylDigitizerPage() {
 
       {/* Steps — sticky when rendering/uploading */}
       <div className={`${styles.stepBarWrap} ${(isRenderingVideo || ytUploading) ? styles.stepBarSticky : ""}`}>
+        {/* Reset button is rendered as a sibling of .stepBar (not a child), so
+            it's anchored to .stepBarWrap via absolute positioning instead of
+            participating in .stepBar's flex flow. That lets .stepBar use
+            overflow-x: auto for narrow viewports without clipping the
+            button's hover tooltip. */}
+        <button
+          type="button"
+          className={styles.stepResetBtn}
+          onClick={resetAll}
+          disabled={isFreshStart}
+          aria-label={isFreshStart ? "Start Over (nothing to clear)" : "Start Over"}
+          data-tooltip={isFreshStart ? "Nothing to clear" : "Start Over"}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="1 4 1 10 7 10"></polyline>
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+          </svg>
+        </button>
         <div className={styles.stepBar}>
-          {["Audio Source", "Album Info", "Waveform & Markers", "Audio Export", "Video Render", "YouTube Upload"].map((label, i) => (
-            <div key={i} className={`${styles.stepItem} ${step === i + 1 ? styles.stepActive : ""} ${step > i + 1 ? styles.stepDone : ""}`}
+          {["Input", "Tracks", "Waveform", "Audio", "Video"].map((label, i) => (
+            <div key={`item-${i}`} className={`${styles.stepItem} ${step === i + 1 ? styles.stepActive : ""} ${step > i + 1 ? styles.stepDone : ""}`}
               onClick={() => setStep(i + 1)}
               style={{ cursor: "pointer" }}
             >
@@ -2633,7 +2786,6 @@ export default function VinylDigitizerPage() {
               {i === 4 && isRenderingVideo && (
                 <span className={styles.stepProgress}>{videoRenderProgress !== null ? ` ${(videoRenderProgress * 100).toFixed(0)}%` : " …"}</span>
               )}
-              {i < 5 && <div className={styles.stepLine} />}
             </div>
           ))}
         </div>
@@ -2846,8 +2998,14 @@ export default function VinylDigitizerPage() {
 
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(1)}>← Back</button>
-                <button className={styles.nextBtn} disabled={!canGoStep3} onClick={() => setStep(3)}>Next: Waveform Editor →</button>
-                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
+                <button
+                  className={styles.skipBtn}
+                  onClick={() => setStep(3)}
+                  title="Skip tracks setup and go straight to the waveform"
+                >
+                  Skip →
+                </button>
+                <button className={styles.nextBtn} disabled={!canGoStep3} onClick={() => setStep(3)}>Next: Waveform →</button>
               </div>
             </div>
           )}
@@ -3032,8 +3190,14 @@ export default function VinylDigitizerPage() {
 
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(2)}>← Back</button>
-                <button className={styles.nextBtn} disabled={!canExport} onClick={() => setStep(4)}>Next: Audio Export →</button>
-                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
+                <button
+                  className={styles.skipBtn}
+                  onClick={() => setStep(4)}
+                  title="Skip the waveform editor and go straight to the audio step"
+                >
+                  Skip →
+                </button>
+                <button className={styles.nextBtn} disabled={!canExport} onClick={() => setStep(4)}>Next: Audio →</button>
               </div>
           </div>
 
@@ -3225,9 +3389,15 @@ export default function VinylDigitizerPage() {
               )}
 
               <div className={styles.stepNav}>
-                <button className={styles.backBtn} onClick={() => setStep(3)}>← Back to Editor</button>
-                <button className={styles.nextBtn} onClick={() => setStep(5)} disabled={exportedTracks.length === 0}>Continue to Video Render →</button>
-                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
+                <button className={styles.backBtn} onClick={() => setStep(3)}>← Back to Waveform</button>
+                <button
+                  className={styles.skipBtn}
+                  onClick={() => setStep(5)}
+                  title="Skip audio export and go straight to the video step"
+                >
+                  Skip →
+                </button>
+                <button className={styles.nextBtn} onClick={() => setStep(5)} disabled={exportedTracks.length === 0}>Next: Video →</button>
               </div>
             </div>
           )}
@@ -3699,7 +3869,17 @@ export default function VinylDigitizerPage() {
                 <div className={styles.videoSettingsGrid}>
                   <label className={styles.settingLabel}>
                     Output name
-                    <input type="text" className={styles.input} value={videoOutputName} onChange={e => setVideoOutputName(e.target.value)} placeholder={projectName || "album"} />
+                    <div className={styles.outputNameRow}>
+                      <input type="text" className={styles.input} value={videoOutputName} onChange={e => setVideoOutputName(e.target.value)} placeholder={projectName || "album"} />
+                      <button
+                        type="button"
+                        className={styles.outputNamePickerBtn}
+                        onClick={() => setShowOutputNamePicker(true)}
+                        title="Choose from collected names"
+                      >
+                        Select…
+                      </button>
+                    </div>
                   </label>
                   <div className={styles.settingLabel}>
                     Resolution
@@ -4132,6 +4312,67 @@ export default function VinylDigitizerPage() {
         </div>
 
           {/* Image Add Modal */}
+          {showOutputNamePicker && (() => {
+            const groups = buildOutputNameCandidates();
+            const isEmpty = groups.length === 0;
+            return (
+              <div
+                className={styles.imageModalBackdrop}
+                onClick={() => setShowOutputNamePicker(false)}
+              >
+                <div
+                  className={styles.imageModal}
+                  onClick={e => e.stopPropagation()}
+                  style={{ width: 480 }}
+                >
+                  <div className={styles.imageModalHeader}>
+                    <h2 className={styles.imageModalTitle}>Choose output name</h2>
+                    <button
+                      type="button"
+                      className={styles.imageModalClose}
+                      onClick={() => setShowOutputNamePicker(false)}
+                      aria-label="Close"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className={styles.outputNamePickerBody}>
+                    {isEmpty && (
+                      <p className={styles.hintText} style={{ padding: "8px 4px" }}>
+                        No collected metadata yet. Drop audio files in Step 1 or paste a Discogs URL to populate this list.
+                      </p>
+                    )}
+                    {groups.map(g => (
+                      <div key={g.label} className={styles.outputNamePickerGroup}>
+                        <div className={styles.outputNamePickerGroupLabel}>{g.label}</div>
+                        <ul className={styles.outputNamePickerList}>
+                          {g.items.map((name, i) => {
+                            const selected = name === videoOutputName;
+                            return (
+                              <li key={`${g.label}-${i}`}>
+                                <button
+                                  type="button"
+                                  className={`${styles.outputNamePickerItem} ${selected ? styles.outputNamePickerItemActive : ""}`}
+                                  onClick={() => {
+                                    setVideoOutputName(name);
+                                    setShowOutputNamePicker(false);
+                                  }}
+                                >
+                                  <span className={styles.outputNamePickerItemText}>{name}</span>
+                                  {selected && <span className={styles.outputNamePickerCheck} aria-hidden="true">✓</span>}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {showImageModal && (
             <div
               className={styles.imageModalBackdrop}

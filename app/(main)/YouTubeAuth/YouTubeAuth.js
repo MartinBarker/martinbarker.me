@@ -158,11 +158,77 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     addDebugLog('Cleared stored tokens. Will re-exchange code on next attempt.', 'info');
   };
 
-  // Initiate sign-in — store returnUrl first so /youtube can redirect back
+  // Initiate sign-in — redirect the current tab to Google's OAuth page.
+  // We stash the desired post-auth return URL in localStorage so the
+  // /youtube callback page can router.push() us back here once the auth
+  // code is captured (see app/(main)/youtube/page.js).
   const handleSignIn = () => {
     if (!authUrl || authUrlLoading) return;
+    // Clear any stale popup-flow flag from previous sessions so the callback
+    // page doesn't show the "you can close this tab" screen on a same-tab flow.
+    try { localStorage.removeItem('youtube_auth_popup_flow'); } catch {}
     if (returnUrl && returnUrl !== '/youtube') {
-      localStorage.setItem('youtube_auth_return_url', returnUrl);
+      try { localStorage.setItem('youtube_auth_return_url', returnUrl); } catch {}
+    }
+    window.location.href = authUrl;
+  };
+
+  // Verify cached tokens actually work against Google (catches invalid_grant
+  // before the user attempts an upload).
+  const verifyTokens = async () => {
+    setTokenValidity('checking');
+    setTokenValidityReason('');
+    // 1. Read any cached tokens from localStorage.
+    let storedTokens = null;
+    try {
+      const raw = localStorage.getItem('youtube_tokens');
+      if (raw) storedTokens = JSON.parse(raw);
+    } catch {}
+    // 2. If no tokens yet but we have an unexchanged auth code, exchange it.
+    //    This is the normal post-OAuth state: callback stored the code but
+    //    nothing has called /exchangeCode yet.
+    let exchangeFailed = false;
+    if (!storedTokens?.access_token && !storedTokens?.refresh_token) {
+      const hasCode = !!localStorage.getItem('youtube_auth_code');
+      if (hasCode) {
+        addDebugLog('No stored tokens — exchanging auth code for tokens before verification…', 'info');
+        const exchanged = await getTokens();
+        if (exchanged?.access_token || exchanged?.refresh_token) {
+          storedTokens = exchanged;
+        } else {
+          exchangeFailed = true;
+        }
+      }
+    }
+    if (exchangeFailed) {
+      setTokenValidity('invalid');
+      setTokenValidityReason('exchange_failed');
+      addDebugLog('Token exchange failed — auth code was rejected.', 'error');
+      return false;
+    }
+    try {
+      const res = await fetch(`${apiBaseURL()}/youtube/validateTokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tokens: storedTokens || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.valid) {
+        setTokenValidity('valid');
+        setTokenValidityReason('');
+        return true;
+      }
+      setTokenValidity('invalid');
+      setTokenValidityReason(data?.reason || 'unknown');
+      addDebugLog(`Token verification failed: ${data?.reason || 'unknown'}`, 'warn');
+      return false;
+    } catch (err) {
+      // Network failure — don't lock the user out, but flag as unknown.
+      setTokenValidity('unknown');
+      setTokenValidityReason(err?.message || 'network_error');
+      addDebugLog(`Token verification network error: ${err?.message}`, 'warn');
+      return false;
     }
     window.location.href = authUrl;
   };

@@ -284,14 +284,22 @@ export default function RootLayout({ children }) {
             </filter>
           </defs>
         </svg>
+        {/* Toggle buttons below set --toggle-bg-image inline; consumed by a
+            ::before pseudo-element so the thumbnail can fade in/out behind the
+            icon as the sidebar collapses/expands. */}
         <div className={`${styles.wrapper} ${isMobile ? styles.mobile : ''}`}>
           {/* Mobile toggle button - always visible */}
           {isMobile && (
-            <button id="sidebarToggle" className={styles.mobileToggle} onClick={toggleSidebar}>
+            <button
+              id="sidebarToggle"
+              className={`${styles.mobileToggle} ${!sidebarActive ? styles.toggleShowImage : ''}`}
+              onClick={toggleSidebar}
+              style={randomImage ? { '--toggle-bg-image': `url(${getThumbnailPath(randomImage)})` } : undefined}
+            >
               {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
             </button>
           )}
-          
+
           <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
             onClick={toggleSidebar} />
           <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : styles.collapsed}`}
@@ -299,7 +307,12 @@ export default function RootLayout({ children }) {
             <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
               {/* Desktop toggle button - only visible on desktop */}
               {!isMobile && (
-                <button id="sidebarToggleDesktop" className={styles.sidebarCollapse} onClick={toggleSidebar}>
+                <button
+                  id="sidebarToggleDesktop"
+                  className={styles.sidebarCollapse}
+                  onClick={toggleSidebar}
+                  style={randomImage ? { '--toggle-bg-image': `url(${getThumbnailPath(randomImage)})` } : undefined}
+                >
                   {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
                 </button>
               )}
