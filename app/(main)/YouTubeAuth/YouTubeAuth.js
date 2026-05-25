@@ -167,22 +167,19 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     addDebugLog('Cleared stored tokens. Will re-exchange code on next attempt.', 'info');
   };
 
-  // Initiate sign-in — open in a new tab so the user keeps their current page state.
-  // The new tab handles the OAuth round-trip and writes the resulting auth code to
-  // localStorage; this tab listens for that change via the `storage` event and
-  // re-runs token verification automatically.
+  // Initiate sign-in — redirect the current tab to Google's OAuth page.
+  // We stash the desired post-auth return URL in localStorage so the
+  // /youtube callback page can router.push() us back here once the auth
+  // code is captured (see app/(main)/youtube/page.js).
   const handleSignIn = () => {
     if (!authUrl || authUrlLoading) return;
-    // Hint to the callback page that it was opened in a popup-style tab
-    try { localStorage.setItem('youtube_auth_popup_flow', '1'); } catch {}
-    const w = window.open(authUrl, '_blank', 'noopener,noreferrer');
-    if (!w) {
-      // Popup blocked — fall back to in-page redirect with returnUrl behavior
-      if (returnUrl && returnUrl !== '/youtube') {
-        try { localStorage.setItem('youtube_auth_return_url', returnUrl); } catch {}
-      }
-      window.location.href = authUrl;
+    // Clear any stale popup-flow flag from previous sessions so the callback
+    // page doesn't show the "you can close this tab" screen on a same-tab flow.
+    try { localStorage.removeItem('youtube_auth_popup_flow'); } catch {}
+    if (returnUrl && returnUrl !== '/youtube') {
+      try { localStorage.setItem('youtube_auth_return_url', returnUrl); } catch {}
     }
+    window.location.href = authUrl;
   };
 
   // Verify cached tokens actually work against Google (catches invalid_grant

@@ -76,6 +76,29 @@
   z-index: 2;
   margin: 0;
   padding: 0;
+  overflow: hidden; /* keep ::before clipped to the circle */
+}
+
+/* Thumbnail image layer — sits behind the icon, fades in when sidebar
+   collapses. Image URL comes from the inline --toggle-bg-image variable.
+   Scaled up slightly so the blurred edge gets clipped by the circle instead
+   of fading out to transparent at the boundary. */
+.sidebarCollapse::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  background-image: var(--toggle-bg-image, none);
+  background-size: cover;
+  background-position: center;
+  border-radius: inherit;
+  filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+.sidebar.collapsed .sidebarCollapse::before {
+  opacity: 1;
 }
 
 .sidebar.collapsed .sidebarHeader {
@@ -86,6 +109,11 @@
   width: 24px;
   height: 24px;
   display: block;
+  position: relative; /* stack above the image layer */
+  z-index: 1;
+  /* keep the icon readable on top of arbitrary images */
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.95))
+          drop-shadow(0 0 1px rgba(255, 255, 255, 0.95));
 }
 
 .sidebarMenu {
@@ -399,12 +427,37 @@
     z-index: 1001; /* Higher than sidebar overlay */
     margin: 0;
     padding: 0;
+    overflow: hidden; /* clip ::before to the circle */
   }
-  
+
+  /* Thumbnail layer behind the icon — fades in when sidebar is hidden.
+     `inset: -6px` + blur lets the blurred edge hide outside the circle. */
+  .mobileToggle::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    background-image: var(--toggle-bg-image, none);
+    background-size: cover;
+    background-position: center;
+    border-radius: inherit;
+    filter: blur(4px);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .mobileToggle.toggleShowImage::before {
+    opacity: 1;
+  }
+
   .mobileToggle svg {
     width: 24px;
     height: 24px;
     display: block;
+    position: relative;
+    z-index: 1;
+    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.95))
+            drop-shadow(0 0 1px rgba(255, 255, 255, 0.95));
   }
   
   .content {

@@ -67,8 +67,13 @@
 }
 
 /* ---- Step Bar ---- */
-/* Step bar wrapper — becomes sticky during render/upload */
+/* Step bar wrapper — becomes sticky during render/upload.
+ * `position: relative` makes this the containing block for the absolutely
+ * positioned .stepResetBtn, which is rendered as our sibling (not inside the
+ * scrollable .stepBar) so its hover tooltip isn't clipped when the bar
+ * scrolls horizontally. */
 .stepBarWrap {
+  position: relative;
   margin-bottom: 1rem;
 }
 .stepBarSticky {
@@ -79,23 +84,123 @@
 .stepBar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   background: white;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  padding: 0.75rem 1rem;
+  /* Left padding reserves space for the absolutely-positioned reset button
+   * so the first step never sits beneath it. */
+  padding: 0.75rem 1rem 0.75rem 56px;
   overflow-x: auto;
-  gap: 0;
+  /* Avoid a vertical scrollbar appearing alongside the horizontal one — the
+   * bar is single-row, so vertical overflow should never happen in practice. */
+  overflow-y: hidden;
+  gap: 8px;
+  /* Smooth scrolling on touch + thin scrollbar in modern browsers */
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
+.stepBar::-webkit-scrollbar { height: 6px; }
+.stepBar::-webkit-scrollbar-thumb { background: rgba(102,126,234,0.35); border-radius: 4px; }
+.stepBar::-webkit-scrollbar-track { background: transparent; }
 .stepItem {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
   cursor: pointer;
-  transition: opacity 0.15s;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: transparent;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
-.stepItem:hover { opacity: 0.75; }
-.stepItem:hover .stepCircle { box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3); }
+.stepItem:hover {
+  background: rgba(102, 126, 234, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(102, 126, 234, 0.35);
+}
+.stepItem:hover .stepCircle { box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.45); }
+
+/* Refresh / "Start Over" icon button — absolutely positioned at the left of
+ * the step bar (anchored to .stepBarWrap, not nested inside the scrollable
+ * .stepBar). Uses a CSS tooltip (::after) so the label appears instantly on
+ * hover, not after the OS title-tooltip delay. The button itself is still a
+ * positioning context for its ::after, since `position: absolute` also
+ * establishes a containing block. */
+.stepResetBtn {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #4a5568;
+  cursor: pointer;
+  z-index: 2;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.stepResetBtn:hover:not(:disabled) {
+  background: rgba(102, 126, 234, 0.12);
+  border-color: rgba(102, 126, 234, 0.55);
+  color: #667eea;
+}
+.stepResetBtn:hover:not(:disabled) svg { transform: rotate(-45deg); }
+.stepResetBtn svg { transition: transform 0.25s ease; display: block; }
+.stepResetBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+  background: transparent;
+  border-color: #e2e8f0;
+  color: #a0aec0;
+}
+.stepResetBtn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: #2d3748;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 200;
+}
+.stepResetBtn:hover::after,
+.stepResetBtn:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+:global(.darkContent) .stepResetBtn {
+  border-color: #555;
+  color: #cbd5e0;
+}
+:global(.darkContent) .stepResetBtn:hover:not(:disabled) {
+  background: rgba(144, 176, 255, 0.18);
+  border-color: rgba(144, 176, 255, 0.55);
+  color: #90b0ff;
+}
+:global(.darkContent) .stepResetBtn:disabled {
+  background: transparent;
+  border-color: #444;
+  color: #666;
+  opacity: 0.5;
+}
+:global(.darkContent) .stepResetBtn::after {
+  background: #1a202c;
+  color: #ffffff;
+}
 .stepCircle {
   width: 26px;
   height: 26px;
@@ -120,13 +225,6 @@
 }
 .stepActive .stepLabel { color: #000000; }
 .stepDone .stepLabel { color: #48bb78; }
-.stepLine {
-  width: 32px;
-  height: 2px;
-  background: #e2e8f0;
-  margin: 0 8px;
-  flex-shrink: 0;
-}
 .stepProgress {
   font-size: 0.65rem;
   font-weight: 700;
@@ -2599,6 +2697,119 @@
   flex-shrink: 0;
 }
 
+/* ---- Output-name picker ---- */
+.outputNameRow {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.outputNameRow .input { flex: 1 1 auto; min-width: 0; }
+.outputNamePickerBtn {
+  flex-shrink: 0;
+  padding: 0 12px;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  background: white;
+  color: #2d3748;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.outputNamePickerBtn:hover {
+  background: rgba(102, 126, 234, 0.12);
+  border-color: rgba(102, 126, 234, 0.55);
+  color: #667eea;
+}
+.outputNamePickerBody {
+  padding: 12px 20px 18px;
+  overflow-y: auto;
+}
+.outputNamePickerGroup + .outputNamePickerGroup {
+  margin-top: 14px;
+}
+.outputNamePickerGroupLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #718096;
+  margin-bottom: 6px;
+}
+.outputNamePickerList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.outputNamePickerItem {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.86rem;
+  color: #2d3748;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.outputNamePickerItem:hover {
+  background: rgba(102, 126, 234, 0.10);
+  border-color: rgba(102, 126, 234, 0.35);
+}
+.outputNamePickerItemActive {
+  background: rgba(102, 126, 234, 0.18);
+  border-color: rgba(102, 126, 234, 0.6);
+  color: #4c51bf;
+}
+.outputNamePickerItemText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.outputNamePickerCheck {
+  color: #4c51bf;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+:global(.darkContent) .outputNamePickerBtn {
+  background: #2a2a3d;
+  border-color: #555;
+  color: #e2e8f0;
+}
+:global(.darkContent) .outputNamePickerBtn:hover {
+  background: rgba(144, 176, 255, 0.18);
+  border-color: rgba(144, 176, 255, 0.55);
+  color: #90b0ff;
+}
+:global(.darkContent) .outputNamePickerGroupLabel {
+  color: #a0aec0;
+}
+:global(.darkContent) .outputNamePickerItem {
+  color: #e2e8f0;
+}
+:global(.darkContent) .outputNamePickerItem:hover {
+  background: rgba(144, 176, 255, 0.14);
+  border-color: rgba(144, 176, 255, 0.35);
+}
+:global(.darkContent) .outputNamePickerItemActive {
+  background: rgba(144, 176, 255, 0.22);
+  border-color: rgba(144, 176, 255, 0.55);
+  color: #cbd5ff;
+}
+:global(.darkContent) .outputNamePickerCheck {
+  color: #cbd5ff;
+}
+
 /* ---- Drag handle ---- */
 .dragHandle {
   cursor: grab;
@@ -2742,17 +2953,27 @@
     border-left: none;
     border-right: none;
   }
-  .header { flex-direction: column; padding: 0.75rem; border-radius: 0; border-left: none; border-right: none; }
-  .headerRight { width: 100%; }
+  .header { flex-direction: column; align-items: center; padding: 0.75rem; border-radius: 0; border-left: none; border-right: none; text-align: center; }
+  .headerLeft { align-items: center; width: 100%; }
+  .titleRow { justify-content: center; }
+  .subtitle { text-align: center; }
+  .headerRight { width: 100%; justify-content: center; align-items: center; }
   .projectNameInput { flex: 1; }
   .stepBarWrap { margin-bottom: 0.5rem; }
   .stepBar {
-    gap: 0;
-    padding: 0.5rem;
+    gap: 4px;
+    /* Left padding fits the absolutely positioned reset button. */
+    padding: 0.5rem 0.5rem 0.5rem 46px;
     border-radius: 0;
     border-left: none;
     border-right: none;
-    overflow-x: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .stepResetBtn {
+    left: 8px;
+    width: 30px;
+    height: 30px;
   }
   .stepItem {
     gap: 4px;
@@ -2767,10 +2988,8 @@
     white-space: nowrap;
     min-width: 0;
   }
-  .stepLine {
-    width: 12px;
-    margin: 0 4px;
-    flex-shrink: 0;
+  .stepItem {
+    padding: 4px 6px;
   }
   .body { gap: 0.5rem; }
   .card {
@@ -2869,8 +3088,12 @@
 :global(.darkContent) .stepActive .stepLabel {
   color: #ffffff;
 }
-:global(.darkContent) .stepLine {
-  background: #555;
+:global(.darkContent) .stepItem:hover {
+  background: rgba(144, 176, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(144, 176, 255, 0.45);
+}
+:global(.darkContent) .stepItem:hover .stepCircle {
+  box-shadow: 0 0 0 2px rgba(144, 176, 255, 0.55);
 }
 
 /* ── Card & card title ── */
