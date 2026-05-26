@@ -2409,49 +2409,6 @@ app.get('/internal-api/youtube/authStatus', (req, res) => {
   });
 });
 
-// Validate YouTube tokens by attempting a real refresh against Google.
-// Used by the client to detect invalid_grant before the user attempts an upload.
-async function _validateYouTubeTokensHandler(req, res) {
-  try {
-    logger?.info?.("🔐 [POST /youtube/validateTokens] Hit");
-    const bodyTokens = req.body?.tokens;
-    const sessionTokens = req.session?.youtubeAuth?.tokens;
-    const tokens = bodyTokens || sessionTokens;
-    if (!tokens || (!tokens.refresh_token && !tokens.access_token)) {
-      logger?.info?.(`🔐 validateTokens: no tokens (bodyTokens=${!!bodyTokens}, sessionTokens=${!!sessionTokens})`);
-      return res.status(200).json({ valid: false, reason: 'no_tokens' });
-    }
-    logger?.info?.(`🔐 validateTokens: attempting refresh (has_refresh=${!!tokens.refresh_token}, has_access=${!!tokens.access_token})`);
-    if (!oauth2Client) {
-      return res.status(200).json({ valid: false, reason: 'oauth_client_unavailable' });
-    }
-    // Use a temp client so we don't mutate global state
-    const tempClient = new google.auth.OAuth2(
-      process.env.GCP_CLIENT_ID,
-      process.env.GCP_CLIENT_SECRET,
-      oauth2Client.redirectUri || getYouTubeRedirectUrl?.()
-    );
-    tempClient.setCredentials(tokens);
-    try {
-      if (tokens.refresh_token) {
-        await tempClient.refreshAccessToken();
-      } else {
-        await tempClient.getAccessToken();
-      }
-      return res.status(200).json({ valid: true });
-    } catch (err) {
-      const msg = (err?.response?.data?.error) || err?.message || 'unknown';
-      const desc = err?.response?.data?.error_description || '';
-      return res.status(200).json({ valid: false, reason: String(msg), description: String(desc) });
-    }
-  } catch (err) {
-    console.error('validateTokens error:', err?.message || err);
-    return res.status(500).json({ valid: false, reason: 'server_error' });
-  }
-}
-app.post('/youtube/validateTokens', _validateYouTubeTokensHandler);
-app.post('/internal-api/youtube/validateTokens', _validateYouTubeTokensHandler);
-
 // Clear YouTube authentication
 app.post('/youtube/clearAuth', (req, res) => {
   logger.info("🧹 [POST /youtube/clearAuth] Hit");
@@ -2972,6 +2929,73 @@ const ytVideoUpload = multer({
   { name: 'video', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 }
 ]);
+
+// Initiate a YouTube resumable upload session.
+// Returns the per-upload session URL the browser then PUTs video bytes to,
+// streaming directly to Google rather than buffering through this server.
+app.post('/youtube/createUploadSession', async (req, res) => {
+  console.log('📹 [POST /youtube/createUploadSession] Hit');
+  try {
+    const {
+      tokens: bodyTokens,
+      title = 'Untitled',
+      description = '',
+      tags = '',
+      privacyStatus = 'private',
+      fileSize,
+      mimeType = 'video/mp4',
+    } = req.body || {};
+
+    let tokens = req.session?.youtubeAuth?.tokens;
+    if ((!tokens || !tokens.access_token) && bodyTokens?.access_token) tokens = bodyTokens;
+    if (!tokens?.access_token) return res.status(401).json({ error: 'Not authenticated with YouTube' });
+
+    const sizeNum = Number(fileSize);
+    if (!Number.isFinite(sizeNum) || sizeNum <= 0) {
+      return res.status(400).json({ error: 'fileSize (bytes) is required' });
+    }
+
+    oauth2Client.setCredentials(tokens);
+    const { token: accessToken } = await oauth2Client.getAccessToken();
+    if (!accessToken) return res.status(401).json({ error: 'Could not obtain access token' });
+
+    const tagList = Array.isArray(tags)
+      ? tags
+      : (typeof tags === 'string' && tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : []);
+
+    const initResponse = await axios.post(
+      'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+      { snippet: { title, description, tags: tagList }, status: { privacyStatus } },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Length': String(sizeNum),
+          'X-Upload-Content-Type': mimeType,
+          // Google ties the resumable session's CORS allow-list to the Origin
+          // on this init request. Without it, the browser's PUT to uploadUrl
+          // is blocked by CORS even though Google accepts the bytes.
+          Origin: req.get('origin') || 'https://martinbarker.me',
+        },
+        validateStatus: () => true,
+        maxRedirects: 0,
+      }
+    );
+
+    const uploadUrl = initResponse.headers?.location;
+    if (initResponse.status !== 200 || !uploadUrl) {
+      console.error('createUploadSession init failed', initResponse.status, initResponse.data);
+      const errMsg = (initResponse.data && initResponse.data.error && initResponse.data.error.message)
+        || `YouTube upload init failed (${initResponse.status})`;
+      return res.status(initResponse.status >= 400 ? initResponse.status : 500).json({ error: errMsg });
+    }
+
+    res.status(200).json({ uploadUrl });
+  } catch (err) {
+    console.error('createUploadSession error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to create upload session' });
+  }
+});
 
 // Upload video to YouTube (dev route)
 app.post('/youtube/uploadVideo', (req, res, next) => {

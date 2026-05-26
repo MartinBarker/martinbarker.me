@@ -463,10 +463,6 @@
   .content {
     width: 100%;
     transition: none;
-    padding: 8px;
-  }
-  .contentBody {
-    padding: 4px 0;
   }
   
   /* Smaller text for mobile to prevent cutoff */

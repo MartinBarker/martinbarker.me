@@ -9,7 +9,6 @@ import { ColorContext } from "../ColorContext";
 import {
   extractTagsFromDiscogs,
   buildTagString,
-  sanitizeYouTubeTag,
   generateVideoTitleRecommendations,
   buildTimestampDescription,
   formatTimestamp,
@@ -71,15 +70,6 @@ function formatTime(s) {
   const sec = Math.floor(s % 60);
   const ms = Math.floor((s % 1) * 100);
   return `${m}:${sec.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
-}
-
-// Format seconds as HH:MM:SS (always shows hours, even if 0)
-function formatHMS(s) {
-  if (s == null || !isFinite(s) || s < 0) return "—";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
 }
 
 function formatBytes(b) {
@@ -185,13 +175,6 @@ export default function VinylDigitizerPage() {
   const [volume, setVolume] = useState(1);
   const [tracks, setTracks] = useState([]); // [{id, startTime, endTime, name}]
 
-  // Visible time range of the zoomview (for positioning boundary handles)
-  const [viewRange, setViewRange] = useState({ start: 0, end: 0 });
-  const [zoomviewWidth, setZoomviewWidth] = useState(0);
-  // Tracks currently being dragged (live override for handle rendering during drag)
-  const dragStateRef = useRef(null);
-  const [, forceHandleRender] = useState(0);
-
   // Album info
   const [discogsUrl, setDiscogsUrl] = useState("");
   const [manualTrackCount, setManualTrackCount] = useState("");
@@ -264,7 +247,10 @@ export default function VinylDigitizerPage() {
   const [videoRenderProgress, setVideoRenderProgress] = useState(null);
   const [videoRenderStartTime, setVideoRenderStartTime] = useState(null);
   const [videoRenderLogs, setVideoRenderLogs] = useState([]);
+  const [videoRenderError, setVideoRenderError] = useState(null);
   const [showVideoLogs, setShowVideoLogs] = useState(false);
+  // Image downscale ceiling: cap source images at this pixel dimension before rendering. "auto" = 1.25× output max dim.
+  const [imageMaxDim, setImageMaxDim] = useState("auto");
   const videoLogsEndRef = useRef(null);
   const [renderedVideoSrc, setRenderedVideoSrc] = useState(null);
   const [videoOutputName, setVideoOutputName] = useState("");
@@ -278,12 +264,7 @@ export default function VinylDigitizerPage() {
   const [ytUploadProgress, setYtUploadProgress] = useState(null);
   const [ytUploadResult, setYtUploadResult] = useState(null);
   const [ytUploadError, setYtUploadError] = useState("");
-  const [ytUploadAuthError, setYtUploadAuthError] = useState(null); // { reason, raw } when invalid_grant / 401
   const [ytAuthState, setYtAuthState] = useState({ canAuth: false });
-  // Clear the upload auth-error banner once the user successfully re-authenticates
-  useEffect(() => {
-    if (ytAuthState.canAuth && ytUploadAuthError) setYtUploadAuthError(null);
-  }, [ytAuthState.canAuth]); // eslint-disable-line react-hooks/exhaustive-deps
   const [thumbnailFile, setThumbnailFile] = useState(null);
   const [thumbnailPreview, setThumbnailPreview] = useState(null);
   const [embedArtFile, setEmbedArtFile] = useState(null); // album art to embed in FLAC exports
@@ -422,6 +403,7 @@ export default function VinylDigitizerPage() {
         if (saved.videoWidth) setVideoWidth(saved.videoWidth);
         if (saved.videoHeight) setVideoHeight(saved.videoHeight);
         if (saved.videoBgColor) setVideoBgColor(saved.videoBgColor);
+        if (saved.imageMaxDim !== undefined) setImageMaxDim(saved.imageMaxDim);
         if (saved.slideshowMode) setSlideshowMode(saved.slideshowMode);
         if (saved.loopInterval != null) setLoopInterval(saved.loopInterval);
         if (saved.ytTitleVariation != null) setYtTitleVariation(saved.ytTitleVariation);
@@ -475,6 +457,7 @@ export default function VinylDigitizerPage() {
         videoWidth,
         videoHeight,
         videoBgColor,
+        imageMaxDim,
         slideshowMode,
         loopInterval,
         ytTitleVariation,
@@ -492,7 +475,7 @@ export default function VinylDigitizerPage() {
     } catch {}
   }, [mounted, step, projectName, discogsUrl, discogsData, trackNames, manualTrackCount,
       tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
-      videoWidth, videoHeight, videoBgColor, slideshowMode, loopInterval,
+      videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval,
       ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
       ytDescSuffix, discogsInputMode, audioFile, videoOutputName, renderedVideoSrc]);
 
@@ -531,7 +514,7 @@ export default function VinylDigitizerPage() {
   const buildProgressPayload = () => ({
     step, projectName, discogsUrl, discogsData, trackNames, manualTrackCount,
     tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
-    videoWidth, videoHeight, videoBgColor, slideshowMode, loopInterval,
+    videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval,
     ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
     ytDescSuffix, discogsInputMode,
     audioFileName: audioFile?.name || null,
@@ -558,6 +541,7 @@ export default function VinylDigitizerPage() {
     if (saved.videoWidth) setVideoWidth(saved.videoWidth);
     if (saved.videoHeight) setVideoHeight(saved.videoHeight);
     if (saved.videoBgColor) setVideoBgColor(saved.videoBgColor);
+    if (saved.imageMaxDim !== undefined) setImageMaxDim(saved.imageMaxDim);
     if (saved.slideshowMode) setSlideshowMode(saved.slideshowMode);
     if (saved.loopInterval != null) setLoopInterval(saved.loopInterval);
     if (saved.ytTitleVariation != null) setYtTitleVariation(saved.ytTitleVariation);
@@ -821,9 +805,6 @@ export default function VinylDigitizerPage() {
   useEffect(() => { autoSplitDoneRef.current = false; }, [audioFile]);
   useEffect(() => { if (step < 3) autoSplitDoneRef.current = false; }, [step]);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step]);
-  // When the user returns to Step 1, force the audio picker to re-prompt
-  // the next time they enter Step 2.
-  useEffect(() => { if (step === 1) setAudioPickConfirmed(false); }, [step]);
   useEffect(() => {
     if (step === 3 && channelData && duration > 0 && !autoSplitDoneRef.current && !isLoadingWaveform) {
       autoSplitDoneRef.current = true;
@@ -901,7 +882,6 @@ export default function VinylDigitizerPage() {
                   const levels = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536];
                   retryInstance.zoom.setZoom(levels.length - 1);
                 } catch {}
-                try { retryInstance.views.getView('zoomview')?.enableAutoScroll(false); } catch {}
                 if (currentTracks && currentTracks.length > 0) {
                   currentTracks.forEach((track, i) => {
                     retryInstance.segments.add({
@@ -920,13 +900,6 @@ export default function VinylDigitizerPage() {
                     setExportedTracks([]);
                   }, 50);
                 });
-                retryInstance.on('zoomview.update', ({ startTime, endTime }) => {
-                  setViewRange({ start: startTime, end: endTime });
-                });
-                try {
-                  const v = retryInstance.views.getView('zoomview');
-                  if (v) setViewRange({ start: v.getStartTime(), end: v.getEndTime() });
-                } catch {}
                 resolve();
               });
               return;
@@ -941,8 +914,6 @@ export default function VinylDigitizerPage() {
             const levels = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536];
             peaksInstance.zoom.setZoom(levels.length - 1);
           } catch {}
-          // Disable auto-scroll so zoom/playback doesn't yank the view back to the playhead
-          try { peaksInstance.views.getView('zoomview')?.enableAutoScroll(false); } catch {}
 
           // Add existing tracks as segments
           if (currentTracks && currentTracks.length > 0) {
@@ -996,14 +967,6 @@ export default function VinylDigitizerPage() {
               setExportedTracks([]);
             }, 50);
           });
-
-          peaksInstance.on('zoomview.update', ({ startTime, endTime }) => {
-            setViewRange({ start: startTime, end: endTime });
-          });
-          try {
-            const v = peaksInstance.views.getView('zoomview');
-            if (v) setViewRange({ start: v.getStartTime(), end: v.getEndTime() });
-          } catch {}
 
           resolve();
         });
@@ -1175,138 +1138,13 @@ export default function VinylDigitizerPage() {
     else if (e.deltaY > 0) zoomOut();
   }, []);
 
-  // Attach wheel listener to zoomview (needs {passive: false} to preventDefault).
-  // Re-run when entering step 3 since the zoomview div only mounts in that step.
+  // Attach wheel listener to zoomview (needs {passive: false} to preventDefault)
   useEffect(() => {
-    if (step !== 3) return;
-    let attached = null;
-    let raf = 0;
-    const tryAttach = () => {
-      const el = zoomviewRef.current;
-      if (el && attached !== el) {
-        if (attached) attached.removeEventListener("wheel", handleWaveWheel, { capture: true });
-        el.addEventListener("wheel", handleWaveWheel, { passive: false, capture: true });
-        attached = el;
-        return;
-      }
-      if (!el) raf = requestAnimationFrame(tryAttach);
-    };
-    tryAttach();
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      if (attached) attached.removeEventListener("wheel", handleWaveWheel, { capture: true });
-    };
-  }, [step, handleWaveWheel]);
-
-  // Track zoomview pixel width via ResizeObserver (for boundary handle positioning)
-  useEffect(() => {
-    if (step !== 3) return;
-    let observer = null;
-    let raf = 0;
-    const tryObserve = () => {
-      const el = zoomviewRef.current;
-      if (!el) { raf = requestAnimationFrame(tryObserve); return; }
-      setZoomviewWidth(el.clientWidth);
-      observer = new ResizeObserver(entries => {
-        for (const entry of entries) setZoomviewWidth(entry.contentRect.width);
-      });
-      observer.observe(el);
-    };
-    tryObserve();
-    return () => {
-      if (raf) cancelAnimationFrame(raf);
-      if (observer) observer.disconnect();
-    };
-  }, [step]);
-
-  // ---- Boundary handle drag (above-waveform splitters) ----
-  const beginBoundaryDrag = useCallback((e, mode, idxLeft, idxRight) => {
-    // mode: 'joint-move' | 'joint-split' | 'solo-end' | 'solo-start'
-    e.preventDefault();
-    e.stopPropagation();
-    if (!peaksRef.current) return;
-    const view = peaksRef.current.views.getView('zoomview');
-    const containerEl = zoomviewRef.current;
-    if (!view || !containerEl) return;
-    const startMouseX = e.clientX;
-    const containerRect = containerEl.getBoundingClientRect();
-    const widthPx = containerRect.width || 1;
-
-    // Snapshot current track times so we can compute fresh values per move
-    const startEnd = idxLeft != null ? tracks[idxLeft].endTime : null;
-    const startStart = idxRight != null ? tracks[idxRight].startTime : null;
-
-    dragStateRef.current = { mode, idxLeft, idxRight, splitDir: null };
-    forceHandleRender(n => n + 1);
-
-    const pxToSeconds = (px) => {
-      const range = view.getEndTime() - view.getStartTime();
-      return (px / widthPx) * range;
-    };
-
-    const onMove = (ev) => {
-      const dx = ev.clientX - startMouseX;
-      const dt = pxToSeconds(dx);
-      const segL = idxLeft != null ? peaksRef.current.segments.getSegment(tracks[idxLeft].id) : null;
-      const segR = idxRight != null ? peaksRef.current.segments.getSegment(tracks[idxRight].id) : null;
-      // Re-render handle overlay so the handle follows the cursor
-      requestAnimationFrame(() => forceHandleRender(n => n + 1));
-
-      if (mode === 'joint-move') {
-        // Move both boundaries together; clamp so neither crosses the other side.
-        const prevEnd = idxLeft > 0 ? tracks[idxLeft - 1].endTime : 0;
-        const nextStart = idxRight < tracks.length - 1 ? tracks[idxRight + 1].startTime : duration;
-        const minT = Math.max(prevEnd, (tracks[idxLeft].startTime + 0.05));
-        const maxT = Math.min(nextStart, (tracks[idxRight].endTime - 0.05));
-        const t = Math.max(minT, Math.min(maxT, startEnd + dt));
-        if (segL) segL.update({ endTime: t });
-        if (segR) segR.update({ startTime: t });
-      } else if (mode === 'joint-split') {
-        // Direction-based: dragging left moves track[idxLeft].endTime backwards;
-        // dragging right moves track[idxRight].startTime forwards.
-        const st = dragStateRef.current;
-        if (st && st.splitDir == null && Math.abs(dx) > 2) {
-          st.splitDir = dx < 0 ? 'left' : 'right';
-          forceHandleRender(n => n + 1);
-        }
-        const dir = dragStateRef.current?.splitDir;
-        if (dir === 'left' && segL) {
-          const minT = Math.max((idxLeft > 0 ? tracks[idxLeft - 1].endTime : 0), tracks[idxLeft].startTime + 0.05);
-          const t = Math.max(minT, Math.min(startEnd, startEnd + dt));
-          segL.update({ endTime: t });
-        } else if (dir === 'right' && segR) {
-          const maxT = Math.min((idxRight < tracks.length - 1 ? tracks[idxRight + 1].startTime : duration), tracks[idxRight].endTime - 0.05);
-          const t = Math.min(maxT, Math.max(startStart, startStart + dt));
-          segR.update({ startTime: t });
-        }
-      } else if (mode === 'solo-end' && segL) {
-        const minT = Math.max((idxLeft > 0 ? tracks[idxLeft - 1].endTime : 0), tracks[idxLeft].startTime + 0.05);
-        const maxT = (idxLeft < tracks.length - 1) ? tracks[idxLeft + 1].startTime : duration;
-        const t = Math.max(minT, Math.min(maxT, startEnd + dt));
-        segL.update({ endTime: t });
-      } else if (mode === 'solo-start' && segR) {
-        const minT = (idxRight > 0) ? tracks[idxRight - 1].endTime : 0;
-        const maxT = Math.min((idxRight < tracks.length - 1 ? tracks[idxRight + 1].startTime : duration), tracks[idxRight].endTime - 0.05);
-        const t = Math.max(minT, Math.min(maxT, startStart + dt));
-        segR.update({ startTime: t });
-      }
-    };
-
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      // Commit final times from peaks segments back to React state
-      const segs = peaksRef.current.segments.getSegments().sort((a, b) => a.startTime - b.startTime);
-      const stripNum = (label) => { const m = (label || '').match(/^\d+\.\s*(.*)$/); return m ? m[1] : (label || 'Track'); };
-      setTracks(segs.map(s => ({ id: s.id, startTime: s.startTime, endTime: s.endTime, name: stripNum(s.labelText) })));
-      setExportedTracks([]);
-      dragStateRef.current = null;
-      forceHandleRender(n => n + 1);
-    };
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [tracks, duration]);
+    const el = zoomviewRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", handleWaveWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWaveWheel);
+  }, [handleWaveWheel]);
 
   // ---- Track manipulation ----
   const generateTrackId = () => `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1417,9 +1255,8 @@ export default function VinylDigitizerPage() {
   // ---- Upload ----
   const handleDrop = e => {
     e.preventDefault();
-    e.stopPropagation();
     const files = Array.from(e.dataTransfer.files);
-    const audioFiles = files.filter(f => f.type.startsWith("audio/"));
+    const audioF = files.find(f => f.type.startsWith("audio/"));
     const imageFiles = files.filter(f => f.type.startsWith("image/"));
 
     if (audioFiles.length > 0) {
@@ -1469,6 +1306,7 @@ export default function VinylDigitizerPage() {
       setMessage(`${files.length} audio files selected — confirm which to edit on Step 2.`);
     }
   };
+  const handleFileInput = e => { if (e.target.files.length > 0) setAudioFile(e.target.files[0]); };
 
   // ---- Discogs ----
   const fetchDiscogs = async () => {
@@ -1930,24 +1768,22 @@ export default function VinylDigitizerPage() {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => {
-        const naturalWidth = img.width;
-        const naturalHeight = img.height;
-        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
+        const naturalWidth = img.width, naturalHeight = img.height;
+        const scale = Math.min(maxSize / naturalWidth, maxSize / naturalHeight, 1);
+        const w = Math.round(naturalWidth * scale);
+        const h = Math.round(naturalHeight * scale);
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
         canvas.toBlob((blob) => {
-          const thumbUrl = blob ? URL.createObjectURL(blob) : URL.createObjectURL(file);
-          resolve({ thumbUrl, width: naturalWidth, height: naturalHeight });
+          resolve({ thumbUrl: blob ? URL.createObjectURL(blob) : URL.createObjectURL(file), naturalWidth, naturalHeight });
         }, 'image/jpeg', 0.7);
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        resolve({ thumbUrl: URL.createObjectURL(file), width: 0, height: 0 });
+        resolve({ thumbUrl: URL.createObjectURL(file), naturalWidth: 0, naturalHeight: 0 });
       };
       img.src = url;
     });
@@ -1956,31 +1792,15 @@ export default function VinylDigitizerPage() {
   const addImagesToVideo = async (files) => {
     const imageFiles = Array.from(files || []).filter(f => f?.type?.startsWith("image/"));
     if (!imageFiles.length) return;
-    // Dedupe against current state AND within the incoming batch (in case the
-    // same file appears twice in one drop). stopPropagation in handleDrop
-    // already prevents the handler from firing twice for the same event, so
-    // this check is sufficient.
-    const existingKeys = new Set(videoImages.map(img => `${img.file.name}:${img.file.size}`));
-    const seenInBatch = new Set();
-    const fresh = [];
-    for (const f of imageFiles) {
-      const key = `${f.name}:${f.size}`;
-      if (existingKeys.has(key) || seenInBatch.has(key)) continue;
-      seenInBatch.add(key);
-      fresh.push(f);
-    }
-    if (!fresh.length) return;
-    setImageLoadingStatus({ loaded: 0, total: fresh.length, current: fresh[0].name });
-    for (let i = 0; i < fresh.length; i++) {
-      const f = fresh[i];
-      setImageLoadingStatus({ loaded: i, total: fresh.length, current: f.name });
+    setImageLoadingStatus({ loaded: 0, total: imageFiles.length, current: imageFiles[0].name });
+    for (let i = 0; i < imageFiles.length; i++) {
+      const f = imageFiles[i];
+      setImageLoadingStatus({ loaded: i, total: imageFiles.length, current: f.name });
       const id = `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
-      // Add a placeholder entry immediately so the row appears with a spinner
-      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
-      setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
-      const { thumbUrl, width, height } = await createThumbnail(f);
+      const { thumbUrl, naturalWidth, naturalHeight } = await createThumbnail(f);
       const previewUrl = URL.createObjectURL(f);
-      setVideoImages(prev => prev.map(img => img.id === id ? { ...img, thumbUrl, previewUrl, width, height, loading: false } : img));
+      setVideoImages(prev => [...prev, { id, file: f, thumbUrl, previewUrl, naturalWidth, naturalHeight, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
+      setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
     }
     setImageLoadingStatus(null);
   };
@@ -2225,6 +2045,42 @@ export default function VinylDigitizerPage() {
     return { totalMB, totalDur, overLimit: totalMB > YT_UPLOAD_LIMIT_MB, nearLimit: totalMB > YT_UPLOAD_LIMIT_MB * 0.8, overDuration: totalDur > YT_MAX_DURATION_SEC };
   };
 
+  // Rough peak-wasm-memory estimate so the user can predict whether ffmpeg.wasm will OOM.
+  // Components: ffmpeg base runtime, biggest decoded source image (RGBA), x264 buffered yuv420 frames, mux/audio overhead.
+  // The wasm single-threaded build ceiling is ~2 GB; we warn at ~1.5 GB.
+  const WASM_MEMORY_LIMIT_MB = 2048;
+  const WASM_MEMORY_WARN_MB = 1500;
+  const estimateMemoryUsage = () => {
+    const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+    const selectedImgs = videoImages.filter(img => selectedVideoImages.has(img.id));
+    if (selectedImgs.length === 0) return null;
+    const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
+    const effectiveMaxDim = parsedMax === 0 ? Infinity
+      : (parsedMax && parsedMax > 0 ? parsedMax : Math.round(Math.max(w, h) * 1.25));
+    let largestSourceBytes = 0;
+    for (const img of selectedImgs) {
+      const nw = img.naturalWidth || 0, nh = img.naturalHeight || 0;
+      if (!nw || !nh) continue;
+      const longest = Math.max(nw, nh);
+      const scale = longest > effectiveMaxDim ? effectiveMaxDim / longest : 1;
+      const eW = Math.max(1, Math.round(nw * scale)), eH = Math.max(1, Math.round(nh * scale));
+      largestSourceBytes = Math.max(largestSourceBytes, eW * eH * 4);
+    }
+    const baseMB = 150;
+    const sourceMB = (largestSourceBytes * 2) / (1024 * 1024);
+    const isHighRes = (w * h) >= (2560 * 1440);
+    const refFrames = isHighRes ? 4 : 8;
+    const encoderMB = (w * h * 1.5 * refFrames) / (1024 * 1024);
+    const muxMB = 80;
+    const totalMB = baseMB + sourceMB + encoderMB + muxMB;
+    return {
+      totalMB, baseMB, sourceMB, encoderMB, muxMB,
+      effectiveMaxDim,
+      overLimit: totalMB > WASM_MEMORY_LIMIT_MB,
+      nearLimit: totalMB > WASM_MEMORY_WARN_MB,
+    };
+  };
+
   const formatEta = () => {
     if (!videoRenderStartTime || !videoRenderProgress || videoRenderProgress <= 0.01) return null;
     const elapsed = (Date.now() - videoRenderStartTime) / 1000;
@@ -2235,6 +2091,36 @@ export default function VinylDigitizerPage() {
     return `~${Math.floor(remaining / 60)}m ${Math.round(remaining % 60)}s remaining`;
   };
 
+  // Pre-shrink huge source images: a 7000+ px PNG decodes to >200 MB of RGBA in the wasm heap, which combined with x264's frame buffers exceeds the ~2 GB wasm ceiling.
+  const downscaleImageForRender = (file, maxDim) => new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const { naturalWidth: nw, naturalHeight: nh } = img;
+      if (!nw || !nh || Math.max(nw, nh) <= maxDim) {
+        URL.revokeObjectURL(url);
+        resolve({ file, resized: false, original: { w: nw, h: nh } });
+        return;
+      }
+      const scale = maxDim / Math.max(nw, nh);
+      const w = Math.max(1, Math.round(nw * scale));
+      const h = Math.max(1, Math.round(nh * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob) { resolve({ file, resized: false, original: { w: nw, h: nh } }); return; }
+        const newName = file.name.replace(/(\.[^.]+)?$/, `_resized_${w}x${h}.png`);
+        const newFile = new File([blob], newName, { type: "image/png" });
+        resolve({ file: newFile, resized: true, original: { w: nw, h: nh }, resizedTo: { w, h } });
+      }, "image/png");
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve({ file, resized: false }); };
+    img.src = url;
+  });
+
   // ---- Video Render ----
   const renderAlbumVideo = async () => {
     const selectedAudioList = getOrderedAudios();
@@ -2244,6 +2130,7 @@ export default function VinylDigitizerPage() {
     setIsRenderingVideo(true); setVideoRenderProgress(0);
     setVideoRenderStartTime(Date.now());
     setVideoRenderLogs(["Starting FFmpeg…"]);
+    setVideoRenderError(null);
     setShowVideoLogs(true);
     const appendVideoLog = (line) => setVideoRenderLogs(prev => { const next = [...prev, line]; return next.length > 300 ? next.slice(-300) : next; });
     const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || "album";
@@ -2251,8 +2138,20 @@ export default function VinylDigitizerPage() {
     try {
       const ffV = new FFmpeg();
       videoFfmpegRef.current = ffV;
+      const oomState = { detected: false, lastSignal: "", encodeCompleted: false };
+      // "hard" patterns mean the encode definitely failed; "soft" (plain Aborted()) only counts if Lsize= never appeared.
+      const HARD_OOM = /(malloc of size \d+ failed|Cannot enlarge memory|Out of memory|memory access out of bounds|Error submitting video frame to the encoder)/i;
+      const SOFT_OOM = /Aborted\(\)/i;
       ffV.on("log", ({ message: msg }) => {
         appendVideoLog(msg);
+        if (/Lsize=\s*\d+/.test(msg)) oomState.encodeCompleted = true;
+        if (!oomState.detected && HARD_OOM.test(msg)) {
+          oomState.detected = true;
+          oomState.lastSignal = msg.trim();
+        } else if (!oomState.detected && !oomState.encodeCompleted && SOFT_OOM.test(msg)) {
+          oomState.detected = true;
+          oomState.lastSignal = msg.trim();
+        }
         // Parse time= from FFmpeg log for accurate 0–1 progress (progress event overshoots)
         const m = msg.match(/time=(\d+):(\d+):(\d+\.\d+)/);
         if (m && totalDur > 0) {
@@ -2279,13 +2178,30 @@ export default function VinylDigitizerPage() {
         await ffV.writeFile(vfsName, await fetchFile(blob));
       }
 
-      // Write image files
+      const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+
+      const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
+      const imgMaxDim = parsedMax === 0 ? Infinity
+        : (parsedMax && parsedMax > 0 ? parsedMax : Math.round(Math.max(w, h) * 1.25));
+      const resizedImageFiles = [];
       for (let i = 0; i < selectedImageList.length; i++) {
-        const ext = selectedImageList[i].file.name.split(".").pop() || "jpg";
-        await ffV.writeFile(`img${i}.${ext}`, await fetchFile(selectedImageList[i].file));
+        const original = selectedImageList[i].file;
+        const result = await downscaleImageForRender(original, imgMaxDim);
+        if (result.resized) {
+          appendVideoLog(`Pre-resized ${original.name}: ${result.original.w}×${result.original.h} → ${result.resizedTo.w}×${result.resizedTo.h}`);
+        }
+        resizedImageFiles.push(result.file);
       }
 
-      const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+      // Write image files (using resized versions where applicable)
+      const imgVfsNames = [];
+      for (let i = 0; i < resizedImageFiles.length; i++) {
+        const f = resizedImageFiles[i];
+        const ext = f.name.split(".").pop() || "jpg";
+        const vfsName = `img${i}.${ext}`;
+        imgVfsNames.push(vfsName);
+        await ffV.writeFile(vfsName, await fetchFile(f));
+      }
       const n = selectedAudioList.length;
       const args = ["-y"];
 
@@ -2293,9 +2209,8 @@ export default function VinylDigitizerPage() {
       for (const vfsName of audioVfsNames) args.push("-i", vfsName);
 
       // Image inputs (at 2fps)
-      for (let i = 0; i < selectedImageList.length; i++) {
-        const ext = selectedImageList[i].file.name.split(".").pop() || "jpg";
-        args.push("-r", "2", "-i", `img${i}.${ext}`);
+      for (let i = 0; i < imgVfsNames.length; i++) {
+        args.push("-r", "2", "-i", imgVfsNames[i]);
       }
 
       // Filter complex
@@ -2322,21 +2237,60 @@ export default function VinylDigitizerPage() {
           fc += `[${imgIdx}:v]${scale}${pad},setsar=1,loop=${loop}:${loop}[v${i}];`;
         }
       }
-      appendVideoLog(`Running FFmpeg (${w}×${h}, ${Math.ceil(totalDur)}s)…`);
+      // At 1440p+, drop -tune stillimage and use -preset veryfast so x264's lookahead/ref/bframes buffers don't blow the wasm heap.
+      const isHighRes = (w * h) >= (2560 * 1440);
+      const x264Args = isHighRes
+        ? ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
+        : ["-c:v", "libx264", "-tune", "stillimage", "-crf", "18"];
+      appendVideoLog(`Running FFmpeg (${w}×${h}, ${Math.ceil(totalDur)}s${isHighRes ? ", high-res preset" : ""})…`);
       fc += selectedImageList.map((_, i) => `[v${i}]`).join("") + `concat=n=${selectedImageList.length}:v=1:a=0,pad=ceil(iw/2)*2:ceil(ih/2)*2[v]`;
 
-      await ffV.exec([
+      const exitCode = await ffV.exec([
         ...args,
         "-filter_complex", fc,
         "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-tune", "stillimage", "-crf", "18",
+        ...x264Args,
         "-c:a", "aac", "-b:a", "320k",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-t", String(Math.ceil(totalDur)),
         `${name}.mp4`
       ]);
 
-      const data = await ffV.readFile(`${name}.mp4`);
+      // If a hard OOM was detected before encoding finished, bail out early.
+      if (oomState.detected && !oomState.encodeCompleted) {
+        const err = new Error("__OOM__");
+        err.oom = true;
+        err.signal = oomState.lastSignal;
+        err.dimensions = { w, h };
+        throw err;
+      }
+
+      // Try to read the output file. If encoding finished (Lsize= seen), trust it even if a
+      // late Aborted() fired during ffmpeg's shutdown. If the read fails or the file is empty,
+      // surface an OOM/render error.
+      let data;
+      try {
+        data = await ffV.readFile(`${name}.mp4`);
+      } catch (readErr) {
+        if (oomState.detected || oomState.encodeCompleted) {
+          const err = new Error("__OOM__");
+          err.oom = true;
+          err.signal = oomState.lastSignal || readErr?.message || "Could not read output file";
+          err.dimensions = { w, h };
+          throw err;
+        }
+        throw readErr;
+      }
+      if (!data || !data.byteLength) {
+        const err = new Error("__OOM__");
+        err.oom = true;
+        err.signal = oomState.lastSignal || "Output file was empty";
+        err.dimensions = { w, h };
+        throw err;
+      }
+      if (typeof exitCode === "number" && exitCode !== 0 && !oomState.encodeCompleted) {
+        throw new Error(`FFmpeg exited with code ${exitCode}. See logs above.`);
+      }
       const blob = new Blob([data.buffer], { type: "video/mp4" });
       if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc);
       const renderedUrl = URL.createObjectURL(blob);
@@ -2387,94 +2341,234 @@ export default function VinylDigitizerPage() {
         setTimeout(() => uploadToYouTube(renderedUrl), 500);
       }
     } catch (err) {
-      setVideoRenderLogs(prev => [...prev, `ERROR: ${err.message}`]);
-      setMessage("Video render error: " + err.message);
+      const isOom = err?.oom || /malloc of size|Cannot enlarge memory|Out of memory|memory access out of bounds|Aborted\(\)|Error submitting video frame/i.test(err?.message || "");
+      if (isOom) {
+        const dims = err?.dimensions ? `${err.dimensions.w}×${err.dimensions.h}` : `${videoWidth}×${videoHeight}`;
+        const friendlyLines = [
+          `ERROR: Ran out of memory while encoding at ${dims}.`,
+          "",
+          "FFmpeg runs in your browser (WebAssembly) and is capped at ~2 GB of memory.",
+          "This job exceeded that limit. To get it to render, try one or more of:",
+          "  • Lower the output resolution (e.g. 1080p instead of 4K).",
+          "  • Use fewer images, or shorter total duration.",
+          "  • Use smaller source images (very large PNGs are decoded uncompressed and use hundreds of MB each).",
+          "",
+          err?.signal ? `Underlying ffmpeg signal: ${err.signal}` : "",
+        ].filter(Boolean);
+        setVideoRenderLogs(prev => [...prev, ...friendlyLines]);
+        setMessage(`Out of memory at ${dims}. Try a lower resolution.`);
+        setVideoRenderError({
+          kind: "oom",
+          dims,
+          signal: err?.signal,
+          tips: [
+            "Lower the output resolution (e.g. 1080p instead of 4K).",
+            "Use fewer images or shorten the total audio duration.",
+            "Cap source images via the Image Settings panel above (very large PNGs decode to hundreds of MB each).",
+          ],
+        });
+      } else {
+        setVideoRenderLogs(prev => [...prev, `ERROR: ${err.message}`]);
+        setMessage("Video render error: " + err.message);
+        setVideoRenderError({ kind: "generic", message: err?.message || "Render failed" });
+      }
     }
     finally { setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null); }
   };
 
   // ---- YouTube Upload ----
   const uploadToYouTube = async (videoUrlOverride) => {
+    const log = (level, ...args) => { try { (console[level] || console.log)("[yt-upload]", ...args); } catch {} };
+    const tStart = performance.now();
+    const elapsed = () => `${Math.round(performance.now() - tStart)}ms`;
     const videoUrl = videoUrlOverride || renderedVideoSrc;
-    if (!videoUrl || ytUploading) return;
-    setYtUploading(true); setYtUploadProgress(0); setYtUploadError(""); setYtUploadAuthError(null); setYtUploadResult(null);
+
+    log("info", "uploadToYouTube called", {
+      hasOverride: !!videoUrlOverride,
+      hasRenderedVideoSrc: !!renderedVideoSrc,
+      ytUploading,
+      videoUrl: videoUrl ? videoUrl.slice(0, 64) + (videoUrl.length > 64 ? "…" : "") : null,
+    });
+
+    if (!videoUrl) { log("warn", "abort: no videoUrl"); return; }
+    if (ytUploading) { log("warn", "abort: ytUploading already true"); return; }
+    setYtUploading(true); setYtUploadProgress(0); setYtUploadError(""); setYtUploadResult(null);
     try {
+      log("info", `[${elapsed()}] requesting tokens via getTokensRef…`);
       const tokens = await getTokensRef.current?.getTokens();
-      if (!tokens) { setYtUploadError("Not signed in to YouTube."); setYtUploading(false); return; }
+      log("info", `[${elapsed()}] tokens received`, {
+        hasTokens: !!tokens,
+        hasAccessToken: !!tokens?.access_token,
+        hasRefreshToken: !!tokens?.refresh_token,
+        scope: tokens?.scope,
+        expiresIn: tokens?.expires_in,
+      });
+      if (!tokens) { log("error", "no tokens returned by getTokens()"); setYtUploadError("Not signed in to YouTube."); setYtUploading(false); return; }
       const currentYtData = ytUploadDataRef.current;
       const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_");
+      log("info", `[${elapsed()}] fetching rendered video blob…`, videoUrl);
       const videoBlob = await fetch(videoUrl).then(r => r.blob());
-      const fd = new FormData();
-      fd.append("video", videoBlob, `${currentYtData.title || name}.mp4`);
-      fd.append("title", currentYtData.title || name);
-      fd.append("description", currentYtData.description || "");
-      fd.append("privacyStatus", currentYtData.privacyStatus || "private");
-      const cleanedTags = (currentYtData.tags || "")
-        .split(",")
-        .map(t => sanitizeYouTubeTag(t))
-        .filter(Boolean);
-      let tagsTotal = 0;
-      const safeTags = [];
-      for (const t of cleanedTags) {
-        const projected = tagsTotal + (safeTags.length ? 2 : 0) + t.length;
-        if (projected > YT_LIMITS.tags) break;
-        safeTags.push(t);
-        tagsTotal = projected;
-      }
-      fd.append("tags", safeTags.join(", "));
-      fd.append("tokens", JSON.stringify(tokens));
-      if (thumbnailFile) fd.append("thumbnail", thumbnailFile, thumbnailFile.name);
       const fileSizeMB = (videoBlob.size / (1024 * 1024)).toFixed(1);
+      log("info", `[${elapsed()}] blob ready`, { sizeMB: fileSizeMB, sizeBytes: videoBlob.size, type: videoBlob.type });
+
       const maxSizeMB = 2048; // 2 GB server limit
       if (videoBlob.size > maxSizeMB * 1024 * 1024) {
+        log("error", "video exceeds upload limit", { sizeMB: fileSizeMB, maxSizeMB });
         setYtUploadError(`Video file is ${fileSizeMB} MB — exceeds the ${maxSizeMB} MB upload limit. Try a lower resolution or shorter duration.`);
         setYtUploading(false);
         return;
       }
-      await new Promise(resolve => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", `${apiBaseURL()}/youtube/uploadVideo`);
-        xhr.withCredentials = true;
-        xhr.upload.onprogress = e => { if (e.lengthComputable) setYtUploadProgress(Math.round((e.loaded / e.total) * 100)); };
-        xhr.onload = () => {
-          try {
-            const data = JSON.parse(xhr.responseText);
-            if (xhr.status >= 200 && xhr.status < 300) setYtUploadResult(data);
-            else {
-              console.error("YouTube upload error — full server response:", data);
-              const rawErr = String(data.error || data.error_description || "");
-              const looksLikeAuth =
-                /invalid_grant|invalid_token|unauthorized_client|token has been expired|not signed in/i.test(rawErr) ||
-                xhr.status === 401 || xhr.status === 403;
-              if (looksLikeAuth) {
-                // Clear the stale tokens client-side so YouTubeAuth re-renders as signed-out
-                try {
-                  localStorage.removeItem('youtube_tokens');
-                  localStorage.removeItem('youtube_auth_code');
-                  localStorage.removeItem('youtube_auth_scope');
-                  localStorage.removeItem('youtube_auth_set_time');
-                } catch {}
-                // Tell YouTubeAuth to re-verify (will flip canAuth to false)
-                try { getTokensRef.current?.verifyTokens?.(); } catch {}
-                setYtUploadAuthError({ reason: rawErr || `HTTP ${xhr.status}`, raw: data });
-                setYtUploadError("");
-              } else {
-                let errMsg = rawErr || `Upload failed (${xhr.status})`;
-                if (xhr.status === 413) errMsg = `File too large (${fileSizeMB} MB). Maximum upload size is ${maxSizeMB} MB. Try a lower resolution.`;
-                else if (/invalid.*title|empty.*title/i.test(errMsg)) errMsg += " — Try shortening the title (max 100 characters).";
-                else if (/description/i.test(errMsg)) errMsg += " — Try shortening the description (max 5,000 characters).";
-                else if (/tag/i.test(errMsg)) errMsg += " — Try reducing tags (max 500 characters total, each tag max 30 chars).";
-                setYtUploadError(errMsg);
-              }
-            }
-          } catch (parseErr) { console.error("YouTube upload error — failed to parse response. Status:", xhr.status, "Raw response:", xhr.responseText, parseErr); setYtUploadError(`Failed to parse server response (HTTP ${xhr.status})`); }
-          resolve();
-        };
-        xhr.onerror = () => { console.error("YouTube upload network error — XHR onerror fired. Status:", xhr.status, "Response:", xhr.responseText); setYtUploadError(`Network error uploading ${fileSizeMB} MB video. Check your connection and try again.`); resolve(); };
-        xhr.send(fd);
+
+      const sessionEndpoint = `${apiBaseURL()}/youtube/createUploadSession`;
+      log("info", `[${elapsed()}] POST ${sessionEndpoint} (init resumable session)`, {
+        titleLen: (currentYtData.title || name).length,
+        descLen: (currentYtData.description || "").length,
+        tagsLen: (currentYtData.tags || "").length,
+        privacyStatus: currentYtData.privacyStatus || "private",
+        hasThumbnail: !!thumbnailFile,
+        thumbnailSize: thumbnailFile?.size || 0,
+        sizeBytes: videoBlob.size,
       });
-    } catch (err) { console.error("YouTube upload error:", err); setYtUploadError(err.message || "Upload failed"); }
-    finally { setYtUploading(false); setYtUploadProgress(null); }
+
+      const sessionRes = await fetch(sessionEndpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tokens,
+          title: currentYtData.title || name,
+          description: currentYtData.description || "",
+          privacyStatus: currentYtData.privacyStatus || "private",
+          tags: currentYtData.tags || "",
+          fileSize: videoBlob.size,
+          mimeType: videoBlob.type || "video/mp4",
+        }),
+      });
+      if (!sessionRes.ok) {
+        const errBody = await sessionRes.text();
+        log("error", `[${elapsed()}] createUploadSession failed`, { status: sessionRes.status, body: errBody.slice(0, 300) });
+        let errMsg;
+        try { errMsg = JSON.parse(errBody).error; } catch { errMsg = errBody; }
+        setYtUploadError(errMsg || `Failed to start upload session (${sessionRes.status})`);
+        return;
+      }
+      const { uploadUrl } = await sessionRes.json();
+      log("info", `[${elapsed()}] resumable session created`, { uploadUrl: uploadUrl?.slice(0, 80) + "…" });
+
+      // Chunked PUT directly to YouTube. 8 MB chunks (must be a multiple of 256 KB; final chunk can be any size).
+      const CHUNK_SIZE = 8 * 1024 * 1024;
+      const total = videoBlob.size;
+      let offset = 0;
+      let aborted = false;
+      let videoData = null;
+
+      const putChunk = (start, end) => new Promise((resolve, reject) => {
+        const chunk = videoBlob.slice(start, end);
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${total}`);
+        xhr.timeout = 10 * 60 * 1000;
+
+        let lastBytes = 0;
+        let lastProgressAt = Date.now();
+        let stallWarned = false;
+        const watchdog = setInterval(() => {
+          const stuckSec = Math.round((Date.now() - lastProgressAt) / 1000);
+          if (stuckSec >= 120) {
+            log("error", `[${elapsed()}] chunk stalled ${stuckSec}s — aborting`, { start, lastBytes });
+            try { xhr.abort(); } catch {}
+            return;
+          }
+          if (stuckSec >= 30 && !stallWarned) {
+            stallWarned = true;
+            log("warn", `[${elapsed()}] chunk stalled ${stuckSec}s at ${(start + lastBytes)/1024/1024 | 0} MB`);
+          }
+        }, 5000);
+        const cleanup = () => clearInterval(watchdog);
+
+        xhr.upload.onprogress = e => {
+          if (!e.lengthComputable) return;
+          lastBytes = e.loaded;
+          lastProgressAt = Date.now();
+          stallWarned = false;
+          const sent = start + e.loaded;
+          setYtUploadProgress(Math.round((sent / total) * 100));
+        };
+        xhr.onload = () => {
+          cleanup();
+          if (xhr.status === 200 || xhr.status === 201) {
+            try { videoData = JSON.parse(xhr.responseText); }
+            catch { return reject(new Error("Could not parse YouTube response")); }
+            resolve({ done: true });
+          } else if (xhr.status === 308) {
+            const range = xhr.getResponseHeader("Range") || "";
+            const m = /bytes=0-(\d+)/.exec(range);
+            const next = m ? parseInt(m[1], 10) + 1 : end;
+            resolve({ done: false, next });
+          } else {
+            reject(new Error(`Chunk upload failed (${xhr.status}): ${(xhr.responseText || "").slice(0, 200)}`));
+          }
+        };
+        xhr.onerror = () => { cleanup(); reject(new Error("Network error during chunk upload")); };
+        xhr.onabort = () => { cleanup(); aborted = true; reject(new Error("Upload aborted (no progress)")); };
+        xhr.ontimeout = () => { cleanup(); reject(new Error("Chunk upload timed out")); };
+        xhr.send(chunk);
+      });
+
+      try {
+        while (offset < total) {
+          const end = Math.min(offset + CHUNK_SIZE, total);
+          log("debug", `[${elapsed()}] PUT chunk ${offset}-${end - 1}/${total}`);
+          const result = await putChunk(offset, end);
+          if (result.done) break;
+          offset = result.next ?? end;
+        }
+      } catch (err) {
+        log("error", `[${elapsed()}] chunked upload failed`, err);
+        setYtUploadError(aborted
+          ? `Upload aborted — connection stalled. Try again or use a smaller video.`
+          : `Upload failed: ${err.message}`);
+        return;
+      }
+
+      if (!videoData) {
+        setYtUploadError("Upload completed but YouTube didn't return video metadata.");
+        return;
+      }
+
+      log("info", `[${elapsed()}] video upload complete`, { videoId: videoData.id });
+
+      let thumbnailUploaded = false;
+      if (thumbnailFile && videoData.id) {
+        try {
+          log("info", `[${elapsed()}] uploading thumbnail directly to YouTube`);
+          const thumbRes = await fetch(
+            `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoData.id)}&uploadType=media`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${tokens.access_token}`,
+                "Content-Type": thumbnailFile.type || "image/jpeg",
+              },
+              body: thumbnailFile,
+            }
+          );
+          if (thumbRes.ok) thumbnailUploaded = true;
+          else log("warn", `[${elapsed()}] thumbnail upload failed`, { status: thumbRes.status, body: (await thumbRes.text()).slice(0, 200) });
+        } catch (thumbErr) {
+          log("warn", `[${elapsed()}] thumbnail upload threw`, thumbErr);
+        }
+      }
+
+      setYtUploadResult({ id: videoData.id, title: videoData.snippet?.title, thumbnailUploaded });
+    } catch (err) {
+      log("error", `[${elapsed()}] uploadToYouTube threw`, err);
+      setYtUploadError(err.message || "Upload failed");
+    }
+    finally {
+      log("info", `[${elapsed()}] uploadToYouTube finally — clearing state`);
+      setYtUploading(false); setYtUploadProgress(null);
+    }
   };
 
   // Regenerate YouTube metadata when format options change
@@ -2526,9 +2620,9 @@ export default function VinylDigitizerPage() {
   const lastYtDiscogsUrlRef = useRef(null);
   const lastYtVideoSrcRef = useRef(null);
 
-  // Pre-fill YouTube metadata when entering Step 5 or when discogs data / rendered video changes
+  // Pre-fill YouTube metadata when entering Step 6 or when discogs data / rendered video changes
   useEffect(() => {
-    if (step !== 5) return;
+    if (step !== 6) return;
     const discogsChanged = discogsData && discogsUrl && lastYtDiscogsUrlRef.current !== discogsUrl;
     const videoChanged = renderedVideoSrc && lastYtVideoSrcRef.current !== renderedVideoSrc;
     const needsTitle = !ytUploadData.title || discogsChanged;
@@ -2784,12 +2878,7 @@ export default function VinylDigitizerPage() {
             ⚠️ WARNING: {isRenderingVideo ? `Video is rendering${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}` : `Video is uploading${ytUploadProgress !== null ? ` (${ytUploadProgress}%)` : ""}`} — do not navigate away from this page!
           </div>
         )}
-        {ytUploadAuthError && !ytUploading && (
-          <div className={styles.renderingWarningBanner} style={{animation:"none", background: "#fed7d7", color: "#742a2a"}}>
-            ⚠️ YouTube sign-in expired — see the YouTube Upload Details panel below to sign in again.
-          </div>
-        )}
-        {ytUploadError && !ytUploadAuthError && !ytUploading && (
+        {ytUploadError && !ytUploading && (
           <div className={styles.renderingWarningBanner} style={{animation:"none"}}>
             Upload Error: {ytUploadError}
           </div>
@@ -2802,7 +2891,7 @@ export default function VinylDigitizerPage() {
           {/* ---- STEP 1 ---- */}
           {step === 1 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 1: Input</h2>
+              <h2 className={styles.cardTitle}>Step 1: Audio Source</h2>
               <div className={styles.tabRow}>
                 <button className={`${styles.tab} ${audioMode === "upload" ? styles.tabActive : ""}`} onClick={() => setAudioMode("upload")}>Upload File</button>
                 <button className={`${styles.tab} ${audioMode === "record" ? styles.tabActive : ""}`} onClick={() => setAudioMode("record")}>Record Live</button>
@@ -2812,9 +2901,9 @@ export default function VinylDigitizerPage() {
                 <div>
                   <div className={styles.dropZone} onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
                     <div className={styles.dropIcon}>🎵</div>
-                    <p className={styles.dropText}>Drop audio or image files here, or click to browse audio</p>
-                    <p className={styles.dropHint}>Audio: WAV · FLAC · MP3 · AIFF · OGG · WebM · Images: PNG · JPG (auto-added to album art &amp; video)</p>
-                    <input type="file" accept="audio/*" multiple onChange={handleFileInput} className={styles.fileInput} />
+                    <p className={styles.dropText}>Drop audio file here or click to browse</p>
+                    <p className={styles.dropHint}>WAV · FLAC · MP3 · AIFF · OGG · WebM</p>
+                    <input type="file" accept="audio/*" onChange={handleFileInput} className={styles.fileInput} />
                   </div>
                 </div>
               ) : (
@@ -2996,7 +3085,8 @@ export default function VinylDigitizerPage() {
               </div>
 
               <div className={styles.stepNav}>
-                <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Tracks →</button>
+                <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Album Info →</button>
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
           )}
@@ -3227,17 +3317,7 @@ export default function VinylDigitizerPage() {
               <div className={styles.waveToolbar}>
                 <div className={styles.tbGroup}>
                   <button className={styles.playBtnSmall} onClick={togglePlay} disabled={!duration}>{isPlaying ? "⏸" : "▶"}</button>
-                  {(() => {
-                    const durStr = formatTime(duration);
-                    const slotWidth = `${Math.max(durStr.length, 7)}ch`;
-                    return (
-                      <span className={styles.timeLabel}>
-                        <span className={styles.timeCurrent} style={{ minWidth: slotWidth }}>{formatTime(currentTime)}</span>
-                        <span className={styles.timeSep}>/</span>
-                        <span className={styles.timeDuration}>{durStr}</span>
-                      </span>
-                    );
-                  })()}
+                  <span className={styles.timeLabel}>{formatTime(currentTime)} / {formatTime(duration)}</span>
                 </div>
                 <div className={styles.tbSep} />
                 <div className={styles.tbGroup}>
@@ -3269,81 +3349,7 @@ export default function VinylDigitizerPage() {
                 {isLoadingWaveform && (
                   <div className={styles.waveLoading}><div className={styles.spinner} /><span>{waveformLoadStatus || "Loading waveform…"}</span></div>
                 )}
-                <div className={styles.zoomviewWrap}>
-                  <div ref={zoomviewRef} className={styles.zoomview} />
-                  {/* Boundary handles overlay (above the waveform) */}
-                  {(() => {
-                    const range = viewRange.end - viewRange.start;
-                    if (!range || !zoomviewWidth || tracks.length === 0) return null;
-                    const timeToX = (t) => ((t - viewRange.start) / range) * zoomviewWidth;
-                    // Read live segment times from peaks during a drag, falling back to React state
-                    const liveTime = (trackId, field) => {
-                      const seg = peaksRef.current?.segments?.getSegment?.(trackId);
-                      if (seg) return field === 'endTime' ? seg.endTime : seg.startTime;
-                      const t = tracks.find(x => x.id === trackId);
-                      return t ? t[field] : 0;
-                    };
-                    const EPS = 0.02;
-                    const handles = [];
-                    for (let i = 0; i < tracks.length - 1; i++) {
-                      const a = tracks[i];
-                      const b = tracks[i + 1];
-                      const aEnd = liveTime(a.id, 'endTime');
-                      const bStart = liveTime(b.id, 'startTime');
-                      const shared = Math.abs(aEnd - bStart) < EPS;
-                      if (shared) {
-                        const x = timeToX(aEnd);
-                        if (x < -20 || x > zoomviewWidth + 20) continue;
-                        const ds = dragStateRef.current;
-                        const isDragging = ds && ds.idxLeft === i && ds.idxRight === i + 1;
-                        const splitDir = isDragging && ds.mode === 'joint-split' ? ds.splitDir : null;
-                        handles.push(
-                          <div key={`joint-${a.id}-${b.id}`} className={styles.boundaryHandle} style={{ left: x }}>
-                            <div
-                              className={styles.boundaryBar}
-                              title="Drag to move both boundaries together"
-                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-move', i, i + 1)}
-                            />
-                            <div
-                              className={`${styles.boundaryLeg} ${splitDir === 'left' ? styles.boundaryLegLeft : ''} ${splitDir === 'right' ? styles.boundaryLegRight : ''}`}
-                              title="Drag left/right to split into separate start/end"
-                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-split', i, i + 1)}
-                            />
-                          </div>
-                        );
-                      } else {
-                        // Two separate handles
-                        const xL = timeToX(aEnd);
-                        const xR = timeToX(bStart);
-                        if (xL >= -20 && xL <= zoomviewWidth + 20) {
-                          handles.push(
-                            <div key={`solo-end-${a.id}`} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: xL }}>
-                              <div
-                                className={styles.boundaryBar}
-                                title={`Drag to move "${a.name}" end`}
-                                onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)}
-                              />
-                              <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)} />
-                            </div>
-                          );
-                        }
-                        if (xR >= -20 && xR <= zoomviewWidth + 20) {
-                          handles.push(
-                            <div key={`solo-start-${b.id}`} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: xR }}>
-                              <div
-                                className={styles.boundaryBar}
-                                title={`Drag to move "${b.name}" start`}
-                                onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
-                              />
-                              <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)} />
-                            </div>
-                          );
-                        }
-                      }
-                    }
-                    return <div className={styles.boundaryOverlay}>{handles}</div>;
-                  })()}
-                </div>
+                <div ref={zoomviewRef} className={styles.zoomview} />
                 <div ref={overviewRef} className={styles.overview} />
               </div>
 
@@ -3497,7 +3503,7 @@ export default function VinylDigitizerPage() {
           {/* ---- STEP 4 ---- */}
           {step === 4 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 4: Audio</h2>
+              <h2 className={styles.cardTitle}>Step 4: Audio Export</h2>
 
               {/* Format */}
               <div className={styles.formatRow}>
@@ -3625,22 +3631,7 @@ export default function VinylDigitizerPage() {
                             </td>
                             <td>{i + 1}</td>
                             <td className={styles.filenameCell}>{getFilename(i)}</td>
-                            <td onClick={e => e.stopPropagation()}>
-                              <input
-                                type="text"
-                                className={styles.trackNameInput}
-                                value={trackNames[i] ?? track.name ?? ""}
-                                onChange={e => {
-                                  const v = e.target.value;
-                                  setTrackNames(prev => {
-                                    const n = [...prev];
-                                    while (n.length <= i) n.push("");
-                                    n[i] = v;
-                                    return n;
-                                  });
-                                }}
-                              />
-                            </td>
+                            <td>{trackNames[i] || track.name}</td>
                             {discogsData && <td>{discogsData.artists?.map(a => a.name).join(", ")}</td>}
                             {discogsData && <td>{discogsData.title}</td>}
                             <td>{formatTime(track.endTime - track.startTime)}</td>
@@ -3713,7 +3704,7 @@ export default function VinylDigitizerPage() {
           {/* ---- STEP 5 ---- */}
           {step === 5 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 5: Video</h2>
+              <h2 className={styles.cardTitle}>Step 5: Video Render</h2>
 
               {/* Direct file drop zone for audio + image files */}
               <div className={styles.videoSection}>
@@ -3917,7 +3908,13 @@ export default function VinylDigitizerPage() {
                                 </td>
                                 <td>{i + 1}</td>
                                 <td><img src={img.thumbUrl} alt={img.file.name} className={styles.videoThumb} /></td>
-                                <td className={styles.filenameCell}>{img.file.name}</td>
+                                <td className={styles.filenameCell}>
+                                  <div>{img.file.name}</div>
+                                  <div style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: 2 }}>
+                                    {img.file.size ? formatBytes(img.file.size) : "—"}
+                                    {(img.naturalWidth && img.naturalHeight) ? ` · ${img.naturalWidth}×${img.naturalHeight}` : ""}
+                                  </div>
+                                </td>
                                 <td onClick={e => e.stopPropagation()}>
                                   <label className={styles.videoCheckLabel}>
                                     <input type="checkbox" checked={img.useBlurBg} onChange={e => updateVideoImage(img.id, "useBlurBg", e.target.checked)} />
@@ -4051,6 +4048,50 @@ export default function VinylDigitizerPage() {
                 );
               })()}
 
+              {/* Image Settings — controls how source images are pre-processed before render */}
+              {videoImages.length > 0 && (() => {
+                const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+                const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
+                const effectiveMaxDim = parsedMax === 0 ? Infinity
+                  : (parsedMax && parsedMax > 0 ? parsedMax : Math.round(Math.max(w, h) * 1.25));
+                const selectedImgs = videoImages.filter(img => selectedVideoImages.has(img.id));
+                const oversized = selectedImgs.filter(img => Math.max(img.naturalWidth || 0, img.naturalHeight || 0) > effectiveMaxDim);
+                const maxDimLabel = effectiveMaxDim === Infinity ? "no" : `${effectiveMaxDim}px`;
+                return (
+                  <div className={styles.videoSettings} style={{ marginBottom: 16 }}>
+                    <h3 className={styles.sectionTitle}>Image Settings</h3>
+                    <div className={styles.videoSettingsGrid}>
+                      <label className={styles.settingLabel}>
+                        Max source image size
+                        <select
+                          className={styles.input}
+                          value={imageMaxDim}
+                          onChange={e => setImageMaxDim(e.target.value)}
+                          title="Source images will be downscaled to this max dimension before rendering. Reduces memory use."
+                        >
+                          <option value="auto">Auto ({effectiveMaxDim}px — 1.25× output)</option>
+                          <option value="1080">1080px</option>
+                          <option value="1440">1440px</option>
+                          <option value="1920">1920px</option>
+                          <option value="2560">2560px</option>
+                          <option value="3840">3840px</option>
+                          <option value="0">No limit (use originals)</option>
+                        </select>
+                      </label>
+                      <div className={styles.settingLabel} style={{ alignSelf: "end" }}>
+                        <span style={{ fontSize: "0.78rem", opacity: 0.75 }}>
+                          {effectiveMaxDim === Infinity
+                            ? `Source images will be passed to ffmpeg at full resolution. Large images may exhaust browser memory.`
+                            : oversized.length > 0
+                              ? `${oversized.length} of ${selectedImgs.length} selected image${selectedImgs.length === 1 ? "" : "s"} will be shrunk to ${maxDimLabel} before render.`
+                              : `All ${selectedImgs.length} selected image${selectedImgs.length === 1 ? "" : "s"} are within the ${maxDimLabel} limit — no resizing needed.`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Video settings */}
               <div className={styles.videoSettings}>
                 <h3 className={styles.sectionTitle}>Video Settings</h3>
@@ -4176,6 +4217,57 @@ export default function VinylDigitizerPage() {
                     </div>
                   );
                 })()}
+
+                {/* Memory estimate */}
+                {(() => {
+                  const mem = estimateMemoryUsage();
+                  if (!mem) return null;
+                  const fmt = (mb) => mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`;
+                  const tone = mem.overLimit ? "danger" : mem.nearLimit ? "warn" : "ok";
+                  const bgByTone = {
+                    ok:     darkMode ? "#252538" : "#f7fafc",
+                    warn:   darkMode ? "#3a2a1a" : "#fffaf0",
+                    danger: darkMode ? "#5a1a1a" : "#fff5f5",
+                  };
+                  const borderByTone = {
+                    ok:     darkMode ? "#444"    : "#e2e8f0",
+                    warn:   "#fbd38d",
+                    danger: darkMode ? "#822727" : "#fc8181",
+                  };
+                  const pct = Math.min(100, (mem.totalMB / WASM_MEMORY_LIMIT_MB) * 100);
+                  return (
+                    <div style={{
+                      marginTop: 12, padding: "10px 14px", borderRadius: 6, fontSize: "0.82rem",
+                      background: bgByTone[tone], border: `1px solid ${borderByTone[tone]}`,
+                      color: darkMode ? "#fff" : "#2d3748"
+                    }}>
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+                        <span>Est. peak browser memory: <strong>{fmt(mem.totalMB)}</strong></span>
+                        <span style={{ opacity: 0.7 }}>(limit ≈ {fmt(WASM_MEMORY_LIMIT_MB)})</span>
+                        <span title="Largest source image after downscale (×2 for decode + filter)">sources <strong>{fmt(mem.sourceMB)}</strong></span>
+                        <span title="x264 frame buffers at this output resolution">encoder <strong>{fmt(mem.encoderMB)}</strong></span>
+                      </div>
+                      <div style={{ marginTop: 8, height: 6, background: darkMode ? "#444" : "#e2e8f0", borderRadius: 3, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%",
+                          width: `${pct}%`,
+                          background: tone === "danger" ? (darkMode ? "#fc8181" : "#c53030") : tone === "warn" ? "#dd6b20" : (darkMode ? "#48bb78" : "#38a169"),
+                          transition: "width 0.2s"
+                        }} />
+                      </div>
+                      {mem.overLimit && (
+                        <div style={{ marginTop: 8, color: darkMode ? "#fc8181" : "#c53030", fontWeight: 700 }}>
+                          ⚠️ Estimated memory exceeds the ~2 GB browser ceiling — this render will likely fail. Lower the resolution or reduce the max source image size in Image Settings.
+                        </div>
+                      )}
+                      {!mem.overLimit && mem.nearLimit && (
+                        <div style={{ marginTop: 8, color: darkMode ? "#fbd38d" : "#c05621" }}>
+                          ⚠️ Estimated memory is close to the browser limit — render may fail. Consider lowering the resolution or shrinking source images.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Render */}
@@ -4208,7 +4300,7 @@ export default function VinylDigitizerPage() {
               </div>
               {isRenderingVideo && (
                 <div className={styles.renderWarning}>
-                  Rendering in browser — you can continue interacting with the page while this completes.
+                  Rendering in browser — you can navigate to YouTube Upload while this continues.
                 </div>
               )}
               {videoRenderProgress !== null && (
@@ -4220,6 +4312,55 @@ export default function VinylDigitizerPage() {
                     <span className={styles.renderProgressPct}>{(videoRenderProgress * 100).toFixed(1)}%</span>
                     {formatEta() && <span className={styles.renderProgressEta}>{formatEta()}</span>}
                   </div>
+                </div>
+              )}
+
+              {/* Render error banner */}
+              {videoRenderError && (
+                <div role="alert" style={{
+                  marginTop: 16, padding: "14px 16px", borderRadius: 8,
+                  background: darkMode ? "#3a1a1a" : "#fff5f5",
+                  border: `1px solid ${darkMode ? "#822727" : "#fc8181"}`,
+                  color: darkMode ? "#feb2b2" : "#742a2a",
+                }}>
+                  {videoRenderError.kind === "oom" ? (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ fontWeight: 700, fontSize: "1rem" }}>
+                          ⚠️ Render failed: ran out of memory at {videoRenderError.dims}
+                        </div>
+                        <button onClick={() => setVideoRenderError(null)} style={{
+                          background: "transparent", border: "none", color: "inherit",
+                          cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0
+                        }} aria-label="Dismiss">×</button>
+                      </div>
+                      <p style={{ margin: "8px 0 6px", fontSize: "0.88rem" }}>
+                        FFmpeg runs in your browser (WebAssembly) and is capped at about 2 GB of memory. This job exceeded the limit, so the encoder aborted before producing a usable video.
+                      </p>
+                      <p style={{ margin: "10px 0 4px", fontSize: "0.85rem", fontWeight: 600 }}>Try one or more of:</p>
+                      <ul style={{ margin: "0 0 8px 20px", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                        {videoRenderError.tips.map((tip, i) => <li key={i}>{tip}</li>)}
+                      </ul>
+                      {videoRenderError.signal && (
+                        <p style={{ margin: "8px 0 0", fontSize: "0.75rem", opacity: 0.75, fontFamily: "monospace" }}>
+                          ffmpeg signal: {videoRenderError.signal}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ fontWeight: 700, fontSize: "1rem" }}>⚠️ Render failed</div>
+                        <button onClick={() => setVideoRenderError(null)} style={{
+                          background: "transparent", border: "none", color: "inherit",
+                          cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0
+                        }} aria-label="Dismiss">×</button>
+                      </div>
+                      <p style={{ margin: "8px 0 0", fontSize: "0.88rem", fontFamily: "monospace" }}>
+                        {videoRenderError.message}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -4251,268 +4392,222 @@ export default function VinylDigitizerPage() {
 
               {message && <p className={styles.msg}>{message}</p>}
 
-              {/* YouTube Upload Details (collapsible) */}
-              <details className={styles.ytDetailsBlock}>
-                <summary className={styles.ytDetailsSummary}>
-                  <span style={{color:"#ff0000",marginRight:6}}>▶</span>
-                  YouTube Upload Details
-                </summary>
-                <div className={styles.ytSection}>
-                  <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
-                  {ytAuthState.canAuth && (() => {
-                    const titleLen = ytUploadData.title.length;
-                    const descLen = ytUploadData.description.length;
-                    const tagsLen = ytUploadData.tags.length;
-                    const titleOver = titleLen > YT_LIMITS.title;
-                    const descOver = descLen > YT_LIMITS.description;
-                    const tagsOver = tagsLen > YT_LIMITS.tags;
-                    const anyOver = titleOver || descOver || tagsOver;
-                    return (
-                    <div className={styles.ytForm}>
-                      {/* Format options */}
-                      <div className={styles.ytFormatSection} style={{gridColumn:"1/-1"}}>
-                        <h4 className={styles.ytFormatTitle}>Format Options</h4>
-                        <div className={styles.ytFormatGrid}>
-                          <label className={styles.ytFormatLabel}>
-                            Title style
-                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTitleVariation} onChange={e => { const v = parseInt(e.target.value); setYtTitleVariation(v); regenerateYtTitle(v); }}>
-                              <option value={0}>Genre-focused</option>
-                              <option value={1}>Style-focused</option>
-                              <option value={2}>Label & country</option>
-                              <option value={3}>Alt separators</option>
-                              <option value={4}>Mixed genre/style</option>
-                            </select>
-                          </label>
-                          <label className={styles.ytFormatLabel}>
-                            Timestamp format
-                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampFormat} onChange={e => { setYtTimestampFormat(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
-                              <option value="auto">Auto (M:SS or H:MM:SS)</option>
-                              <option value="M:SS">M:SS</option>
-                              <option value="H:MM:SS">H:MM:SS</option>
-                            </select>
-                          </label>
-                          <label className={styles.ytFormatLabel}>
-                            Separator
-                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampSeparator} onChange={e => { setYtTimestampSeparator(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
-                              <option value=" ">(space)</option>
-                              <option value=" - "> - (dash)</option>
-                              <option value=" | "> | (pipe)</option>
-                              <option value=" · "> · (dot)</option>
-                            </select>
-                          </label>
-                          <label className={styles.ytFormatLabel} style={{flexDirection:"row",alignItems:"center",gap:6}}>
-                            <input type="checkbox" checked={ytIncludeTrackNums} onChange={e => { setYtIncludeTrackNums(e.target.checked); setTimeout(regenerateYtMetadata, 0); }} />
-                            Track numbers
-                          </label>
-                        </div>
-                        {ytTitleSuggestions.length > 0 && (
-                          <div className={styles.ytTitleSuggestions}>
-                            <span className={styles.ytFormatHint}>Title suggestions:</span>
-                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} style={{flex:1,minWidth:200}}
-                              value={ytUploadData.title}
-                              onChange={e => setYtUploadData(p => ({...p, title: e.target.value.slice(0, YT_LIMITS.title)}))}
-                            >
-                              <option value="">— Select a suggestion —</option>
-                              {ytTitleSuggestions.map((s, i) => (
-                                <option key={i} value={s}>{s}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                        <div className={styles.ytFormatActions}>
-                          <button className={styles.selectBtn} onClick={() => regenerateYtMetadata()}>Regenerate Description</button>
-                          <button className={styles.selectBtn} onClick={() => regenerateYtTags()}>Regenerate Tags</button>
-                          <button className={styles.selectBtn} style={{background: darkMode ? "#5a2020" : "#fed7d7", color: darkMode ? "#fc8181" : "#c53030", border: "none"}} onClick={() => {
-                            setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" });
-                            setYtTitleSuggestions([]);
-                            lastYtDiscogsUrlRef.current = null;
-                            setThumbnailFile(null);
-                            if (thumbnailPreview) { URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }
-                          }}>Clear All Fields</button>
-                        </div>
-                      </div>
-
-                      <label className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
-                        <div className={styles.ytFieldHeader}>
-                          <span>Title</span>
-                          <span className={`${styles.ytCharCount} ${titleOver ? styles.ytCharOver : ""}`}>{titleLen}/{YT_LIMITS.title}</span>
-                        </div>
-                        <input type="text" className={`${styles.input} ${titleOver ? styles.ytInputOver : ""}`} value={ytUploadData.title} onChange={e => setYtUploadData(p => ({...p, title: e.target.value}))} />
-                      </label>
-                      <div className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
-                        <div className={styles.ytFieldHeader}>
-                          <span>Description</span>
-                          <span className={`${styles.ytCharCount} ${descOver ? styles.ytCharOver : ""}`}>{descLen}/{YT_LIMITS.description}</span>
-                        </div>
-                        <textarea className={`${styles.input} ${descOver ? styles.ytInputOver : ""}`} value={ytUploadData.description} onChange={e => setYtUploadData(p => ({...p, description: e.target.value}))} rows={6} style={{resize:"vertical"}} />
-                      </div>
-                      <label className={styles.settingLabel}>
-                        <div className={styles.ytFieldHeader}>
-                          <span>Tags</span>
-                          <span className={`${styles.ytCharCount} ${tagsOver ? styles.ytCharOver : ""}`}>{tagsLen}/{YT_LIMITS.tags}</span>
-                        </div>
-                        <input type="text" className={`${styles.input} ${tagsOver ? styles.ytInputOver : ""}`} value={ytUploadData.tags} onChange={e => setYtUploadData(p => ({...p, tags: e.target.value}))} placeholder="tag1, tag2" />
-                      </label>
-                      <label className={styles.settingLabel}>
-                        Visibility
-                        <select className={styles.input} value={ytUploadData.privacyStatus} onChange={e => setYtUploadData(p => ({...p, privacyStatus: e.target.value}))}>
-                          <option value="private">Private</option>
-                          <option value="unlisted">Unlisted</option>
-                          <option value="public">Public</option>
-                        </select>
-                      </label>
-                      <div style={{gridColumn:"1/-1"}}>
-                        <span className={styles.label}>Thumbnail (optional)</span>
-                        <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6}}>
-                          <div onClick={() => thumbnailInputRef.current?.click()} className={styles.thumbDropzone}>
-                            {thumbnailPreview ? <img src={thumbnailPreview} alt="thumb" style={{width:"100%",height:"100%",objectFit:"cover"}} /> : <span style={{fontSize:11,color:"#a0aec0",textAlign:"center",padding:8}}>Click to upload</span>}
-                          </div>
-                          <input ref={thumbnailInputRef} type="file" accept="image/*" style={{display:"none"}}
-                            onChange={e => {
-                              const f = e.target.files?.[0]; if (!f) return;
-                              if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
-                              setThumbnailFile(f); setThumbnailPreview(URL.createObjectURL(f));
-                            }} />
-                          {thumbnailFile && <button className={styles.selectBtn} onClick={() => { setThumbnailFile(null); if(thumbnailPreview) URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }}>Remove</button>}
-                        </div>
-                      </div>
-                      {anyOver && (
-                        <div className={styles.ytLimitWarning} style={{gridColumn:"1/-1"}}>
-                          {titleOver && <span>Title exceeds 100 characters. </span>}
-                          {descOver && <span>Description exceeds 5,000 characters. </span>}
-                          {tagsOver && <span>Tags exceed 500 characters. </span>}
-                          Shorten the fields highlighted in red before uploading.
-                        </div>
-                      )}
-                      <div style={{gridColumn:"1/-1"}}>
-                        <button
-                          onClick={() => {
-                            // While rendering, clicking queues the upload to fire as soon as the render completes.
-                            if (isRenderingVideo && !renderedVideoSrc) {
-                              setAutoUploadYt(prev => !prev);
-                              return;
-                            }
-                            uploadToYouTube();
-                          }}
-                          disabled={ytUploading || (!renderedVideoSrc && !isRenderingVideo) || anyOver}
-                          className={styles.exportBtn}
-                          style={{
-                            width: "100%",
-                            background: ytUploading
-                              ? undefined
-                              : anyOver
-                                ? "#cbd5e0"
-                                : autoUploadYt && isRenderingVideo
-                                  ? "#3182ce"
-                                  : (!renderedVideoSrc && !isRenderingVideo)
-                                    ? "#cbd5e0"
-                                    : "#ff0000",
-                          }}
-                        >
-                          {ytUploading
-                            ? (ytUploadProgress < 100 ? `Uploading… ${ytUploadProgress}%` : <span className={styles.ytProcessing}>Processing</span>)
-                            : isRenderingVideo && !renderedVideoSrc
-                              ? (autoUploadYt
-                                  ? `✓ Queued — will upload when render finishes${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}`
-                                  : `Queue upload (rendering ${videoRenderProgress !== null ? `${(videoRenderProgress * 100).toFixed(0)}%` : "…"})`)
-                              : !renderedVideoSrc
-                                ? "No video rendered"
-                                : "Upload to YouTube"}
-                        </button>
-                        {isRenderingVideo && !renderedVideoSrc && autoUploadYt && (
-                          <div style={{ fontSize: 12, color: "#3182ce", marginTop: 6, textAlign: "center" }}>
-                            Upload will start automatically once the video finishes rendering. Click the button again to cancel.
-                          </div>
-                        )}
-                      </div>
-                      {ytUploading && (
-                        <div style={{gridColumn:"1/-1"}}>
-                          <div className={styles.progressBar}><div className={styles.progressFill} style={{width:`${ytUploadProgress ?? 0}%`,background: ytUploadProgress < 100 ? "#ff0000" : "#48bb78"}} /></div>
-                        </div>
-                      )}
-                      {ytUploadAuthError && (
-                        <div className={styles.ytAuthErrorCard} style={{gridColumn:"1/-1"}}>
-                          <div className={styles.ytAuthErrorTitle}>
-                            ⚠️ YouTube sign-in expired — upload was rejected
-                          </div>
-                          <div className={styles.ytAuthErrorBody}>
-                            Google rejected the upload because your stored YouTube credentials are no longer valid
-                            <span className={styles.ytAuthErrorReason}> ({ytUploadAuthError.reason})</span>.
-                            This usually happens after a long break, a password change, or if you revoked access from your
-                            Google account. <strong>Your video was not uploaded.</strong>
-                          </div>
-                          <ul className={styles.ytAuthErrorList}>
-                            <li>Click <em>Sign in to YouTube again</em> below to refresh your credentials.</li>
-                            <li>Make sure to grant the same YouTube upload permission when prompted.</li>
-                            <li>Once you're signed in again, return here and click <em>Upload to YouTube</em>.</li>
-                          </ul>
-                          <div className={styles.ytAuthErrorActions}>
-                            <button
-                              className={styles.ytAuthErrorPrimaryBtn}
-                              onClick={async () => {
-                                try {
-                                  const res = await fetch(`${apiBaseURL()}/youtube/getAuthUrl`, { credentials: 'include' });
-                                  if (res.ok) {
-                                    const data = await res.json();
-                                    if (data?.url) {
-                                      try { localStorage.setItem('youtube_auth_return_url', '/vinyl-digitizer'); } catch {}
-                                      window.location.href = data.url;
-                                      return;
-                                    }
-                                  }
-                                  setYtUploadError('Could not fetch the YouTube sign-in URL. Try the Sign in button above.');
-                                } catch (e) {
-                                  setYtUploadError(`Could not start YouTube sign-in: ${e.message}`);
-                                }
-                              }}
-                            >
-                              Sign in to YouTube again
-                            </button>
-                            <button
-                              className={styles.ytAuthErrorSecondaryBtn}
-                              onClick={() => setYtUploadAuthError(null)}
-                            >
-                              Dismiss
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {ytUploadError && !ytUploadAuthError && (
-                        <div className={styles.ytErrorCard} style={{gridColumn:"1/-1"}}>
-                          <div className={styles.ytErrorTitle}>Upload failed</div>
-                          <div className={styles.ytErrorBody}>{ytUploadError}</div>
-                          <div className={styles.ytErrorHint}>
-                            If you keep seeing this, try clearing your YouTube auth and signing in again.
-                          </div>
-                        </div>
-                      )}
-                      {ytUploadResult && (() => {
-                        const vid = ytUploadResult.videoId || ytUploadResult.id || ytUploadResult.snippet?.resourceId?.videoId;
-                        return (
-                          <div className={styles.ytResult} style={{gridColumn:"1/-1"}}>
-                            ✅ Uploaded successfully!
-                            {vid && (
-                              <div style={{marginTop: 8}}>
-                                <a href={`https://youtube.com/watch?v=${vid}`} target="_blank" rel="noreferrer" className={styles.ytVideoLink}>
-                                  https://youtube.com/watch?v={vid}
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    );
-                  })()}
-                </div>
-              </details>
-
               <div className={styles.stepNav}>
-                <button className={styles.backBtn} onClick={() => setStep(4)}>← Back to Audio</button>
+                <button className={styles.backBtn} onClick={() => setStep(4)}>← Back to Audio Export</button>
+                <button className={styles.nextBtn} onClick={() => setStep(6)}>Next: YouTube Upload →</button>
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
               </div>
             </div>
           )}
 
+          {/* ---- STEP 6 ---- */}
+          {step === 6 && (
+            <div className={styles.card}>
+              <h2 className={styles.cardTitle}>Step 6: YouTube Upload</h2>
+
+              {/* Render status banner */}
+              {isRenderingVideo && (
+                <div className={styles.renderStatusBanner}>
+                  <div className={styles.renderStatusText}>
+                    <span className={styles.spinnerInline} /> Video rendering… {videoRenderProgress !== null ? `${(videoRenderProgress * 100).toFixed(1)}%` : ""}
+                    {formatEta() && <span className={styles.renderProgressEta}> · {formatEta()}</span>}
+                  </div>
+                  <div className={styles.renderProgressBar} style={{marginTop:8}}>
+                    <div className={styles.renderProgressFill} style={{ width: `${(videoRenderProgress || 0) * 100}%` }} />
+                  </div>
+                  <label className={styles.videoCheckLabel} style={{marginTop:8}}>
+                    <input type="checkbox" checked={autoUploadYt} onChange={e => setAutoUploadYt(e.target.checked)} />
+                    Upload to YouTube automatically when render finishes
+                  </label>
+                </div>
+              )}
+
+              {!isRenderingVideo && !renderedVideoSrc && (
+                <div className={styles.renderStatusBanner} style={{background: darkMode ? "#3a1a1a" : "#fff5f5", borderColor: darkMode ? "#6b2d2d" : "#fed7d7"}}>
+                  <span className={styles.renderStatusText} style={{color: darkMode ? "#fc8181" : "#c53030"}}>No rendered video yet. Go to Step 5 to render first.</span>
+                </div>
+              )}
+
+              {renderedVideoSrc && (
+                <div className={styles.videoPreviewSection} style={{ marginBottom: 20 }}>
+                  <video src={renderedVideoSrc} controls className={styles.videoPreview} />
+                  <button className={styles.dlAllBtn} onClick={() => { const a = document.createElement("a"); a.href = renderedVideoSrc; a.download = `${videoOutputName || projectName || "album"}.mp4`; a.click(); }}>Download Video</button>
+                  {isRenderingVideo && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>A new video is rendering — this is the previous render.</div>}
+                </div>
+              )}
+
+              {/* YouTube upload */}
+              <div className={styles.ytSection}>
+                <h3 className={styles.sectionTitle}><span style={{color:"#ff0000"}}>▶</span> Upload to YouTube</h3>
+                <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
+                {ytAuthState.canAuth && (() => {
+                  const titleLen = ytUploadData.title.length;
+                  const descLen = ytUploadData.description.length;
+                  const tagsLen = ytUploadData.tags.length;
+                  const titleOver = titleLen > YT_LIMITS.title;
+                  const descOver = descLen > YT_LIMITS.description;
+                  const tagsOver = tagsLen > YT_LIMITS.tags;
+                  const anyOver = titleOver || descOver || tagsOver;
+                  return (
+                  <div className={styles.ytForm}>
+                    {/* Format options */}
+                    <div className={styles.ytFormatSection} style={{gridColumn:"1/-1"}}>
+                      <h4 className={styles.ytFormatTitle}>Format Options</h4>
+                      <div className={styles.ytFormatGrid}>
+                        <label className={styles.ytFormatLabel}>
+                          Title style
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTitleVariation} onChange={e => { const v = parseInt(e.target.value); setYtTitleVariation(v); regenerateYtTitle(v); }}>
+                            <option value={0}>Genre-focused</option>
+                            <option value={1}>Style-focused</option>
+                            <option value={2}>Label & country</option>
+                            <option value={3}>Alt separators</option>
+                            <option value={4}>Mixed genre/style</option>
+                          </select>
+                        </label>
+                        <label className={styles.ytFormatLabel}>
+                          Timestamp format
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampFormat} onChange={e => { setYtTimestampFormat(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
+                            <option value="auto">Auto (M:SS or H:MM:SS)</option>
+                            <option value="M:SS">M:SS</option>
+                            <option value="H:MM:SS">H:MM:SS</option>
+                          </select>
+                        </label>
+                        <label className={styles.ytFormatLabel}>
+                          Separator
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampSeparator} onChange={e => { setYtTimestampSeparator(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
+                            <option value=" ">(space)</option>
+                            <option value=" - "> - (dash)</option>
+                            <option value=" | "> | (pipe)</option>
+                            <option value=" · "> · (dot)</option>
+                          </select>
+                        </label>
+                        <label className={styles.ytFormatLabel} style={{flexDirection:"row",alignItems:"center",gap:6}}>
+                          <input type="checkbox" checked={ytIncludeTrackNums} onChange={e => { setYtIncludeTrackNums(e.target.checked); setTimeout(regenerateYtMetadata, 0); }} />
+                          Track numbers
+                        </label>
+                      </div>
+                      {ytTitleSuggestions.length > 0 && (
+                        <div className={styles.ytTitleSuggestions}>
+                          <span className={styles.ytFormatHint}>Title suggestions:</span>
+                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} style={{flex:1,minWidth:200}}
+                            value={ytUploadData.title}
+                            onChange={e => setYtUploadData(p => ({...p, title: e.target.value.slice(0, YT_LIMITS.title)}))}
+                          >
+                            <option value="">— Select a suggestion —</option>
+                            {ytTitleSuggestions.map((s, i) => (
+                              <option key={i} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <div className={styles.ytFormatActions}>
+                        <button className={styles.selectBtn} onClick={() => regenerateYtMetadata()}>Regenerate Description</button>
+                        <button className={styles.selectBtn} onClick={() => regenerateYtTags()}>Regenerate Tags</button>
+                        <button className={styles.selectBtn} style={{background: darkMode ? "#5a2020" : "#fed7d7", color: darkMode ? "#fc8181" : "#c53030", border: "none"}} onClick={() => {
+                          setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" });
+                          setYtTitleSuggestions([]);
+                          lastYtDiscogsUrlRef.current = null;
+                          setThumbnailFile(null);
+                          if (thumbnailPreview) { URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }
+                        }}>Clear All Fields</button>
+                      </div>
+                    </div>
+
+                    <label className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
+                      <div className={styles.ytFieldHeader}>
+                        <span>Title</span>
+                        <span className={`${styles.ytCharCount} ${titleOver ? styles.ytCharOver : ""}`}>{titleLen}/{YT_LIMITS.title}</span>
+                      </div>
+                      <input type="text" className={`${styles.input} ${titleOver ? styles.ytInputOver : ""}`} value={ytUploadData.title} onChange={e => setYtUploadData(p => ({...p, title: e.target.value}))} />
+                    </label>
+                    <div className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
+                      <div className={styles.ytFieldHeader}>
+                        <span>Description</span>
+                        <span className={`${styles.ytCharCount} ${descOver ? styles.ytCharOver : ""}`}>{descLen}/{YT_LIMITS.description}</span>
+                      </div>
+                      <textarea className={`${styles.input} ${descOver ? styles.ytInputOver : ""}`} value={ytUploadData.description} onChange={e => setYtUploadData(p => ({...p, description: e.target.value}))} rows={6} style={{resize:"vertical"}} />
+                    </div>
+                    <label className={styles.settingLabel}>
+                      <div className={styles.ytFieldHeader}>
+                        <span>Tags</span>
+                        <span className={`${styles.ytCharCount} ${tagsOver ? styles.ytCharOver : ""}`}>{tagsLen}/{YT_LIMITS.tags}</span>
+                      </div>
+                      <input type="text" className={`${styles.input} ${tagsOver ? styles.ytInputOver : ""}`} value={ytUploadData.tags} onChange={e => setYtUploadData(p => ({...p, tags: e.target.value}))} placeholder="tag1, tag2" />
+                    </label>
+                    <label className={styles.settingLabel}>
+                      Visibility
+                      <select className={styles.input} value={ytUploadData.privacyStatus} onChange={e => setYtUploadData(p => ({...p, privacyStatus: e.target.value}))}>
+                        <option value="private">Private</option>
+                        <option value="unlisted">Unlisted</option>
+                        <option value="public">Public</option>
+                      </select>
+                    </label>
+                    <div style={{gridColumn:"1/-1"}}>
+                      <span className={styles.label}>Thumbnail (optional)</span>
+                      <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6}}>
+                        <div onClick={() => thumbnailInputRef.current?.click()} className={styles.thumbDropzone}>
+                          {thumbnailPreview ? <img src={thumbnailPreview} alt="thumb" style={{width:"100%",height:"100%",objectFit:"cover"}} /> : <span style={{fontSize:11,color:"#a0aec0",textAlign:"center",padding:8}}>Click to upload</span>}
+                        </div>
+                        <input ref={thumbnailInputRef} type="file" accept="image/*" style={{display:"none"}}
+                          onChange={e => {
+                            const f = e.target.files?.[0]; if (!f) return;
+                            if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
+                            setThumbnailFile(f); setThumbnailPreview(URL.createObjectURL(f));
+                          }} />
+                        {thumbnailFile && <button className={styles.selectBtn} onClick={() => { setThumbnailFile(null); if(thumbnailPreview) URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }}>Remove</button>}
+                      </div>
+                    </div>
+                    {anyOver && (
+                      <div className={styles.ytLimitWarning} style={{gridColumn:"1/-1"}}>
+                        {titleOver && <span>Title exceeds 100 characters. </span>}
+                        {descOver && <span>Description exceeds 5,000 characters. </span>}
+                        {tagsOver && <span>Tags exceed 500 characters. </span>}
+                        Shorten the fields highlighted in red before uploading.
+                      </div>
+                    )}
+                    <div style={{gridColumn:"1/-1"}}>
+                      <button onClick={() => uploadToYouTube()} disabled={ytUploading || (!renderedVideoSrc && !isRenderingVideo) || anyOver || isRenderingVideo} className={styles.exportBtn} style={{width:"100%",background: ytUploading ? undefined : (anyOver || isRenderingVideo || !renderedVideoSrc) ? "#cbd5e0" : "#ff0000"}}>
+                        {ytUploading
+                          ? (ytUploadProgress < 100 ? `Uploading… ${ytUploadProgress}%` : <span className={styles.ytProcessing}>Processing</span>)
+                          : isRenderingVideo
+                            ? `Rendering… ${videoRenderProgress !== null ? `${(videoRenderProgress * 100).toFixed(0)}%` : ""}`
+                            : !renderedVideoSrc
+                              ? "No video rendered"
+                              : "Upload to YouTube"}
+                      </button>
+                    </div>
+                    {ytUploading && (
+                      <div style={{gridColumn:"1/-1"}}>
+                        <div className={styles.progressBar}><div className={styles.progressFill} style={{width:`${ytUploadProgress ?? 0}%`,background: ytUploadProgress < 100 ? "#ff0000" : "#48bb78"}} /></div>
+                      </div>
+                    )}
+                    {ytUploadError && <p className={styles.errorMsg} style={{gridColumn:"1/-1"}}>{ytUploadError}</p>}
+                    {ytUploadResult && (() => {
+                      const vid = ytUploadResult.videoId || ytUploadResult.id || ytUploadResult.snippet?.resourceId?.videoId;
+                      return (
+                        <div className={styles.ytResult} style={{gridColumn:"1/-1"}}>
+                          ✅ Uploaded successfully!
+                          {vid && (
+                            <div style={{marginTop: 8}}>
+                              <a href={`https://youtube.com/watch?v=${vid}`} target="_blank" rel="noreferrer" className={styles.ytVideoLink}>
+                                https://youtube.com/watch?v={vid}
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  );
+                })()}
+              </div>
+
+              <div className={styles.stepNav}>
+                <button className={styles.backBtn} onClick={() => setStep(5)}>← Back to Video Render</button>
+                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
+              </div>
+            </div>
+          )}
         </div>
 
           {/* Image Add Modal */}
