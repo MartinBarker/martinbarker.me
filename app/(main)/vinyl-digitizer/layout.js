@@ -1,3 +1,17 @@
+// This page is a heavy 'use client' editor (FFmpeg-wasm, IndexedDB,
+// drag-drop, lots of refs/state) and doesn't benefit from SSR HTML. We had a
+// production crash where the SWC minifier failed to rename certain useState
+// bindings (`allAudioFiles`, `audioDurations`) in a handful of closure
+// references inside recently-added helpers — the declaration's setter was
+// renamed, but the getter references in those spots stayed as the original
+// identifier, which then resolved to nothing at runtime
+// (`ReferenceError: allAudioFiles is not defined`). The state bindings were
+// renamed in source to sidestep the minifier's per-identifier tracking bug
+// (now `droppedAudioFiles` / `audioDurationMap`). Keeping `force-dynamic`
+// also means the failing build-time prerender pass is skipped — but the
+// underlying bundle is now correct for runtime SSR too.
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   metadataBase: new URL('https://martinbarker.me'),
   title: 'Vinyl Digitizer – Record Audio Splitter | Martin Barker',

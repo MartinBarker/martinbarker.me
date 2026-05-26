@@ -150,6 +150,17 @@ export default function VinylDigitizerPage() {
   // Audio source
   const [audioMode, setAudioMode] = useState("upload");
   const [audioFile, setAudioFile] = useState(null);
+  // Every audio file the user has dropped/uploaded/recorded this session
+  const [droppedAudioFiles, setDroppedAudioFiles] = useState([]);
+  // Per-file duration cache keyed by "name:size", populated asynchronously
+  const [audioDurationMap, setAudioDurationMap] = useState({}); // { "name:size": seconds }
+  // When >1 files were uploaded in a single drop, prompt user on Step 2 to pick which to edit
+  const [pendingAudioFiles, setPendingAudioFiles] = useState([]);
+  // Whether the user has acknowledged the audio-file picker on the current visit.
+  // Reset whenever the user navigates back to Step 1 so the picker re-shows.
+  const [audioPickConfirmed, setAudioPickConfirmed] = useState(false);
+  // File keys whose filename cell the user has clicked to expand (no truncation)
+  const [expandedFilenames, setExpandedFilenames] = useState(new Set());
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingLevel, setRecordingLevel] = useState(0);
@@ -318,7 +329,7 @@ export default function VinylDigitizerPage() {
     videoImages.forEach(img => { if (img.thumbUrl) URL.revokeObjectURL(img.thumbUrl); if (img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
     if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc);
     if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
-    setAudioFile(null); setChannelData(null); setDuration(0); setTracks([]); setCurrentTime(0); setIsPlaying(false);
+    setAudioFile(null); setDroppedAudioFiles([]); setAudioDurationMap({}); setExpandedFilenames(new Set()); setPendingAudioFiles([]); setAudioPickConfirmed(false); setChannelData(null); setDuration(0); setTracks([]); setCurrentTime(0); setIsPlaying(false);
     setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount(""); setProjectName("My Album");
     setExportedTracks([]); setSelectedTracks(new Set()); setMessage("");
     setVideoImages([]); setSelectedVideoImages(new Set()); setSelectedVideoAudios(new Set()); setRenderedVideoSrc(null);
@@ -335,7 +346,7 @@ export default function VinylDigitizerPage() {
   const resetStep = (stepNum) => {
     if (stepNum === 1) {
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      setAudioFile(null); setChannelData(null); setDuration(0); setMessage("");
+      setAudioFile(null); setDroppedAudioFiles([]); setAudioDurationMap({}); setExpandedFilenames(new Set()); setPendingAudioFiles([]); setAudioPickConfirmed(false); setChannelData(null); setDuration(0); setMessage("");
       if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
     } else if (stepNum === 2) {
       setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount("");
@@ -644,6 +655,32 @@ export default function VinylDigitizerPage() {
     decode();
   }, [audioFile]);
 
+  // Read durations for each uploaded audio file (lightweight metadata-only read)
+  useEffect(() => {
+    let cancelled = false;
+    const missing = droppedAudioFiles.filter(f => !(`${f.name}:${f.size}` in audioDurationMap));
+    if (missing.length === 0) return;
+    missing.forEach(f => {
+      const key = `${f.name}:${f.size}`;
+      const url = URL.createObjectURL(f);
+      const a = new Audio();
+      const cleanup = () => { URL.revokeObjectURL(url); };
+      a.addEventListener('loadedmetadata', () => {
+        cleanup();
+        if (cancelled) return;
+        setAudioDurationMap(prev => ({ ...prev, [key]: a.duration }));
+      });
+      a.addEventListener('error', () => {
+        cleanup();
+        if (cancelled) return;
+        setAudioDurationMap(prev => ({ ...prev, [key]: null }));
+      });
+      a.preload = 'metadata';
+      a.src = url;
+    });
+    return () => { cancelled = true; };
+  }, [droppedAudioFiles]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Volume suggestion — compute RMS when audio loads
   useEffect(() => {
     if (!channelData || channelData.length === 0) { setVolumeSuggestion(null); return; }
@@ -692,15 +729,15 @@ export default function VinylDigitizerPage() {
     if (
       step === 5 &&
       exportedTracks.length === 0 &&
-      allAudioFiles.length > 0 &&
+      droppedAudioFiles.length > 0 &&
       !audioLoadingStatus
     ) {
-      addDirectAudioFiles(allAudioFiles);
+      addDirectAudioFiles(droppedAudioFiles);
     }
     // addDirectAudioFiles is a stable inline function — intentionally omitted
     // from deps to avoid retriggering when unrelated state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, exportedTracks.length, allAudioFiles, audioLoadingStatus]);
+  }, [step, exportedTracks.length, droppedAudioFiles, audioLoadingStatus]);
 
   // Auto-select all exported tracks when entering step 5 and sync order
   useEffect(() => {
@@ -1193,7 +1230,9 @@ export default function VinylDigitizerPage() {
       mr.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
       mr.onstop = () => {
         const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
-        setAudioFile(new File([blob], `recording-${Date.now()}.webm`, { type: "audio/webm" }));
+        const file = new File([blob], `recording-${Date.now()}.webm`, { type: "audio/webm" });
+        setAudioFile(file);
+        setDroppedAudioFiles(prev => [...prev, file]);
         stream.getTracks().forEach(t => t.stop());
         if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
         cancelAnimationFrame(animFrameRef.current);
@@ -1219,8 +1258,53 @@ export default function VinylDigitizerPage() {
     const files = Array.from(e.dataTransfer.files);
     const audioF = files.find(f => f.type.startsWith("audio/"));
     const imageFiles = files.filter(f => f.type.startsWith("image/"));
-    if (audioF) setAudioFile(audioF);
-    if (imageFiles.length > 0) addImagesToVideo(imageFiles);
+
+    if (audioFiles.length > 0) {
+      setDroppedAudioFiles(prev => {
+        const existingKeys = new Set(prev.map(f => `${f.name}:${f.size}`));
+        const fresh = audioFiles.filter(f => !existingKeys.has(`${f.name}:${f.size}`));
+        return [...prev, ...fresh];
+      });
+      if (audioFiles.length === 1) {
+        setAudioFile(audioFiles[0]);
+        setPendingAudioFiles([]);
+      } else {
+        // Pre-select the first file so the user can advance to step 2,
+        // but remember all of them so step 2 can show a picker.
+        setPendingAudioFiles(audioFiles);
+        setAudioFile(audioFiles[0]);
+        setMessage(`${audioFiles.length} audio files dropped — confirm which to edit on Step 2.`);
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      addImagesToVideo(imageFiles);
+      // Also set the first dropped image as the embedded album art for FLAC export (step 4)
+      if (!embedArtFile) {
+        const f = imageFiles[0];
+        setEmbedArtFile(f);
+        if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
+        setEmbedArtPreview(URL.createObjectURL(f));
+        setExportedTracks([]);
+      }
+    }
+  };
+  const handleFileInput = e => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setDroppedAudioFiles(prev => {
+      const existingKeys = new Set(prev.map(f => `${f.name}:${f.size}`));
+      const fresh = files.filter(f => !existingKeys.has(`${f.name}:${f.size}`));
+      return [...prev, ...fresh];
+    });
+    if (files.length === 1) {
+      setAudioFile(files[0]);
+      setPendingAudioFiles([]);
+    } else {
+      setPendingAudioFiles(files);
+      setAudioFile(files[0]);
+      setMessage(`${files.length} audio files selected — confirm which to edit on Step 2.`);
+    }
   };
   const handleFileInput = e => { if (e.target.files.length > 0) setAudioFile(e.target.files[0]); };
 
@@ -1733,7 +1817,7 @@ export default function VinylDigitizerPage() {
       // Reuse the cached duration computed in Step 1 if available; otherwise
       // decode the file here to determine duration.
       const cacheKey = `${f.name}:${f.size}`;
-      let dur = typeof audioDurations[cacheKey] === "number" ? audioDurations[cacheKey] : 0;
+      let dur = typeof audioDurationMap[cacheKey] === "number" ? audioDurationMap[cacheKey] : 0;
       if (!dur) {
         try {
           const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2585,7 +2669,7 @@ export default function VinylDigitizerPage() {
   const isFreshStart =
     step === 1 &&
     !audioFile &&
-    allAudioFiles.length === 0 &&
+    droppedAudioFiles.length === 0 &&
     tracks.length === 0 &&
     exportedTracks.length === 0 &&
     videoImages.length === 0 &&
@@ -2642,7 +2726,7 @@ export default function VinylDigitizerPage() {
     // Each filename without its extension.
     const stripExt = (n) => n.replace(/\.[^./\\]+$/, "");
     const seenFolders = new Set();
-    allAudioFiles.forEach(f => {
+    droppedAudioFiles.forEach(f => {
       add(fileGroup, stripExt(f.name));
       // webkitRelativePath captures the source folder when files arrive via
       // an <input type="file" webkitdirectory> or directory-aware drop.
@@ -2657,8 +2741,8 @@ export default function VinylDigitizerPage() {
     });
     // Common prefix across all filenames (often the album/release name when a
     // CD rip uses "01 - Album - Track.flac" style naming).
-    if (allAudioFiles.length > 1) {
-      const stems = allAudioFiles.map(f => stripExt(f.name));
+    if (droppedAudioFiles.length > 1) {
+      const stems = droppedAudioFiles.map(f => stripExt(f.name));
       let prefix = stems[0];
       for (let i = 1; i < stems.length && prefix.length > 0; i++) {
         while (!stems[i].startsWith(prefix)) prefix = prefix.slice(0, -1);
@@ -2840,12 +2924,154 @@ export default function VinylDigitizerPage() {
                 </div>
               )}
 
-              {audioFile && !isRecording && (
-                <div className={styles.fileInfo}>
-                  <span>✅ {audioFile.name}</span>
-                  <span>{formatBytes(audioFile.size)}</span>
-                  {duration > 0 && <span>⏱ {formatTime(duration)}</span>}
-                  {channelData && <span className={styles.fileInfoReady}>Ready</span>}
+              {(() => {
+                const hasFiles = droppedAudioFiles.length > 0 || videoImages.length > 0;
+                const anyImageLoading = videoImages.some(img => img.loading);
+                const audioReady = !audioFile || !!channelData;
+                const allLoaded = hasFiles && !anyImageLoading && audioReady;
+                if (!allLoaded) return null;
+                return (
+                  <div className={`${styles.fileInfo} ${styles.fileInfoAllReady}`}>
+                    <span>✅ All files loaded</span>
+                  </div>
+                );
+              })()}
+              {droppedAudioFiles.length > 0 && (
+                <div className={styles.uploadedFilesSection}>
+                  <h3 className={styles.sectionTitle}>Audio Files ({droppedAudioFiles.length})</h3>
+                  <div className={styles.tableWrap}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Filename</th>
+                          <th>Size</th>
+                          <th>Length</th>
+                          <th>Status</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {droppedAudioFiles.map((f, i) => {
+                          const isDecoding = audioFile === f && !channelData;
+                          const key = `${f.name}:${f.size}`;
+                          const dur = audioDurationMap[key];
+                          const isExpanded = expandedFilenames.has(key);
+                          return (
+                            <tr key={`${f.name}-${f.size}-${i}`}>
+                              <td>{i + 1}</td>
+                              <td
+                                className={`${styles.filenameCell} ${isExpanded ? styles.filenameCellExpanded : ""}`}
+                                title={f.name}
+                                onClick={() => setExpandedFilenames(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}
+                              >{f.name}</td>
+                              <td>{formatBytes(f.size)}</td>
+                              <td className={styles.timeCell}>
+                                {dur == null ? <span className={styles.fileStatusIdle}>—</span> : formatHMS(dur)}
+                              </td>
+                              <td>
+                                {isDecoding ? (
+                                  <span className={styles.fileStatusLoading}>
+                                    <span className={styles.fileLoadingSpinner} />
+                                    <span>Loading…</span>
+                                  </span>
+                                ) : (
+                                  <span className={styles.fileStatusReady}>✓ Ready</span>
+                                )}
+                              </td>
+                              <td>
+                                <button
+                                  className={styles.removeBtn}
+                                  title="Remove this file"
+                                  onClick={() => {
+                                    setDroppedAudioFiles(prev => prev.filter(x => x !== f));
+                                    setPendingAudioFiles(prev => prev.filter(x => x !== f));
+                                    if (audioFile === f) {
+                                      const next = droppedAudioFiles.find(x => x !== f) || null;
+                                      setAudioFile(next);
+                                      if (!next) { setChannelData(null); setDuration(0); }
+                                    }
+                                  }}
+                                >×</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {videoImages.length > 0 && (
+                <div className={styles.uploadedFilesSection}>
+                  <h3 className={styles.sectionTitle}>Image Files ({videoImages.length})</h3>
+                  <div className={styles.tableWrap}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th></th>
+                          <th>Filename</th>
+                          <th>Size</th>
+                          <th>Resolution</th>
+                          <th>Status</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {videoImages.map((img) => {
+                          const key = `${img.file.name}:${img.file.size}`;
+                          const isExpanded = expandedFilenames.has(key);
+                          return (
+                          <tr key={img.id}>
+                            <td>
+                              {img.loading || !img.thumbUrl ? (
+                                <div className={styles.uploadedThumbPlaceholder}>
+                                  <span className={styles.fileLoadingSpinner} />
+                                </div>
+                              ) : (
+                                <img src={img.thumbUrl} alt="" className={styles.uploadedThumb} />
+                              )}
+                            </td>
+                            <td
+                              className={`${styles.filenameCell} ${isExpanded ? styles.filenameCellExpanded : ""}`}
+                              title={img.file.name}
+                              onClick={() => setExpandedFilenames(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; })}
+                            >{img.file.name}</td>
+                            <td>{formatBytes(img.file.size)}</td>
+                            <td className={styles.timeCell}>
+                              {img.width && img.height ? `${img.width} × ${img.height}` : <span className={styles.fileStatusIdle}>—</span>}
+                            </td>
+                            <td>
+                              {img.loading ? (
+                                <span className={styles.fileStatusLoading}>
+                                  <span className={styles.fileLoadingSpinner} />
+                                  <span>Loading…</span>
+                                </span>
+                              ) : (
+                                <span className={styles.fileStatusReady}>✓ Ready</span>
+                              )}
+                            </td>
+                            <td>
+                              <button
+                                className={styles.removeBtn}
+                                title="Remove this image"
+                                onClick={() => {
+                                  removeVideoImage(img.id);
+                                  if (embedArtFile === img.file) {
+                                    if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
+                                    setEmbedArtFile(null);
+                                    setEmbedArtPreview(null);
+                                  }
+                                }}
+                              >×</button>
+                            </td>
+                          </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
               {message && <p className={styles.msg}>{message}</p>}
@@ -2868,7 +3094,56 @@ export default function VinylDigitizerPage() {
           {/* ---- STEP 2 ---- */}
           {step === 2 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 2: Album Info</h2>
+              <h2 className={styles.cardTitle}>Step 2: Tracks</h2>
+
+              {droppedAudioFiles.length > 1 && !audioPickConfirmed && (
+                <div className={styles.audioPickerCard}>
+                  <div className={styles.audioPickerHeader}>
+                    📂 You uploaded {droppedAudioFiles.length} audio files — which one do you want to edit?
+                  </div>
+                  <div className={styles.audioPickerList}>
+                    {droppedAudioFiles.map((f, i) => (
+                      <button
+                        key={`${f.name}-${f.size}-${i}`}
+                        type="button"
+                        className={`${styles.audioPickerItem} ${audioFile === f ? styles.audioPickerItemActive : ""}`}
+                        onClick={() => {
+                          setAudioFile(f);
+                          setMessage("");
+                        }}
+                      >
+                        <span className={styles.audioPickerName}>{f.name}</span>
+                        <span className={styles.audioPickerSize}>{formatBytes(f.size)}</span>
+                        {audioFile === f && <span className={styles.audioPickerBadge}>Selected</span>}
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.audioPickerActions}>
+                    <button
+                      type="button"
+                      className={styles.selectBtn}
+                      disabled={!audioFile}
+                      onClick={() => { setPendingAudioFiles([]); setAudioPickConfirmed(true); }}
+                    >
+                      Confirm selection
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.skipBtn}
+                      onClick={() => { setPendingAudioFiles([]); setAudioPickConfirmed(true); }}
+                    >
+                      Skip editing
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.skipBtn}
+                      onClick={() => { setAudioFile(null); setPendingAudioFiles([]); setStep(1); }}
+                    >
+                      Drop different files
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className={styles.discogsRow}>
                 <div className={styles.discogsModeRow}>
                   <button className={`${styles.tab} ${discogsInputMode === "url" ? styles.tabActive : ""}`} onClick={() => setDiscogsInputMode("url")}>By URL</button>
@@ -3012,7 +3287,31 @@ export default function VinylDigitizerPage() {
 
           {/* ---- STEP 3 ---- (always mounted to preserve waveform) */}
           <div className={styles.card} style={{ display: step === 3 ? undefined : "none" }}>
-              <h2 className={styles.cardTitle}>Step 3: Waveform &amp; Markers</h2>
+              <h2 className={styles.cardTitle}>Step 3: Waveform</h2>
+
+              {droppedAudioFiles.length > 1 && (
+                <div className={styles.audioSwitcher}>
+                  <span className={styles.audioSwitcherLabel}>Editing:</span>
+                  <div className={styles.audioSwitcherList}>
+                    {droppedAudioFiles.map((f, i) => (
+                      <button
+                        key={`${f.name}-${f.size}-${i}`}
+                        type="button"
+                        className={`${styles.audioSwitcherItem} ${audioFile === f ? styles.audioSwitcherItemActive : ""}`}
+                        title={f.name}
+                        onClick={() => {
+                          if (audioFile === f) return;
+                          if (tracks.length > 0 && !window.confirm(`Switch to "${f.name}"? Your current track markers will be cleared.`)) return;
+                          setAudioFile(f);
+                        }}
+                      >
+                        <span className={styles.audioSwitcherName}>{f.name}</span>
+                        {audioFile === f && <span className={styles.audioSwitcherBadge}>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Toolbar */}
               <div className={styles.waveToolbar}>
