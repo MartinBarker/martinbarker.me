@@ -1306,7 +1306,6 @@ export default function VinylDigitizerPage() {
       setMessage(`${files.length} audio files selected — confirm which to edit on Step 2.`);
     }
   };
-  const handleFileInput = e => { if (e.target.files.length > 0) setAudioFile(e.target.files[0]); };
 
   // ---- Discogs ----
   const fetchDiscogs = async () => {
