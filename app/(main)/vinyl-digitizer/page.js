@@ -1255,8 +1255,9 @@ export default function VinylDigitizerPage() {
   // ---- Upload ----
   const handleDrop = e => {
     e.preventDefault();
+    e.stopPropagation();
     const files = Array.from(e.dataTransfer.files);
-    const audioF = files.find(f => f.type.startsWith("audio/"));
+    const audioFiles = files.filter(f => f.type.startsWith("audio/"));
     const imageFiles = files.filter(f => f.type.startsWith("image/"));
 
     if (audioFiles.length > 0) {
@@ -2966,7 +2967,7 @@ export default function VinylDigitizerPage() {
                               >{f.name}</td>
                               <td>{formatBytes(f.size)}</td>
                               <td className={styles.timeCell}>
-                                {dur == null ? <span className={styles.fileStatusIdle}>—</span> : formatHMS(dur)}
+                                {dur == null ? <span className={styles.fileStatusIdle}>—</span> : formatTime(dur)}
                               </td>
                               <td>
                                 {isDecoding ? (
