@@ -1,3 +1,13 @@
+// Opt this route out of build-time static prerendering. The page is a heavy
+// 'use client' editor (FFmpeg-wasm, IndexedDB, drag-drop, lots of refs/state)
+// that doesn't benefit from SSR HTML — and Next.js's prerender pass was
+// throwing `ReferenceError: allAudioFiles is not defined` from the server
+// bundle (the production minifier appears to hoist a closure helper out of
+// the React component scope during prerender, breaking access to useState
+// variables). Marking the layout dynamic skips that failing build-time pass;
+// the page still renders correctly at request time / on the client.
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   metadataBase: new URL('https://martinbarker.me'),
   title: 'Vinyl Digitizer – Record Audio Splitter | Martin Barker',
