@@ -161,9 +161,9 @@ export default function VinylDigitizerPage() {
   const [audioMode, setAudioMode] = useState("upload");
   const [audioFile, setAudioFile] = useState(null);
   // Every audio file the user has dropped/uploaded/recorded this session
-  const [allAudioFiles, setAllAudioFiles] = useState([]);
+  const [droppedAudioFiles, setDroppedAudioFiles] = useState([]);
   // Per-file duration cache keyed by "name:size", populated asynchronously
-  const [audioDurations, setAudioDurations] = useState({}); // { "name:size": seconds }
+  const [audioDurationMap, setAudioDurationMap] = useState({}); // { "name:size": seconds }
   // When >1 files were uploaded in a single drop, prompt user on Step 2 to pick which to edit
   const [pendingAudioFiles, setPendingAudioFiles] = useState([]);
   // Whether the user has acknowledged the audio-file picker on the current visit.
@@ -348,7 +348,7 @@ export default function VinylDigitizerPage() {
     videoImages.forEach(img => { if (img.thumbUrl) URL.revokeObjectURL(img.thumbUrl); if (img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
     if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc);
     if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
-    setAudioFile(null); setAllAudioFiles([]); setAudioDurations({}); setExpandedFilenames(new Set()); setPendingAudioFiles([]); setAudioPickConfirmed(false); setChannelData(null); setDuration(0); setTracks([]); setCurrentTime(0); setIsPlaying(false);
+    setAudioFile(null); setDroppedAudioFiles([]); setAudioDurationMap({}); setExpandedFilenames(new Set()); setPendingAudioFiles([]); setAudioPickConfirmed(false); setChannelData(null); setDuration(0); setTracks([]); setCurrentTime(0); setIsPlaying(false);
     setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount(""); setProjectName("My Album");
     setExportedTracks([]); setSelectedTracks(new Set()); setMessage("");
     setVideoImages([]); setSelectedVideoImages(new Set()); setSelectedVideoAudios(new Set()); setRenderedVideoSrc(null);
@@ -365,7 +365,7 @@ export default function VinylDigitizerPage() {
   const resetStep = (stepNum) => {
     if (stepNum === 1) {
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      setAudioFile(null); setAllAudioFiles([]); setAudioDurations({}); setExpandedFilenames(new Set()); setPendingAudioFiles([]); setAudioPickConfirmed(false); setChannelData(null); setDuration(0); setMessage("");
+      setAudioFile(null); setDroppedAudioFiles([]); setAudioDurationMap({}); setExpandedFilenames(new Set()); setPendingAudioFiles([]); setAudioPickConfirmed(false); setChannelData(null); setDuration(0); setMessage("");
       if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
     } else if (stepNum === 2) {
       setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount("");
@@ -674,7 +674,7 @@ export default function VinylDigitizerPage() {
   // Read durations for each uploaded audio file (lightweight metadata-only read)
   useEffect(() => {
     let cancelled = false;
-    const missing = allAudioFiles.filter(f => !(`${f.name}:${f.size}` in audioDurations));
+    const missing = droppedAudioFiles.filter(f => !(`${f.name}:${f.size}` in audioDurationMap));
     if (missing.length === 0) return;
     missing.forEach(f => {
       const key = `${f.name}:${f.size}`;
@@ -684,18 +684,18 @@ export default function VinylDigitizerPage() {
       a.addEventListener('loadedmetadata', () => {
         cleanup();
         if (cancelled) return;
-        setAudioDurations(prev => ({ ...prev, [key]: a.duration }));
+        setAudioDurationMap(prev => ({ ...prev, [key]: a.duration }));
       });
       a.addEventListener('error', () => {
         cleanup();
         if (cancelled) return;
-        setAudioDurations(prev => ({ ...prev, [key]: null }));
+        setAudioDurationMap(prev => ({ ...prev, [key]: null }));
       });
       a.preload = 'metadata';
       a.src = url;
     });
     return () => { cancelled = true; };
-  }, [allAudioFiles]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [droppedAudioFiles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Volume suggestion — compute RMS when audio loads
   useEffect(() => {
@@ -745,15 +745,15 @@ export default function VinylDigitizerPage() {
     if (
       step === 5 &&
       exportedTracks.length === 0 &&
-      allAudioFiles.length > 0 &&
+      droppedAudioFiles.length > 0 &&
       !audioLoadingStatus
     ) {
-      addDirectAudioFiles(allAudioFiles);
+      addDirectAudioFiles(droppedAudioFiles);
     }
     // addDirectAudioFiles is a stable inline function — intentionally omitted
     // from deps to avoid retriggering when unrelated state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, exportedTracks.length, allAudioFiles, audioLoadingStatus]);
+  }, [step, exportedTracks.length, droppedAudioFiles, audioLoadingStatus]);
 
   // Auto-select all exported tracks when entering step 5 and sync order
   useEffect(() => {
@@ -1394,7 +1394,7 @@ export default function VinylDigitizerPage() {
         const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
         const file = new File([blob], `recording-${Date.now()}.webm`, { type: "audio/webm" });
         setAudioFile(file);
-        setAllAudioFiles(prev => [...prev, file]);
+        setDroppedAudioFiles(prev => [...prev, file]);
         stream.getTracks().forEach(t => t.stop());
         if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
         cancelAnimationFrame(animFrameRef.current);
@@ -1423,7 +1423,7 @@ export default function VinylDigitizerPage() {
     const imageFiles = files.filter(f => f.type.startsWith("image/"));
 
     if (audioFiles.length > 0) {
-      setAllAudioFiles(prev => {
+      setDroppedAudioFiles(prev => {
         const existingKeys = new Set(prev.map(f => `${f.name}:${f.size}`));
         const fresh = audioFiles.filter(f => !existingKeys.has(`${f.name}:${f.size}`));
         return [...prev, ...fresh];
@@ -1455,7 +1455,7 @@ export default function VinylDigitizerPage() {
   const handleFileInput = e => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-    setAllAudioFiles(prev => {
+    setDroppedAudioFiles(prev => {
       const existingKeys = new Set(prev.map(f => `${f.name}:${f.size}`));
       const fresh = files.filter(f => !existingKeys.has(`${f.name}:${f.size}`));
       return [...prev, ...fresh];
@@ -1997,7 +1997,7 @@ export default function VinylDigitizerPage() {
       // Reuse the cached duration computed in Step 1 if available; otherwise
       // decode the file here to determine duration.
       const cacheKey = `${f.name}:${f.size}`;
-      let dur = typeof audioDurations[cacheKey] === "number" ? audioDurations[cacheKey] : 0;
+      let dur = typeof audioDurationMap[cacheKey] === "number" ? audioDurationMap[cacheKey] : 0;
       if (!dur) {
         try {
           const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2575,7 +2575,7 @@ export default function VinylDigitizerPage() {
   const isFreshStart =
     step === 1 &&
     !audioFile &&
-    allAudioFiles.length === 0 &&
+    droppedAudioFiles.length === 0 &&
     tracks.length === 0 &&
     exportedTracks.length === 0 &&
     videoImages.length === 0 &&
@@ -2632,7 +2632,7 @@ export default function VinylDigitizerPage() {
     // Each filename without its extension.
     const stripExt = (n) => n.replace(/\.[^./\\]+$/, "");
     const seenFolders = new Set();
-    allAudioFiles.forEach(f => {
+    droppedAudioFiles.forEach(f => {
       add(fileGroup, stripExt(f.name));
       // webkitRelativePath captures the source folder when files arrive via
       // an <input type="file" webkitdirectory> or directory-aware drop.
@@ -2647,8 +2647,8 @@ export default function VinylDigitizerPage() {
     });
     // Common prefix across all filenames (often the album/release name when a
     // CD rip uses "01 - Album - Track.flac" style naming).
-    if (allAudioFiles.length > 1) {
-      const stems = allAudioFiles.map(f => stripExt(f.name));
+    if (droppedAudioFiles.length > 1) {
+      const stems = droppedAudioFiles.map(f => stripExt(f.name));
       let prefix = stems[0];
       for (let i = 1; i < stems.length && prefix.length > 0; i++) {
         while (!stems[i].startsWith(prefix)) prefix = prefix.slice(0, -1);
@@ -2836,7 +2836,7 @@ export default function VinylDigitizerPage() {
               )}
 
               {(() => {
-                const hasFiles = allAudioFiles.length > 0 || videoImages.length > 0;
+                const hasFiles = droppedAudioFiles.length > 0 || videoImages.length > 0;
                 const anyImageLoading = videoImages.some(img => img.loading);
                 const audioReady = !audioFile || !!channelData;
                 const allLoaded = hasFiles && !anyImageLoading && audioReady;
@@ -2847,9 +2847,9 @@ export default function VinylDigitizerPage() {
                   </div>
                 );
               })()}
-              {allAudioFiles.length > 0 && (
+              {droppedAudioFiles.length > 0 && (
                 <div className={styles.uploadedFilesSection}>
-                  <h3 className={styles.sectionTitle}>Audio Files ({allAudioFiles.length})</h3>
+                  <h3 className={styles.sectionTitle}>Audio Files ({droppedAudioFiles.length})</h3>
                   <div className={styles.tableWrap}>
                     <table className={styles.table}>
                       <thead>
@@ -2863,10 +2863,10 @@ export default function VinylDigitizerPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {allAudioFiles.map((f, i) => {
+                        {droppedAudioFiles.map((f, i) => {
                           const isDecoding = audioFile === f && !channelData;
                           const key = `${f.name}:${f.size}`;
-                          const dur = audioDurations[key];
+                          const dur = audioDurationMap[key];
                           const isExpanded = expandedFilenames.has(key);
                           return (
                             <tr key={`${f.name}-${f.size}-${i}`}>
@@ -2895,10 +2895,10 @@ export default function VinylDigitizerPage() {
                                   className={styles.removeBtn}
                                   title="Remove this file"
                                   onClick={() => {
-                                    setAllAudioFiles(prev => prev.filter(x => x !== f));
+                                    setDroppedAudioFiles(prev => prev.filter(x => x !== f));
                                     setPendingAudioFiles(prev => prev.filter(x => x !== f));
                                     if (audioFile === f) {
-                                      const next = allAudioFiles.find(x => x !== f) || null;
+                                      const next = droppedAudioFiles.find(x => x !== f) || null;
                                       setAudioFile(next);
                                       if (!next) { setChannelData(null); setDuration(0); }
                                     }
@@ -3006,13 +3006,13 @@ export default function VinylDigitizerPage() {
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Step 2: Tracks</h2>
 
-              {allAudioFiles.length > 1 && !audioPickConfirmed && (
+              {droppedAudioFiles.length > 1 && !audioPickConfirmed && (
                 <div className={styles.audioPickerCard}>
                   <div className={styles.audioPickerHeader}>
-                    📂 You uploaded {allAudioFiles.length} audio files — which one do you want to edit?
+                    📂 You uploaded {droppedAudioFiles.length} audio files — which one do you want to edit?
                   </div>
                   <div className={styles.audioPickerList}>
-                    {allAudioFiles.map((f, i) => (
+                    {droppedAudioFiles.map((f, i) => (
                       <button
                         key={`${f.name}-${f.size}-${i}`}
                         type="button"
@@ -3199,11 +3199,11 @@ export default function VinylDigitizerPage() {
           <div className={styles.card} style={{ display: step === 3 ? undefined : "none" }}>
               <h2 className={styles.cardTitle}>Step 3: Waveform</h2>
 
-              {allAudioFiles.length > 1 && (
+              {droppedAudioFiles.length > 1 && (
                 <div className={styles.audioSwitcher}>
                   <span className={styles.audioSwitcherLabel}>Editing:</span>
                   <div className={styles.audioSwitcherList}>
-                    {allAudioFiles.map((f, i) => (
+                    {droppedAudioFiles.map((f, i) => (
                       <button
                         key={`${f.name}-${f.size}-${i}`}
                         type="button"
