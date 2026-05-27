@@ -2425,10 +2425,16 @@ async function _validateYouTubeTokensHandler(req, res) {
     if (!oauth2Client) {
       return res.status(200).json({ valid: false, reason: 'oauth_client_unavailable' });
     }
-    // Use a temp client so we don't mutate global state
+    // In prod, GCP credentials are loaded from AWS Secrets Manager into the
+    // module-level gcpClientId/gcpClientSecret — process.env.* is empty there.
+    // Using process.env directly produced an OAuth client with no credentials,
+    // which made Google's token endpoint return `invalid_request`.
+    if (!gcpClientId || !gcpClientSecret) {
+      return res.status(200).json({ valid: false, reason: 'oauth_client_unavailable' });
+    }
     const tempClient = new google.auth.OAuth2(
-      process.env.GCP_CLIENT_ID,
-      process.env.GCP_CLIENT_SECRET,
+      gcpClientId,
+      gcpClientSecret,
       oauth2Client.redirectUri || getYouTubeRedirectUrl?.()
     );
     tempClient.setCredentials(tokens);
@@ -2449,8 +2455,8 @@ async function _validateYouTubeTokensHandler(req, res) {
     return res.status(500).json({ valid: false, reason: 'server_error' });
   }
 }
-app.post('/youtube/validateTokens', _validateYouTubeTokensHandler);
-app.post('/internal-api/youtube/validateTokens', _validateYouTubeTokensHandler);
+app.post('/youtube/validateTokens', ensureSecretsInitialized, _validateYouTubeTokensHandler);
+app.post('/internal-api/youtube/validateTokens', ensureSecretsInitialized, _validateYouTubeTokensHandler);
 
 // Clear YouTube authentication
 app.post('/youtube/clearAuth', (req, res) => {
