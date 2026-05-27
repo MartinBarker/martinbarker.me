@@ -9,6 +9,7 @@ import { ColorContext } from "../ColorContext";
 import {
   extractTagsFromDiscogs,
   buildTagString,
+  sanitizeYouTubeTag,
   generateVideoTitleRecommendations,
   buildTimestampDescription,
   formatTimestamp,
@@ -70,6 +71,15 @@ function formatTime(s) {
   const sec = Math.floor(s % 60);
   const ms = Math.floor((s % 1) * 100);
   return `${m}:${sec.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
+}
+
+// Format seconds as HH:MM:SS (always shows hours, even if 0)
+function formatHMS(s) {
+  if (s == null || !isFinite(s) || s < 0) return "—";
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
 }
 
 function formatBytes(b) {
@@ -175,6 +185,13 @@ export default function VinylDigitizerPage() {
   const [volume, setVolume] = useState(1);
   const [tracks, setTracks] = useState([]); // [{id, startTime, endTime, name}]
 
+  // Visible time range of the zoomview (for positioning boundary handles)
+  const [viewRange, setViewRange] = useState({ start: 0, end: 0 });
+  const [zoomviewWidth, setZoomviewWidth] = useState(0);
+  // Tracks currently being dragged (live override for handle rendering during drag)
+  const dragStateRef = useRef(null);
+  const [, forceHandleRender] = useState(0);
+
   // Album info
   const [discogsUrl, setDiscogsUrl] = useState("");
   const [manualTrackCount, setManualTrackCount] = useState("");
@@ -264,7 +281,12 @@ export default function VinylDigitizerPage() {
   const [ytUploadProgress, setYtUploadProgress] = useState(null);
   const [ytUploadResult, setYtUploadResult] = useState(null);
   const [ytUploadError, setYtUploadError] = useState("");
+  const [ytUploadAuthError, setYtUploadAuthError] = useState(null); // { reason, raw } when invalid_grant / 401
   const [ytAuthState, setYtAuthState] = useState({ canAuth: false });
+  // Clear the upload auth-error banner once the user successfully re-authenticates
+  useEffect(() => {
+    if (ytAuthState.canAuth && ytUploadAuthError) setYtUploadAuthError(null);
+  }, [ytAuthState.canAuth]); // eslint-disable-line react-hooks/exhaustive-deps
   const [thumbnailFile, setThumbnailFile] = useState(null);
   const [thumbnailPreview, setThumbnailPreview] = useState(null);
   const [embedArtFile, setEmbedArtFile] = useState(null); // album art to embed in FLAC exports
@@ -805,6 +827,9 @@ export default function VinylDigitizerPage() {
   useEffect(() => { autoSplitDoneRef.current = false; }, [audioFile]);
   useEffect(() => { if (step < 3) autoSplitDoneRef.current = false; }, [step]);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step]);
+  // When the user returns to Step 1, force the audio picker to re-prompt
+  // the next time they enter Step 2.
+  useEffect(() => { if (step === 1) setAudioPickConfirmed(false); }, [step]);
   useEffect(() => {
     if (step === 3 && channelData && duration > 0 && !autoSplitDoneRef.current && !isLoadingWaveform) {
       autoSplitDoneRef.current = true;
@@ -882,6 +907,7 @@ export default function VinylDigitizerPage() {
                   const levels = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536];
                   retryInstance.zoom.setZoom(levels.length - 1);
                 } catch {}
+                try { retryInstance.views.getView('zoomview')?.enableAutoScroll(false); } catch {}
                 if (currentTracks && currentTracks.length > 0) {
                   currentTracks.forEach((track, i) => {
                     retryInstance.segments.add({
@@ -900,6 +926,13 @@ export default function VinylDigitizerPage() {
                     setExportedTracks([]);
                   }, 50);
                 });
+                retryInstance.on('zoomview.update', ({ startTime, endTime }) => {
+                  setViewRange({ start: startTime, end: endTime });
+                });
+                try {
+                  const v = retryInstance.views.getView('zoomview');
+                  if (v) setViewRange({ start: v.getStartTime(), end: v.getEndTime() });
+                } catch {}
                 resolve();
               });
               return;
@@ -914,6 +947,8 @@ export default function VinylDigitizerPage() {
             const levels = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536];
             peaksInstance.zoom.setZoom(levels.length - 1);
           } catch {}
+          // Disable auto-scroll so zoom/playback doesn't yank the view back to the playhead
+          try { peaksInstance.views.getView('zoomview')?.enableAutoScroll(false); } catch {}
 
           // Add existing tracks as segments
           if (currentTracks && currentTracks.length > 0) {
@@ -967,6 +1002,14 @@ export default function VinylDigitizerPage() {
               setExportedTracks([]);
             }, 50);
           });
+
+          peaksInstance.on('zoomview.update', ({ startTime, endTime }) => {
+            setViewRange({ start: startTime, end: endTime });
+          });
+          try {
+            const v = peaksInstance.views.getView('zoomview');
+            if (v) setViewRange({ start: v.getStartTime(), end: v.getEndTime() });
+          } catch {}
 
           resolve();
         });
@@ -1138,13 +1181,138 @@ export default function VinylDigitizerPage() {
     else if (e.deltaY > 0) zoomOut();
   }, []);
 
-  // Attach wheel listener to zoomview (needs {passive: false} to preventDefault)
+  // Attach wheel listener to zoomview (needs {passive: false} to preventDefault).
+  // Re-run when entering step 3 since the zoomview div only mounts in that step.
   useEffect(() => {
-    const el = zoomviewRef.current;
-    if (!el) return;
-    el.addEventListener("wheel", handleWaveWheel, { passive: false });
-    return () => el.removeEventListener("wheel", handleWaveWheel);
-  }, [handleWaveWheel]);
+    if (step !== 3) return;
+    let attached = null;
+    let raf = 0;
+    const tryAttach = () => {
+      const el = zoomviewRef.current;
+      if (el && attached !== el) {
+        if (attached) attached.removeEventListener("wheel", handleWaveWheel, { capture: true });
+        el.addEventListener("wheel", handleWaveWheel, { passive: false, capture: true });
+        attached = el;
+        return;
+      }
+      if (!el) raf = requestAnimationFrame(tryAttach);
+    };
+    tryAttach();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (attached) attached.removeEventListener("wheel", handleWaveWheel, { capture: true });
+    };
+  }, [step, handleWaveWheel]);
+
+  // Track zoomview pixel width via ResizeObserver (for boundary handle positioning)
+  useEffect(() => {
+    if (step !== 3) return;
+    let observer = null;
+    let raf = 0;
+    const tryObserve = () => {
+      const el = zoomviewRef.current;
+      if (!el) { raf = requestAnimationFrame(tryObserve); return; }
+      setZoomviewWidth(el.clientWidth);
+      observer = new ResizeObserver(entries => {
+        for (const entry of entries) setZoomviewWidth(entry.contentRect.width);
+      });
+      observer.observe(el);
+    };
+    tryObserve();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (observer) observer.disconnect();
+    };
+  }, [step]);
+
+  // ---- Boundary handle drag (above-waveform splitters) ----
+  const beginBoundaryDrag = useCallback((e, mode, idxLeft, idxRight) => {
+    // mode: 'joint-move' | 'joint-split' | 'solo-end' | 'solo-start'
+    e.preventDefault();
+    e.stopPropagation();
+    if (!peaksRef.current) return;
+    const view = peaksRef.current.views.getView('zoomview');
+    const containerEl = zoomviewRef.current;
+    if (!view || !containerEl) return;
+    const startMouseX = e.clientX;
+    const containerRect = containerEl.getBoundingClientRect();
+    const widthPx = containerRect.width || 1;
+
+    // Snapshot current track times so we can compute fresh values per move
+    const startEnd = idxLeft != null ? tracks[idxLeft].endTime : null;
+    const startStart = idxRight != null ? tracks[idxRight].startTime : null;
+
+    dragStateRef.current = { mode, idxLeft, idxRight, splitDir: null };
+    forceHandleRender(n => n + 1);
+
+    const pxToSeconds = (px) => {
+      const range = view.getEndTime() - view.getStartTime();
+      return (px / widthPx) * range;
+    };
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startMouseX;
+      const dt = pxToSeconds(dx);
+      const segL = idxLeft != null ? peaksRef.current.segments.getSegment(tracks[idxLeft].id) : null;
+      const segR = idxRight != null ? peaksRef.current.segments.getSegment(tracks[idxRight].id) : null;
+      // Re-render handle overlay so the handle follows the cursor
+      requestAnimationFrame(() => forceHandleRender(n => n + 1));
+
+      if (mode === 'joint-move') {
+        // Move both boundaries together; clamp so neither crosses the other side.
+        const prevEnd = idxLeft > 0 ? tracks[idxLeft - 1].endTime : 0;
+        const nextStart = idxRight < tracks.length - 1 ? tracks[idxRight + 1].startTime : duration;
+        const minT = Math.max(prevEnd, (tracks[idxLeft].startTime + 0.05));
+        const maxT = Math.min(nextStart, (tracks[idxRight].endTime - 0.05));
+        const t = Math.max(minT, Math.min(maxT, startEnd + dt));
+        if (segL) segL.update({ endTime: t });
+        if (segR) segR.update({ startTime: t });
+      } else if (mode === 'joint-split') {
+        // Direction-based: dragging left moves track[idxLeft].endTime backwards;
+        // dragging right moves track[idxRight].startTime forwards.
+        const st = dragStateRef.current;
+        if (st && st.splitDir == null && Math.abs(dx) > 2) {
+          st.splitDir = dx < 0 ? 'left' : 'right';
+          forceHandleRender(n => n + 1);
+        }
+        const dir = dragStateRef.current?.splitDir;
+        if (dir === 'left' && segL) {
+          const minT = Math.max((idxLeft > 0 ? tracks[idxLeft - 1].endTime : 0), tracks[idxLeft].startTime + 0.05);
+          const t = Math.max(minT, Math.min(startEnd, startEnd + dt));
+          segL.update({ endTime: t });
+        } else if (dir === 'right' && segR) {
+          const maxT = Math.min((idxRight < tracks.length - 1 ? tracks[idxRight + 1].startTime : duration), tracks[idxRight].endTime - 0.05);
+          const t = Math.min(maxT, Math.max(startStart, startStart + dt));
+          segR.update({ startTime: t });
+        }
+      } else if (mode === 'solo-end' && segL) {
+        const minT = Math.max((idxLeft > 0 ? tracks[idxLeft - 1].endTime : 0), tracks[idxLeft].startTime + 0.05);
+        const maxT = (idxLeft < tracks.length - 1) ? tracks[idxLeft + 1].startTime : duration;
+        const t = Math.max(minT, Math.min(maxT, startEnd + dt));
+        segL.update({ endTime: t });
+      } else if (mode === 'solo-start' && segR) {
+        const minT = (idxRight > 0) ? tracks[idxRight - 1].endTime : 0;
+        const maxT = Math.min((idxRight < tracks.length - 1 ? tracks[idxRight + 1].startTime : duration), tracks[idxRight].endTime - 0.05);
+        const t = Math.max(minT, Math.min(maxT, startStart + dt));
+        segR.update({ startTime: t });
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      // Commit final times from peaks segments back to React state
+      const segs = peaksRef.current.segments.getSegments().sort((a, b) => a.startTime - b.startTime);
+      const stripNum = (label) => { const m = (label || '').match(/^\d+\.\s*(.*)$/); return m ? m[1] : (label || 'Track'); };
+      setTracks(segs.map(s => ({ id: s.id, startTime: s.startTime, endTime: s.endTime, name: stripNum(s.labelText) })));
+      setExportedTracks([]);
+      dragStateRef.current = null;
+      forceHandleRender(n => n + 1);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [tracks, duration]);
 
   // ---- Track manipulation ----
   const generateTrackId = () => `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1768,22 +1936,24 @@ export default function VinylDigitizerPage() {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => {
-        const naturalWidth = img.width, naturalHeight = img.height;
-        const scale = Math.min(maxSize / naturalWidth, maxSize / naturalHeight, 1);
-        const w = Math.round(naturalWidth * scale);
-        const h = Math.round(naturalHeight * scale);
+        const naturalWidth = img.width;
+        const naturalHeight = img.height;
+        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
         canvas.toBlob((blob) => {
-          resolve({ thumbUrl: blob ? URL.createObjectURL(blob) : URL.createObjectURL(file), naturalWidth, naturalHeight });
+          const thumbUrl = blob ? URL.createObjectURL(blob) : URL.createObjectURL(file);
+          resolve({ thumbUrl, width: naturalWidth, height: naturalHeight });
         }, 'image/jpeg', 0.7);
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        resolve({ thumbUrl: URL.createObjectURL(file), naturalWidth: 0, naturalHeight: 0 });
+        resolve({ thumbUrl: URL.createObjectURL(file), width: 0, height: 0 });
       };
       img.src = url;
     });
@@ -1792,15 +1962,31 @@ export default function VinylDigitizerPage() {
   const addImagesToVideo = async (files) => {
     const imageFiles = Array.from(files || []).filter(f => f?.type?.startsWith("image/"));
     if (!imageFiles.length) return;
-    setImageLoadingStatus({ loaded: 0, total: imageFiles.length, current: imageFiles[0].name });
-    for (let i = 0; i < imageFiles.length; i++) {
-      const f = imageFiles[i];
-      setImageLoadingStatus({ loaded: i, total: imageFiles.length, current: f.name });
+    // Dedupe against current state AND within the incoming batch (in case the
+    // same file appears twice in one drop). stopPropagation in handleDrop
+    // already prevents the handler from firing twice for the same event, so
+    // this check is sufficient.
+    const existingKeys = new Set(videoImages.map(img => `${img.file.name}:${img.file.size}`));
+    const seenInBatch = new Set();
+    const fresh = [];
+    for (const f of imageFiles) {
+      const key = `${f.name}:${f.size}`;
+      if (existingKeys.has(key) || seenInBatch.has(key)) continue;
+      seenInBatch.add(key);
+      fresh.push(f);
+    }
+    if (!fresh.length) return;
+    setImageLoadingStatus({ loaded: 0, total: fresh.length, current: fresh[0].name });
+    for (let i = 0; i < fresh.length; i++) {
+      const f = fresh[i];
+      setImageLoadingStatus({ loaded: i, total: fresh.length, current: f.name });
       const id = `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
-      const { thumbUrl, naturalWidth, naturalHeight } = await createThumbnail(f);
-      const previewUrl = URL.createObjectURL(f);
-      setVideoImages(prev => [...prev, { id, file: f, thumbUrl, previewUrl, naturalWidth, naturalHeight, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
+      // Add a placeholder entry immediately so the row appears with a spinner
+      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
+      const { thumbUrl, width, height } = await createThumbnail(f);
+      const previewUrl = URL.createObjectURL(f);
+      setVideoImages(prev => prev.map(img => img.id === id ? { ...img, thumbUrl, previewUrl, width, height, loading: false } : img));
     }
     setImageLoadingStatus(null);
   };
@@ -2382,17 +2568,8 @@ export default function VinylDigitizerPage() {
     const tStart = performance.now();
     const elapsed = () => `${Math.round(performance.now() - tStart)}ms`;
     const videoUrl = videoUrlOverride || renderedVideoSrc;
-
-    log("info", "uploadToYouTube called", {
-      hasOverride: !!videoUrlOverride,
-      hasRenderedVideoSrc: !!renderedVideoSrc,
-      ytUploading,
-      videoUrl: videoUrl ? videoUrl.slice(0, 64) + (videoUrl.length > 64 ? "…" : "") : null,
-    });
-
-    if (!videoUrl) { log("warn", "abort: no videoUrl"); return; }
-    if (ytUploading) { log("warn", "abort: ytUploading already true"); return; }
-    setYtUploading(true); setYtUploadProgress(0); setYtUploadError(""); setYtUploadResult(null);
+    if (!videoUrl || ytUploading) return;
+    setYtUploading(true); setYtUploadProgress(0); setYtUploadError(""); setYtUploadAuthError(null); setYtUploadResult(null);
     try {
       log("info", `[${elapsed()}] requesting tokens via getTokensRef…`);
       const tokens = await getTokensRef.current?.getTokens();
@@ -2408,6 +2585,26 @@ export default function VinylDigitizerPage() {
       const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_");
       log("info", `[${elapsed()}] fetching rendered video blob…`, videoUrl);
       const videoBlob = await fetch(videoUrl).then(r => r.blob());
+      const fd = new FormData();
+      fd.append("video", videoBlob, `${currentYtData.title || name}.mp4`);
+      fd.append("title", currentYtData.title || name);
+      fd.append("description", currentYtData.description || "");
+      fd.append("privacyStatus", currentYtData.privacyStatus || "private");
+      const cleanedTags = (currentYtData.tags || "")
+        .split(",")
+        .map(t => sanitizeYouTubeTag(t))
+        .filter(Boolean);
+      let tagsTotal = 0;
+      const safeTags = [];
+      for (const t of cleanedTags) {
+        const projected = tagsTotal + (safeTags.length ? 2 : 0) + t.length;
+        if (projected > YT_LIMITS.tags) break;
+        safeTags.push(t);
+        tagsTotal = projected;
+      }
+      fd.append("tags", safeTags.join(", "));
+      fd.append("tokens", JSON.stringify(tokens));
+      if (thumbnailFile) fd.append("thumbnail", thumbnailFile, thumbnailFile.name);
       const fileSizeMB = (videoBlob.size / (1024 * 1024)).toFixed(1);
       log("info", `[${elapsed()}] blob ready`, { sizeMB: fileSizeMB, sizeBytes: videoBlob.size, type: videoBlob.type });
 
@@ -2496,18 +2693,59 @@ export default function VinylDigitizerPage() {
         };
         xhr.onload = () => {
           cleanup();
-          if (xhr.status === 200 || xhr.status === 201) {
-            try { videoData = JSON.parse(xhr.responseText); }
-            catch { return reject(new Error("Could not parse YouTube response")); }
-            resolve({ done: true });
-          } else if (xhr.status === 308) {
-            const range = xhr.getResponseHeader("Range") || "";
-            const m = /bytes=0-(\d+)/.exec(range);
-            const next = m ? parseInt(m[1], 10) + 1 : end;
-            resolve({ done: false, next });
-          } else {
-            reject(new Error(`Chunk upload failed (${xhr.status}): ${(xhr.responseText || "").slice(0, 200)}`));
+          // 308 Resume Incomplete — intermediate chunk accepted, body is empty,
+          // Range header tells us the last byte received.
+          if (xhr.status === 308) {
+            let next = end;
+            const range = xhr.getResponseHeader("Range");
+            if (range) {
+              const m = /bytes=\d+-(\d+)/.exec(range);
+              if (m) next = parseInt(m[1], 10) + 1;
+            }
+            resolve({ next, done: false });
+            return;
           }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            // Final chunk — JSON video metadata
+            try {
+              const data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+              videoData = data;
+              setYtUploadResult(data);
+              resolve({ done: true });
+            } catch (parseErr) {
+              console.error("YouTube upload error — failed to parse final response. Status:", xhr.status, "Raw response:", xhr.responseText, parseErr);
+              setYtUploadError(`Failed to parse server response (HTTP ${xhr.status})`);
+              reject(parseErr);
+            }
+            return;
+          }
+          // Error path — try to parse JSON, fall back to text
+          let data = null;
+          try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch {}
+          console.error("YouTube upload error — full server response:", data || xhr.responseText);
+          const rawErr = data ? String(data.error || data.error_description || "") : (xhr.responseText || "");
+          const looksLikeAuth =
+            /invalid_grant|invalid_token|unauthorized_client|token has been expired|not signed in/i.test(rawErr) ||
+            xhr.status === 401 || xhr.status === 403;
+          if (looksLikeAuth) {
+            try {
+              localStorage.removeItem('youtube_tokens');
+              localStorage.removeItem('youtube_auth_code');
+              localStorage.removeItem('youtube_auth_scope');
+              localStorage.removeItem('youtube_auth_set_time');
+            } catch {}
+            try { getTokensRef.current?.verifyTokens?.(); } catch {}
+            setYtUploadAuthError({ reason: rawErr || `HTTP ${xhr.status}`, raw: data });
+            setYtUploadError("");
+          } else {
+            let errMsg = rawErr || `Upload failed (${xhr.status})`;
+            if (xhr.status === 413) errMsg = `File too large (${fileSizeMB} MB). Maximum upload size is ${maxSizeMB} MB. Try a lower resolution.`;
+            else if (/invalid.*title|empty.*title/i.test(errMsg)) errMsg += " — Try shortening the title (max 100 characters).";
+            else if (/description/i.test(errMsg)) errMsg += " — Try shortening the description (max 5,000 characters).";
+            else if (/tag/i.test(errMsg)) errMsg += " — Try reducing tags (max 500 characters total, each tag max 30 chars).";
+            setYtUploadError(errMsg);
+          }
+          reject(new Error(rawErr || `HTTP ${xhr.status}`));
         };
         xhr.onerror = () => { cleanup(); reject(new Error("Network error during chunk upload")); };
         xhr.onabort = () => { cleanup(); aborted = true; reject(new Error("Upload aborted (no progress)")); };
@@ -2620,9 +2858,9 @@ export default function VinylDigitizerPage() {
   const lastYtDiscogsUrlRef = useRef(null);
   const lastYtVideoSrcRef = useRef(null);
 
-  // Pre-fill YouTube metadata when entering Step 6 or when discogs data / rendered video changes
+  // Pre-fill YouTube metadata when entering Step 5 or when discogs data / rendered video changes
   useEffect(() => {
-    if (step !== 6) return;
+    if (step !== 5) return;
     const discogsChanged = discogsData && discogsUrl && lastYtDiscogsUrlRef.current !== discogsUrl;
     const videoChanged = renderedVideoSrc && lastYtVideoSrcRef.current !== renderedVideoSrc;
     const needsTitle = !ytUploadData.title || discogsChanged;
@@ -2870,6 +3108,7 @@ export default function VinylDigitizerPage() {
               {i === 4 && isRenderingVideo && (
                 <span className={styles.stepProgress}>{videoRenderProgress !== null ? ` ${(videoRenderProgress * 100).toFixed(0)}%` : " …"}</span>
               )}
+              {i < 4 && <div className={styles.stepLine} />}
             </div>
           ))}
         </div>
@@ -2878,7 +3117,12 @@ export default function VinylDigitizerPage() {
             ⚠️ WARNING: {isRenderingVideo ? `Video is rendering${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}` : `Video is uploading${ytUploadProgress !== null ? ` (${ytUploadProgress}%)` : ""}`} — do not navigate away from this page!
           </div>
         )}
-        {ytUploadError && !ytUploading && (
+        {ytUploadAuthError && !ytUploading && (
+          <div className={styles.renderingWarningBanner} style={{animation:"none", background: "#fed7d7", color: "#742a2a"}}>
+            ⚠️ YouTube sign-in expired — see the YouTube Upload Details panel below to sign in again.
+          </div>
+        )}
+        {ytUploadError && !ytUploadAuthError && !ytUploading && (
           <div className={styles.renderingWarningBanner} style={{animation:"none"}}>
             Upload Error: {ytUploadError}
           </div>
@@ -2891,7 +3135,7 @@ export default function VinylDigitizerPage() {
           {/* ---- STEP 1 ---- */}
           {step === 1 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 1: Audio Source</h2>
+              <h2 className={styles.cardTitle}>Step 1: Input</h2>
               <div className={styles.tabRow}>
                 <button className={`${styles.tab} ${audioMode === "upload" ? styles.tabActive : ""}`} onClick={() => setAudioMode("upload")}>Upload File</button>
                 <button className={`${styles.tab} ${audioMode === "record" ? styles.tabActive : ""}`} onClick={() => setAudioMode("record")}>Record Live</button>
@@ -2901,9 +3145,9 @@ export default function VinylDigitizerPage() {
                 <div>
                   <div className={styles.dropZone} onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
                     <div className={styles.dropIcon}>🎵</div>
-                    <p className={styles.dropText}>Drop audio file here or click to browse</p>
-                    <p className={styles.dropHint}>WAV · FLAC · MP3 · AIFF · OGG · WebM</p>
-                    <input type="file" accept="audio/*" onChange={handleFileInput} className={styles.fileInput} />
+                    <p className={styles.dropText}>Drop audio or image files here, or click to browse audio</p>
+                    <p className={styles.dropHint}>Audio: WAV · FLAC · MP3 · AIFF · OGG · WebM · Images: PNG · JPG (auto-added to album art &amp; video)</p>
+                    <input type="file" accept="audio/*" multiple onChange={handleFileInput} className={styles.fileInput} />
                   </div>
                 </div>
               ) : (
@@ -3085,8 +3329,7 @@ export default function VinylDigitizerPage() {
               </div>
 
               <div className={styles.stepNav}>
-                <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Album Info →</button>
-                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
+                <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Tracks →</button>
               </div>
             </div>
           )}
@@ -3317,7 +3560,17 @@ export default function VinylDigitizerPage() {
               <div className={styles.waveToolbar}>
                 <div className={styles.tbGroup}>
                   <button className={styles.playBtnSmall} onClick={togglePlay} disabled={!duration}>{isPlaying ? "⏸" : "▶"}</button>
-                  <span className={styles.timeLabel}>{formatTime(currentTime)} / {formatTime(duration)}</span>
+                  {(() => {
+                    const durStr = formatTime(duration);
+                    const slotWidth = `${Math.max(durStr.length, 7)}ch`;
+                    return (
+                      <span className={styles.timeLabel}>
+                        <span className={styles.timeCurrent} style={{ minWidth: slotWidth }}>{formatTime(currentTime)}</span>
+                        <span className={styles.timeSep}>/</span>
+                        <span className={styles.timeDuration}>{durStr}</span>
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className={styles.tbSep} />
                 <div className={styles.tbGroup}>
@@ -3349,7 +3602,81 @@ export default function VinylDigitizerPage() {
                 {isLoadingWaveform && (
                   <div className={styles.waveLoading}><div className={styles.spinner} /><span>{waveformLoadStatus || "Loading waveform…"}</span></div>
                 )}
-                <div ref={zoomviewRef} className={styles.zoomview} />
+                <div className={styles.zoomviewWrap}>
+                  <div ref={zoomviewRef} className={styles.zoomview} />
+                  {/* Boundary handles overlay (above the waveform) */}
+                  {(() => {
+                    const range = viewRange.end - viewRange.start;
+                    if (!range || !zoomviewWidth || tracks.length === 0) return null;
+                    const timeToX = (t) => ((t - viewRange.start) / range) * zoomviewWidth;
+                    // Read live segment times from peaks during a drag, falling back to React state
+                    const liveTime = (trackId, field) => {
+                      const seg = peaksRef.current?.segments?.getSegment?.(trackId);
+                      if (seg) return field === 'endTime' ? seg.endTime : seg.startTime;
+                      const t = tracks.find(x => x.id === trackId);
+                      return t ? t[field] : 0;
+                    };
+                    const EPS = 0.02;
+                    const handles = [];
+                    for (let i = 0; i < tracks.length - 1; i++) {
+                      const a = tracks[i];
+                      const b = tracks[i + 1];
+                      const aEnd = liveTime(a.id, 'endTime');
+                      const bStart = liveTime(b.id, 'startTime');
+                      const shared = Math.abs(aEnd - bStart) < EPS;
+                      if (shared) {
+                        const x = timeToX(aEnd);
+                        if (x < -20 || x > zoomviewWidth + 20) continue;
+                        const ds = dragStateRef.current;
+                        const isDragging = ds && ds.idxLeft === i && ds.idxRight === i + 1;
+                        const splitDir = isDragging && ds.mode === 'joint-split' ? ds.splitDir : null;
+                        handles.push(
+                          <div key={`joint-${a.id}-${b.id}`} className={styles.boundaryHandle} style={{ left: x }}>
+                            <div
+                              className={styles.boundaryBar}
+                              title="Drag to move both boundaries together"
+                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-move', i, i + 1)}
+                            />
+                            <div
+                              className={`${styles.boundaryLeg} ${splitDir === 'left' ? styles.boundaryLegLeft : ''} ${splitDir === 'right' ? styles.boundaryLegRight : ''}`}
+                              title="Drag left/right to split into separate start/end"
+                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-split', i, i + 1)}
+                            />
+                          </div>
+                        );
+                      } else {
+                        // Two separate handles
+                        const xL = timeToX(aEnd);
+                        const xR = timeToX(bStart);
+                        if (xL >= -20 && xL <= zoomviewWidth + 20) {
+                          handles.push(
+                            <div key={`solo-end-${a.id}`} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: xL }}>
+                              <div
+                                className={styles.boundaryBar}
+                                title={`Drag to move "${a.name}" end`}
+                                onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)}
+                              />
+                              <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)} />
+                            </div>
+                          );
+                        }
+                        if (xR >= -20 && xR <= zoomviewWidth + 20) {
+                          handles.push(
+                            <div key={`solo-start-${b.id}`} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: xR }}>
+                              <div
+                                className={styles.boundaryBar}
+                                title={`Drag to move "${b.name}" start`}
+                                onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
+                              />
+                              <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)} />
+                            </div>
+                          );
+                        }
+                      }
+                    }
+                    return <div className={styles.boundaryOverlay}>{handles}</div>;
+                  })()}
+                </div>
                 <div ref={overviewRef} className={styles.overview} />
               </div>
 
@@ -3503,7 +3830,7 @@ export default function VinylDigitizerPage() {
           {/* ---- STEP 4 ---- */}
           {step === 4 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 4: Audio Export</h2>
+              <h2 className={styles.cardTitle}>Step 4: Audio</h2>
 
               {/* Format */}
               <div className={styles.formatRow}>
@@ -3631,7 +3958,22 @@ export default function VinylDigitizerPage() {
                             </td>
                             <td>{i + 1}</td>
                             <td className={styles.filenameCell}>{getFilename(i)}</td>
-                            <td>{trackNames[i] || track.name}</td>
+                            <td onClick={e => e.stopPropagation()}>
+                              <input
+                                type="text"
+                                className={styles.trackNameInput}
+                                value={trackNames[i] ?? track.name ?? ""}
+                                onChange={e => {
+                                  const v = e.target.value;
+                                  setTrackNames(prev => {
+                                    const n = [...prev];
+                                    while (n.length <= i) n.push("");
+                                    n[i] = v;
+                                    return n;
+                                  });
+                                }}
+                              />
+                            </td>
                             {discogsData && <td>{discogsData.artists?.map(a => a.name).join(", ")}</td>}
                             {discogsData && <td>{discogsData.title}</td>}
                             <td>{formatTime(track.endTime - track.startTime)}</td>
@@ -3704,7 +4046,7 @@ export default function VinylDigitizerPage() {
           {/* ---- STEP 5 ---- */}
           {step === 5 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 5: Video Render</h2>
+              <h2 className={styles.cardTitle}>Step 5: Video</h2>
 
               {/* Direct file drop zone for audio + image files */}
               <div className={styles.videoSection}>
@@ -4300,7 +4642,7 @@ export default function VinylDigitizerPage() {
               </div>
               {isRenderingVideo && (
                 <div className={styles.renderWarning}>
-                  Rendering in browser — you can navigate to YouTube Upload while this continues.
+                  Rendering in browser — you can continue interacting with the page while this completes.
                 </div>
               )}
               {videoRenderProgress !== null && (
@@ -4392,222 +4734,268 @@ export default function VinylDigitizerPage() {
 
               {message && <p className={styles.msg}>{message}</p>}
 
-              <div className={styles.stepNav}>
-                <button className={styles.backBtn} onClick={() => setStep(4)}>← Back to Audio Export</button>
-                <button className={styles.nextBtn} onClick={() => setStep(6)}>Next: YouTube Upload →</button>
-                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
-              </div>
-            </div>
-          )}
-
-          {/* ---- STEP 6 ---- */}
-          {step === 6 && (
-            <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 6: YouTube Upload</h2>
-
-              {/* Render status banner */}
-              {isRenderingVideo && (
-                <div className={styles.renderStatusBanner}>
-                  <div className={styles.renderStatusText}>
-                    <span className={styles.spinnerInline} /> Video rendering… {videoRenderProgress !== null ? `${(videoRenderProgress * 100).toFixed(1)}%` : ""}
-                    {formatEta() && <span className={styles.renderProgressEta}> · {formatEta()}</span>}
-                  </div>
-                  <div className={styles.renderProgressBar} style={{marginTop:8}}>
-                    <div className={styles.renderProgressFill} style={{ width: `${(videoRenderProgress || 0) * 100}%` }} />
-                  </div>
-                  <label className={styles.videoCheckLabel} style={{marginTop:8}}>
-                    <input type="checkbox" checked={autoUploadYt} onChange={e => setAutoUploadYt(e.target.checked)} />
-                    Upload to YouTube automatically when render finishes
-                  </label>
-                </div>
-              )}
-
-              {!isRenderingVideo && !renderedVideoSrc && (
-                <div className={styles.renderStatusBanner} style={{background: darkMode ? "#3a1a1a" : "#fff5f5", borderColor: darkMode ? "#6b2d2d" : "#fed7d7"}}>
-                  <span className={styles.renderStatusText} style={{color: darkMode ? "#fc8181" : "#c53030"}}>No rendered video yet. Go to Step 5 to render first.</span>
-                </div>
-              )}
-
-              {renderedVideoSrc && (
-                <div className={styles.videoPreviewSection} style={{ marginBottom: 20 }}>
-                  <video src={renderedVideoSrc} controls className={styles.videoPreview} />
-                  <button className={styles.dlAllBtn} onClick={() => { const a = document.createElement("a"); a.href = renderedVideoSrc; a.download = `${videoOutputName || projectName || "album"}.mp4`; a.click(); }}>Download Video</button>
-                  {isRenderingVideo && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>A new video is rendering — this is the previous render.</div>}
-                </div>
-              )}
-
-              {/* YouTube upload */}
-              <div className={styles.ytSection}>
-                <h3 className={styles.sectionTitle}><span style={{color:"#ff0000"}}>▶</span> Upload to YouTube</h3>
-                <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
-                {ytAuthState.canAuth && (() => {
-                  const titleLen = ytUploadData.title.length;
-                  const descLen = ytUploadData.description.length;
-                  const tagsLen = ytUploadData.tags.length;
-                  const titleOver = titleLen > YT_LIMITS.title;
-                  const descOver = descLen > YT_LIMITS.description;
-                  const tagsOver = tagsLen > YT_LIMITS.tags;
-                  const anyOver = titleOver || descOver || tagsOver;
-                  return (
-                  <div className={styles.ytForm}>
-                    {/* Format options */}
-                    <div className={styles.ytFormatSection} style={{gridColumn:"1/-1"}}>
-                      <h4 className={styles.ytFormatTitle}>Format Options</h4>
-                      <div className={styles.ytFormatGrid}>
-                        <label className={styles.ytFormatLabel}>
-                          Title style
-                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTitleVariation} onChange={e => { const v = parseInt(e.target.value); setYtTitleVariation(v); regenerateYtTitle(v); }}>
-                            <option value={0}>Genre-focused</option>
-                            <option value={1}>Style-focused</option>
-                            <option value={2}>Label & country</option>
-                            <option value={3}>Alt separators</option>
-                            <option value={4}>Mixed genre/style</option>
-                          </select>
-                        </label>
-                        <label className={styles.ytFormatLabel}>
-                          Timestamp format
-                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampFormat} onChange={e => { setYtTimestampFormat(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
-                            <option value="auto">Auto (M:SS or H:MM:SS)</option>
-                            <option value="M:SS">M:SS</option>
-                            <option value="H:MM:SS">H:MM:SS</option>
-                          </select>
-                        </label>
-                        <label className={styles.ytFormatLabel}>
-                          Separator
-                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampSeparator} onChange={e => { setYtTimestampSeparator(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
-                            <option value=" ">(space)</option>
-                            <option value=" - "> - (dash)</option>
-                            <option value=" | "> | (pipe)</option>
-                            <option value=" · "> · (dot)</option>
-                          </select>
-                        </label>
-                        <label className={styles.ytFormatLabel} style={{flexDirection:"row",alignItems:"center",gap:6}}>
-                          <input type="checkbox" checked={ytIncludeTrackNums} onChange={e => { setYtIncludeTrackNums(e.target.checked); setTimeout(regenerateYtMetadata, 0); }} />
-                          Track numbers
-                        </label>
+              {/* YouTube Upload Details (collapsible) */}
+              <details className={styles.ytDetailsBlock}>
+                <summary className={styles.ytDetailsSummary}>
+                  <span style={{color:"#ff0000",marginRight:6}}>▶</span>
+                  YouTube Upload Details
+                </summary>
+                <div className={styles.ytSection}>
+                  <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
+                  {ytAuthState.canAuth && (() => {
+                    const titleLen = ytUploadData.title.length;
+                    const descLen = ytUploadData.description.length;
+                    const tagsLen = ytUploadData.tags.length;
+                    const titleOver = titleLen > YT_LIMITS.title;
+                    const descOver = descLen > YT_LIMITS.description;
+                    const tagsOver = tagsLen > YT_LIMITS.tags;
+                    const anyOver = titleOver || descOver || tagsOver;
+                    return (
+                    <div className={styles.ytForm}>
+                      {/* Format options */}
+                      <div className={styles.ytFormatSection} style={{gridColumn:"1/-1"}}>
+                        <h4 className={styles.ytFormatTitle}>Format Options</h4>
+                        <div className={styles.ytFormatGrid}>
+                          <label className={styles.ytFormatLabel}>
+                            Title style
+                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTitleVariation} onChange={e => { const v = parseInt(e.target.value); setYtTitleVariation(v); regenerateYtTitle(v); }}>
+                              <option value={0}>Genre-focused</option>
+                              <option value={1}>Style-focused</option>
+                              <option value={2}>Label & country</option>
+                              <option value={3}>Alt separators</option>
+                              <option value={4}>Mixed genre/style</option>
+                            </select>
+                          </label>
+                          <label className={styles.ytFormatLabel}>
+                            Timestamp format
+                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampFormat} onChange={e => { setYtTimestampFormat(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
+                              <option value="auto">Auto (M:SS or H:MM:SS)</option>
+                              <option value="M:SS">M:SS</option>
+                              <option value="H:MM:SS">H:MM:SS</option>
+                            </select>
+                          </label>
+                          <label className={styles.ytFormatLabel}>
+                            Separator
+                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} value={ytTimestampSeparator} onChange={e => { setYtTimestampSeparator(e.target.value); setTimeout(regenerateYtMetadata, 0); }}>
+                              <option value=" ">(space)</option>
+                              <option value=" - "> - (dash)</option>
+                              <option value=" | "> | (pipe)</option>
+                              <option value=" · "> · (dot)</option>
+                            </select>
+                          </label>
+                          <label className={styles.ytFormatLabel} style={{flexDirection:"row",alignItems:"center",gap:6}}>
+                            <input type="checkbox" checked={ytIncludeTrackNums} onChange={e => { setYtIncludeTrackNums(e.target.checked); setTimeout(regenerateYtMetadata, 0); }} />
+                            Track numbers
+                          </label>
+                        </div>
+                        {ytTitleSuggestions.length > 0 && (
+                          <div className={styles.ytTitleSuggestions}>
+                            <span className={styles.ytFormatHint}>Title suggestions:</span>
+                            <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} style={{flex:1,minWidth:200}}
+                              value={ytUploadData.title}
+                              onChange={e => setYtUploadData(p => ({...p, title: e.target.value.slice(0, YT_LIMITS.title)}))}
+                            >
+                              <option value="">— Select a suggestion —</option>
+                              {ytTitleSuggestions.map((s, i) => (
+                                <option key={i} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <div className={styles.ytFormatActions}>
+                          <button className={styles.selectBtn} onClick={() => regenerateYtMetadata()}>Regenerate Description</button>
+                          <button className={styles.selectBtn} onClick={() => regenerateYtTags()}>Regenerate Tags</button>
+                          <button className={styles.selectBtn} style={{background: darkMode ? "#5a2020" : "#fed7d7", color: darkMode ? "#fc8181" : "#c53030", border: "none"}} onClick={() => {
+                            setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" });
+                            setYtTitleSuggestions([]);
+                            lastYtDiscogsUrlRef.current = null;
+                            setThumbnailFile(null);
+                            if (thumbnailPreview) { URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }
+                          }}>Clear All Fields</button>
+                        </div>
                       </div>
-                      {ytTitleSuggestions.length > 0 && (
-                        <div className={styles.ytTitleSuggestions}>
-                          <span className={styles.ytFormatHint}>Title suggestions:</span>
-                          <select className={`${styles.inputSmall} ${styles.ytFormatSelect}`} style={{flex:1,minWidth:200}}
-                            value={ytUploadData.title}
-                            onChange={e => setYtUploadData(p => ({...p, title: e.target.value.slice(0, YT_LIMITS.title)}))}
-                          >
-                            <option value="">— Select a suggestion —</option>
-                            {ytTitleSuggestions.map((s, i) => (
-                              <option key={i} value={s}>{s}</option>
-                            ))}
-                          </select>
+
+                      <label className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
+                        <div className={styles.ytFieldHeader}>
+                          <span>Title</span>
+                          <span className={`${styles.ytCharCount} ${titleOver ? styles.ytCharOver : ""}`}>{titleLen}/{YT_LIMITS.title}</span>
+                        </div>
+                        <input type="text" className={`${styles.input} ${titleOver ? styles.ytInputOver : ""}`} value={ytUploadData.title} onChange={e => setYtUploadData(p => ({...p, title: e.target.value}))} />
+                      </label>
+                      <div className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
+                        <div className={styles.ytFieldHeader}>
+                          <span>Description</span>
+                          <span className={`${styles.ytCharCount} ${descOver ? styles.ytCharOver : ""}`}>{descLen}/{YT_LIMITS.description}</span>
+                        </div>
+                        <textarea className={`${styles.input} ${descOver ? styles.ytInputOver : ""}`} value={ytUploadData.description} onChange={e => setYtUploadData(p => ({...p, description: e.target.value}))} rows={6} style={{resize:"vertical"}} />
+                      </div>
+                      <label className={styles.settingLabel}>
+                        <div className={styles.ytFieldHeader}>
+                          <span>Tags</span>
+                          <span className={`${styles.ytCharCount} ${tagsOver ? styles.ytCharOver : ""}`}>{tagsLen}/{YT_LIMITS.tags}</span>
+                        </div>
+                        <input type="text" className={`${styles.input} ${tagsOver ? styles.ytInputOver : ""}`} value={ytUploadData.tags} onChange={e => setYtUploadData(p => ({...p, tags: e.target.value}))} placeholder="tag1, tag2" />
+                      </label>
+                      <label className={styles.settingLabel}>
+                        Visibility
+                        <select className={styles.input} value={ytUploadData.privacyStatus} onChange={e => setYtUploadData(p => ({...p, privacyStatus: e.target.value}))}>
+                          <option value="private">Private</option>
+                          <option value="unlisted">Unlisted</option>
+                          <option value="public">Public</option>
+                        </select>
+                      </label>
+                      <div style={{gridColumn:"1/-1"}}>
+                        <span className={styles.label}>Thumbnail (optional)</span>
+                        <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6}}>
+                          <div onClick={() => thumbnailInputRef.current?.click()} className={styles.thumbDropzone}>
+                            {thumbnailPreview ? <img src={thumbnailPreview} alt="thumb" style={{width:"100%",height:"100%",objectFit:"cover"}} /> : <span style={{fontSize:11,color:"#a0aec0",textAlign:"center",padding:8}}>Click to upload</span>}
+                          </div>
+                          <input ref={thumbnailInputRef} type="file" accept="image/*" style={{display:"none"}}
+                            onChange={e => {
+                              const f = e.target.files?.[0]; if (!f) return;
+                              if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
+                              setThumbnailFile(f); setThumbnailPreview(URL.createObjectURL(f));
+                            }} />
+                          {thumbnailFile && <button className={styles.selectBtn} onClick={() => { setThumbnailFile(null); if(thumbnailPreview) URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }}>Remove</button>}
+                        </div>
+                      </div>
+                      {anyOver && (
+                        <div className={styles.ytLimitWarning} style={{gridColumn:"1/-1"}}>
+                          {titleOver && <span>Title exceeds 100 characters. </span>}
+                          {descOver && <span>Description exceeds 5,000 characters. </span>}
+                          {tagsOver && <span>Tags exceed 500 characters. </span>}
+                          Shorten the fields highlighted in red before uploading.
                         </div>
                       )}
-                      <div className={styles.ytFormatActions}>
-                        <button className={styles.selectBtn} onClick={() => regenerateYtMetadata()}>Regenerate Description</button>
-                        <button className={styles.selectBtn} onClick={() => regenerateYtTags()}>Regenerate Tags</button>
-                        <button className={styles.selectBtn} style={{background: darkMode ? "#5a2020" : "#fed7d7", color: darkMode ? "#fc8181" : "#c53030", border: "none"}} onClick={() => {
-                          setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" });
-                          setYtTitleSuggestions([]);
-                          lastYtDiscogsUrlRef.current = null;
-                          setThumbnailFile(null);
-                          if (thumbnailPreview) { URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }
-                        }}>Clear All Fields</button>
-                      </div>
-                    </div>
-
-                    <label className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
-                      <div className={styles.ytFieldHeader}>
-                        <span>Title</span>
-                        <span className={`${styles.ytCharCount} ${titleOver ? styles.ytCharOver : ""}`}>{titleLen}/{YT_LIMITS.title}</span>
-                      </div>
-                      <input type="text" className={`${styles.input} ${titleOver ? styles.ytInputOver : ""}`} value={ytUploadData.title} onChange={e => setYtUploadData(p => ({...p, title: e.target.value}))} />
-                    </label>
-                    <div className={styles.settingLabel} style={{gridColumn:"1/-1"}}>
-                      <div className={styles.ytFieldHeader}>
-                        <span>Description</span>
-                        <span className={`${styles.ytCharCount} ${descOver ? styles.ytCharOver : ""}`}>{descLen}/{YT_LIMITS.description}</span>
-                      </div>
-                      <textarea className={`${styles.input} ${descOver ? styles.ytInputOver : ""}`} value={ytUploadData.description} onChange={e => setYtUploadData(p => ({...p, description: e.target.value}))} rows={6} style={{resize:"vertical"}} />
-                    </div>
-                    <label className={styles.settingLabel}>
-                      <div className={styles.ytFieldHeader}>
-                        <span>Tags</span>
-                        <span className={`${styles.ytCharCount} ${tagsOver ? styles.ytCharOver : ""}`}>{tagsLen}/{YT_LIMITS.tags}</span>
-                      </div>
-                      <input type="text" className={`${styles.input} ${tagsOver ? styles.ytInputOver : ""}`} value={ytUploadData.tags} onChange={e => setYtUploadData(p => ({...p, tags: e.target.value}))} placeholder="tag1, tag2" />
-                    </label>
-                    <label className={styles.settingLabel}>
-                      Visibility
-                      <select className={styles.input} value={ytUploadData.privacyStatus} onChange={e => setYtUploadData(p => ({...p, privacyStatus: e.target.value}))}>
-                        <option value="private">Private</option>
-                        <option value="unlisted">Unlisted</option>
-                        <option value="public">Public</option>
-                      </select>
-                    </label>
-                    <div style={{gridColumn:"1/-1"}}>
-                      <span className={styles.label}>Thumbnail (optional)</span>
-                      <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6}}>
-                        <div onClick={() => thumbnailInputRef.current?.click()} className={styles.thumbDropzone}>
-                          {thumbnailPreview ? <img src={thumbnailPreview} alt="thumb" style={{width:"100%",height:"100%",objectFit:"cover"}} /> : <span style={{fontSize:11,color:"#a0aec0",textAlign:"center",padding:8}}>Click to upload</span>}
-                        </div>
-                        <input ref={thumbnailInputRef} type="file" accept="image/*" style={{display:"none"}}
-                          onChange={e => {
-                            const f = e.target.files?.[0]; if (!f) return;
-                            if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
-                            setThumbnailFile(f); setThumbnailPreview(URL.createObjectURL(f));
-                          }} />
-                        {thumbnailFile && <button className={styles.selectBtn} onClick={() => { setThumbnailFile(null); if(thumbnailPreview) URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null); }}>Remove</button>}
-                      </div>
-                    </div>
-                    {anyOver && (
-                      <div className={styles.ytLimitWarning} style={{gridColumn:"1/-1"}}>
-                        {titleOver && <span>Title exceeds 100 characters. </span>}
-                        {descOver && <span>Description exceeds 5,000 characters. </span>}
-                        {tagsOver && <span>Tags exceed 500 characters. </span>}
-                        Shorten the fields highlighted in red before uploading.
-                      </div>
-                    )}
-                    <div style={{gridColumn:"1/-1"}}>
-                      <button onClick={() => uploadToYouTube()} disabled={ytUploading || (!renderedVideoSrc && !isRenderingVideo) || anyOver || isRenderingVideo} className={styles.exportBtn} style={{width:"100%",background: ytUploading ? undefined : (anyOver || isRenderingVideo || !renderedVideoSrc) ? "#cbd5e0" : "#ff0000"}}>
-                        {ytUploading
-                          ? (ytUploadProgress < 100 ? `Uploading… ${ytUploadProgress}%` : <span className={styles.ytProcessing}>Processing</span>)
-                          : isRenderingVideo
-                            ? `Rendering… ${videoRenderProgress !== null ? `${(videoRenderProgress * 100).toFixed(0)}%` : ""}`
-                            : !renderedVideoSrc
-                              ? "No video rendered"
-                              : "Upload to YouTube"}
-                      </button>
-                    </div>
-                    {ytUploading && (
                       <div style={{gridColumn:"1/-1"}}>
-                        <div className={styles.progressBar}><div className={styles.progressFill} style={{width:`${ytUploadProgress ?? 0}%`,background: ytUploadProgress < 100 ? "#ff0000" : "#48bb78"}} /></div>
+                        <button
+                          onClick={() => {
+                            // While rendering, clicking queues the upload to fire as soon as the render completes.
+                            if (isRenderingVideo && !renderedVideoSrc) {
+                              setAutoUploadYt(prev => !prev);
+                              return;
+                            }
+                            uploadToYouTube();
+                          }}
+                          disabled={ytUploading || (!renderedVideoSrc && !isRenderingVideo) || anyOver}
+                          className={styles.exportBtn}
+                          style={{
+                            width: "100%",
+                            background: ytUploading
+                              ? undefined
+                              : anyOver
+                                ? "#cbd5e0"
+                                : autoUploadYt && isRenderingVideo
+                                  ? "#3182ce"
+                                  : (!renderedVideoSrc && !isRenderingVideo)
+                                    ? "#cbd5e0"
+                                    : "#ff0000",
+                          }}
+                        >
+                          {ytUploading
+                            ? (ytUploadProgress < 100 ? `Uploading… ${ytUploadProgress}%` : <span className={styles.ytProcessing}>Processing</span>)
+                            : isRenderingVideo && !renderedVideoSrc
+                              ? (autoUploadYt
+                                  ? `✓ Queued — will upload when render finishes${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}`
+                                  : `Queue upload (rendering ${videoRenderProgress !== null ? `${(videoRenderProgress * 100).toFixed(0)}%` : "…"})`)
+                              : !renderedVideoSrc
+                                ? "No video rendered"
+                                : "Upload to YouTube"}
+                        </button>
+                        {isRenderingVideo && !renderedVideoSrc && autoUploadYt && (
+                          <div style={{ fontSize: 12, color: "#3182ce", marginTop: 6, textAlign: "center" }}>
+                            Upload will start automatically once the video finishes rendering. Click the button again to cancel.
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {ytUploadError && <p className={styles.errorMsg} style={{gridColumn:"1/-1"}}>{ytUploadError}</p>}
-                    {ytUploadResult && (() => {
-                      const vid = ytUploadResult.videoId || ytUploadResult.id || ytUploadResult.snippet?.resourceId?.videoId;
-                      return (
-                        <div className={styles.ytResult} style={{gridColumn:"1/-1"}}>
-                          ✅ Uploaded successfully!
-                          {vid && (
-                            <div style={{marginTop: 8}}>
-                              <a href={`https://youtube.com/watch?v=${vid}`} target="_blank" rel="noreferrer" className={styles.ytVideoLink}>
-                                https://youtube.com/watch?v={vid}
-                              </a>
-                            </div>
-                          )}
+                      {ytUploading && (
+                        <div style={{gridColumn:"1/-1"}}>
+                          <div className={styles.progressBar}><div className={styles.progressFill} style={{width:`${ytUploadProgress ?? 0}%`,background: ytUploadProgress < 100 ? "#ff0000" : "#48bb78"}} /></div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                  );
-                })()}
-              </div>
+                      )}
+                      {ytUploadAuthError && (
+                        <div className={styles.ytAuthErrorCard} style={{gridColumn:"1/-1"}}>
+                          <div className={styles.ytAuthErrorTitle}>
+                            ⚠️ YouTube sign-in expired — upload was rejected
+                          </div>
+                          <div className={styles.ytAuthErrorBody}>
+                            Google rejected the upload because your stored YouTube credentials are no longer valid
+                            <span className={styles.ytAuthErrorReason}> ({ytUploadAuthError.reason})</span>.
+                            This usually happens after a long break, a password change, or if you revoked access from your
+                            Google account. <strong>Your video was not uploaded.</strong>
+                          </div>
+                          <ul className={styles.ytAuthErrorList}>
+                            <li>Click <em>Sign in to YouTube again</em> below to refresh your credentials.</li>
+                            <li>Make sure to grant the same YouTube upload permission when prompted.</li>
+                            <li>Once you're signed in again, return here and click <em>Upload to YouTube</em>.</li>
+                          </ul>
+                          <div className={styles.ytAuthErrorActions}>
+                            <button
+                              className={styles.ytAuthErrorPrimaryBtn}
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`${apiBaseURL()}/youtube/getAuthUrl`, { credentials: 'include' });
+                                  if (res.ok) {
+                                    const data = await res.json();
+                                    if (data?.url) {
+                                      try { localStorage.setItem('youtube_auth_return_url', '/vinyl-digitizer'); } catch {}
+                                      window.location.href = data.url;
+                                      return;
+                                    }
+                                  }
+                                  setYtUploadError('Could not fetch the YouTube sign-in URL. Try the Sign in button above.');
+                                } catch (e) {
+                                  setYtUploadError(`Could not start YouTube sign-in: ${e.message}`);
+                                }
+                              }}
+                            >
+                              Sign in to YouTube again
+                            </button>
+                            <button
+                              className={styles.ytAuthErrorSecondaryBtn}
+                              onClick={() => setYtUploadAuthError(null)}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {ytUploadError && !ytUploadAuthError && (
+                        <div className={styles.ytErrorCard} style={{gridColumn:"1/-1"}}>
+                          <div className={styles.ytErrorTitle}>Upload failed</div>
+                          <div className={styles.ytErrorBody}>{ytUploadError}</div>
+                          <div className={styles.ytErrorHint}>
+                            If you keep seeing this, try clearing your YouTube auth and signing in again.
+                          </div>
+                        </div>
+                      )}
+                      {ytUploadResult && (() => {
+                        const vid = ytUploadResult.videoId || ytUploadResult.id || ytUploadResult.snippet?.resourceId?.videoId;
+                        return (
+                          <div className={styles.ytResult} style={{gridColumn:"1/-1"}}>
+                            ✅ Uploaded successfully!
+                            {vid && (
+                              <div style={{marginTop: 8}}>
+                                <a href={`https://youtube.com/watch?v=${vid}`} target="_blank" rel="noreferrer" className={styles.ytVideoLink}>
+                                  https://youtube.com/watch?v={vid}
+                                </a>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    );
+                  })()}
+                </div>
+              </details>
 
               <div className={styles.stepNav}>
-                <button className={styles.backBtn} onClick={() => setStep(5)}>← Back to Video Render</button>
-                <button className={styles.skipBtn} onClick={resetAll}>Start Over</button>
+                <button className={styles.backBtn} onClick={() => setStep(4)}>← Back to Audio</button>
               </div>
             </div>
           )}
+
         </div>
 
           {/* Image Add Modal */}
