@@ -31,6 +31,7 @@ function YouTubeAuthPageInner() {
   const [debugLog, setDebugLog] = useState([]);
   const [canAuth, setCanAuth] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [popupComplete, setPopupComplete] = useState(false);
 
   const getTokensRef = useRef(null);
   const params = useSearchParams();
@@ -44,7 +45,9 @@ function YouTubeAuthPageInner() {
     console.log(`[YT Debug][${type.toUpperCase()}] ${msg}`);
   };
 
-  // On OAuth redirect: store code, check for returnUrl, redirect
+  // On OAuth redirect: store code. If this tab was opened as a popup from another
+  // page (popup flow), show a "you can close this tab" message instead of
+  // navigating — the original tab will pick up the new auth via the storage event.
   useEffect(() => {
     if (authCode && scope) {
       try {
@@ -53,6 +56,13 @@ function YouTubeAuthPageInner() {
         localStorage.setItem('youtube_auth_set_time', Date.now().toString());
       } catch (err) {
         console.error('Failed to save YouTube auth code:', err);
+      }
+      let popupFlow = false;
+      try { popupFlow = localStorage.getItem('youtube_auth_popup_flow') === '1'; } catch {}
+      if (popupFlow) {
+        try { localStorage.removeItem('youtube_auth_popup_flow'); } catch {}
+        setPopupComplete(true);
+        return;
       }
       const returnUrl = localStorage.getItem('youtube_auth_return_url');
       if (returnUrl && returnUrl !== '/youtube') {
@@ -64,6 +74,27 @@ function YouTubeAuthPageInner() {
       }
     }
   }, [authCode, scope, router]);
+
+  if (popupComplete) {
+    return (
+      <div style={{ padding: '60px 24px', textAlign: 'center', maxWidth: 480, margin: '0 auto', color: t.text, background: t.bg, minHeight: '60vh' }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
+        <h2 style={{ margin: '0 0 12px', fontSize: 22, color: t.text }}>YouTube sign-in complete</h2>
+        <p style={{ fontSize: 15, color: t.text, marginBottom: 8 }}>
+          You can safely close this tab. Your original page should already show that you are signed in.
+        </p>
+        <p style={{ fontSize: 13, color: darkMode ? '#a0aec0' : '#666', marginTop: 24 }}>
+          If the original page doesn&apos;t update automatically, refresh it.
+        </p>
+        <button
+          onClick={() => { try { window.close(); } catch {} }}
+          style={{ marginTop: 24, padding: '10px 22px', fontSize: 14, fontWeight: 600, background: '#48bb78', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+        >
+          Close this tab
+        </button>
+      </div>
+    );
+  }
 
   // Show a redirecting message instead of the full page
   if (isRedirecting) {

@@ -2409,6 +2409,55 @@ app.get('/internal-api/youtube/authStatus', (req, res) => {
   });
 });
 
+// Validate YouTube tokens by attempting a real refresh against Google.
+// Used by the client to detect invalid_grant before the user attempts an upload.
+async function _validateYouTubeTokensHandler(req, res) {
+  try {
+    logger?.info?.("🔐 [POST /youtube/validateTokens] Hit");
+    const bodyTokens = req.body?.tokens;
+    const sessionTokens = req.session?.youtubeAuth?.tokens;
+    const tokens = bodyTokens || sessionTokens;
+    if (!tokens || (!tokens.refresh_token && !tokens.access_token)) {
+      logger?.info?.(`🔐 validateTokens: no tokens (bodyTokens=${!!bodyTokens}, sessionTokens=${!!sessionTokens})`);
+      return res.status(200).json({ valid: false, reason: 'no_tokens' });
+    }
+    logger?.info?.(`🔐 validateTokens: attempting refresh (has_refresh=${!!tokens.refresh_token}, has_access=${!!tokens.access_token})`);
+    if (!oauth2Client) {
+      return res.status(200).json({ valid: false, reason: 'oauth_client_unavailable' });
+    }
+    // In prod, GCP credentials are loaded from AWS Secrets Manager into the
+    // module-level gcpClientId/gcpClientSecret — process.env.* is empty there.
+    // Using process.env directly produced an OAuth client with no credentials,
+    // which made Google's token endpoint return `invalid_request`.
+    if (!gcpClientId || !gcpClientSecret) {
+      return res.status(200).json({ valid: false, reason: 'oauth_client_unavailable' });
+    }
+    const tempClient = new google.auth.OAuth2(
+      gcpClientId,
+      gcpClientSecret,
+      oauth2Client.redirectUri || getYouTubeRedirectUrl?.()
+    );
+    tempClient.setCredentials(tokens);
+    try {
+      if (tokens.refresh_token) {
+        await tempClient.refreshAccessToken();
+      } else {
+        await tempClient.getAccessToken();
+      }
+      return res.status(200).json({ valid: true });
+    } catch (err) {
+      const msg = (err?.response?.data?.error) || err?.message || 'unknown';
+      const desc = err?.response?.data?.error_description || '';
+      return res.status(200).json({ valid: false, reason: String(msg), description: String(desc) });
+    }
+  } catch (err) {
+    console.error('validateTokens error:', err?.message || err);
+    return res.status(500).json({ valid: false, reason: 'server_error' });
+  }
+}
+app.post('/youtube/validateTokens', ensureSecretsInitialized, _validateYouTubeTokensHandler);
+app.post('/internal-api/youtube/validateTokens', ensureSecretsInitialized, _validateYouTubeTokensHandler);
+
 // Clear YouTube authentication
 app.post('/youtube/clearAuth', (req, res) => {
   logger.info("🧹 [POST /youtube/clearAuth] Hit");
