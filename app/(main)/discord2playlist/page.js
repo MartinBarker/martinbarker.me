@@ -1,152 +1,262 @@
+/* eslint-disable @next/next/no-img-element */
 'use client'
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import styles from './discord2playlist.module.css';
-import { ColorContext } from '../ColorContext';
+
+const INVITE_URL = 'https://discord.com/oauth2/authorize?client_id=1444823985215901865&permissions=67584&integration_type=0&scope=bot+applications.commands';
+const APP_ICON = '/images/discord2playlist-icons/groove-app-icon-512.png';
+const CIRCLE_ICON = '/images/discord2playlist-icons/groove-circle-512.png';
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  const handle = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      className={`${styles.copyBtn} ${copied ? styles.copyBtnDone : ''}`}
+    >
+      {copied ? (
+        <>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+            <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Copied
+        </>
+      ) : 'Copy'}
+    </button>
+  );
+}
 
 export default function Discord2Playlist() {
-  const [readmeContent, setReadmeContent] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const { colors } = React.useContext(ColorContext);
-
-  useEffect(() => {
-    const fetchReadme = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        // Fetch the README.md content from GitHub API
-        const response = await fetch('https://api.github.com/repos/MartinBarker/Discord2Playlist/contents/README.md');
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch README: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        // Decode the base64 content
-        const content = atob(data.content);
-        setReadmeContent(content);
-      } catch (err) {
-        console.error('Error fetching README:', err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchReadme();
-  }, []);
-
-  // Simple markdown to HTML converter
-  const convertMarkdownToHTML = (markdown) => {
-    return markdown
-      // Headers
-      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-      // Bold
-      .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-      // Italic
-      .replace(/\*(.*)\*/gim, '<em>$1</em>')
-      // Code blocks
-      .replace(/```([\s\S]*?)```/gim, '<pre><code>$1</code></pre>')
-      // Inline code
-      .replace(/`([^`]*)`/gim, '<code>$1</code>')
-      // Links
-      .replace(/\[([^\]]*)\]\(([^)]*)\)/gim, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-      // Line breaks
-      .replace(/\n/gim, '<br>')
-      // Lists
-      .replace(/^\* (.*$)/gim, '<li>$1</li>')
-      .replace(/^- (.*$)/gim, '<li>$1</li>')
-      .replace(/^\d+\. (.*$)/gim, '<li>$1</li>');
-  };
-
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.loading}>
-          <div className={styles.spinner}></div>
-          <p>Loading Discord2Playlist README...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.error}>
-          <h2>Error Loading README</h2>
-          <p>{error}</p>
-          <p>Please try refreshing the page or check the repository at <a href="https://github.com/MartinBarker/Discord2Playlist" target="_blank" rel="noopener noreferrer">https://github.com/MartinBarker/Discord2Playlist</a></p>
-        </div>
-      </div>
-    );
-  }
-
-  // Function to darken a color
-  const darkenColor = (color, amount = 0.3) => {
-    const hex = color.replace('#', '');
-    const r = Math.max(0, parseInt(hex.substr(0, 2), 16) - Math.floor(255 * amount));
-    const g = Math.max(0, parseInt(hex.substr(2, 2), 16) - Math.floor(255 * amount));
-    const b = Math.max(0, parseInt(hex.substr(4, 2), 16) - Math.floor(255 * amount));
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-  };
-
-  // Function to calculate readable text color based on background color
-  const getReadableTextColor = (backgroundColor) => {
-    const color = backgroundColor.replace('#', '');
-    const r = parseInt(color.substr(0, 2), 16);
-    const g = parseInt(color.substr(2, 2), 16);
-    const b = parseInt(color.substr(4, 2), 16);
-    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-    return brightness > 125 ? '#000' : '#fff';
-  };
-
-  const headerBg = darkenColor(colors.Vibrant || '#667eea', 0.2);
-  const contentBg = darkenColor(colors.LightMuted || '#f8f9fa', 0.1);
-  const textColor = getReadableTextColor(headerBg);
-  const contentTextColor = getReadableTextColor(contentBg);
+  const makeplaylistsCmd = '/makeplaylists input_channel:#music-share output_channel:#debug_out save_json:True';
+  const installCmd = `npm i
+node deploy_discord_commands.js
+node start_discord_bot.js`;
+  const youtubeCmd = 'node add_to_youtube_playlist.js';
 
   return (
-    <div className={styles.container}>
-      <div 
-        className={styles.header}
-        style={{ 
-          background: headerBg,
-          color: textColor
-        }}
-      >
-        <h1>Discord2Playlist</h1>
-        <p className={styles.subtitle}>Discord bot to fetch all music links from a Discord channel and convert them to a playlist</p>
-        <div className={styles.links}>
-          <a 
-            href="https://github.com/MartinBarker/Discord2Playlist" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className={styles.githubLink}
-          >
-            View on GitHub
+    <div className={styles.page} id="top">
+      <nav className={styles.nav}>
+        <div className={`${styles.wrap} ${styles.navInner}`}>
+          <a className={styles.brand} href="#top">
+            <img src={APP_ICON} alt="discord2playlist icon" />
+            <span className={styles.bname}>discord2playlist</span>
           </a>
+          <div className={styles.navLinks}>
+            <a className={styles.lnk} href="#how">How it works</a>
+            <a className={styles.lnk} href="#commands">Commands</a>
+            <a className={styles.lnk} href="#setup">Setup</a>
+            <a className={`${styles.btn} ${styles.btnPrimary}`} href={INVITE_URL} target="_blank" rel="noopener noreferrer">Invite the bot</a>
+          </div>
         </div>
-      </div>
-      
-      <div 
-        className={styles.content}
-        style={{ 
-          background: contentBg,
-          color: contentTextColor
-        }}
-      >
-        <div 
-          className={styles.markdownContent}
-          dangerouslySetInnerHTML={{ 
-            __html: convertMarkdownToHTML(readmeContent) 
-          }}
-        />
-      </div>
+      </nav>
+
+      {/* HERO */}
+      <header className={styles.hero}>
+        <div className={`${styles.wrap} ${styles.heroGrid}`}>
+          <div>
+            <span className={styles.eyebrow}>
+              <span className={styles.live}></span>Discord → YouTube playlists
+            </span>
+            <h1 className={styles.heroTitle}>
+              Every link your server shares, <span className={styles.em}>spun into one playlist.</span>
+            </h1>
+            <p className={styles.heroSub}>
+              discord2playlist reads the music posted in a Discord channel and turns it into a single YouTube playlist — with one slash command.
+            </p>
+            <div className={styles.heroCta}>
+              <a className={`${styles.btn} ${styles.btnPrimary}`} href={INVITE_URL} target="_blank" rel="noopener noreferrer">
+                <img className={styles.mk} src={CIRCLE_ICON} alt="" />Invite the bot
+              </a>
+              <a className={`${styles.btn} ${styles.btnGhost}`} href="#commands">See the commands</a>
+            </div>
+            <div className={styles.heroNote}>
+              <span><span className={styles.tick}>✓</span> Free &amp; open source</span>
+              <span><span className={styles.tick}>✓</span> One slash command</span>
+              <span><span className={styles.tick}>✓</span> JSON export</span>
+            </div>
+          </div>
+          <div className={styles.iconStage}>
+            <img className={styles.iconHero} src={APP_ICON} alt="discord2playlist app icon" />
+            <div className={`${styles.chipFloat} ${styles.cf1}`}><span className={styles.yt}></span>youtu.be/dQw4…</div>
+            <div className={`${styles.chipFloat} ${styles.cf2}`}><span className={styles.yt}></span>added to playlist</div>
+          </div>
+        </div>
+      </header>
+
+      {/* HOW */}
+      <section className={styles.section} id="how">
+        <div className={styles.wrap}>
+          <div className={styles.secHead}>
+            <p className={styles.secKicker}>How it works</p>
+            <h2 className={styles.secTitle}>From a channel full of links to a finished playlist in three steps.</h2>
+          </div>
+          <div className={styles.steps}>
+            <div className={styles.step}>
+              <div className={styles.stepNum}><span className={styles.ring}>1</span>Invite</div>
+              <h3>Add the bot</h3>
+              <p>Invite discord2playlist to your server. It only needs <em>Send Messages</em> and <em>Read Message History</em>.</p>
+            </div>
+            <div className={styles.step}>
+              <div className={styles.stepNum}><span className={styles.ring}>2</span>Run</div>
+              <h3>Point it at a channel</h3>
+              <p>Run <code>/makeplaylists</code> with your music channel. It scans every media message and collects the links.</p>
+            </div>
+            <div className={styles.step}>
+              <div className={styles.stepNum}><span className={styles.ring}>3</span>Done</div>
+              <h3>Get your playlist</h3>
+              <p>Links are pushed straight into your YouTube playlist — or saved as a clean JSON file you can keep.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* COMMANDS */}
+      <section className={`${styles.section} ${styles.alt}`} id="commands">
+        <div className={styles.wrap}>
+          <div className={styles.secHead}>
+            <p className={styles.secKicker}>Commands</p>
+            <h2 className={styles.secTitle}>Copy, paste, run.</h2>
+          </div>
+
+          <div className={styles.cmdStack}>
+            <p className={styles.cmdLabel}>
+              <span className={`${styles.badge} ${styles.badgeDiscord}`}>In Discord</span>
+              Build a playlist from a channel
+            </p>
+            <div className={styles.cmd}>
+              <div className={styles.cmdTop}>
+                <span className={`${styles.dot} ${styles.d1}`}></span>
+                <span className={`${styles.dot} ${styles.d2}`}></span>
+                <span className={`${styles.dot} ${styles.d3}`}></span>
+                <span className={styles.ttl}>slash command · #music-share</span>
+              </div>
+              <div className={styles.cmdBody}>
+                <pre>
+                  <span className={styles.slash}>/makeplaylists</span>{' '}
+                  <span className={styles.arg}>input_channel:</span><span className={styles.val}>#music-share</span>{' '}
+                  <span className={styles.arg}>output_channel:</span><span className={styles.val}>#debug_out</span>{' '}
+                  <span className={styles.arg}>save_json:</span><span className={styles.val}>True</span>
+                </pre>
+                <CopyButton text={makeplaylistsCmd} />
+              </div>
+            </div>
+
+            <div className={styles.argsNote}>
+              <div className={styles.argCard}>
+                <div className={styles.argKey}>input_channel</div>
+                <div className={styles.argVal}>The channel to read media links from.</div>
+              </div>
+              <div className={styles.argCard}>
+                <div className={styles.argKey}>output_channel</div>
+                <div className={styles.argVal}>Where the bot posts its progress &amp; results.</div>
+              </div>
+              <div className={styles.argCard}>
+                <div className={styles.argKey}>save_json</div>
+                <div className={styles.argVal}>Set <b>True</b> to also export a JSON file of every media message.</div>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.cmdStack} style={{ marginTop: 48 }}>
+            <p className={styles.cmdLabel}>
+              <span className={`${styles.badge} ${styles.badgeShell}`}>Self-host</span>
+              Run your own instance
+            </p>
+
+            <div className={styles.cmd}>
+              <div className={styles.cmdTop}>
+                <span className={`${styles.dot} ${styles.d1}`}></span>
+                <span className={`${styles.dot} ${styles.d2}`}></span>
+                <span className={`${styles.dot} ${styles.d3}`}></span>
+                <span className={styles.ttl}>bash · install &amp; deploy</span>
+              </div>
+              <div className={styles.cmdBody}>
+                <pre>
+                  <span className={styles.pr}>$ </span>npm i{'\n'}
+                  <span className={styles.pr}>$ </span>node deploy_discord_commands.js  <span className={styles.cmt}># register slash commands</span>{'\n'}
+                  <span className={styles.pr}>$ </span>node start_discord_bot.js        <span className={styles.cmt}># keep running for commands to work</span>
+                </pre>
+                <CopyButton text={installCmd} />
+              </div>
+            </div>
+
+            <div className={styles.cmd}>
+              <div className={styles.cmdTop}>
+                <span className={`${styles.dot} ${styles.d1}`}></span>
+                <span className={`${styles.dot} ${styles.d2}`}></span>
+                <span className={`${styles.dot} ${styles.d3}`}></span>
+                <span className={styles.ttl}>bash · push to YouTube</span>
+              </div>
+              <div className={styles.cmdBody}>
+                <pre>
+                  <span className={styles.pr}>$ </span>node add_to_youtube_playlist.js  <span className={styles.cmt}># adds the saved links to your playlist</span>
+                </pre>
+                <CopyButton text={youtubeCmd} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SETUP */}
+      <section className={styles.section} id="setup">
+        <div className={styles.wrap}>
+          <div className={styles.secHead}>
+            <p className={styles.secKicker}>One-time setup</p>
+            <h2 className={styles.secTitle}>What you&apos;ll need before the first run.</h2>
+          </div>
+          <div className={styles.steps}>
+            <div className={styles.step}>
+              <div className={styles.stepNum}><span className={styles.ring}>1</span>Discord</div>
+              <h3>Invite the bot</h3>
+              <p>Use the invite button — it requests <em>Send Messages</em> and <em>Read Message History</em>, and enables the slash command.</p>
+            </div>
+            <div className={styles.step}>
+              <div className={styles.stepNum}><span className={styles.ring}>2</span>YouTube</div>
+              <h3>Connect the API</h3>
+              <p>Authorize the YouTube Data API v3 once and set your <code>YOUTUBE_PLAYLIST_ID</code> so the bot knows where to add tracks.</p>
+            </div>
+            <div className={styles.step}>
+              <div className={styles.stepNum}><span className={styles.ring}>3</span>Go</div>
+              <h3>Run /makeplaylists</h3>
+              <p>Re-run any time to catch new links — your playlist stays current with whatever the server shares.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className={styles.section} style={{ paddingTop: 24 }}>
+        <div className={styles.wrap}>
+          <div className={styles.ctaBand}>
+            <div className={styles.ghost}></div>
+            <div className={`${styles.ghost} ${styles.ghostTwo}`}></div>
+            <img src={APP_ICON} alt="discord2playlist icon" />
+            <h2>Give your server a playlist that builds itself.</h2>
+            <p>Add discord2playlist in under a minute and turn months of shared links into one playlist everyone can hit play on.</p>
+            <a className={`${styles.btn} ${styles.btnPrimary}`} href={INVITE_URL} target="_blank" rel="noopener noreferrer">
+              <img className={styles.mk} src={CIRCLE_ICON} alt="" style={{ width: 20, height: 20 }} />Invite the bot
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <footer className={styles.footer}>
+        <div className={`${styles.wrap} ${styles.footInner}`}>
+          <div className={styles.footBrand}>
+            <img src={APP_ICON} alt="" />
+            <span className={styles.bname}>discord2playlist</span>
+          </div>
+          <div className={styles.footMeta}>Discord → YouTube playlist bot · open source</div>
+        </div>
+      </footer>
     </div>
   );
 }

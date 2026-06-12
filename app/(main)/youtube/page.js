@@ -54,6 +54,13 @@ function YouTubeAuthPageInner() {
         localStorage.setItem('youtube_auth_code', authCode);
         localStorage.setItem('youtube_auth_scope', scope);
         localStorage.setItem('youtube_auth_set_time', Date.now().toString());
+        // A fresh auth code means the user just re-authenticated. Any previously
+        // cached tokens are now obsolete (and were likely revoked/expired — the
+        // usual reason for signing in again). If we leave them in place,
+        // verifyTokens()/getTokens() short-circuit on the stale tokens and never
+        // exchange this fresh code, so Google rejects the old refresh_token with
+        // invalid_grant. Drop them so the new code is exchanged for new tokens.
+        localStorage.removeItem('youtube_tokens');
       } catch (err) {
         console.error('Failed to save YouTube auth code:', err);
       }

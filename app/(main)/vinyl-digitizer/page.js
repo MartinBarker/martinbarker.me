@@ -185,6 +185,49 @@ export default function VinylDigitizerPage() {
   const [volume, setVolume] = useState(1);
   const [tracks, setTracks] = useState([]); // [{id, startTime, endTime, name}]
 
+  // Undo/redo history for waveform marker edits. Snapshots are pushed at the
+  // start of drag/split/delete operations; clearing future on each new snapshot
+  // matches the "linear history" UX users expect from Ctrl+Z / Ctrl+Y.
+  const tracksHistoryRef = useRef([]);
+  const tracksFutureRef = useRef([]);
+  const HISTORY_LIMIT = 100;
+  const snapshotTracks = useCallback(() => {
+    tracksHistoryRef.current.push(tracks);
+    if (tracksHistoryRef.current.length > HISTORY_LIMIT) tracksHistoryRef.current.shift();
+    tracksFutureRef.current = [];
+  }, [tracks]);
+  const syncPeaksToTracks = useCallback((nextTracks) => {
+    const p = peaksRef.current;
+    if (!p) return;
+    try {
+      p.segments.removeAll();
+      nextTracks.forEach((track, i) => {
+        p.segments.add({
+          id: track.id,
+          startTime: track.startTime,
+          endTime: track.endTime,
+          labelText: `${i + 1}. ${track.name}`,
+          editable: true,
+          color: AUDIO_COLORS[i % AUDIO_COLORS.length],
+        });
+      });
+    } catch {}
+  }, []);
+  const undoTracks = useCallback(() => {
+    if (tracksHistoryRef.current.length === 0) return;
+    const prev = tracksHistoryRef.current.pop();
+    tracksFutureRef.current.push(tracks);
+    setTracks(prev);
+    syncPeaksToTracks(prev);
+  }, [tracks, syncPeaksToTracks]);
+  const redoTracks = useCallback(() => {
+    if (tracksFutureRef.current.length === 0) return;
+    const next = tracksFutureRef.current.pop();
+    tracksHistoryRef.current.push(tracks);
+    setTracks(next);
+    syncPeaksToTracks(next);
+  }, [tracks, syncPeaksToTracks]);
+
   // Visible time range of the zoomview (for positioning boundary handles)
   const [viewRange, setViewRange] = useState({ start: 0, end: 0 });
   const [zoomviewWidth, setZoomviewWidth] = useState(0);
@@ -308,6 +351,9 @@ export default function VinylDigitizerPage() {
   const [manualImageTimings, setManualImageTimings] = useState({}); // {imgId: {startTime, endTime}}
   const [expandedImgPreviews, setExpandedImgPreviews] = useState(new Set());
   const [videoAudioOrder, setVideoAudioOrder] = useState([]); // ordered indices into exportedTracks
+  // Per-track clip ranges keyed by exportedTracks index: { [idx]: { start, end } } in seconds, relative to the track
+  const [trackClips, setTrackClips] = useState({});
+  const [expandedAudioRows, setExpandedAudioRows] = useState(new Set());
   const [imageLoadingStatus, setImageLoadingStatus] = useState(null); // {loaded, total, current}
   const [discogsArtStatus, setDiscogsArtStatus] = useState(null); // {loaded, total, current, images}
 
@@ -830,6 +876,28 @@ export default function VinylDigitizerPage() {
   // When the user returns to Step 1, force the audio picker to re-prompt
   // the next time they enter Step 2.
   useEffect(() => { if (step === 1) setAudioPickConfirmed(false); }, [step]);
+
+  // Ctrl/Cmd+Z = undo marker edit, Ctrl/Cmd+Y or Ctrl+Shift+Z = redo. Step 3 only.
+  useEffect(() => {
+    if (step !== 3) return;
+    const onKey = (e) => {
+      const isMod = e.ctrlKey || e.metaKey;
+      if (!isMod) return;
+      const tag = (e.target?.tagName || "").toUpperCase();
+      // Don't hijack typing in track-name inputs or other text fields
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoTracks();
+      } else if (k === "y" || (k === "z" && e.shiftKey)) {
+        e.preventDefault();
+        redoTracks();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [step, undoTracks, redoTracks]);
   useEffect(() => {
     if (step === 3 && channelData && duration > 0 && !autoSplitDoneRef.current && !isLoadingWaveform) {
       autoSplitDoneRef.current = true;
@@ -1234,6 +1302,7 @@ export default function VinylDigitizerPage() {
     const view = peaksRef.current.views.getView('zoomview');
     const containerEl = zoomviewRef.current;
     if (!view || !containerEl) return;
+    snapshotTracks();
     const startMouseX = e.clientX;
     const containerRect = containerEl.getBoundingClientRect();
     const widthPx = containerRect.width || 1;
@@ -1312,7 +1381,7 @@ export default function VinylDigitizerPage() {
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, [tracks, duration]);
+  }, [tracks, duration, snapshotTracks]);
 
   // ---- Track manipulation ----
   const generateTrackId = () => `track-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -1320,6 +1389,7 @@ export default function VinylDigitizerPage() {
   const splitTrackAtTime = (time) => {
     const trackIdx = tracks.findIndex(t => time > t.startTime + 0.05 && time < t.endTime - 0.05);
     if (trackIdx === -1) return false;
+    snapshotTracks();
     const track = tracks[trackIdx];
     const id2 = generateTrackId();
     const track1 = { ...track, endTime: time };
@@ -2059,9 +2129,28 @@ export default function VinylDigitizerPage() {
     });
   };
 
+  // Effective clip range for a track. Falls back to the full track when no clip is set.
+  // Returned start/end are file-relative seconds (each exported track file starts at 0).
+  const getTrackClipRange = (trackIdx) => {
+    const t = exportedTracks[trackIdx];
+    if (!t) return null;
+    const fullDur = t.end - t.start;
+    const c = trackClips[trackIdx];
+    const cs = c?.start != null ? Math.max(0, Math.min(fullDur, c.start)) : 0;
+    const ce = c?.end != null ? Math.max(cs, Math.min(fullDur, c.end)) : fullDur;
+    return { fullDur, clipStart: cs, clipEnd: ce, clipDur: ce - cs, isClipped: cs > 0 || ce < fullDur };
+  };
+
   const getOrderedAudios = () => {
     const order = videoAudioOrder.length === exportedTracks.length ? videoAudioOrder : exportedTracks.map((_, i) => i);
-    return order.filter(i => selectedVideoAudios.has(i)).map(i => exportedTracks[i]).filter(Boolean);
+    return order.filter(i => selectedVideoAudios.has(i)).map(i => {
+      const t = exportedTracks[i];
+      if (!t) return null;
+      const range = getTrackClipRange(i);
+      // Override start/end so `end - start` yields the *clipped* duration — keeps every
+      // downstream duration calc (image timing, totals, ffmpeg -t, YouTube timestamps) consistent.
+      return { ...t, _trackIdx: i, clipStart: range.clipStart, clipEnd: range.clipEnd, clipDur: range.clipDur, isClipped: range.isClipped, start: 0, end: range.clipDur };
+    }).filter(Boolean);
   };
 
   const getEffectiveImageTimings = () => {
@@ -2399,12 +2488,30 @@ export default function VinylDigitizerPage() {
         args.push("-r", "2", "-i", imgVfsNames[i]);
       }
 
-      // Filter complex
+      // Filter complex — apply per-input atrim when a clip range is set, then concat.
+      const anyClipped = selectedAudioList.some(t => t.isClipped);
       let fc = "";
       if (n > 1) {
-        fc += selectedAudioList.map((_, i) => `[${i}:a]`).join("") + `concat=n=${n}:v=0:a=1[a];`;
+        if (anyClipped) {
+          for (let i = 0; i < selectedAudioList.length; i++) {
+            const t = selectedAudioList[i];
+            if (t.isClipped) {
+              fc += `[${i}:a]atrim=start=${t.clipStart.toFixed(3)}:end=${t.clipEnd.toFixed(3)},asetpts=PTS-STARTPTS[a${i}];`;
+            } else {
+              fc += `[${i}:a]anull[a${i}];`;
+            }
+          }
+          fc += selectedAudioList.map((_, i) => `[a${i}]`).join("") + `concat=n=${n}:v=0:a=1[a];`;
+        } else {
+          fc += selectedAudioList.map((_, i) => `[${i}:a]`).join("") + `concat=n=${n}:v=0:a=1[a];`;
+        }
       } else {
-        fc += `[0:a]acopy[a];`;
+        const t = selectedAudioList[0];
+        if (t.isClipped) {
+          fc += `[0:a]atrim=start=${t.clipStart.toFixed(3)}:end=${t.clipEnd.toFixed(3)},asetpts=PTS-STARTPTS[a];`;
+        } else {
+          fc += `[0:a]acopy[a];`;
+        }
       }
 
       for (let i = 0; i < selectedImageList.length; i++) {
@@ -3103,7 +3210,7 @@ export default function VinylDigitizerPage() {
               onClick={() => setStep(i + 1)}
               style={{ cursor: "pointer" }}
             >
-              <div className={styles.stepCircle}>{step > i + 1 ? "✓" : i + 1}</div>
+              <div className={styles.stepCircle}>{i + 1}</div>
               <span className={styles.stepLabel}>{label}</span>
               {i === 4 && isRenderingVideo && (
                 <span className={styles.stepProgress}>{videoRenderProgress !== null ? ` ${(videoRenderProgress * 100).toFixed(0)}%` : " …"}</span>
@@ -3993,13 +4100,10 @@ export default function VinylDigitizerPage() {
                 </button>
                 {isExporting && <button className={styles.cancelBtn} onClick={cancelExport}>Cancel</button>}
                 {exportedTracks.length > 0 && (
-                  <>
-                    <button className={styles.dlAllBtn} onClick={downloadAll}>Download All</button>
-                    <button className={styles.zipBtn} onClick={downloadZip}>Download as ZIP</button>
-                    <button className={styles.saveHistBtn} onClick={() => saveProject()}>💾 Save to History</button>
-                  </>
+                  <button className={styles.zipBtn} onClick={downloadZip}>Download as ZIP ({exportedTracks.length})</button>
                 )}
               </div>
+              <p className={styles.exportHint}>Export audio first before you use it to render a video.</p>
 
               {/* Progress */}
               {(progress !== null || exportProgress) && (
@@ -4031,14 +4135,7 @@ export default function VinylDigitizerPage() {
 
               <div className={styles.stepNav}>
                 <button className={styles.backBtn} onClick={() => setStep(3)}>← Back to Waveform</button>
-                <button
-                  className={styles.skipBtn}
-                  onClick={() => setStep(5)}
-                  title="Skip audio export and go straight to the video step"
-                >
-                  Skip →
-                </button>
-                <button className={styles.nextBtn} onClick={() => setStep(5)} disabled={exportedTracks.length === 0}>Next: Video →</button>
+                <button className={styles.nextBtn} onClick={() => setStep(5)}>Next: Video →</button>
               </div>
             </div>
           )}
@@ -4105,29 +4202,54 @@ export default function VinylDigitizerPage() {
                               />
                             </div>
                           </th>
-                          <th>#</th><th>Title</th><th>Duration</th>
+                          <th>#</th><th>Title</th><th>Duration</th><th style={{width:32}}></th>
                         </tr>
                       </thead>
                       <tbody>
                         {(videoAudioOrder.length === exportedTracks.length ? videoAudioOrder : exportedTracks.map((_, i) => i)).map((trackIdx, orderIdx) => {
                           const t = exportedTracks[trackIdx];
+                          const range = getTrackClipRange(trackIdx) || { fullDur: t.end - t.start, clipStart: 0, clipEnd: t.end - t.start, clipDur: t.end - t.start, isClipped: false };
+                          const isExpanded = expandedAudioRows.has(trackIdx);
                           return (
-                            <tr key={trackIdx}
-                              draggable
-                              onDragStart={() => handleAudioDragStart(orderIdx)}
-                              onDragOver={e => handleAudioDragOver(e, orderIdx)}
-                              onDragEnd={handleAudioDragEnd}
-                              className={`${styles.clickableRow} ${styles.draggableRow} ${!selectedVideoAudios.has(trackIdx) ? styles.rowDimmed : ""}`}
-                              onClick={e => { if (e.target.tagName !== "INPUT") toggleVideoAudio(trackIdx); }}
-                            >
-                              <td className={styles.dragHandle} onClick={e => e.stopPropagation()}>⠿</td>
-                              <td className={styles.chkCol} onClick={e => e.stopPropagation()}>
-                                <input type="checkbox" checked={selectedVideoAudios.has(trackIdx)} onChange={() => toggleVideoAudio(trackIdx)} />
-                              </td>
-                              <td>{orderIdx + 1}</td>
-                              <td>{t.title}</td>
-                              <td>{formatTime(t.end - t.start)}</td>
-                            </tr>
+                            <React.Fragment key={trackIdx}>
+                              <tr
+                                draggable
+                                onDragStart={() => handleAudioDragStart(orderIdx)}
+                                onDragOver={e => handleAudioDragOver(e, orderIdx)}
+                                onDragEnd={handleAudioDragEnd}
+                                className={`${styles.clickableRow} ${styles.draggableRow} ${!selectedVideoAudios.has(trackIdx) ? styles.rowDimmed : ""}`}
+                                onClick={e => { if (e.target.tagName !== "INPUT" && e.target.tagName !== "BUTTON") toggleVideoAudio(trackIdx); }}
+                              >
+                                <td className={styles.dragHandle} onClick={e => e.stopPropagation()}>⠿</td>
+                                <td className={styles.chkCol} onClick={e => e.stopPropagation()}>
+                                  <input type="checkbox" checked={selectedVideoAudios.has(trackIdx)} onChange={() => toggleVideoAudio(trackIdx)} />
+                                </td>
+                                <td>{orderIdx + 1}</td>
+                                <td>{t.title}{range.isClipped && <span className={styles.clipBadge} title={`Clipped to ${formatTime(range.clipStart)} – ${formatTime(range.clipEnd)}`}> · clip</span>}</td>
+                                <td>{range.isClipped ? `${formatTime(range.clipDur)} / ${formatTime(range.fullDur)}` : formatTime(range.fullDur)}</td>
+                                <td onClick={e => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    className={styles.expandRowBtn}
+                                    onClick={() => setExpandedAudioRows(prev => { const n = new Set(prev); n.has(trackIdx) ? n.delete(trackIdx) : n.add(trackIdx); return n; })}
+                                    title={isExpanded ? "Hide clip controls" : "Set clip range"}
+                                    aria-label={isExpanded ? "Hide clip controls" : "Set clip range"}
+                                  >{isExpanded ? "▾" : "▸"}</button>
+                                </td>
+                              </tr>
+                              {isExpanded && (
+                                <tr className={styles.clipPanelRow}>
+                                  <td colSpan={6} onClick={e => e.stopPropagation()}>
+                                    <TrackClipPanel
+                                      track={t}
+                                      range={range}
+                                      onChange={(start, end) => setTrackClips(prev => ({ ...prev, [trackIdx]: { start, end } }))}
+                                      onReset={() => setTrackClips(prev => { const n = { ...prev }; delete n[trackIdx]; return n; })}
+                                    />
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         })}
                       </tbody>
@@ -5175,6 +5297,85 @@ export default function VinylDigitizerPage() {
       </div>
 
       <audio ref={audioRef} onEnded={() => { setIsPlaying(false); setPreviewingTrack(null); }} preload="auto" />
+    </div>
+  );
+}
+
+// Inline panel for selecting a clip range (start/end) within an already-exported track.
+// The track's file plays from 0 to its full duration; start/end are in file-relative seconds.
+function TrackClipPanel({ track, range, onChange, onReset }) {
+  const audioRef = useRef(null);
+  const stopAtRef = useRef(null);
+  const [start, setStart] = useState(range.clipStart);
+  const [end, setEnd] = useState(range.clipEnd);
+
+  // Sync local state when the external range changes (e.g. another row reset us)
+  useEffect(() => { setStart(range.clipStart); setEnd(range.clipEnd); }, [range.clipStart, range.clipEnd]);
+
+  const fullDur = range.fullDur;
+  const fmt = (s) => {
+    const sec = Math.max(0, s);
+    const m = Math.floor(sec / 60);
+    const r = sec - m * 60;
+    return `${m}:${r.toFixed(2).padStart(5, "0")}`;
+  };
+
+  const commit = (newStart, newEnd) => {
+    const ns = Math.max(0, Math.min(fullDur, newStart));
+    const ne = Math.max(ns, Math.min(fullDur, newEnd));
+    setStart(ns); setEnd(ne);
+    if (ns === 0 && ne === fullDur) onReset();
+    else onChange(ns, ne);
+  };
+
+  const playClip = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    a.currentTime = start;
+    stopAtRef.current = end;
+    a.play();
+  };
+
+  const onTimeUpdate = () => {
+    if (stopAtRef.current != null && audioRef.current && audioRef.current.currentTime >= stopAtRef.current) {
+      audioRef.current.pause();
+      stopAtRef.current = null;
+    }
+  };
+
+  const setStartHere = () => {
+    if (audioRef.current) commit(audioRef.current.currentTime, end);
+  };
+  const setEndHere = () => {
+    if (audioRef.current) commit(start, audioRef.current.currentTime);
+  };
+
+  return (
+    <div className={styles.clipPanel}>
+      <audio ref={audioRef} src={track.url} controls preload="metadata" onTimeUpdate={onTimeUpdate} className={styles.clipAudio} />
+      <div className={styles.clipControlsRow}>
+        <label className={styles.clipField}>
+          <span>Start</span>
+          <input
+            type="number" min={0} max={fullDur} step={0.1}
+            value={start.toFixed(2)}
+            onChange={e => commit(parseFloat(e.target.value) || 0, end)}
+          />
+          <button type="button" onClick={setStartHere} title="Use current playhead">⏱</button>
+        </label>
+        <label className={styles.clipField}>
+          <span>End</span>
+          <input
+            type="number" min={0} max={fullDur} step={0.1}
+            value={end.toFixed(2)}
+            onChange={e => commit(start, parseFloat(e.target.value) || 0)}
+          />
+          <button type="button" onClick={setEndHere} title="Use current playhead">⏱</button>
+        </label>
+        <button type="button" className={styles.clipPlayBtn} onClick={playClip}>▶ Preview clip</button>
+        <button type="button" className={styles.clipResetBtn} onClick={() => commit(0, fullDur)} disabled={!range.isClipped}>Reset to full</button>
+        <span className={styles.clipDurLabel}>Clip: {fmt(end - start)} · Track: {fmt(fullDur)}</span>
+      </div>
     </div>
   );
 }
