@@ -948,12 +948,19 @@
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin: 0.75rem 0;
+  margin: 0.75rem 0 0.25rem;
   padding: 0.6rem 0.75rem;
   background: #fffaf0;
   border: 1px solid #feebc8;
   border-radius: 7px;
 }
+.exportHint {
+  margin: 0 0 0.75rem 0.25rem;
+  font-size: 0.82rem;
+  font-style: italic;
+  color: #718096;
+}
+:global(.darkContent) .exportHint { color: #a0aec0; }
 .exportBtn {
   background: linear-gradient(135deg, #ed8936, #dd6b20);
   color: white;
@@ -2824,6 +2831,127 @@
 }
 .draggableRow:active { opacity: 0.7; }
 
+/* ---- Per-track clip panel (Step 5) ---- */
+.clipBadge {
+  font-size: 0.72rem;
+  color: #667eea;
+  font-weight: 600;
+}
+.expandRowBtn {
+  background: transparent;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: #2d3748;
+  line-height: 1;
+}
+.expandRowBtn:hover { background: #edf2f7; }
+.clipPanelRow > td {
+  background: #f7fafc;
+  border-top: 1px dashed #cbd5e0;
+  padding: 10px 14px;
+}
+.clipPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.clipAudio {
+  width: 100%;
+  max-width: 640px;
+  height: 36px;
+}
+.clipControlsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.clipField {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2d3748;
+}
+.clipField input {
+  width: 90px;
+  padding: 5px 8px;
+  border: 1px solid #cbd5e0;
+  border-radius: 5px;
+  font-size: 0.85rem;
+  text-align: right;
+}
+.clipField button {
+  background: transparent;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.clipField button:hover { background: #edf2f7; }
+.clipPlayBtn {
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.clipPlayBtn:hover { background: #5568d3; }
+.clipResetBtn {
+  background: transparent;
+  border: 1px solid #cbd5e0;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: #2d3748;
+}
+.clipResetBtn:hover:not(:disabled) { background: #edf2f7; }
+.clipResetBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.clipDurLabel {
+  font-size: 0.8rem;
+  color: #4a5568;
+  margin-left: auto;
+}
+
+:global(.darkContent) .clipBadge { color: #90b0ff; }
+:global(.darkContent) .expandRowBtn {
+  border-color: #555;
+  color: #e2e8f0;
+}
+:global(.darkContent) .expandRowBtn:hover { background: #2a2a3d; }
+:global(.darkContent) .clipPanelRow > td {
+  background: #252538;
+  border-top-color: #555;
+}
+:global(.darkContent) .clipField { color: #e2e8f0; }
+:global(.darkContent) .clipField input {
+  background: #2a2a3d;
+  border-color: #555;
+  color: #ffffff;
+}
+:global(.darkContent) .clipField button {
+  border-color: #555;
+  color: #e2e8f0;
+}
+:global(.darkContent) .clipField button:hover { background: #333350; }
+:global(.darkContent) .clipResetBtn {
+  border-color: #555;
+  color: #e2e8f0;
+}
+:global(.darkContent) .clipResetBtn:hover:not(:disabled) { background: #333350; }
+:global(.darkContent) .clipDurLabel { color: #cbd5e0; }
+
 /* ---- Video Timeline ---- */
 .timelineWrap {
   margin-top: 10px;
@@ -3087,11 +3215,23 @@
   background: #444;
   color: #ffffff;
 }
-:global(.darkContent) .stepLabel {
+:global(.darkContent) .stepActive .stepCircle {
+  background: linear-gradient(135deg, #667eea, #764ba2);
   color: #ffffff;
+}
+:global(.darkContent) .stepDone .stepCircle {
+  background: #48bb78;
+  color: #ffffff;
+}
+:global(.darkContent) .stepLabel {
+  color: #cbd5e0;
 }
 :global(.darkContent) .stepActive .stepLabel {
   color: #ffffff;
+  font-weight: 700;
+}
+:global(.darkContent) .stepDone .stepLabel {
+  color: #68d391;
 }
 :global(.darkContent) .stepItem:hover {
   background: rgba(144, 176, 255, 0.18);
@@ -3694,12 +3834,19 @@
   color: #ffffff;
 }
 :global(.darkContent) .ytFormatSection {
+  background: #252538;
+  border-color: #444;
   color: #ffffff;
 }
 :global(.darkContent) .ytFormatTitle {
   color: #ffffff;
 }
 :global(.darkContent) .ytFormatLabel {
+  color: #ffffff;
+}
+:global(.darkContent) .ytFormatSelect,
+:global(.darkContent) .ytFormatSelect option {
+  background: #2a2a3d;
   color: #ffffff;
 }
 

@@ -32,7 +32,9 @@ export default function RootLayout({ children }) {
   const pathname = usePathname(); // get current path
   
   // Get route info from shared module
-  const { title: pageTitle, subtitle: pageSubTitle, tabTitle, icon: pageIcon } = getRouteInfo(pathname);
+  const { title: pageTitle, subtitle: pageSubTitle, tabTitle, icon: pageIcon, description: pageDescription, ogImage: pageOgImage, ogUrl: pageOgUrl } = getRouteInfo(pathname);
+  const resolvedOgTitle = tabTitle || pageTitle || 'Martin Barker';
+  const resolvedOgImage = pageOgImage ? (pageOgImage.startsWith('http') ? pageOgImage : `https://martinbarker.me${pageOgImage}`) : null;
 
   // Load dark mode preference from localStorage
   useEffect(() => {
@@ -264,6 +266,16 @@ export default function RootLayout({ children }) {
           <link rel="icon" href={pageIcon} />
           <link rel="shortcut icon" href={pageIcon} />
           <meta name="google-site-verification" content="gDJG6R2M9ZdQ8t8SHYpzGW8Pq433BC0D-JlwXkvurxE" />
+          {pageDescription && <meta name="description" content={pageDescription} />}
+          <meta property="og:title" content={resolvedOgTitle} />
+          {pageDescription && <meta property="og:description" content={pageDescription} />}
+          {resolvedOgImage && <meta property="og:image" content={resolvedOgImage} />}
+          {pageOgUrl && <meta property="og:url" content={pageOgUrl} />}
+          <meta property="og:type" content="website" />
+          <meta name="twitter:card" content={resolvedOgImage ? "summary_large_image" : "summary"} />
+          <meta name="twitter:title" content={resolvedOgTitle} />
+          {pageDescription && <meta name="twitter:description" content={pageDescription} />}
+          {resolvedOgImage && <meta name="twitter:image" content={resolvedOgImage} />}
         </head>
         {/* , width: 'fit-content' */}
         <body  style={{ margin: '0px' }}>
@@ -395,10 +407,10 @@ export default function RootLayout({ children }) {
                 </Link>
               </li>
 
-              {/* Hidden from sidebar: ALS to CUE, Vibrant.js Demo, Discord2Playlist, Vinyl2Digital, FFMPEG WASM, Color Review */}
+              {/* Hidden from sidebar: ALS to CUE, Vibrant.js Demo, discord2playlist, Vinyl2Digital, FFMPEG WASM, Color Review */}
               {/* <ProjectLink to="/ALS2CUE" icon={Music} label="ALS to CUE" /> */}
               {/* <ProjectLink to="/vibrant" icon={Palette} label="Vibrant.js Demo" /> */}
-              {/* <li className={styles.tooltipContainer} data-tooltip="Discord2Playlist">...</li> */}
+              {/* <li className={styles.tooltipContainer} data-tooltip="discord2playlist">...</li> */}
               {/* <li className={styles.tooltipContainer} data-tooltip="Vinyl2Digital">...</li> */}
               {/* <li className={styles.tooltipContainer} data-tooltip="FFMPEG WASM">...</li> */}
               {/* <li className={styles.tooltipContainer} data-tooltip="Color Review">...</li> */}

@@ -36,8 +36,11 @@ export const routeInfo = {
   "/discord2playlist": {
     title: "",
     subtitle: "",
-    tabTitle: "Discord2Playlist - Convert Discord Music to Playlists",
-    icon: "/ico/martinbarker.ico"
+    tabTitle: "discord2playlist - Turn a Discord channel into a YouTube playlist",
+    icon: "/images/discord2playlist-icons/groove-square-128.png",
+    description: "Discord bot that reads every music link shared in a channel and turns them into a single YouTube playlist — with one slash command.",
+    ogImage: "/images/discord2playlist-icons/groove-app-icon-512.png",
+    ogUrl: "https://martinbarker.me/discord2playlist"
   },
   "/ffmpegwasm": {
     title: "FFMPEG WASM",
