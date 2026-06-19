@@ -3288,6 +3288,29 @@ app.post('/discogs/info', async (req, res) => {
         name = response.data.name;
         profile = response.data.profile;
       }
+    } else if (url.includes('/master/')) {
+      const match = url.match(/\/master\/(\d+)/);
+      if (match) {
+        type = 'master';
+        id = match[1];
+
+        // Fetch master release info
+        const masterUrl = `${DISCOGS_API_URL}/masters/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+
+        const response = await axios.get(masterUrl, { headers });
+        name = response.data.title;
+        profile = Array.isArray(response.data.artists)
+          ? response.data.artists.map(a => a.name).join(', ')
+          : '';
+      }
     } else if (url.includes('/lists/')) {
       const listId = url.split('/').pop();
       type = 'list';
@@ -3386,6 +3409,29 @@ app.post('/internal-api/discogs/info', async (req, res) => {
         const response = await axios.get(labelUrl, { headers });
         name = response.data.name;
         profile = response.data.profile;
+      }
+    } else if (url.includes('/master/')) {
+      const match = url.match(/\/master\/(\d+)/);
+      if (match) {
+        type = 'master';
+        id = match[1];
+
+        // Fetch master release info
+        const masterUrl = `${DISCOGS_API_URL}/masters/${id}`;
+        const headers = { 'User-Agent': USER_AGENT };
+
+        // Add OAuth if available
+        const discogsAuth = req.session?.discogsAuth;
+        if (discogsAuth?.accessToken) {
+          const oauthSignature = `${discogsConsumerSecret}&${discogsAuth.accessTokenSecret}`;
+          headers['Authorization'] = `OAuth oauth_consumer_key="${discogsConsumerKey}", oauth_token="${discogsAuth.accessToken}", oauth_signature="${oauthSignature}", oauth_signature_method="PLAINTEXT"`;
+        }
+
+        const response = await axios.get(masterUrl, { headers });
+        name = response.data.title;
+        profile = Array.isArray(response.data.artists)
+          ? response.data.artists.map(a => a.name).join(', ')
+          : '';
       }
     } else if (url.includes('/lists/')) {
       const listId = url.split('/').pop();
@@ -4559,6 +4605,87 @@ async function getAllArtistReleases(artistId, oauthToken, oauthVerifier, socketI
   }
 }
 
+// Fetch all versions (releases) under a Discogs master release, following pagination
+async function getAllMasterVersions(masterId, oauthToken, oauthVerifier, socketId, cancelled = false) {
+  try {
+    devLog(`[getAllMasterVersions] Start: masterId=${masterId}`);
+    let allVersions = [];
+    let url = `${DISCOGS_API_URL}/masters/${masterId}/versions?per_page=100&page=1`;
+
+    while (url) {
+      // Check for cancellation / disconnect before each page
+      if (cancelled) {
+        console.log(`[getAllMasterVersions] Job cancelled for socket ${socketId}`);
+        return allVersions;
+      }
+      if (!isSocketConnected(socketId)) {
+        console.log(`[getAllMasterVersions] Socket ${socketId} disconnected, aborting`);
+        return allVersions;
+      }
+
+      devLog(`[getAllMasterVersions] Fetching: ${url}`);
+      const response = await newDiscogsAPIRequest(url, oauthToken, socketId, cancelled);
+
+      if (response && Array.isArray(response.versions)) {
+        allVersions = allVersions.concat(response.versions);
+        sendLogMessageToSession(`Fetched ${response.versions.length} versions (total ${allVersions.length})`, socketId);
+      } else {
+        devLog(`[getAllMasterVersions] No versions found in response.`);
+      }
+
+      url = response?.pagination?.urls?.next || null;
+      if (url) {
+        devLog(`[getAllMasterVersions] Next page URL: ${url}`);
+      }
+    }
+
+    devLog(`[getAllMasterVersions] Done. Total versions fetched: ${allVersions.length}`);
+    return allVersions;
+  } catch (err) {
+    console.error('[getAllMasterVersions] error:', err.message);
+    sendLogMessageToSession(`Error fetching master versions: ${err.message}`, socketId);
+    return [];
+  }
+}
+
+// Fetch all videos from every release under a Discogs master release
+async function getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false) {
+  // Check if socket is still connected before starting
+  if (!isSocketConnected(socketId)) {
+    console.log(`[getAllMasterReleaseVideos] Socket ${socketId} disconnected, aborting`);
+    return;
+  }
+
+  let masterVersions = [];
+  try {
+    masterVersions = await getAllMasterVersions(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
+    sendLogMessageToSession(`getAllMasterVersions returned ${Array.isArray(masterVersions) ? masterVersions.length : 'unknown'} releases`, socketId);
+  } catch (error) {
+    sendLogMessageToSession(`Error fetching master versions: ${error.message}`, socketId);
+    return;
+  }
+
+  // Check again before proceeding to video fetching
+  if (!isSocketConnected(socketId)) {
+    console.log(`[getAllMasterReleaseVideos] Socket ${socketId} disconnected during video fetching, aborting`);
+    return;
+  }
+
+  let masterVideos = [];
+  try {
+    masterVideos = await getAllReleaseVideos(masterVersions, oauthToken, socketId, cancelled);
+    sendLogMessageToSession(`Fetched master videos: ${masterVideos['totalVideoCount']} videos`, socketId);
+  } catch (error) {
+    sendLogMessageToSession(`Error fetching master videos: ${error.message}`, socketId);
+  }
+  sendResultsToSession(masterVideos, socketId);
+
+  // Clean up the job when completed
+  if (activeJobs.has(socketId)) {
+    activeJobs.delete(socketId);
+  }
+}
+
 async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancelled = false) {
 
   // Map all videos by releaseId and videoId 
@@ -4932,8 +5059,11 @@ app.post('/discogs/api', async (req, res) => {
       getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
     } else if (discogsType == 'label') {
       getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
+    } else if (discogsType == 'master') {
+      sendLogMessageToSession(`Calling getAllMasterReleaseVideos with masterId=${discogsId}`, socketId);
+      getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
     }else if(discogsType == 'release'){
-      
+
 
       // Call the fetchReleaseVideos method
       fetchReleaseVideos(discogsId, oauthToken, socketId);

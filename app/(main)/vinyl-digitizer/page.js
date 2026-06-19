@@ -375,6 +375,10 @@ export default function VinylDigitizerPage() {
   const logOutputRef = useRef("");
   const cancelRef = useRef(false);
   const videoFfmpegRef = useRef(null);
+  // Synchronous re-entrancy guard for the video render. isRenderingVideo is
+  // async React state, so the Render button can be re-triggered before it
+  // disables; this ref blocks a second concurrent render instantly.
+  const videoRenderingRef = useRef(false);
   const getTokensRef = useRef(null);
   const thumbnailInputRef = useRef(null);
   const modalFileInputRef = useRef(null);
@@ -2402,6 +2406,9 @@ export default function VinylDigitizerPage() {
     const selectedImageList = videoImages.filter(img => selectedVideoImages.has(img.id));
     const effectiveTimings = getEffectiveImageTimings();
     if (selectedImageList.length === 0 || selectedAudioList.length === 0) return;
+    // Block concurrent renders synchronously (button disable is async state).
+    if (videoRenderingRef.current) return;
+    videoRenderingRef.current = true;
     setIsRenderingVideo(true); setVideoRenderProgress(0);
     setVideoRenderStartTime(Date.now());
     setVideoRenderLogs(["Starting FFmpeg…"]);
@@ -2410,8 +2417,14 @@ export default function VinylDigitizerPage() {
     const appendVideoLog = (line) => setVideoRenderLogs(prev => { const next = [...prev, line]; return next.length > 300 ? next.slice(-300) : next; });
     const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || "album";
     const totalDur = selectedAudioList.reduce((s, t) => s + (t.end - t.start), 0);
+    // Hoisted so catch/finally can tell whether THIS render is still the active
+    // one. If it was cancelled (Cancel nulls videoFfmpegRef) or superseded, any
+    // late rejection from its terminated worker ("ffmpeg is not loaded") must be
+    // swallowed instead of clobbering the page / a newer render.
+    let ffV = null;
+    const isStale = () => videoFfmpegRef.current !== ffV;
     try {
-      const ffV = new FFmpeg();
+      ffV = new FFmpeg();
       videoFfmpegRef.current = ffV;
       const oomState = { detected: false, lastSignal: "", encodeCompleted: false };
       // "hard" patterns mean the encode definitely failed; "soft" (plain Aborted()) only counts if Lsize= never appeared.
@@ -2634,6 +2647,12 @@ export default function VinylDigitizerPage() {
         setTimeout(() => uploadToYouTube(renderedUrl), 500);
       }
     } catch (err) {
+      // A cancelled/superseded render's worker was terminated mid-flight; its
+      // late rejection (ERROR_TERMINATED / "ffmpeg is not loaded") is expected
+      // noise — don't surface it or overwrite the active render's state.
+      if (isStale()) {
+        return;
+      }
       const isOom = err?.oom || /malloc of size|Cannot enlarge memory|Out of memory|memory access out of bounds|Aborted\(\)|Error submitting video frame/i.test(err?.message || "");
       if (isOom) {
         const dims = err?.dimensions ? `${err.dimensions.w}×${err.dimensions.h}` : `${videoWidth}×${videoHeight}`;
@@ -2666,7 +2685,14 @@ export default function VinylDigitizerPage() {
         setVideoRenderError({ kind: "generic", message: err?.message || "Render failed" });
       }
     }
-    finally { setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null); }
+    finally {
+      // Only the active render resets shared UI state and releases the guard.
+      // A stale render leaves those to whoever superseded/cancelled it.
+      if (!isStale()) {
+        setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null);
+        videoRenderingRef.current = false;
+      }
+    }
   };
 
   // ---- YouTube Upload ----
@@ -4756,6 +4782,11 @@ export default function VinylDigitizerPage() {
                 {isRenderingVideo && (
                   <button className={styles.cancelBtn} onClick={() => {
                     try { videoFfmpegRef.current?.terminate(); } catch {}
+                    // Mark the in-flight render stale so its late worker rejection
+                    // ("ffmpeg is not loaded") is swallowed, then release the guard
+                    // so the user can immediately start a fresh render.
+                    videoFfmpegRef.current = null;
+                    videoRenderingRef.current = false;
                     setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null);
                     setVideoRenderLogs(prev => [...prev, "— Render cancelled —"]);
                     setMessage("Render cancelled");

@@ -36,6 +36,11 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
       new Date(youtubeAuthStatus.expiresAt) > new Date());
   const canAuth = hasLocalAuth && tokenValidity === 'valid';
 
+  // Only surface the raw, console-style debug log in local development.
+  // In production it stays internal (still captured for getTokensRef) but is
+  // never rendered to end users.
+  const showDebugLog = process.env.NODE_ENV === 'development';
+
   const addDebugLog = (msg, type = 'info') => {
     setDebugLog(prev => [...prev, { msg, type, time: new Date().toLocaleTimeString() }]);
   };
@@ -379,7 +384,7 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
         {error && (
           <span style={{ color: errorColor, fontFamily: 'monospace', fontSize: 12 }}>{error}</span>
         )}
-        {debugLog.length > 0 && (
+        {showDebugLog && debugLog.length > 0 && (
           <div style={{ width: '100%', marginTop: 8 }}>
             <div style={{
               background: '#1e1e1e', borderRadius: 4, padding: '8px', fontFamily: 'monospace',
@@ -474,7 +479,7 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
       )}
 
       {/* Debug Log */}
-      {debugLog.length > 0 && (
+      {showDebugLog && debugLog.length > 0 && (
         <div style={{ marginTop: 16, marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>Debug Log</h3>
