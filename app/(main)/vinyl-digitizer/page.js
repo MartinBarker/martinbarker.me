@@ -3280,7 +3280,7 @@ export default function VinylDigitizerPage() {
                     <div className={styles.dropIcon}>🎵</div>
                     <p className={styles.dropText}>Drop audio or image files here, or click to browse audio</p>
                     <p className={styles.dropHint}>Audio: WAV · FLAC · MP3 · AIFF · OGG · WebM · Images: PNG · JPG (auto-added to album art &amp; video)</p>
-                    <input type="file" accept="audio/*" multiple onChange={handleFileInput} className={styles.fileInput} />
+                    <input type="file" accept="audio/*,.flac,.wav,.aiff,.aif,.mp3,.ogg,.oga,.m4a,.aac,.webm" multiple onChange={handleFileInput} className={styles.fileInput} />
                   </div>
                 </div>
               ) : (
