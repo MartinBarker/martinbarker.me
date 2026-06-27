@@ -72,10 +72,10 @@ export const routeInfo = {
     tabTitle: "Color Review - Image Palette Editor",
     icon: "/ico/martinbarker.ico"
   },
-  "/vinyl-digitizer": {
-    title: "Vinyl Digitizer",
+  "/riptag": {
+    title: "RipTag",
     subtitle: "Record, split, tag, and export vinyl recordings",
-    tabTitle: "Vinyl Digitizer - Vinyl to Digital with Discogs Metadata",
+    tabTitle: "RipTag - Vinyl to Digital with Discogs Metadata",
     icon: "/ico/martinbarker.ico"
   }
 };

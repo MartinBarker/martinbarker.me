@@ -1,6 +1,6 @@
 /**
  * Shared music metadata utilities for tag generation, title formatting,
- * and timestamp formatting. Used by /tagger and /vinyl-digitizer routes.
+ * and timestamp formatting. Used by /tagger and /riptag routes.
  */
 
 /** Remove Discogs suffixes like "(2)" and normalize slashes */
@@ -243,7 +243,7 @@ export function buildTimestampDescription(tracks, options = {}) {
     timestampFormat = 'auto',
     separator = ' ',
     includeTrackNumbers = false,
-    suffix = '\n\nDigitized with Vinyl Digitizer – https://martinbarker.me/vinyl-digitizer',
+    suffix = '\n\nDigitized with RipTag – https://martinbarker.me/riptag',
   } = options;
 
   const lines = tracks.map((t, i) => {
@@ -252,7 +252,7 @@ export function buildTimestampDescription(tracks, options = {}) {
     return `${ts}${separator}${prefix}${t.title}`;
   });
 
-  return 'Video rendered with https://martinbarker.me/vinyl-digitizer\n\n' + lines.join('\n') + suffix;
+  return 'Video rendered with https://martinbarker.me/riptag\n\n' + lines.join('\n') + suffix;
 }
 
 /** YouTube metadata character limits */
