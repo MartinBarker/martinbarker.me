@@ -381,13 +381,13 @@ export default function RootLayout({ children }) {
                 label="Listogs"
               />
 
-              <li className={styles.tooltipContainer} data-tooltip="Vinyl Digitizer">
+              <li className={styles.tooltipContainer} data-tooltip="RipTag">
                 <Link
-                  href="/vinyl-digitizer"
+                  href="/riptag"
                   className={styles.navbarItem}
                   style={{
                     color: sidebarTextColor,
-                    background: pathname === "/vinyl-digitizer"
+                    background: pathname === "/riptag"
                       ? colors.LightMuted
                       : 'transparent'
                   }}
@@ -403,7 +403,7 @@ export default function RootLayout({ children }) {
                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
                     </svg>
                   </div>
-                  <span className={!sidebarActive ? styles.hidden : ''}>Vinyl Digitizer</span>
+                  <span className={!sidebarActive ? styles.hidden : ''}>RipTag</span>
                 </Link>
               </li>
 

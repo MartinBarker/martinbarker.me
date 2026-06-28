@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useCallback, useContext } from "rea
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import JSZip from "jszip";
-import styles from "./vinyl-digitizer.module.css";
+import styles from "./riptag.module.css";
 import YouTubeAuth from "../YouTubeAuth/YouTubeAuth";
 import { ColorContext } from "../ColorContext";
 import {
@@ -152,7 +152,7 @@ const apiBaseURL = () => {
 };
 
 // ---- Main Component ----
-export default function VinylDigitizerPage() {
+export default function RipTagPage() {
   const { darkMode } = useContext(ColorContext);
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(1);
@@ -342,7 +342,7 @@ export default function VinylDigitizerPage() {
   const [ytTimestampFormat, setYtTimestampFormat] = useState("auto"); // "auto", "M:SS", "H:MM:SS"
   const [ytTimestampSeparator, setYtTimestampSeparator] = useState(" ");
   const [ytIncludeTrackNums, setYtIncludeTrackNums] = useState(false);
-  const [ytDescSuffix, setYtDescSuffix] = useState("\n\nDigitized with Vinyl Digitizer – https://martinbarker.me/vinyl-digitizer");
+  const [ytDescSuffix, setYtDescSuffix] = useState("\n\nDigitized with RipTag – https://martinbarker.me/riptag");
   const [ytTitleSuggestions, setYtTitleSuggestions] = useState([]);
 
   // Video timeline / ordering (Step 5)
@@ -363,6 +363,12 @@ export default function VinylDigitizerPage() {
   const overviewRef = useRef(null);
   const peaksRef = useRef(null);
   const audioContextRef = useRef(null);
+  // Low-sample-rate, mono AudioBuffer decoded once and reused for both the
+  // peaks.js waveform and silence analysis. Keeping a single small buffer
+  // (instead of a full-rate decode + a second decode inside peaks.js) is what
+  // keeps memory under iOS Safari's per-tab limit. Playback/export still use
+  // the original-quality file via the <audio> element.
+  const decodedBufferRef = useRef(null);
   const segmentTimerRef = useRef(null);
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
@@ -559,7 +565,7 @@ export default function VinylDigitizerPage() {
     if (typeof window === "undefined") return;
     window.showauth = () => {
       setShowAuthPanel(true);
-      console.log("[vinyl-digitizer] Cloud sync panel shown");
+      console.log("[riptag] Cloud sync panel shown");
     };
     return () => { try { delete window.showauth; } catch {} };
   }, []);
@@ -683,7 +689,7 @@ export default function VinylDigitizerPage() {
 
   // Update browser tab title with progress during render/upload
   useEffect(() => {
-    const base = "Vinyl Digitizer – Record Audio Splitter | Martin Barker";
+    const base = "RipTag – Record Audio Splitter | Martin Barker";
     if (isRenderingVideo && videoRenderProgress !== null) {
       document.title = `${(videoRenderProgress * 100).toFixed(0)}% ${base}`;
     } else if (ytUploading && ytUploadProgress !== null) {
@@ -710,14 +716,53 @@ export default function VinylDigitizerPage() {
     const decode = async () => {
       try {
         setWaveformLoadStatus("Reading audio file…");
-        const ac = new (window.AudioContext || window.webkitAudioContext)();
         const buf = await audioFile.arrayBuffer();
         setWaveformLoadStatus("Decoding audio data…");
-        const decoded = await ac.decodeAudioData(buf);
-        setDuration(decoded.duration);
-        setChannelData(decoded.getChannelData(0));
-        setMessage(`Loaded: ${audioFile.name} (${formatTime(decoded.duration)})`);
-        ac.close();
+
+        // Decode through an OfflineAudioContext fixed at a low sample rate so
+        // decodeAudioData resamples the whole file down to WAVEFORM_SAMPLE_RATE
+        // as it decodes — the full-rate PCM never materializes in JS. This is
+        // the single biggest memory win and what stops iOS Safari from killing
+        // the tab on long vinyl rips. 8 kHz mono is ample for waveform display
+        // and silence detection; real playback/export use the original file.
+        const WAVEFORM_SAMPLE_RATE = 8000;
+        const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+        const offline = new OfflineCtx(1, 1, WAVEFORM_SAMPLE_RATE);
+        let decoded = await offline.decodeAudioData(buf);
+
+        // Take channel 0 only. If a browser ignored the context sample rate and
+        // decoded at the native rate, downsample by block-averaging so we never
+        // hold a full-resolution array in state.
+        let mono = decoded.getChannelData(0);
+        let sr = decoded.sampleRate;
+        const durationSec = decoded.duration;
+        if (sr > WAVEFORM_SAMPLE_RATE * 1.5) {
+          // floor keeps the resulting rate (sr/factor) >= WAVEFORM_SAMPLE_RATE,
+          // which createBuffer requires (valid range is 8000–96000 Hz).
+          const factor = Math.floor(sr / WAVEFORM_SAMPLE_RATE);
+          const outLen = Math.floor(mono.length / factor);
+          const ds = new Float32Array(outLen);
+          for (let i = 0; i < outLen; i++) {
+            let s = 0;
+            const base = i * factor;
+            for (let j = 0; j < factor; j++) s += mono[base + j];
+            ds[i] = s / factor;
+          }
+          mono = ds;
+          sr = sr / factor;
+        }
+
+        // Build a compact mono AudioBuffer at the low rate and hand it to
+        // peaks.js (via webAudio.audioBuffer) so peaks.js does NOT decode the
+        // file a second time.
+        const wfBuffer = new OfflineCtx(1, mono.length, sr).createBuffer(1, mono.length, sr);
+        wfBuffer.copyToChannel(mono, 0);
+        decodedBufferRef.current = wfBuffer;
+        decoded = null; // release the decoded buffer
+
+        setDuration(durationSec);
+        setChannelData(mono);
+        setMessage(`Loaded: ${audioFile.name} (${formatTime(durationSec)})`);
       } catch (err) {
         setMessage("Error decoding audio: " + err.message);
         setIsLoadingWaveform(false);
@@ -925,13 +970,6 @@ export default function VinylDigitizerPage() {
     try {
       const Peaks = (await import('peaks.js')).default;
 
-      // Reuse AudioContext
-      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      } else if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
-      }
-
       const options = {
         zoomview: {
           container: zoomviewRef.current,
@@ -940,8 +978,12 @@ export default function VinylDigitizerPage() {
           container: overviewRef.current,
         },
         mediaElement: audioRef.current,
+        // Reuse the single low-rate AudioBuffer we already decoded. Passing
+        // webAudio.audioBuffer makes peaks.js build the waveform from this
+        // buffer instead of fetching + decoding the media element again (a
+        // second full-resolution decode was a primary cause of iOS crashes).
         webAudio: {
-          audioContext: audioContextRef.current,
+          audioBuffer: decodedBufferRef.current,
         },
         zoomLevels: [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536],
         segmentOptions: {
@@ -1166,6 +1208,7 @@ export default function VinylDigitizerPage() {
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         try { audioContextRef.current.close(); } catch {}
       }
+      decodedBufferRef.current = null; // free the decoded waveform buffer
       if (segmentTimerRef.current) clearTimeout(segmentTimerRef.current);
     };
   }, []);
@@ -1804,7 +1847,7 @@ export default function VinylDigitizerPage() {
     const title = trackNames[i] || discogsData.tracklist?.[i]?.title || `Track ${i + 1}`;
     const artist = discogsData.artists?.map(a => a.name).join(", ") || "";
     const album = discogsData.title || "", year = discogsData.year ? String(discogsData.year) : "";
-    return ["-metadata", `title=${title}`, "-metadata", `artist=${artist}`, "-metadata", `album=${album}`, "-metadata", `date=${year}`, "-metadata", `track=${i + 1}/${trackNames.length}`, "-metadata", `genre=${discogsData.genres?.join(", ") || ""}`, "-metadata", `comment=Digitized with Vinyl Digitizer`];
+    return ["-metadata", `title=${title}`, "-metadata", `artist=${artist}`, "-metadata", `album=${album}`, "-metadata", `date=${year}`, "-metadata", `track=${i + 1}/${trackNames.length}`, "-metadata", `genre=${discogsData.genres?.join(", ") || ""}`, "-metadata", `comment=Digitized with RipTag`];
   };
 
   const FILENAME_TOKENS = [
@@ -3138,7 +3181,7 @@ export default function VinylDigitizerPage() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" className={styles.vinylIcon}>
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
             </svg>
-            <h1 className={styles.title}>Vinyl Digitizer</h1>
+            <h1 className={styles.title}>RipTag</h1>
           </div>
           <p className={styles.subtitle}>Record or upload vinyl audio → detect tracks → export with Discogs metadata</p>
         </div>
@@ -3458,7 +3501,7 @@ export default function VinylDigitizerPage() {
                 <p style={{ margin: '0 0 8px 0', fontSize: 13, color: darkMode ? '#ffffff' : '#000000' }}>
                   Sign in now if you want to upload to YouTube later.
                 </p>
-                <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
+                <YouTubeAuth compact={true} returnUrl="/riptag" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
               </div>
 
               <div className={styles.stepNav}>
@@ -4894,7 +4937,7 @@ export default function VinylDigitizerPage() {
                   YouTube Upload Details
                 </summary>
                 <div className={styles.ytSection}>
-                  <YouTubeAuth compact={true} returnUrl="/vinyl-digitizer" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
+                  <YouTubeAuth compact={true} returnUrl="/riptag" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
                   {ytAuthState.canAuth && (() => {
                     const titleLen = ytUploadData.title.length;
                     const descLen = ytUploadData.description.length;
@@ -5091,7 +5134,7 @@ export default function VinylDigitizerPage() {
                                   if (res.ok) {
                                     const data = await res.json();
                                     if (data?.url) {
-                                      try { localStorage.setItem('youtube_auth_return_url', '/vinyl-digitizer'); } catch {}
+                                      try { localStorage.setItem('youtube_auth_return_url', '/riptag'); } catch {}
                                       window.location.href = data.url;
                                       return;
                                     }
