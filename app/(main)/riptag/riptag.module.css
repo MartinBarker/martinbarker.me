@@ -2865,6 +2865,30 @@
   max-width: 640px;
   height: 36px;
 }
+.clipWaveWrap {
+  width: 100%;
+  max-width: 640px;
+  height: 64px;
+  background: #ffffff;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.clipWaveCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+.clipWaveStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.8rem;
+  color: #718096;
+}
 .clipControlsRow {
   display: flex;
   flex-wrap: wrap;
@@ -2923,6 +2947,12 @@
   color: #4a5568;
   margin-left: auto;
 }
+
+:global(.darkContent) .clipWaveWrap {
+  background: #1a1a2e;
+  border-color: #444;
+}
+:global(.darkContent) .clipWaveStatus { color: #a0aec0; }
 
 :global(.darkContent) .clipBadge { color: #90b0ff; }
 :global(.darkContent) .expandRowBtn {

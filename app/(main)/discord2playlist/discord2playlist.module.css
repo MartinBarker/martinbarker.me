@@ -175,6 +175,9 @@
 .footBrand img { width: 26px; height: 26px; border-radius: 7px; }
 .footBrand .bname { font-family: var(--font-mono); font-weight: 700; font-size: 16px; }
 .footMeta { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+.footLegal { display: block; margin-top: 6px; }
+.footLegal a { color: var(--muted); text-decoration: none; }
+.footLegal a:hover { color: var(--ink); text-decoration: underline; }
 
 @media (max-width: 900px){
   .heroGrid { grid-template-columns: 1fr; gap: 40px; }
@@ -187,4 +190,43 @@
   .ctaBand h2 { font-size: 32px; }
   .cmdBody { flex-direction: column; }
   .copyBtn { align-self: flex-end; }
+}
+
+/* ---------- Legal pages (terms / privacy) ---------- */
+.legalMain { padding: 64px 0 40px; }
+.legalHead { border-bottom: 2px solid var(--ink); padding-bottom: 26px; margin-bottom: 36px; }
+.legalKicker {
+  font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--blurple); margin: 0 0 12px;
+}
+.legalTitle {
+  font-family: var(--font-display); font-weight: 900; letter-spacing: -0.03em;
+  font-size: 46px; line-height: 1.02; margin: 0;
+}
+.legalUpdated { font-family: var(--font-mono); font-size: 13px; color: var(--muted); margin: 14px 0 0; }
+.legalBody { max-width: 760px; font-size: 16.5px; line-height: 1.7; color: var(--ink); }
+.legalBody h2 {
+  font-family: var(--font-display); font-weight: 800; font-size: 24px; letter-spacing: -0.02em;
+  margin: 40px 0 12px;
+}
+.legalBody p { margin: 0 0 16px; color: #2c2a26; }
+.legalBody ul { margin: 0 0 16px; padding-left: 22px; }
+.legalBody li { margin: 0 0 9px; color: #2c2a26; }
+.legalBody a { color: var(--blurple); font-weight: 600; text-decoration: none; }
+.legalBody a:hover { text-decoration: underline; }
+.legalBody code {
+  font-family: var(--font-mono); font-size: 0.88em; background: var(--paper-2);
+  border: 1px solid rgba(24,24,27,0.14); border-radius: 5px; padding: 1px 6px;
+}
+.legalBody strong { font-weight: 700; }
+.backLink {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 44px;
+  font-family: var(--font-mono); font-size: 14px; font-weight: 500;
+  color: var(--muted); text-decoration: none;
+}
+.backLink:hover { color: var(--ink); }
+
+@media (max-width: 900px){
+  .legalMain { padding: 44px 0 32px; }
+  .legalTitle { font-size: 34px; }
 }

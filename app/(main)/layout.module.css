@@ -16,7 +16,10 @@
   width: 100%;
   align-items: stretch;
   font-family: 'Poppins', sans-serif;
-  overflow-x: hidden;
+  /* NOTE: do not set overflow here. Any overflow other than visible turns
+     .wrapper into the scroll context for the sticky sidebar, which breaks
+     position: sticky (the sidebar scrolls away, leaving blank space).
+     Horizontal clipping lives on .content instead. */
 }
 
 /* Sidebar Styles */
@@ -25,7 +28,20 @@
   max-width: 250px;
   color: #000000;
   transition: all 0.2s ease;
-  position: relative;
+  /* Stick to the top of the viewport so the sidebar stays visible as the
+     page scrolls. align-self prevents the flex parent (align-items: stretch)
+     from stretching it, which would defeat sticky. The sidebar fills the
+     viewport height and scrolls its own menu internally when it overflows. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+  /* Reserve space for the scrollbar at all times so the sidebar's inner width
+     stays constant whether or not it overflows. Without this, a classic
+     scrollbar appearing would shrink the content area by ~15px, cropping the
+     "Martin Barker" header (white-space: nowrap) and resizing the menu. */
+  scrollbar-gutter: stable;
 }
 
 .sidebar.collapsed {
@@ -327,6 +343,9 @@
   padding: 20px;
   min-height: 100vh;
   transition: all 0.3s;
+  /* Clip wide page content horizontally here instead of on .wrapper, so the
+     sticky sidebar's scroll context stays the viewport. */
+  overflow-x: hidden;
 }
 
 /* .contentWrapper {

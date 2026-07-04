@@ -254,7 +254,14 @@ node start_discord_bot.js`;
             <img src={APP_ICON} alt="" />
             <span className={styles.bname}>discord2playlist</span>
           </div>
-          <div className={styles.footMeta}>Discord → YouTube playlist bot · open source</div>
+          <div className={styles.footMeta}>
+            Discord → YouTube playlist bot · open source
+            <span className={styles.footLegal}>
+              <a href="/discord2playlist/termsofservice">Terms of Service</a>
+              <span aria-hidden="true"> · </span>
+              <a href="/discord2playlist/privacypolicy">Privacy Policy</a>
+            </span>
+          </div>
         </div>
       </footer>
     </div>

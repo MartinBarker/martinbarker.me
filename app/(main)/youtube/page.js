@@ -82,6 +82,15 @@ function YouTubeAuthPageInner() {
     }
   }, [authCode, scope, router]);
 
+  // When this tab is the OAuth popup, the opener has already learned about the
+  // new auth via the `storage` event. Auto-close after a short beat so the user
+  // lands back on their original page (e.g. RipTag) with all state intact.
+  useEffect(() => {
+    if (!popupComplete) return;
+    const timer = setTimeout(() => { try { window.close(); } catch {} }, 1200);
+    return () => clearTimeout(timer);
+  }, [popupComplete]);
+
   if (popupComplete) {
     return (
       <div style={{ padding: '60px 24px', textAlign: 'center', maxWidth: 480, margin: '0 auto', color: t.text, background: t.bg, minHeight: '60vh' }}>
