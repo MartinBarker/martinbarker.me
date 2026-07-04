@@ -82,6 +82,28 @@ function formatHMS(s) {
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
 }
 
+// Format seconds as H:MM:SS when >= 1 hour, otherwise M:SS. Whole seconds.
+function formatClock(s) {
+  const total = Math.max(0, Math.round(s || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const p = (n) => n.toString().padStart(2, "0");
+  return h > 0 ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`;
+}
+
+// Parse "H:MM:SS", "M:SS", or a plain seconds value into seconds.
+function parseClock(str) {
+  if (str == null) return 0;
+  const s = String(str).trim();
+  if (s === "") return 0;
+  const parts = s.split(":");
+  if (parts.length === 1) return Math.max(0, parseFloat(parts[0]) || 0);
+  let sec = 0;
+  for (const p of parts) sec = sec * 60 + (parseFloat(p) || 0);
+  return Math.max(0, sec);
+}
+
 function formatBytes(b) {
   if (!b) return "0 KB";
   if (b >= 1048576) return (b / 1048576).toFixed(2) + " MB";
@@ -256,13 +278,13 @@ export default function RipTagPage() {
   const [silThresholdDb, setSilThresholdDb] = useState(-35);
   const [silMinDur, setSilMinDur] = useState(0.3);
   const [silWindowMs, setSilWindowMs] = useState(40);
+  const [silMinTrackLen, setSilMinTrackLen] = useState(10); // min seconds per detected track; merges away shorter splits
 
   // FFmpeg / export
   const [loaded, setLoaded] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeLog, setAnalyzeLog] = useState([]);
   const [showAnalyzeLog, setShowAnalyzeLog] = useState(false);
-  const [detectAll, setDetectAll] = useState(false);
   const [manualSplitTime, setManualSplitTime] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(null);
@@ -337,6 +359,9 @@ export default function RipTagPage() {
   const embedArtInputRef = useRef(null);
   const [autoUploadYt, setAutoUploadYt] = useState(false);
   const autoUploadYtRef = useRef(false);
+  // Whether the user has explicitly toggled the auto-upload ("Queue upload")
+  // choice. Until they do, we default it ON as soon as they're signed in.
+  const autoUploadUserSetRef = useRef(false);
   // YouTube metadata formatting options
   const [ytTitleVariation, setYtTitleVariation] = useState(0);
   const [ytTimestampFormat, setYtTimestampFormat] = useState("auto"); // "auto", "M:SS", "H:MM:SS"
@@ -559,6 +584,12 @@ export default function RipTagPage() {
 
   useEffect(() => { autoUploadYtRef.current = autoUploadYt; }, [autoUploadYt]);
   useEffect(() => { ytUploadDataRef.current = ytUploadData; }, [ytUploadData]);
+
+  // Default the "Queue upload" auto-upload toggle ON once the user is signed
+  // in to YouTube — unless they've already chosen a setting themselves.
+  useEffect(() => {
+    if (ytAuthState.canAuth && !autoUploadUserSetRef.current) setAutoUploadYt(true);
+  }, [ytAuthState.canAuth]);
 
   // Expose window.showauth() to reveal the hidden cloud-sync panel from the console.
   useEffect(() => {
@@ -950,8 +981,17 @@ export default function RipTagPage() {
   useEffect(() => {
     if (step === 3 && channelData && duration > 0 && !autoSplitDoneRef.current && !isLoadingWaveform) {
       autoSplitDoneRef.current = true;
+      // If the user told us how many tracks to expect in the previous step —
+      // either by dropping a Discogs URL (tracklist length) or typing a manual
+      // track count — honor that exact number instead of auto-detecting split
+      // points from silence. Only fall back to silence detection when no count
+      // was given.
+      const expectedCount = parseInt(manualTrackCount) || discogsData?.tracklist?.length || 0;
       // Small delay to ensure peaks.js instance is fully ready after waveform load completes
-      const timer = setTimeout(() => detectSilence(), 100);
+      const timer = setTimeout(() => {
+        if (expectedCount > 0) splitIntoEqualTracks(expectedCount);
+        else detectSilence();
+      }, 100);
       return () => clearTimeout(timer);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1708,18 +1748,52 @@ export default function RipTagPage() {
     setMessage(`✓ Updated ${updated.length} track name(s)`);
   };
 
+  // Create exactly `count` tracks by dividing the audio evenly, without running
+  // silence auto-detection. Used when the user specified a track count in the
+  // previous step (manual count or Discogs tracklist) — we honor that number
+  // and let them drag the boundaries to fine-tune.
+  const splitIntoEqualTracks = (count) => {
+    if (!duration || duration <= 0) { setMessage("Load audio first"); return; }
+    // If tracks already exist, just refresh names without re-splitting.
+    if (tracks.length > 0) { applyTrackNames(); return; }
+    const n = Math.max(1, Math.floor(count));
+    setSilenceRegions([]);
+    const newTracks = [];
+    for (let i = 0; i < n; i++) {
+      newTracks.push({
+        id: generateTrackId(),
+        startTime: (duration * i) / n,
+        endTime: (duration * (i + 1)) / n,
+        name: trackNames[i] || discogsData?.tracklist?.[i]?.title || `Track ${i + 1}`,
+      });
+    }
+    setTracks(newTracks);
+    if (peaksRef.current) {
+      peaksRef.current.segments.removeAll();
+      newTracks.forEach((track, i) => {
+        peaksRef.current.segments.add({
+          id: track.id,
+          startTime: track.startTime,
+          endTime: track.endTime,
+          labelText: `${i + 1}. ${track.name}`,
+          editable: true,
+          color: AUDIO_COLORS[i % AUDIO_COLORS.length],
+        });
+      });
+    }
+    setMessage(`✓ ${n} track(s) created from your specified count — drag the boundaries to adjust`);
+  };
+
   const detectSilence = () => {
     if (!channelData || channelData.length === 0) { setMessage("Load audio first"); return; }
     // If tracks already exist, just update names without re-splitting
     if (tracks.length > 0) { applyTrackNames(); return; }
-    const n = parseInt(manualTrackCount) || discogsData?.tracklist?.length;
-    if (!detectAll && (!n || n < 2)) { setMessage("Set number of tracks (at least 2), or enable \"Find all silences\""); return; }
     setIsAnalyzing(true); cancelRef.current = false; setExportedTracks([]);
     setAnalyzeLog([]); setShowAnalyzeLog(true);
     const log = (msg) => setAnalyzeLog(prev => [...prev, msg]);
     const tsStart = 0, tsEnd = duration;
     log(`Audio: ${formatTime(duration)} · Range: ${formatTime(tsStart)} → ${formatTime(tsEnd)}`);
-    log(`Target: ${detectAll ? "all silences" : `${n - 1} split(s) for ${n} tracks`}`);
+    log(`Target: all silences`);
     // Use requestAnimationFrame so the UI updates before the scan starts
     requestAnimationFrame(() => {
       try {
@@ -1730,7 +1804,6 @@ export default function RipTagPage() {
         const windowSamples = Math.max(1, Math.floor((silWindowMs / 1000) * sr));
         const thrAmp = Math.pow(10, silThresholdDb / 20);
         const minSilSamples = Math.floor(silMinDur * sr);
-        const target = detectAll ? 1 : n - 1;
         const regions = [];
         let silStart = -1;
         for (let i = 0; i < data.length; i += windowSamples) {
@@ -1758,15 +1831,20 @@ export default function RipTagPage() {
         if (cancelRef.current) { setMessage("Analysis cancelled"); return; }
         const bestRegions = regions;
         setSilenceRegions(bestRegions);
-        let pts;
-        if (detectAll) {
-          pts = bestRegions.map(r => r.mid).filter(m => m > tsStart + 0.1 && m < tsEnd - 0.1).sort((a, b) => a - b);
-          log(`Placing ${pts.length} split(s) at silence midpoints`);
-        } else {
-          pts = selectSplitPoints(bestRegions, n, duration, tsStart, tsEnd);
-          const method = bestRegions.length >= n - 1 ? "silence detection" : "equal division";
-          log(`Placed ${pts.length} split(s) via ${method}`);
+        const rawPts = bestRegions.map(r => r.mid).filter(m => m > tsStart + 0.1 && m < tsEnd - 0.1).sort((a, b) => a - b);
+        // Enforce minimum track length: greedily drop splits that would create a
+        // track shorter than silMinTrackLen. Guarantees every resulting track is
+        // at least that long (short segments merge into the previous track).
+        const minLen = Math.max(0, silMinTrackLen);
+        const pts = [];
+        let prevBoundary = tsStart;
+        for (const p of rawPts) {
+          if (p - prevBoundary >= minLen) { pts.push(p); prevBoundary = p; }
         }
+        // Drop the last split if the trailing track would be too short.
+        while (pts.length && tsEnd - pts[pts.length - 1] < minLen) pts.pop();
+        const dropped = rawPts.length - pts.length;
+        log(`Placing ${pts.length} split(s) at silence midpoints${dropped > 0 ? ` (dropped ${dropped} < ${minLen}s min track length)` : ""}`);
         // Convert split points to tracks with independent start/end
         const allPts = [tsStart, ...pts, tsEnd];
         const newTracks = [];
@@ -1793,8 +1871,7 @@ export default function RipTagPage() {
             });
           });
         }
-        const method = detectAll ? "all silences" : bestRegions.length >= n - 1 ? "silence detection" : "equal division";
-        setMessage(`✓ ${pts.length} split point(s) via ${method}`);
+        setMessage(`✓ ${pts.length} split point(s) via all silences`);
       } catch (err) {
         if (!cancelRef.current) { setMessage("Error: " + err.message); log("Error: " + err.message); }
       } finally {
@@ -2099,7 +2176,7 @@ export default function RipTagPage() {
       setImageLoadingStatus({ loaded: i, total: fresh.length, current: f.name });
       const id = `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
       // Add a placeholder entry immediately so the row appears with a spinner
-      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: false, paddingColor: "#000000" }]);
+      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: true, paddingColor: "#000000" }]);
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
       const { thumbUrl, width, height } = await createThumbnail(f);
       const previewUrl = URL.createObjectURL(f);
@@ -2759,14 +2836,22 @@ export default function RipTagPage() {
       if (!tokens) { log("error", "no tokens returned by getTokens()"); setYtUploadError("Not signed in to YouTube."); setYtUploading(false); return; }
       const currentYtData = ytUploadDataRef.current;
       const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_");
+      // Never upload with blank fields, and keep the on-screen fields in sync
+      // with exactly what we send so they stay accurate.
+      const finalTitle = (currentYtData.title || videoOutputName || projectName || "Untitled").slice(0, YT_LIMITS.title);
+      const finalDescription = (currentYtData.description || (ytDescSuffix || "").replace(/^\s+/, "")).slice(0, YT_LIMITS.description);
+      const finalTags = (currentYtData.tags || [videoOutputName || projectName, "full album", "vinyl rip"].filter(Boolean).join(", ")).slice(0, YT_LIMITS.tags);
+      if (finalTitle !== currentYtData.title || finalDescription !== currentYtData.description || finalTags !== currentYtData.tags) {
+        setYtUploadData(prev => ({ ...prev, title: finalTitle, description: finalDescription, tags: finalTags }));
+      }
       log("info", `[${elapsed()}] fetching rendered video blob…`, videoUrl);
       const videoBlob = await fetch(videoUrl).then(r => r.blob());
       const fd = new FormData();
-      fd.append("video", videoBlob, `${currentYtData.title || name}.mp4`);
-      fd.append("title", currentYtData.title || name);
-      fd.append("description", currentYtData.description || "");
+      fd.append("video", videoBlob, `${finalTitle || name}.mp4`);
+      fd.append("title", finalTitle || name);
+      fd.append("description", finalDescription);
       fd.append("privacyStatus", currentYtData.privacyStatus || "private");
-      const cleanedTags = (currentYtData.tags || "")
+      const cleanedTags = (finalTags || "")
         .split(",")
         .map(t => sanitizeYouTubeTag(t))
         .filter(Boolean);
@@ -2794,9 +2879,9 @@ export default function RipTagPage() {
 
       const sessionEndpoint = `${apiBaseURL()}/youtube/createUploadSession`;
       log("info", `[${elapsed()}] POST ${sessionEndpoint} (init resumable session)`, {
-        titleLen: (currentYtData.title || name).length,
-        descLen: (currentYtData.description || "").length,
-        tagsLen: (currentYtData.tags || "").length,
+        titleLen: (finalTitle || name).length,
+        descLen: finalDescription.length,
+        tagsLen: finalTags.length,
         privacyStatus: currentYtData.privacyStatus || "private",
         hasThumbnail: !!thumbnailFile,
         thumbnailSize: thumbnailFile?.size || 0,
@@ -3071,6 +3156,20 @@ export default function RipTagPage() {
       }
     }
     if (needsTags && discogsData) regenerateYtTags();
+
+    // Guarantee none of the upload fields are ever blank. Whatever is in these
+    // fields is exactly what gets uploaded to YouTube, so fall back to sensible
+    // defaults (never clobbering a value that's already there).
+    const fallbackTitle = (videoOutputName || projectName || "Untitled").slice(0, YT_LIMITS.title);
+    const fallbackDesc = (ytDescSuffix || "").replace(/^\s+/, "").slice(0, YT_LIMITS.description);
+    const fallbackTags = [videoOutputName || projectName, "full album", "vinyl rip"].filter(Boolean).join(", ").slice(0, YT_LIMITS.tags);
+    setYtUploadData(prev => {
+      const title = prev.title || fallbackTitle;
+      const description = prev.description || fallbackDesc;
+      const tags = prev.tags || fallbackTags;
+      if (title === prev.title && description === prev.description && tags === prev.tags) return prev;
+      return { ...prev, title, description, tags };
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, discogsData, renderedVideoSrc]);
 
@@ -3868,24 +3967,15 @@ export default function RipTagPage() {
                       {isAnalyzing ? (
                         <><span className={styles.spinnerInline} /> Analyzing…</>
                       ) : (
-                        <>⚡ Re-scan for silence / split points</>
+                        <>⚡ Click to auto find all silences (ignore track count)</>
                       )}
                     </button>
                     {isAnalyzing && (
                       <button className={styles.cancelBtn} onClick={() => { cancelRef.current = true; setIsAnalyzing(false); setMessage("Cancelled"); }}>Cancel</button>
                     )}
                   </div>
-                  <div className={styles.autoSplitOptions}>
-                    <label className={styles.autoSplitCheckLabel}>
-                      <input type="checkbox" checked={detectAll} onChange={e => { setDetectAll(e.target.checked); autoSplitDoneRef.current = false; }} />
-                      Find all silences
-                      <span className={styles.autoSplitCheckHint}>(ignore track count — add/remove manually)</span>
-                    </label>
-                  </div>
                   <span className={styles.autoSplitHint}>
-                    {detectAll
-                      ? "Will place a split at every detected silence"
-                      : <>Target: <strong>{parseInt(manualTrackCount) || discogsData?.tracklist?.length || "?"}</strong> tracks</>}
+                    Will place a split at every detected silence
                     {tracks.length > 0 && <> · <span className={styles.autoSplitDone}>✓ {tracks.length} tracks</span></>}
                   </span>
                 </div>
@@ -3905,7 +3995,12 @@ export default function RipTagPage() {
                     <input type="number" className={styles.silenceParamInput} value={silWindowMs} onChange={e => setSilWindowMs(parseInt(e.target.value) || 40)} min="10" max="200" step="10" />
                     <span className={styles.silenceParamUnit}>ms</span>
                   </label>
-                  <span className={styles.silenceParamHint}>Lower threshold = quieter silence. Increase min silence for fewer splits.</span>
+                  <label className={styles.silenceParamLabel}>
+                    Min track length
+                    <input type="number" className={styles.silenceParamInput} value={silMinTrackLen} onChange={e => setSilMinTrackLen(Math.max(0, parseFloat(e.target.value) || 0))} min="0" max="600" step="1" />
+                    <span className={styles.silenceParamUnit}>sec</span>
+                  </label>
+                  <span className={styles.silenceParamHint}>Lower threshold = quieter silence. Increase min silence or min track length for fewer splits.</span>
                 </div>
 
                 {message && <div className={styles.msgInline}>{message}</div>}
@@ -4459,16 +4554,27 @@ export default function RipTagPage() {
                                   </label>
                                 </td>
                                 <td onClick={e => e.stopPropagation()}>
-                                  {!img.useBlurBg && !img.stretchToFit ? (
-                                    <div className={styles.paddingColorRow}>
-                                      <input type="color" value={img.paddingColor} onChange={e => updateVideoImage(img.id, "paddingColor", e.target.value)} className={styles.colorPicker} />
-                                      {["#000000", "#ffffff", "#1a1a2e", "#16213e", "#0f3460"].map(c => (
-                                        <span key={c} onClick={() => updateVideoImage(img.id, "paddingColor", c)} title={c}
-                                          className={styles.colorSwatch}
-                                          style={{ background: c, border: img.paddingColor === c ? "2px solid #4299e1" : "1px solid #718096" }} />
-                                      ))}
-                                    </div>
-                                  ) : <span className={styles.hintText}>—</span>}
+                                  {/* Always render the padding controls so the column keeps a
+                                      constant width. When padding doesn't apply (blur bg or
+                                      stretch), dim + disable them instead of collapsing to "—",
+                                      which would reflow the whole table. */}
+                                  {(() => {
+                                    const disabled = img.useBlurBg || img.stretchToFit;
+                                    return (
+                                      <div
+                                        className={styles.paddingColorRow}
+                                        style={disabled ? { opacity: 0.35, pointerEvents: "none" } : undefined}
+                                        aria-disabled={disabled}
+                                      >
+                                        <input type="color" value={img.paddingColor} disabled={disabled} onChange={e => updateVideoImage(img.id, "paddingColor", e.target.value)} className={styles.colorPicker} />
+                                        {["#000000", "#ffffff", "#1a1a2e", "#16213e", "#0f3460"].map(c => (
+                                          <span key={c} onClick={() => !disabled && updateVideoImage(img.id, "paddingColor", c)} title={c}
+                                            className={styles.colorSwatch}
+                                            style={{ background: c, border: img.paddingColor === c ? "2px solid #4299e1" : "1px solid #718096" }} />
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
                                 </td>
                                 {slideshowMode === "manual" && (
                                   <td onClick={e => e.stopPropagation()}>
@@ -4930,11 +5036,39 @@ export default function RipTagPage() {
 
               {message && <p className={styles.msg}>{message}</p>}
 
-              {/* YouTube Upload Details (collapsible) */}
-              <details className={styles.ytDetailsBlock}>
+              {/* YouTube Upload Details (open by default) */}
+              <details className={styles.ytDetailsBlock} open>
                 <summary className={styles.ytDetailsSummary}>
                   <span style={{color:"#ff0000",marginRight:6}}>▶</span>
                   YouTube Upload Details
+                  {/* Always-visible "Queue upload" toggle. preventDefault keeps a
+                      click here from collapsing the <details> panel. */}
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.preventDefault(); e.stopPropagation();
+                      if (!ytAuthState.canAuth) return;
+                      autoUploadUserSetRef.current = true;
+                      setAutoUploadYt(v => !v);
+                    }}
+                    disabled={!ytAuthState.canAuth}
+                    aria-pressed={autoUploadYt}
+                    title={ytAuthState.canAuth
+                      ? "When on, the video uploads to YouTube automatically as soon as it finishes rendering"
+                      : "Sign in to YouTube to enable auto-upload"}
+                    style={{
+                      marginLeft: "auto",
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "0.3rem 0.7rem", borderRadius: 6,
+                      fontSize: 13, fontWeight: 600, cursor: ytAuthState.canAuth ? "pointer" : "not-allowed",
+                      border: `1px solid ${autoUploadYt ? "#38a169" : "#718096"}`,
+                      background: !ytAuthState.canAuth ? "#cbd5e0" : autoUploadYt ? "#38a169" : "transparent",
+                      color: !ytAuthState.canAuth ? "#4a5568" : autoUploadYt ? "#fff" : "inherit",
+                      opacity: ytAuthState.canAuth ? 1 : 0.7,
+                    }}
+                  >
+                    {autoUploadYt ? "✓ Queue upload: ON" : "Queue upload: OFF"}
+                  </button>
                 </summary>
                 <div className={styles.ytSection}>
                   <YouTubeAuth compact={true} returnUrl="/riptag" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
@@ -5065,42 +5199,31 @@ export default function RipTagPage() {
                       )}
                       <div style={{gridColumn:"1/-1"}}>
                         <button
-                          onClick={() => {
-                            // While rendering, clicking queues the upload to fire as soon as the render completes.
-                            if (isRenderingVideo && !renderedVideoSrc) {
-                              setAutoUploadYt(prev => !prev);
-                              return;
-                            }
-                            uploadToYouTube();
-                          }}
-                          disabled={ytUploading || (!renderedVideoSrc && !isRenderingVideo) || anyOver}
+                          onClick={() => uploadToYouTube()}
+                          disabled={ytUploading || !renderedVideoSrc || anyOver}
                           className={styles.exportBtn}
                           style={{
                             width: "100%",
                             background: ytUploading
                               ? undefined
-                              : anyOver
+                              : (anyOver || !renderedVideoSrc)
                                 ? "#cbd5e0"
-                                : autoUploadYt && isRenderingVideo
-                                  ? "#3182ce"
-                                  : (!renderedVideoSrc && !isRenderingVideo)
-                                    ? "#cbd5e0"
-                                    : "#ff0000",
+                                : "#ff0000",
                           }}
                         >
                           {ytUploading
                             ? (ytUploadProgress < 100 ? `Uploading… ${ytUploadProgress}%` : <span className={styles.ytProcessing}>Processing</span>)
-                            : isRenderingVideo && !renderedVideoSrc
-                              ? (autoUploadYt
-                                  ? `✓ Queued — will upload when render finishes${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}`
-                                  : `Queue upload (rendering ${videoRenderProgress !== null ? `${(videoRenderProgress * 100).toFixed(0)}%` : "…"})`)
-                              : !renderedVideoSrc
-                                ? "No video rendered"
-                                : "Upload to YouTube"}
+                            : !renderedVideoSrc
+                              ? (isRenderingVideo
+                                  ? (autoUploadYt
+                                      ? `Rendering — will auto-upload when ready${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}`
+                                      : `Rendering${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : "…"} — turn on "Queue upload" to auto-upload`)
+                                  : "No video rendered yet")
+                              : "Upload to YouTube now"}
                         </button>
                         {isRenderingVideo && !renderedVideoSrc && autoUploadYt && (
                           <div style={{ fontSize: 12, color: "#3182ce", marginTop: 6, textAlign: "center" }}>
-                            Upload will start automatically once the video finishes rendering. Click the button again to cancel.
+                            Queued — upload will start automatically once the video finishes rendering. Toggle the Queue upload button above to cancel.
                           </div>
                         )}
                       </div>
@@ -5135,7 +5258,19 @@ export default function RipTagPage() {
                                     const data = await res.json();
                                     if (data?.url) {
                                       try { localStorage.setItem('youtube_auth_return_url', '/riptag'); } catch {}
-                                      window.location.href = data.url;
+                                      // Open in a popup so this render page (and all its
+                                      // in-memory audio/image state) is never unloaded. Falls
+                                      // back to a same-tab redirect if the popup is blocked.
+                                      try { localStorage.setItem('youtube_auth_popup_flow', '1'); } catch {}
+                                      const w = 500, h = 650;
+                                      const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+                                      const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+                                      let popup = null;
+                                      try { popup = window.open(data.url, 'youtube_oauth', `width=${w},height=${h},left=${left},top=${top}`); } catch { popup = null; }
+                                      if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+                                        try { localStorage.removeItem('youtube_auth_popup_flow'); } catch {}
+                                        window.location.href = data.url;
+                                      }
                                       return;
                                     }
                                   }
@@ -5380,24 +5515,101 @@ export default function RipTagPage() {
 function TrackClipPanel({ track, range, onChange, onReset }) {
   const audioRef = useRef(null);
   const stopAtRef = useRef(null);
+  const canvasRef = useRef(null);
   const [start, setStart] = useState(range.clipStart);
   const [end, setEnd] = useState(range.clipEnd);
-
-  // Sync local state when the external range changes (e.g. another row reset us)
-  useEffect(() => { setStart(range.clipStart); setEnd(range.clipEnd); }, [range.clipStart, range.clipEnd]);
+  // Editable text for the start/end fields, shown as M:SS / H:MM:SS. Kept as
+  // free text while the user types and only parsed back to seconds on
+  // blur/Enter so a controlled formatter doesn't fight their keystrokes.
+  const [startText, setStartText] = useState(formatClock(range.clipStart));
+  const [endText, setEndText] = useState(formatClock(range.clipEnd));
+  const [peaks, setPeaks] = useState(null);      // Float32Array of bar amplitudes
+  const [wfStatus, setWfStatus] = useState("loading"); // loading | ready | error
+  const [playhead, setPlayhead] = useState(null); // seconds, while previewing
 
   const fullDur = range.fullDur;
-  const fmt = (s) => {
-    const sec = Math.max(0, s);
-    const m = Math.floor(sec / 60);
-    const r = sec - m * 60;
-    return `${m}:${r.toFixed(2).padStart(5, "0")}`;
-  };
+
+  // Sync local state when the external range changes (e.g. another row reset us)
+  useEffect(() => {
+    setStart(range.clipStart); setEnd(range.clipEnd);
+    setStartText(formatClock(range.clipStart)); setEndText(formatClock(range.clipEnd));
+  }, [range.clipStart, range.clipEnd]);
+
+  // Decode the track once at a low sample rate and reduce it to a small set of
+  // amplitude bars for the waveform. Low-rate mono keeps memory tiny (same
+  // approach as the main decode) and the decoded buffer is released immediately.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setWfStatus("loading");
+        const resp = await fetch(track.url);
+        const buf = await resp.arrayBuffer();
+        const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+        const decoded = await new OfflineCtx(1, 1, 8000).decodeAudioData(buf);
+        if (cancelled) return;
+        const data = decoded.getChannelData(0);
+        const BARS = 800;
+        const block = Math.max(1, Math.floor(data.length / BARS));
+        const out = new Float32Array(BARS);
+        for (let i = 0; i < BARS; i++) {
+          let max = 0;
+          const base = i * block;
+          for (let j = 0; j < block && base + j < data.length; j++) {
+            const v = Math.abs(data[base + j]);
+            if (v > max) max = v;
+          }
+          out[i] = max;
+        }
+        if (!cancelled) { setPeaks(out); setWfStatus("ready"); }
+      } catch {
+        if (!cancelled) setWfStatus("error");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [track.url]);
+
+  // Draw the waveform with the selected clip region highlighted plus the
+  // start/end markers and the live playhead.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !peaks || !fullDur) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 640;
+    const h = canvas.clientHeight || 64;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const mid = h / 2;
+    const barW = w / peaks.length;
+    const sx = (start / fullDur) * w;
+    const ex = (end / fullDur) * w;
+    // clip region shading
+    ctx.fillStyle = "rgba(102,126,234,0.15)";
+    ctx.fillRect(sx, 0, Math.max(0, ex - sx), h);
+    // bars: in-clip bars are vivid, outside bars are muted
+    for (let i = 0; i < peaks.length; i++) {
+      const x = i * barW;
+      ctx.fillStyle = (x >= sx && x <= ex) ? "#667eea" : "#c2c7d4";
+      const bh = Math.max(1, peaks[i] * (h * 0.92));
+      ctx.fillRect(x, mid - bh / 2, Math.max(1, barW - 0.4), bh);
+    }
+    // start / end markers
+    ctx.fillStyle = "#2f9e44"; ctx.fillRect(sx - 1, 0, 2, h);
+    ctx.fillStyle = "#e64980"; ctx.fillRect(ex - 1, 0, 2, h);
+    // playhead
+    if (playhead != null) {
+      const px = (playhead / fullDur) * w;
+      ctx.fillStyle = "#1a1a2e"; ctx.fillRect(px - 0.5, 0, 1, h);
+    }
+  }, [peaks, start, end, fullDur, playhead]);
 
   const commit = (newStart, newEnd) => {
     const ns = Math.max(0, Math.min(fullDur, newStart));
     const ne = Math.max(ns, Math.min(fullDur, newEnd));
     setStart(ns); setEnd(ne);
+    setStartText(formatClock(ns)); setEndText(formatClock(ne));
     if (ns === 0 && ne === fullDur) onReset();
     else onChange(ns, ne);
   };
@@ -5411,8 +5623,11 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   };
 
   const onTimeUpdate = () => {
-    if (stopAtRef.current != null && audioRef.current && audioRef.current.currentTime >= stopAtRef.current) {
-      audioRef.current.pause();
+    const a = audioRef.current;
+    if (!a) return;
+    setPlayhead(a.currentTime);
+    if (stopAtRef.current != null && a.currentTime >= stopAtRef.current) {
+      a.pause();
       stopAtRef.current = null;
     }
   };
@@ -5424,31 +5639,57 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
     if (audioRef.current) commit(start, audioRef.current.currentTime);
   };
 
+  // Click the waveform to move the audio playhead to that point.
+  const onWaveClick = (e) => {
+    const canvas = canvasRef.current, a = audioRef.current;
+    if (!canvas || !a) return;
+    const rect = canvas.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    a.currentTime = frac * fullDur;
+    setPlayhead(a.currentTime);
+  };
+
   return (
     <div className={styles.clipPanel}>
+      <div
+        className={styles.clipWaveWrap}
+        title="Click to move the playhead"
+      >
+        {wfStatus === "ready" ? (
+          <canvas ref={canvasRef} className={styles.clipWaveCanvas} onClick={onWaveClick} />
+        ) : (
+          <div className={styles.clipWaveStatus}>
+            {wfStatus === "error" ? "Waveform unavailable" : "Loading waveform…"}
+          </div>
+        )}
+      </div>
       <audio ref={audioRef} src={track.url} controls preload="metadata" onTimeUpdate={onTimeUpdate} className={styles.clipAudio} />
       <div className={styles.clipControlsRow}>
         <label className={styles.clipField}>
           <span>Start</span>
           <input
-            type="number" min={0} max={fullDur} step={0.1}
-            value={start.toFixed(2)}
-            onChange={e => commit(parseFloat(e.target.value) || 0, end)}
+            type="text" inputMode="numeric" placeholder="m:ss"
+            value={startText}
+            onChange={e => setStartText(e.target.value)}
+            onBlur={() => commit(parseClock(startText), end)}
+            onKeyDown={e => { if (e.key === "Enter") { commit(parseClock(startText), end); e.target.blur(); } }}
           />
           <button type="button" onClick={setStartHere} title="Use current playhead">⏱</button>
         </label>
         <label className={styles.clipField}>
           <span>End</span>
           <input
-            type="number" min={0} max={fullDur} step={0.1}
-            value={end.toFixed(2)}
-            onChange={e => commit(start, parseFloat(e.target.value) || 0)}
+            type="text" inputMode="numeric" placeholder="m:ss"
+            value={endText}
+            onChange={e => setEndText(e.target.value)}
+            onBlur={() => commit(start, parseClock(endText))}
+            onKeyDown={e => { if (e.key === "Enter") { commit(start, parseClock(endText)); e.target.blur(); } }}
           />
           <button type="button" onClick={setEndHere} title="Use current playhead">⏱</button>
         </label>
         <button type="button" className={styles.clipPlayBtn} onClick={playClip}>▶ Preview clip</button>
         <button type="button" className={styles.clipResetBtn} onClick={() => commit(0, fullDur)} disabled={!range.isClipped}>Reset to full</button>
-        <span className={styles.clipDurLabel}>Clip: {fmt(end - start)} · Track: {fmt(fullDur)}</span>
+        <span className={styles.clipDurLabel}>Clip: {formatClock(end - start)} · Track: {formatClock(fullDur)}</span>
       </div>
     </div>
   );

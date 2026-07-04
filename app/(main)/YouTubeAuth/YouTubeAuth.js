@@ -172,19 +172,32 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     addDebugLog('Cleared stored tokens. Will re-exchange code on next attempt.', 'info');
   };
 
-  // Initiate sign-in — redirect the current tab to Google's OAuth page.
-  // We stash the desired post-auth return URL in localStorage so the
-  // /youtube callback page can router.push() us back here once the auth
-  // code is captured (see app/(main)/youtube/page.js).
+  // Initiate sign-in in a POPUP so the launching page is never unloaded. This
+  // matters on pages like the RipTag video render step, whose in-memory audio
+  // File, image blobs, and unsaved options would be destroyed by a full-page
+  // redirect. The /youtube callback detects the popup-flow flag, stores the
+  // auth code, and shows a "close this tab" screen; this tab's `storage`
+  // listener (below) picks up the new code and re-verifies without a reload.
+  // If the popup is blocked, we fall back to the old same-tab redirect.
   const handleSignIn = () => {
     if (!authUrl || authUrlLoading) return;
-    // Clear any stale popup-flow flag from previous sessions so the callback
-    // page doesn't show the "you can close this tab" screen on a same-tab flow.
-    try { localStorage.removeItem('youtube_auth_popup_flow'); } catch {}
     if (returnUrl && returnUrl !== '/youtube') {
       try { localStorage.setItem('youtube_auth_return_url', returnUrl); } catch {}
     }
-    window.location.href = authUrl;
+    try { localStorage.setItem('youtube_auth_popup_flow', '1'); } catch {}
+    const w = 500, h = 650;
+    const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+    const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+    let popup = null;
+    try {
+      popup = window.open(authUrl, 'youtube_oauth', `width=${w},height=${h},left=${left},top=${top}`);
+    } catch { popup = null; }
+    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+      // Popup blocked — fall back to a same-tab redirect. Clear the flag so the
+      // callback navigates back instead of showing the "close this tab" screen.
+      try { localStorage.removeItem('youtube_auth_popup_flow'); } catch {}
+      window.location.href = authUrl;
+    }
   };
 
   // Verify cached tokens actually work against Google (catches invalid_grant
