@@ -2495,24 +2495,35 @@ app.post('/internal-api/youtube/clearAuth', (req, res) => {
 
 // Exchange auth code for tokens
 app.post('/youtube/exchangeCode', (req, res) => {
-  if (process.env.NODE_ENV === 'development') {
-    logger.info("🔄 [POST /youtube/exchangeCode] Hit");
-  }
-  
+  console.log("🔄 [POST /youtube/exchangeCode] Hit");
+
   try {
     const { code, scope } = req.body;
-    
+
     if (!code) {
       return res.status(400).json({ error: 'Auth code is required' });
     }
 
-    // Exchange code for tokens
-    oauth2Client.getToken(code, (err, tokens) => {
+    // Pass redirect_uri EXPLICITLY so the exchange uses the exact URI the code
+    // was issued for (getAuthUrl uses getYouTubeRedirectUrl()). Relying on the
+    // client's default redirectUri can silently mismatch → invalid_grant.
+    const redirectUriUsed = getYouTubeRedirectUrl();
+    console.log('Exchanging code with redirect_uri:', redirectUriUsed, '| codePrefix:', String(code).slice(0, 8));
+
+    oauth2Client.getToken({ code, redirect_uri: redirectUriUsed }, (err, tokens) => {
       if (err) {
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Error exchanging code for tokens:', err);
-        }
-        return res.status(400).json({ error: 'Invalid auth code' });
+        // Always log + return the real Google reason so 400s are diagnosable in
+        // prod. `invalid_grant` = code already used/expired; `redirect_uri_mismatch`
+        // = the URI here differs from getAuthUrl's.
+        const googleErrorData = err.response?.data || {};
+        console.error('[/youtube/exchangeCode] getToken FAILED:', err.message, '| google:', JSON.stringify(googleErrorData), '| redirect_uri:', redirectUriUsed);
+        return res.status(400).json({
+          error: 'Invalid auth code',
+          details: err.message,
+          googleError: googleErrorData.error || null,
+          googleErrorDescription: googleErrorData.error_description || null,
+          redirectUriUsed,
+        });
       }
 
       // Store tokens in session
@@ -2522,10 +2533,8 @@ app.post('/youtube/exchangeCode', (req, res) => {
         authenticatedAt: new Date().toISOString()
       };
 
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Auth code exchanged successfully for tokens');
-      }
-      res.status(200).json({ 
+      console.log('Auth code exchanged successfully. Has refresh_token:', !!tokens?.refresh_token);
+      res.status(200).json({
         message: 'Auth code exchanged successfully',
         isAuthenticated: true,
         tokens: tokens
@@ -2533,10 +2542,8 @@ app.post('/youtube/exchangeCode', (req, res) => {
     });
 
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Error exchanging auth code:', error.message);
-    }
-    res.status(500).json({ error: 'Failed to exchange auth code' });
+    console.error('[/youtube/exchangeCode] caught:', error.message);
+    res.status(500).json({ error: 'Failed to exchange auth code', details: error.message });
   }
 });
 
