@@ -7,7 +7,12 @@ import ResultsView from './ResultsView';
 // Always render fresh — the token is single-use-ish and results change.
 export const dynamic = 'force-dynamic';
 
-const BOT_API_URL = process.env.BOT_API_URL || 'http://localhost:3000';
+// The bot API base. In production default to the public bot host so this works
+// without a runtime env var; localhost is only for local dev. SITE_SHARED_SECRET
+// (a real secret) still must come from the environment.
+const BOT_API_URL =
+  process.env.BOT_API_URL ||
+  (process.env.NODE_ENV === 'production' ? 'https://bot.martinbarker.me' : 'http://localhost:3000');
 
 export default async function ResultsPage({ params, searchParams }) {
   const { scanId } = await params;

@@ -2,7 +2,14 @@
 import React, { useState, useEffect, useRef, useContext, useMemo } from 'react';
 import { ColorContext } from '../../../ColorContext';
 
-const BOT_API_URL = process.env.NEXT_PUBLIC_BOT_API_URL || 'http://localhost:3000';
+// Bot API base for browser calls (OAuth popup + SSE). NEXT_PUBLIC_* is inlined
+// at build time; since we don't set it during the Docker build, derive the URL
+// from the current host instead: the public bot host in prod, localhost in dev.
+const BOT_API_URL =
+  process.env.NEXT_PUBLIC_BOT_API_URL ||
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? 'https://bot.martinbarker.me'
+    : 'http://localhost:3000');
 
 const PLATFORM_LABEL = {
   youtube: 'YouTube',
