@@ -1489,6 +1489,17 @@ function firebaseConfigHandler(req, res) {
 app.get('/firebase/config', firebaseConfigHandler);
 app.get('/internal-api/firebase/config', firebaseConfigHandler);
 
+// Version endpoint — returns the version from package.json so you can confirm
+// which backend build is live. Bump "version" in package.json each deploy, then
+// check /internal-api/version to verify the new backend actually shipped.
+const versionHandler = (req, res) => {
+  let version = 'unknown';
+  try { version = require('./package.json').version; } catch {}
+  res.status(200).json({ version });
+};
+app.get('/version', versionHandler);
+app.get('/internal-api/version', versionHandler);
+
 // Discogs configuration check endpoint
 app.get('/discogs/config', (req, res) => {
   const config = {
