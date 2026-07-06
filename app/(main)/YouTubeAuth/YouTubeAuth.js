@@ -115,6 +115,14 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     if (exchangeInFlight) return exchangeInFlight;
     addDebugLog('Exchanging auth code for tokens...', 'info');
     addDebugLog(`Auth code (first 4 chars): ${status.code.substring(0, 4)}...`, 'info');
+    // Always-on breadcrumb (prod included) so OAuth failures are diagnosable
+    // from a normal browser session without a dev build. No secrets logged.
+    const exchangeContext = {
+      apiBase: apiBaseURL(),
+      origin: typeof window !== 'undefined' ? window.location.origin : null,
+      codePrefix: status.code.slice(0, 6),
+    };
+    try { console.info('[YouTubeAuth] exchanging auth code', exchangeContext); } catch {}
     exchangeInFlight = (async () => {
       try {
         const res = await fetch(`${apiBaseURL()}/youtube/exchangeCode`, {
@@ -130,6 +138,22 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
           if (data.googleError) msg += ` | Google: ${data.googleError}`;
           if (data.googleErrorDescription) msg += ` (${data.googleErrorDescription})`;
           if (data.redirectUriUsed) msg += ` | redirect_uri: ${data.redirectUriUsed}`;
+          // Always log the full failure to the console (prod included) — this is
+          // the single most useful line for diagnosing the 400. `googleError`
+          // distinguishes invalid_grant (code reused/expired) from
+          // redirect_uri_mismatch, and `redirectUriUsed` shows what the server
+          // sent Google (watch for www vs non-www mismatch with `origin`).
+          try {
+            console.error('[YouTubeAuth] exchangeCode FAILED', {
+              status: res.status,
+              ...exchangeContext,
+              googleError: data.googleError || null,
+              googleErrorDescription: data.googleErrorDescription || null,
+              redirectUriUsed: data.redirectUriUsed || null,
+              serverError: data.error || null,
+              details: data.details || null,
+            });
+          } catch {}
           addDebugLog(`exchangeCode FAILED: ${msg}`, 'error');
           // Auth code is stale — clear it
           localStorage.removeItem('youtube_auth_code');
