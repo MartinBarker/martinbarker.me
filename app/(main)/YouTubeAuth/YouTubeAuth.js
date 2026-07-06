@@ -10,10 +10,18 @@ const YOUTUBE_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
 // invalid_grant. Module-scoped so it's shared across all callers in this tab.
 let exchangeInFlight = null;
 
-const apiBaseURL = () =>
-  process.env.NODE_ENV === 'development'
-    ? 'http://localhost:3030'
-    : 'https://www.martinbarker.me/internal-api';
+// Derive the API base from the CURRENT origin in production, rather than
+// hardcoding www. The whole OAuth flow (getAuthUrl → Google → callback
+// redirect_uri → exchangeCode) must stay on ONE host: if the page is on
+// non-www but the exchange POSTs to www, session cookies don't carry across
+// the origins and the redirect_uri no longer matches how the code was issued,
+// which Google rejects with a 400 on exchangeCode. (The RipTag page already
+// derives its API base from window.location.origin — this matches it.)
+const apiBaseURL = () => {
+  if (process.env.NODE_ENV === 'development') return 'http://localhost:3030';
+  if (typeof window !== 'undefined') return `${window.location.origin}/internal-api`;
+  return 'https://martinbarker.me/internal-api';
+};
 
 function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, blackTextOnWhite = false, darkMode = false }, _ref) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
