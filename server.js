@@ -2502,41 +2502,84 @@ app.post('/internal-api/youtube/clearAuth', (req, res) => {
 const inFlightTokenExchanges = new Map(); // code -> Promise<{status, body, session?}>
 
 function exchangeYouTubeCode(code) {
-  return new Promise((resolve) => {
-    // Pass redirect_uri EXPLICITLY so the exchange uses the exact URI the code
-    // was issued for (getAuthUrl uses getYouTubeRedirectUrl()).
-    const redirectUriUsed = getYouTubeRedirectUrl();
-    console.log('Exchanging code with redirect_uri:', redirectUriUsed, '| codePrefix:', String(code).slice(0, 8));
+  // Pass redirect_uri EXPLICITLY so the exchange uses the exact URI the code was
+  // issued for (getAuthUrl uses getYouTubeRedirectUrl()).
+  const redirectUriUsed = getYouTubeRedirectUrl();
+  console.log('Exchanging code with redirect_uri:', redirectUriUsed, '| codePrefix:', String(code).slice(0, 8));
 
-    // Use a FRESH OAuth2 client for the exchange instead of the shared global
-    // `oauth2Client`. Under Node 24's undici, concurrent getToken() calls on the
-    // SAME client corrupt each other's HTTPS connection to oauth2.googleapis.com
-    // and fail with "Premature close". The shared client is also mutated by the
-    // Discogs/Listogs flows. A per-exchange client isolates it.
-    const exchangeClient = initializeYouTubeOAuthClient(gcpClientId, gcpClientSecret);
-    exchangeClient.getToken({ code, redirect_uri: redirectUriUsed }, (err, tokens) => {
-      if (err) {
-        const googleErrorData = err.response?.data || {};
-        console.error('[/youtube/exchangeCode] getToken FAILED:', err.message, '| google:', JSON.stringify(googleErrorData), '| redirect_uri:', redirectUriUsed);
-        return resolve({
+  // Do the token exchange with Node's built-in `https` module instead of
+  // google-auth-library's getToken(). On Node 24 the library's request goes
+  // through gaxios → native fetch (undici), which fails intermittently with
+  // "Invalid response body … Premature close" against oauth2.googleapis.com in
+  // this container. The classic https stack is tolerant of that. Retries on
+  // network errors (a genuine premature-close won't have consumed the code).
+  const postData = querystring.stringify({
+    code,
+    client_id: gcpClientId,
+    client_secret: gcpClientSecret,
+    redirect_uri: redirectUriUsed,
+    grant_type: 'authorization_code',
+  });
+
+  const attempt = (triesLeft) => new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'oauth2.googleapis.com',
+      path: '/token',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        let json = {};
+        try { json = JSON.parse(data); } catch { /* non-JSON body */ }
+        if (res.statusCode === 200 && json.access_token) {
+          if (json.expires_in && !json.expiry_date) json.expiry_date = Date.now() + json.expires_in * 1000;
+          console.log('Auth code exchanged successfully. Has refresh_token:', !!json.refresh_token);
+          return resolve({
+            status: 200,
+            session: { isAuthenticated: true, tokens: json, authenticatedAt: new Date().toISOString() },
+            body: { message: 'Auth code exchanged successfully', isAuthenticated: true, tokens: json },
+          });
+        }
+        // HTTP error from Google (e.g. invalid_grant) — do NOT retry, the code
+        // is spent or the request was rejected.
+        console.error('[/youtube/exchangeCode] token endpoint error:', res.statusCode, '|', data.slice(0, 300));
+        resolve({
           status: 400,
           body: {
             error: 'Invalid auth code',
-            details: err.message,
-            googleError: googleErrorData.error || null,
-            googleErrorDescription: googleErrorData.error_description || null,
+            details: `token endpoint HTTP ${res.statusCode}`,
+            googleError: json.error || null,
+            googleErrorDescription: json.error_description || null,
             redirectUriUsed,
           },
         });
-      }
-      console.log('Auth code exchanged successfully. Has refresh_token:', !!tokens?.refresh_token);
-      resolve({
-        status: 200,
-        session: { isAuthenticated: true, tokens, authenticatedAt: new Date().toISOString() },
-        body: { message: 'Auth code exchanged successfully', isAuthenticated: true, tokens },
       });
+      res.on('error', (err) => retryOrFail(err));
     });
+    const retryOrFail = (err) => {
+      console.error('[/youtube/exchangeCode] request error:', err.message, '| triesLeft:', triesLeft);
+      if (triesLeft > 0) {
+        setTimeout(() => attempt(triesLeft - 1).then(resolve), 300);
+      } else {
+        resolve({
+          status: 400,
+          body: { error: 'Invalid auth code', details: err.message, googleError: null, googleErrorDescription: null, redirectUriUsed },
+        });
+      }
+    };
+    req.on('error', retryOrFail);
+    req.setTimeout(15000, () => req.destroy(new Error('token endpoint timeout')));
+    req.write(postData);
+    req.end();
   });
+
+  return attempt(2); // up to 3 total attempts on network errors
 }
 
 async function handleYouTubeExchangeCode(req, res) {
