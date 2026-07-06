@@ -2300,68 +2300,42 @@ app.get('/internal-api/youtube/getAuthUrl', ensureSecretsInitialized, async (req
   }
 });
 
-// YouTube OAuth2 callback
+// YouTube OAuth2 callback.
+// IMPORTANT: do NOT exchange the code here. The frontend performs a single
+// exchange via /youtube/exchangeCode so it can store the tokens client-side
+// (RipTag needs them in the browser for uploads). Exchanging here too would
+// consume the single-use code, and the client's exchange would then fail with
+// "Invalid auth code". So just forward the code to the frontend /youtube page.
 app.get('/youtube/callback', async (req, res) => {
   console.log("📺 [GET /youtube/callback] Hit:", req.originalUrl);
 
-  const { code } = req.query;
+  const { code, scope } = req.query;
   if (!code) {
     return res.status(400).send('No code found in the request.');
   }
 
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-
-    console.log('YouTube User authenticated. Tokens:', tokens);
-
-    // Store tokens in session
-    req.session.youtubeAuth = {
-      tokens: tokens,
-      isAuthenticated: true,
-      authenticatedAt: new Date().toISOString()
-    };
-
-    // Update global auth status
-    authStatus.isAuthenticated = true;
-
-    // Redirect to the frontend route
-    const redirectUrl = isDev ? 'http://localhost:3001/youtube' : 'https://martinbarker.me/youtube';
-    res.redirect(redirectUrl);
-  } catch (error) {
-    console.error('Error during YouTube authentication:', error.message);
-    res.status(500).send('Authentication failed.');
-  }
+  const frontendBase = isDev ? 'http://localhost:3001' : 'https://martinbarker.me';
+  const params = new URLSearchParams({ code });
+  if (scope) params.set('scope', scope);
+  res.redirect(`${frontendBase}/youtube?${params.toString()}`);
 });
 
-// YouTube OAuth2 callback for production (with /internal-api prefix)
+// YouTube OAuth2 callback for production (with /internal-api prefix).
+// Same as /youtube/callback: forward the code to the frontend instead of
+// exchanging it here, so the single-use code is exchanged exactly once (by the
+// client) and the tokens land in the browser where RipTag needs them.
 app.get('/internal-api/youtube/callback', async (req, res) => {
   console.log("📺 [GET /internal-api/youtube/callback] Hit:", req.originalUrl);
 
-  const { code } = req.query;
+  const { code, scope } = req.query;
   if (!code) {
     return res.status(400).send('No code found in the request.');
   }
 
   try {
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-
-    console.log('YouTube User authenticated. Tokens:', tokens);
-
-    // Store tokens in session
-    req.session.youtubeAuth = {
-      tokens: tokens,
-      isAuthenticated: true,
-      authenticatedAt: new Date().toISOString()
-    };
-
-    // Update global auth status
-    authStatus.isAuthenticated = true;
-
-    // Redirect to the frontend route
-    const redirectUrl = 'https://martinbarker.me/youtube';
-    res.redirect(redirectUrl);
+    const params = new URLSearchParams({ code });
+    if (scope) params.set('scope', scope);
+    res.redirect(`https://martinbarker.me/youtube?${params.toString()}`);
   } catch (error) {
     console.error('Error during YouTube authentication:', error.message);
     res.status(500).send('Authentication failed.');
