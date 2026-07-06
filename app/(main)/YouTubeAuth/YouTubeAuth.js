@@ -3,6 +3,13 @@ import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'rea
 
 const YOUTUBE_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
 
+// A Google OAuth code is single-use. When several callers (the mount effect, the
+// cross-tab storage listener, and the upload flow) fire near-simultaneously —
+// which the popup sign-in flow makes common — they must share ONE exchange
+// instead of each POSTing the same code. A duplicate exchange returns 400
+// invalid_grant. Module-scoped so it's shared across all callers in this tab.
+let exchangeInFlight = null;
+
 const apiBaseURL = () =>
   process.env.NODE_ENV === 'development'
     ? 'http://localhost:3030'
@@ -103,40 +110,49 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     }
     const status = refreshLocalAuthStatus();
     if (!status.code) return null;
+    // Reuse an in-flight exchange so concurrent callers never POST the same
+    // single-use code twice (which Google rejects with 400 invalid_grant).
+    if (exchangeInFlight) return exchangeInFlight;
     addDebugLog('Exchanging auth code for tokens...', 'info');
     addDebugLog(`Auth code (first 4 chars): ${status.code.substring(0, 4)}...`, 'info');
-    try {
-      const res = await fetch(`${apiBaseURL()}/youtube/exchangeCode`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ code: status.code, scope: status.scope }),
-      });
-      const data = await res.json().catch(e => ({ parseError: e.message }));
-      if (!res.ok) {
-        let msg = data.error || 'Failed to exchange auth code';
-        if (data.details) msg += ` | ${data.details}`;
-        if (data.googleError) msg += ` | Google: ${data.googleError}`;
-        if (data.googleErrorDescription) msg += ` (${data.googleErrorDescription})`;
-        if (data.redirectUriUsed) msg += ` | redirect_uri: ${data.redirectUriUsed}`;
-        addDebugLog(`exchangeCode FAILED: ${msg}`, 'error');
-        // Auth code is stale — clear it
-        localStorage.removeItem('youtube_auth_code');
-        localStorage.removeItem('youtube_auth_scope');
-        localStorage.removeItem('youtube_auth_set_time');
-        setYoutubeAuthStatus({ exists: false, code: null, scope: null, setTime: null, expiresAt: null });
-        setError(msg);
+    exchangeInFlight = (async () => {
+      try {
+        const res = await fetch(`${apiBaseURL()}/youtube/exchangeCode`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ code: status.code, scope: status.scope }),
+        });
+        const data = await res.json().catch(e => ({ parseError: e.message }));
+        if (!res.ok) {
+          let msg = data.error || 'Failed to exchange auth code';
+          if (data.details) msg += ` | ${data.details}`;
+          if (data.googleError) msg += ` | Google: ${data.googleError}`;
+          if (data.googleErrorDescription) msg += ` (${data.googleErrorDescription})`;
+          if (data.redirectUriUsed) msg += ` | redirect_uri: ${data.redirectUriUsed}`;
+          addDebugLog(`exchangeCode FAILED: ${msg}`, 'error');
+          // Auth code is stale — clear it
+          localStorage.removeItem('youtube_auth_code');
+          localStorage.removeItem('youtube_auth_scope');
+          localStorage.removeItem('youtube_auth_set_time');
+          setYoutubeAuthStatus({ exists: false, code: null, scope: null, setTime: null, expiresAt: null });
+          setError(msg);
+          return null;
+        }
+        if (data.tokens) {
+          localStorage.setItem('youtube_tokens', JSON.stringify(data.tokens));
+          addDebugLog('Token exchange succeeded', 'info');
+          return data.tokens;
+        }
         return null;
+      } catch (err) {
+        addDebugLog(`Token exchange error: ${err.message}`, 'error');
+        return null;
+      } finally {
+        exchangeInFlight = null;
       }
-      if (data.tokens) {
-        localStorage.setItem('youtube_tokens', JSON.stringify(data.tokens));
-        addDebugLog('Token exchange succeeded', 'info');
-        return data.tokens;
-      }
-    } catch (err) {
-      addDebugLog(`Token exchange error: ${err.message}`, 'error');
-    }
-    return null;
+    })();
+    return exchangeInFlight;
   };
 
   // Expose getTokens via ref
@@ -283,13 +299,17 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
   useEffect(() => {
     const onStorage = (e) => {
       if (!e || e.storageArea !== window.localStorage) return;
+      // Only react to a value being SET (newValue present). The callback tab
+      // also REMOVES stale youtube_tokens right after storing the fresh code;
+      // reacting to that removal fired a *second* verifyTokens() → a duplicate
+      // exchangeCode for the single-use auth code → 400 invalid_grant.
+      if (!e.newValue) return;
       if (e.key === 'youtube_auth_code' || e.key === 'youtube_tokens') {
-        // A sibling tab updated YouTube credentials — refresh and re-validate.
-        const status = refreshLocalAuthStatus();
+        // A sibling tab (e.g. the OAuth popup) published fresh credentials —
+        // refresh local state and re-validate without a reload.
+        refreshLocalAuthStatus();
         addDebugLog(`Detected auth update from another tab (${e.key}) — re-verifying…`, 'info');
-        if (status.exists || e.key === 'youtube_tokens') {
-          verifyTokens();
-        }
+        verifyTokens();
       }
     };
     window.addEventListener('storage', onStorage);
