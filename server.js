@@ -2396,6 +2396,53 @@ app.get('/internal-api/youtube/authStatus', (req, res) => {
 
 // Validate YouTube tokens by attempting a real refresh against Google.
 // Used by the client to detect invalid_grant before the user attempts an upload.
+// Refresh a YouTube access token via Node's built-in https module (NOT
+// google-auth-library, whose gaxios→undici path premature-closes against
+// oauth2.googleapis.com in this Node 24 container — same bug fixed in the code
+// exchange). Returns { ok } or { ok:false, reason, description }.
+function refreshYouTubeAccessToken(refreshToken) {
+  const postData = querystring.stringify({
+    client_id: gcpClientId,
+    client_secret: gcpClientSecret,
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token',
+  });
+  const attempt = (triesLeft) => new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'oauth2.googleapis.com',
+      path: '/token',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        let json = {};
+        try { json = JSON.parse(data); } catch { /* non-JSON */ }
+        if (res.statusCode === 200 && json.access_token) {
+          resolve({ ok: true });
+        } else {
+          resolve({ ok: false, reason: json.error || `http_${res.statusCode}`, description: json.error_description || '' });
+        }
+      });
+      res.on('error', retryOrFail);
+    });
+    const retryOrFail = (err) => {
+      if (triesLeft > 0) setTimeout(() => attempt(triesLeft - 1).then(resolve), 300);
+      else resolve({ ok: false, reason: err.message });
+    };
+    req.on('error', retryOrFail);
+    req.setTimeout(15000, () => req.destroy(new Error('token endpoint timeout')));
+    req.write(postData);
+    req.end();
+  });
+  return attempt(2);
+}
+
 async function _validateYouTubeTokensHandler(req, res) {
   try {
     logger?.info?.("🔐 [POST /youtube/validateTokens] Hit");
@@ -2417,24 +2464,17 @@ async function _validateYouTubeTokensHandler(req, res) {
     if (!gcpClientId || !gcpClientSecret) {
       return res.status(200).json({ valid: false, reason: 'oauth_client_unavailable' });
     }
-    const tempClient = new google.auth.OAuth2(
-      gcpClientId,
-      gcpClientSecret,
-      oauth2Client.redirectUri || getYouTubeRedirectUrl?.()
-    );
-    tempClient.setCredentials(tokens);
-    try {
-      if (tokens.refresh_token) {
-        await tempClient.refreshAccessToken();
-      } else {
-        await tempClient.getAccessToken();
-      }
-      return res.status(200).json({ valid: true });
-    } catch (err) {
-      const msg = (err?.response?.data?.error) || err?.message || 'unknown';
-      const desc = err?.response?.data?.error_description || '';
-      return res.status(200).json({ valid: false, reason: String(msg), description: String(desc) });
+    // Verify the tokens by refreshing via the https module. google-auth-library's
+    // refresh goes through gaxios → undici, which premature-closes against
+    // oauth2.googleapis.com in this container (same bug fixed in the exchange).
+    if (tokens.refresh_token) {
+      const r = await refreshYouTubeAccessToken(tokens.refresh_token);
+      if (r.ok) return res.status(200).json({ valid: true });
+      return res.status(200).json({ valid: false, reason: String(r.reason), description: String(r.description || '') });
     }
+    // Access-token-only (no refresh_token): we can't refresh it, so treat it as
+    // tentatively valid — it's short-lived and re-checked on actual API use.
+    return res.status(200).json({ valid: true });
   } catch (err) {
     console.error('validateTokens error:', err?.message || err);
     return res.status(500).json({ valid: false, reason: 'server_error' });
