@@ -2494,107 +2494,83 @@ app.post('/internal-api/youtube/clearAuth', (req, res) => {
 });
 
 // Exchange auth code for tokens
-app.post('/youtube/exchangeCode', (req, res) => {
-  console.log("🔄 [POST /youtube/exchangeCode] Hit");
+// Dedup concurrent exchanges of the same single-use code. The browser fires
+// exchangeCode twice; without this, the second call hits Google with an
+// already-consumed code and 400s. Sharing one in-flight exchange means Google's
+// token endpoint is called exactly once and BOTH browser POSTs get the same
+// (successful) result. Keyed by the auth code.
+const inFlightTokenExchanges = new Map(); // code -> Promise<{status, body, session?}>
 
-  try {
-    const { code, scope } = req.body;
-
-    if (!code) {
-      return res.status(400).json({ error: 'Auth code is required' });
-    }
-
+function exchangeYouTubeCode(code) {
+  return new Promise((resolve) => {
     // Pass redirect_uri EXPLICITLY so the exchange uses the exact URI the code
-    // was issued for (getAuthUrl uses getYouTubeRedirectUrl()). Relying on the
-    // client's default redirectUri can silently mismatch → invalid_grant.
+    // was issued for (getAuthUrl uses getYouTubeRedirectUrl()).
     const redirectUriUsed = getYouTubeRedirectUrl();
     console.log('Exchanging code with redirect_uri:', redirectUriUsed, '| codePrefix:', String(code).slice(0, 8));
 
-    oauth2Client.getToken({ code, redirect_uri: redirectUriUsed }, (err, tokens) => {
+    // Use a FRESH OAuth2 client for the exchange instead of the shared global
+    // `oauth2Client`. Under Node 24's undici, concurrent getToken() calls on the
+    // SAME client corrupt each other's HTTPS connection to oauth2.googleapis.com
+    // and fail with "Premature close". The shared client is also mutated by the
+    // Discogs/Listogs flows. A per-exchange client isolates it.
+    const exchangeClient = initializeYouTubeOAuthClient(gcpClientId, gcpClientSecret);
+    exchangeClient.getToken({ code, redirect_uri: redirectUriUsed }, (err, tokens) => {
       if (err) {
-        // Always log + return the real Google reason so 400s are diagnosable in
-        // prod. `invalid_grant` = code already used/expired; `redirect_uri_mismatch`
-        // = the URI here differs from getAuthUrl's.
         const googleErrorData = err.response?.data || {};
         console.error('[/youtube/exchangeCode] getToken FAILED:', err.message, '| google:', JSON.stringify(googleErrorData), '| redirect_uri:', redirectUriUsed);
-        return res.status(400).json({
-          error: 'Invalid auth code',
-          details: err.message,
-          googleError: googleErrorData.error || null,
-          googleErrorDescription: googleErrorData.error_description || null,
-          redirectUriUsed,
+        return resolve({
+          status: 400,
+          body: {
+            error: 'Invalid auth code',
+            details: err.message,
+            googleError: googleErrorData.error || null,
+            googleErrorDescription: googleErrorData.error_description || null,
+            redirectUriUsed,
+          },
         });
       }
-
-      // Store tokens in session
-      req.session.youtubeAuth = {
-        isAuthenticated: true,
-        tokens: tokens,
-        authenticatedAt: new Date().toISOString()
-      };
-
       console.log('Auth code exchanged successfully. Has refresh_token:', !!tokens?.refresh_token);
-      res.status(200).json({
-        message: 'Auth code exchanged successfully',
-        isAuthenticated: true,
-        tokens: tokens
+      resolve({
+        status: 200,
+        session: { isAuthenticated: true, tokens, authenticatedAt: new Date().toISOString() },
+        body: { message: 'Auth code exchanged successfully', isAuthenticated: true, tokens },
       });
     });
+  });
+}
 
-  } catch (error) {
-    console.error('[/youtube/exchangeCode] caught:', error.message);
-    res.status(500).json({ error: 'Failed to exchange auth code', details: error.message });
-  }
-});
-
-// Exchange auth code for tokens (production route)
-app.post('/internal-api/youtube/exchangeCode', (req, res) => {
-  console.log("🔄 [POST /internal-api/youtube/exchangeCode] Hit");
-
+async function handleYouTubeExchangeCode(req, res) {
+  console.log("🔄 [POST /youtube/exchangeCode] Hit");
   try {
-    const { code, scope } = req.body;
-
+    const { code } = req.body;
     if (!code) {
       return res.status(400).json({ error: 'Auth code is required' });
     }
-
-    const redirectUriUsed = oauth2Client.redirectUri || getYouTubeRedirectUrl();
-    console.log('Exchanging code with redirect_uri:', redirectUriUsed);
-
-    // Exchange code for tokens
-    oauth2Client.getToken(code, (err, tokens) => {
-      if (err) {
-        const googleErrorData = err.response?.data || {};
-        console.error('Error exchanging code for tokens:', err.message, JSON.stringify(googleErrorData));
-        return res.status(400).json({
-          error: 'Failed to exchange auth code for tokens',
-          details: err.message,
-          googleError: googleErrorData.error || null,
-          googleErrorDescription: googleErrorData.error_description || null,
-          redirectUriUsed: redirectUriUsed
-        });
-      }
-
-      // Store tokens in session
-      req.session.youtubeAuth = {
-        isAuthenticated: true,
-        tokens: tokens,
-        authenticatedAt: new Date().toISOString()
-      };
-
-      console.log('Auth code exchanged successfully. Token type:', tokens?.token_type, 'Has access_token:', !!tokens?.access_token, 'Has refresh_token:', !!tokens?.refresh_token);
-      res.status(200).json({
-        message: 'Auth code exchanged successfully',
-        isAuthenticated: true,
-        tokens: tokens
-      });
-    });
-
+    let promise = inFlightTokenExchanges.get(code);
+    if (!promise) {
+      promise = exchangeYouTubeCode(code);
+      inFlightTokenExchanges.set(code, promise);
+      // Keep the result briefly so a duplicate POST arriving right after the
+      // first resolves still shares it, then clean up.
+      promise.finally(() => setTimeout(() => inFlightTokenExchanges.delete(code), 10000));
+    }
+    const result = await promise;
+    if (result.session) {
+      req.session.youtubeAuth = result.session;
+    }
+    return res.status(result.status).json(result.body);
   } catch (error) {
-    console.error('Error exchanging auth code (caught):', error.message);
-    res.status(500).json({ error: 'Failed to exchange auth code', details: error.message });
+    console.error('[/youtube/exchangeCode] caught:', error.message);
+    return res.status(500).json({ error: 'Failed to exchange auth code', details: error.message });
   }
-});
+}
+
+app.post('/youtube/exchangeCode', handleYouTubeExchangeCode);
+
+// Exchange auth code for tokens (production route). Same deduped + fresh-client
+// handler as /youtube/exchangeCode (the /internal-api prefix is usually stripped
+// by the proxy, but wire this up too so it's correct either way).
+app.post('/internal-api/youtube/exchangeCode', handleYouTubeExchangeCode);
 
 // Create YouTube playlist
 app.post('/youtube/createPlaylist', (req, res) => {
