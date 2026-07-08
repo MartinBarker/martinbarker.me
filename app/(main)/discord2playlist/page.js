@@ -45,8 +45,8 @@ node start_discord_bot.js`;
       <nav className={styles.nav}>
         <div className={`${styles.wrap} ${styles.navInner}`}>
           <a className={styles.brand} href="#top">
-            <img src={APP_ICON} alt="discord2playlist icon" />
-            <span className={styles.bname}>discord2playlist</span>
+            <img src={APP_ICON} alt="Trawl icon" />
+            <span className={styles.bname}>Trawl</span>
           </a>
           <div className={styles.navLinks}>
             <a className={styles.lnk} href="#how">How it works</a>
@@ -68,7 +68,7 @@ node start_discord_bot.js`;
               Every link your server shares, <span className={styles.em}>spun into one playlist.</span>
             </h1>
             <p className={styles.heroSub}>
-              discord2playlist reads the music posted in a Discord channel and turns it into a single YouTube playlist — with one slash command.
+              Trawl reads the music posted in a Discord channel and turns it into a single YouTube playlist — with one slash command.
             </p>
             <div className={styles.heroCta}>
               <a className={`${styles.btn} ${styles.btnPrimary}`} href={INVITE_URL} target="_blank" rel="noopener noreferrer">
@@ -83,7 +83,7 @@ node start_discord_bot.js`;
             </div>
           </div>
           <div className={styles.iconStage}>
-            <img className={styles.iconHero} src={APP_ICON} alt="discord2playlist app icon" />
+            <img className={styles.iconHero} src={APP_ICON} alt="Trawl app icon" />
             <div className={`${styles.chipFloat} ${styles.cf1}`}><span className={styles.yt}></span>youtu.be/dQw4…</div>
             <div className={`${styles.chipFloat} ${styles.cf2}`}><span className={styles.yt}></span>added to playlist</div>
           </div>
@@ -101,7 +101,7 @@ node start_discord_bot.js`;
             <div className={styles.step}>
               <div className={styles.stepNum}><span className={styles.ring}>1</span>Invite</div>
               <h3>Add the bot</h3>
-              <p>Invite discord2playlist to your server. It only needs <em>Send Messages</em> and <em>Read Message History</em>.</p>
+              <p>Invite Trawl to your server. It only needs <em>Send Messages</em> and <em>Read Message History</em>.</p>
             </div>
             <div className={styles.step}>
               <div className={styles.stepNum}><span className={styles.ring}>2</span>Run</div>
@@ -238,9 +238,9 @@ node start_discord_bot.js`;
           <div className={styles.ctaBand}>
             <div className={styles.ghost}></div>
             <div className={`${styles.ghost} ${styles.ghostTwo}`}></div>
-            <img src={APP_ICON} alt="discord2playlist icon" />
+            <img src={APP_ICON} alt="Trawl icon" />
             <h2>Give your server a playlist that builds itself.</h2>
-            <p>Add discord2playlist in under a minute and turn months of shared links into one playlist everyone can hit play on.</p>
+            <p>Add Trawl in under a minute and turn months of shared links into one playlist everyone can hit play on.</p>
             <a className={`${styles.btn} ${styles.btnPrimary}`} href={INVITE_URL} target="_blank" rel="noopener noreferrer">
               <img className={styles.mk} src={CIRCLE_ICON} alt="" style={{ width: 20, height: 20 }} />Invite the bot
             </a>
@@ -252,7 +252,7 @@ node start_discord_bot.js`;
         <div className={`${styles.wrap} ${styles.footInner}`}>
           <div className={styles.footBrand}>
             <img src={APP_ICON} alt="" />
-            <span className={styles.bname}>discord2playlist</span>
+            <span className={styles.bname}>Trawl</span>
           </div>
           <div className={styles.footMeta}>
             Discord → YouTube playlist bot · open source

@@ -37,11 +37,27 @@
   align-self: flex-start;
   height: 100vh;
   overflow-y: auto;
-  /* Reserve space for the scrollbar at all times so the sidebar's inner width
-     stays constant whether or not it overflows. Without this, a classic
-     scrollbar appearing would shrink the content area by ~15px, cropping the
-     "Martin Barker" header (white-space: nowrap) and resizing the menu. */
-  scrollbar-gutter: stable;
+  /* Thin scrollbar that only shows when the menu actually overflows. Unlike
+     scrollbar-gutter: stable, it reserves NO space when there's nothing to
+     scroll (no blank gutter strip on the right), and being thin (~8px) it only
+     nudges the content a few px when it does appear — not the ~15px a classic
+     scrollbar would take, which was cropping the "Martin Barker" header. */
+  scrollbar-width: thin;                 /* Firefox */
+  scrollbar-color: rgba(0, 0, 0, 0.28) transparent; /* thumb / track (Firefox) */
+}
+/* WebKit/Blink (Chrome, Edge, Safari): thin, track-less scrollbar. */
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 4px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .sidebar.collapsed {
