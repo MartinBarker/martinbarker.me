@@ -38,6 +38,11 @@ export default async function ResultsPage({ params, searchParams }) {
       tracks={data.tracks || []}
       alreadyConnected={!!data.alreadyConnected}
       scanJob={data.scanJob || null}
+      youtubeChannel={data.youtubeChannel || null}
+      targetPlaylist={data.targetPlaylist || null}
+      itemStatuses={data.itemStatuses || {}}
+      discord={data.discord || {}}
+      quotaCostPerInsert={data.quotaCostPerInsert || 50}
     />
   );
 }
