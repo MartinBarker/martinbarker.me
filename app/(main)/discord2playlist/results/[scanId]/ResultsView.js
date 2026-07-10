@@ -85,6 +85,7 @@ export default function ResultsView({
   const [liveStatuses, setLiveStatuses] = useState({});
   const [rateLimit, setRateLimit] = useState(null);
   const [aborted, setAborted] = useState(null);
+  const [stopped, setStopped] = useState(null);
   const [error, setError] = useState('');
   const [resultPlaylist, setResultPlaylist] = useState(targetPlaylist || null);
   const evtRef = useRef(null);
@@ -154,8 +155,23 @@ export default function ResultsView({
       const res = await fetch(
         `${BOT_API_URL}/api/scans/${scanId}/youtube/playlists?t=${encodeURIComponent(token)}`
       );
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message || body.error || 'Could not load your playlists.');
+      // Error responses aren't always JSON — Express serves an HTML page for an
+      // unknown route — so sniff the type before parsing rather than letting
+      // res.json() fail with "Unexpected token '<'".
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const body = isJson ? await res.json().catch(() => null) : null;
+
+      if (res.status === 404) {
+        throw new Error(
+          'This bot version can’t list your playlists yet. Choose “Create a new playlist” instead, ' +
+          'or update the bot to pick up the new endpoint.'
+        );
+      }
+      if (!res.ok) {
+        throw new Error(body?.message || body?.error || `Could not load your playlists (HTTP ${res.status}).`);
+      }
+      if (!body?.playlists) throw new Error('The bot returned an unexpected response.');
+
       setPlaylists(body.playlists);
       if (body.channel) setChannel(body.channel);
     } catch (err) {
@@ -198,9 +214,20 @@ export default function ResultsView({
     return `${BOT_API_URL}/api/scans/${scanId}/push?${params.toString()}`;
   };
 
+  // Stop an in-flight push. Closing the EventSource drops the connection, which
+  // the bot detects (res 'close') and uses to abort its loop between videos —
+  // so the backend actually stops, not just the on-screen progress.
+  const stopAdding = () => {
+    if (evtRef.current) { evtRef.current.close(); evtRef.current = null; }
+    setPushing(false);
+    setRateLimit(null);
+    setStopped({ inserted, skipped, failed });
+  };
+
   const addAll = () => {
     setError('');
     setAborted(null);
+    setStopped(null);
     setRateLimit(null);
     setPushing(true);
     setInserted(0);
@@ -251,6 +278,17 @@ export default function ResultsView({
       setAborted(d);
       setRateLimit(null);
       if (d.playlistId) setResultPlaylist(p => p || { id: d.playlistId, url: d.playlistUrl });
+      setPushing(false);
+      evt.close();
+    });
+
+    // Server-confirmed stop (rare: normally the client closes the stream first,
+    // so this arrives only if the abort was observed before the socket dropped).
+    evt.addEventListener('stopped', e => {
+      const d = JSON.parse(e.data);
+      setStopped({ inserted: d.inserted, skipped: d.skipped, failed: d.failed, remaining: d.remaining });
+      if (d.playlistId) setResultPlaylist(p => p || { id: d.playlistId, title: d.playlistTitle, url: d.playlistUrl });
+      setRateLimit(null);
       setPushing(false);
       evt.close();
     });
@@ -374,8 +412,15 @@ export default function ResultsView({
                 ? 'No YouTube links to add'
                 : pendingCount === 0
                   ? 'All videos already added'
-                  : `Add ${pendingCount} video${pendingCount === 1 ? '' : 's'} to playlist`}
+                  : stopped || aborted
+                    ? `Resume — add ${pendingCount} remaining`
+                    : `Add ${pendingCount} video${pendingCount === 1 ? '' : 's'} to playlist`}
           </button>
+          {pushing && (
+            <button onClick={stopAdding} style={btnStyle('#dc2626')}>
+              Stop
+            </button>
+          )}
           {resultPlaylist?.id && (
             <a
               href={resultPlaylist.url || `https://www.youtube.com/playlist?list=${resultPlaylist.id}`}
@@ -405,9 +450,19 @@ export default function ResultsView({
           </Banner>
         )}
 
+        {stopped && (
+          <Banner t={t} tone="plain">
+            <strong>Stopped.</strong> Added {stopped.inserted}
+            {stopped.skipped > 0 ? `, ${stopped.skipped} already there` : ''}
+            {stopped.failed > 0 ? `, ${stopped.failed} failed` : ''} before stopping. YouTube is
+            resting now — click <em>Resume</em> whenever you&apos;re ready and it picks up where it
+            left off. Videos already added stay put; nothing is duplicated.
+          </Banner>
+        )}
+
         {error && <Banner t={t} tone="bad">{error}</Banner>}
 
-        {!pushing && !aborted && !error && processed > 0 && (
+        {!pushing && !aborted && !stopped && !error && processed > 0 && (
           <Banner t={t} tone={failed > 0 ? 'warn' : 'ok'}>
             Done — {inserted} added{skipped > 0 ? `, ${skipped} already there` : ''}
             {failed > 0 ? `, ${failed} failed` : ''}.
@@ -659,6 +714,12 @@ function AutoAddInstructions({ t, scanJob, discord, connected, playlistTitle }) 
   const cadence = cron ? CADENCE_LABEL[cron] || `on \`${cron}\` (UTC)` : null;
   const channelRef = discord.inputChannelName ? `#${discord.inputChannelName}` : 'your channel';
 
+  // toLocaleString() resolves against the server's timezone during SSR and the
+  // browser's on the client, which is a hydration mismatch (React #418). Render
+  // the timestamp only after mount, when there's a single source of truth.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   return (
     <Card t={t}>
       <SectionTitle t={t}>Set up auto-add</SectionTitle>
@@ -667,7 +728,7 @@ function AutoAddInstructions({ t, scanJob, discord, connected, playlistTitle }) 
         {on
           ? `Auto-add is ON for ${channelRef} — rescanning ${cadence}.`
           : `Auto-add is currently OFF for ${channelRef}.`}
-        {scanJob?.last_run_at && (
+        {mounted && scanJob?.last_run_at && (
           <span style={{ color: t.sub }}> Last run {new Date(scanJob.last_run_at).toLocaleString()}.</span>
         )}
       </Banner>
