@@ -379,11 +379,15 @@ function DiscogsAuthTestPageInner() {
   };
 
   useEffect(() => {
-    // Connect to socket.io server
+    // Connect to socket.io server. Use the page's OWN origin so www vs non-www
+    // always matches: hardcoding www.martinbarker.me while the page is served
+    // from martinbarker.me caused a cross-origin 301 + CORS failure, so the
+    // socket never connected and /discogs/api rejected every submit with
+    // "Socket not connected" (400).
     const isDev = process.env.NODE_ENV === 'development';
     const socketUrl = isDev
       ? 'http://localhost:3030'
-      : 'https://www.martinbarker.me';
+      : window.location.origin;
     const socketPath = isDev
       ? '/socket.io'
       : '/internal-api/socket.io';
