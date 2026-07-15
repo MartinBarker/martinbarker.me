@@ -74,8 +74,11 @@ export const routeInfo = {
   },
   "/riptag": {
     title: "RipTag",
-    subtitle: "Record, split, tag, and export vinyl recordings",
-    tabTitle: "RipTag - Vinyl to Digital with Discogs Metadata",
+    subtitle: "Record, split, tag, and export your recordings",
+    tabTitle: "RipTag – Record Audio Splitter | riptag.app",
+    description: "RipTag (riptag.app) splits your record recordings into individual tracks, tags them with Discogs metadata, and exports tagged audio files — all in your browser.",
+    ogImage: "/images/vinyldigitizer_previewCard.jpg",
+    ogUrl: "https://riptag.app",
     icon: "/ico/martinbarker.ico"
   }
 };
