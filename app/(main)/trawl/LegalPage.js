@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import styles from './discord2playlist.module.css';
 
-const INVITE_URL = 'https://discord.com/oauth2/authorize?client_id=1444823985215901865&permissions=67584&integration_type=0&scope=bot+applications.commands';
+const INVITE_URL = 'https://discord.com/oauth2/authorize?client_id=1523803465095315659&permissions=67584&integration_type=0&scope=bot+applications.commands';
 const APP_ICON = '/images/discord2playlist-icons/groove-app-icon-512.png';
 
 // Shared chrome (nav + footer) for the Trawl legal pages so the
