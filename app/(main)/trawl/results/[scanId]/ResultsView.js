@@ -11,6 +11,8 @@ const BOT_API_URL =
     ? 'https://bot.martinbarker.me'
     : 'http://localhost:3000');
 
+const TRAWL_ICON = '/images/discord2playlist-icons/groove-app-icon-512.png';
+
 const PLATFORM_LABEL = {
   youtube: 'YouTube',
   spotify: 'Spotify',
@@ -333,6 +335,32 @@ export default function ResultsView({
 
   return (
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '32px 20px', color: t.text }}>
+      {/* Trawl brand header */}
+      <a
+        href="/trawl"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 10,
+          textDecoration: 'none', marginBottom: 18,
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={TRAWL_ICON}
+          alt="Trawl"
+          width={36}
+          height={36}
+          style={{ borderRadius: 9, display: 'block' }}
+        />
+        <span style={{
+          fontSize: 20, fontWeight: 800, letterSpacing: '-0.01em', color: t.text,
+        }}>
+          Trawl
+        </span>
+        <span style={{ color: t.sub, fontSize: 13, marginLeft: 2 }}>
+          Discord → YouTube playlists
+        </span>
+      </a>
+
       <h1 style={{ fontSize: 28, marginBottom: 4 }}>Your scanned tracks</h1>
       <p style={{ color: t.sub, marginTop: 0 }}>
         Found <strong>{tracks.length}</strong> track{tracks.length === 1 ? '' : 's'}
