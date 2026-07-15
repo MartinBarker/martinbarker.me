@@ -33,7 +33,7 @@ function CopyButton({ text }) {
   );
 }
 
-export default function Discord2Playlist() {
+export default function Trawl() {
   const makeplaylistsCmd = '/makeplaylists input_channel:#music-share output_channel:#debug_out save_json:True';
   const installCmd = `npm i
 node deploy_discord_commands.js
@@ -257,9 +257,9 @@ node start_discord_bot.js`;
           <div className={styles.footMeta}>
             Discord → YouTube playlist bot · open source
             <span className={styles.footLegal}>
-              <a href="/discord2playlist/termsofservice">Terms of Service</a>
+              <a href="/trawl/termsofservice">Terms of Service</a>
               <span aria-hidden="true"> · </span>
-              <a href="/discord2playlist/privacypolicy">Privacy Policy</a>
+              <a href="/trawl/privacypolicy">Privacy Policy</a>
             </span>
           </div>
         </div>

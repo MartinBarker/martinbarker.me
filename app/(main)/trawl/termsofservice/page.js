@@ -1,23 +1,23 @@
 import LegalPage from '../LegalPage';
 
 export const metadata = {
-  title: 'Terms of Service · discord2playlist',
-  description: 'Terms of Service for the discord2playlist Discord bot.',
+  title: 'Terms of Service · Trawl',
+  description: 'Terms of Service for the Trawl Discord bot.',
 };
 
 export default function TermsOfServicePage() {
   return (
-    <LegalPage kicker="discord2playlist" title="Terms of Service" lastUpdated="July 4, 2026">
+    <LegalPage kicker="Trawl" title="Terms of Service" lastUpdated="July 4, 2026">
       <p>
-        These Terms of Service (&quot;Terms&quot;) govern your use of the <strong>discord2playlist</strong>{' '}
-        Discord bot and related pages hosted at <a href="https://martinbarker.me/discord2playlist">martinbarker.me/discord2playlist</a>{' '}
+        These Terms of Service (&quot;Terms&quot;) govern your use of the <strong>Trawl</strong>{' '}
+        Discord bot and related pages hosted at <a href="https://martinbarker.me/trawl">martinbarker.me/trawl</a>{' '}
         (collectively, the &quot;Service&quot;). By adding the bot to a Discord server or using any of its
         commands, you agree to these Terms. If you do not agree, do not use the Service.
       </p>
 
       <h2>1. What the Service does</h2>
       <p>
-        discord2playlist scans messages in the Discord channels you designate for music links (for example
+        Trawl scans messages in the Discord channels you designate for music links (for example
         YouTube URLs), collects those links, and adds the corresponding tracks to a YouTube playlist that you
         connect. The Service is provided as a free, open-source tool.
       </p>
@@ -46,7 +46,7 @@ export default function TermsOfServicePage() {
         governed by their own terms, including the{' '}
         <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a>{' '}
         and the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.
-        discord2playlist is not affiliated with, endorsed by, or sponsored by Discord, YouTube, or Google.
+        Trawl is not affiliated with, endorsed by, or sponsored by Discord, YouTube, or Google.
       </p>
 
       <h2>5. Your content and accounts</h2>
@@ -73,7 +73,7 @@ export default function TermsOfServicePage() {
 
       <h2>8. Limitation of liability</h2>
       <p>
-        To the maximum extent permitted by law, in no event will the operator of discord2playlist be liable for
+        To the maximum extent permitted by law, in no event will the operator of Trawl be liable for
         any indirect, incidental, special, consequential, or punitive damages, or any loss of data, arising out
         of or related to your use of the Service.
       </p>
@@ -82,7 +82,7 @@ export default function TermsOfServicePage() {
       <p>
         Questions about these Terms can be sent to{' '}
         <a href="mailto:martinbarker99@gmail.com">martinbarker99@gmail.com</a>. See also our{' '}
-        <a href="/discord2playlist/privacypolicy">Privacy Policy</a>.
+        <a href="/trawl/privacypolicy">Privacy Policy</a>.
       </p>
     </LegalPage>
   );
