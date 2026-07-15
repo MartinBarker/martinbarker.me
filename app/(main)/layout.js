@@ -30,7 +30,13 @@ export default function RootLayout({ children }) {
   const [randomImage, setRandomImage] = useState(null);
 
   const pathname = usePathname(); // get current path
-  
+
+  // The /trawl pages ship their own self-contained "paper" light design and
+  // have no dark variant, so the global dark-mode overrides (which force white
+  // text on content) make them unreadable. Opt these routes out entirely — they
+  // always render their own readable styling regardless of the site theme.
+  const isTrawlRoute = pathname?.startsWith('/trawl');
+
   // Get route info from shared module
   const { title: pageTitle, subtitle: pageSubTitle, tabTitle, icon: pageIcon, description: pageDescription, ogImage: pageOgImage, ogUrl: pageOgUrl } = getRouteInfo(pathname);
   const resolvedOgTitle = tabTitle || pageTitle || 'Martin Barker';
@@ -407,6 +413,33 @@ export default function RootLayout({ children }) {
                 </Link>
               </li>
 
+              <li className={styles.tooltipContainer} data-tooltip="Trawl">
+                <Link
+                  href="/trawl"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/trawl" || pathname?.startsWith("/trawl/")
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      {/* queue/playlist icon — links collected into one playlist */}
+                      <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zm12.5-2.5V19c0 .55-.45 1-1 1s-1-.45-1-1 .45-1 1-1c.17 0 .34.03.5.09V12l4 1v1.5c0 .55-.45 1-1 1s-1-.45-1-1 .45-1 1-1c.17 0 .34.03.5.09V13l-2-.5z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Trawl</span>
+                </Link>
+              </li>
+
               {/* Hidden from sidebar: ALS to CUE, Vibrant.js Demo, discord2playlist, Vinyl2Digital, FFMPEG WASM, Color Review */}
               {/* <ProjectLink to="/ALS2CUE" icon={Music} label="ALS to CUE" /> */}
               {/* <ProjectLink to="/vibrant" icon={Palette} label="Vibrant.js Demo" /> */}
@@ -650,7 +683,7 @@ export default function RootLayout({ children }) {
             </div>
           </nav>
           <main
-            className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''} ${darkMode ? `${styles.darkContent} darkContent` : ''}`}
+            className={`${styles.content} ${sidebarActive && isMobile ? styles.pushed : ''} ${darkMode && !isTrawlRoute ? `${styles.darkContent} darkContent` : ''}`}
             style={{ background: darkMode ? colors.DarkMuted : colors.LightMuted }}
           >
             <div className={styles.contentWrapper}>
