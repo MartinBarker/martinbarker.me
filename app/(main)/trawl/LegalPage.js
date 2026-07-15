@@ -5,19 +5,19 @@ import styles from './discord2playlist.module.css';
 const INVITE_URL = 'https://discord.com/oauth2/authorize?client_id=1444823985215901865&permissions=67584&integration_type=0&scope=bot+applications.commands';
 const APP_ICON = '/images/discord2playlist-icons/groove-app-icon-512.png';
 
-// Shared chrome (nav + footer) for the discord2playlist legal pages so the
+// Shared chrome (nav + footer) for the Trawl legal pages so the
 // Terms and Privacy pages stay visually consistent with the landing page.
 export default function LegalPage({ kicker, title, lastUpdated, children }) {
   return (
     <div className={styles.page} id="top">
       <nav className={styles.nav}>
         <div className={`${styles.wrap} ${styles.navInner}`}>
-          <Link className={styles.brand} href="/discord2playlist">
-            <img src={APP_ICON} alt="discord2playlist icon" />
-            <span className={styles.bname}>discord2playlist</span>
+          <Link className={styles.brand} href="/trawl">
+            <img src={APP_ICON} alt="Trawl icon" />
+            <span className={styles.bname}>Trawl</span>
           </Link>
           <div className={styles.navLinks}>
-            <Link className={styles.lnk} href="/discord2playlist">Home</Link>
+            <Link className={styles.lnk} href="/trawl">Home</Link>
             <a className={`${styles.btn} ${styles.btnPrimary}`} href={INVITE_URL} target="_blank" rel="noopener noreferrer">Invite the bot</a>
           </div>
         </div>
@@ -35,7 +35,7 @@ export default function LegalPage({ kicker, title, lastUpdated, children }) {
             {children}
           </article>
 
-          <Link className={styles.backLink} href="/discord2playlist">← Back to discord2playlist</Link>
+          <Link className={styles.backLink} href="/trawl">← Back to Trawl</Link>
         </div>
       </main>
 
@@ -43,7 +43,7 @@ export default function LegalPage({ kicker, title, lastUpdated, children }) {
         <div className={`${styles.wrap} ${styles.footInner}`}>
           <div className={styles.footBrand}>
             <img src={APP_ICON} alt="" />
-            <span className={styles.bname}>discord2playlist</span>
+            <span className={styles.bname}>Trawl</span>
           </div>
           <div className={styles.footMeta}>Discord → YouTube playlist bot · open source</div>
         </div>

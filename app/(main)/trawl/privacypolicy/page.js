@@ -1,18 +1,18 @@
 import LegalPage from '../LegalPage';
 
 export const metadata = {
-  title: 'Privacy Policy · discord2playlist',
-  description: 'Privacy Policy for the discord2playlist Discord bot.',
+  title: 'Privacy Policy · Trawl',
+  description: 'Privacy Policy for the Trawl Discord bot.',
 };
 
 export default function PrivacyPolicyPage() {
   return (
-    <LegalPage kicker="discord2playlist" title="Privacy Policy" lastUpdated="July 4, 2026">
+    <LegalPage kicker="Trawl" title="Privacy Policy" lastUpdated="July 4, 2026">
       <p>
-        This Privacy Policy explains what information the <strong>discord2playlist</strong> Discord bot
+        This Privacy Policy explains what information the <strong>Trawl</strong> Discord bot
         (the &quot;Service&quot;) collects, how it is used, and the choices you have. By using the Service you
         agree to this policy. It applies alongside our{' '}
-        <a href="/discord2playlist/termsofservice">Terms of Service</a>.
+        <a href="/trawl/termsofservice">Terms of Service</a>.
       </p>
 
       <h2>1. Information we process</h2>

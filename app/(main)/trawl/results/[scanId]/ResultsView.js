@@ -63,14 +63,14 @@ export default function ResultsView({
   const [playlistFilter, setPlaylistFilter] = useState('');
 
   const defaultTitle = discord.inputChannelName
-    ? `#${discord.inputChannelName} — Discord2Playlist`
-    : `Discord2Playlist — scan ${scanId}`;
+    ? `#${discord.inputChannelName} — Trawl`
+    : `Trawl — scan ${scanId}`;
   const [newPlaylist, setNewPlaylist] = useState({
     title: defaultTitle,
     description:
       `Music links shared in ${discord.inputChannelName ? `#${discord.inputChannelName}` : 'Discord'}` +
       `${discord.guildName ? ` (${discord.guildName})` : ''}. ` +
-      'Collected by discord2playlist — https://martinbarker.me/discord2playlist',
+      'Collected by Trawl — https://martinbarker.me/trawl',
     privacy: 'private',
     tags: '',
     language: '',

@@ -1,4 +1,4 @@
-// Server component for the discord2playlist results page. Verifies the magic
+// Server component for the Trawl results page. Verifies the magic
 // token by calling the bot API server-side (with the shared secret) and renders
 // the track list + actions via the client ResultsView.
 import { notFound } from 'next/navigation';

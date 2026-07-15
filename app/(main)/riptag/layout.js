@@ -13,21 +13,24 @@
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  metadataBase: new URL('https://martinbarker.me'),
-  title: 'RipTag – Record Audio Splitter | Martin Barker',
-  description: 'Split vinyl recordings into individual tracks, tag them with Discogs metadata, and export as tagged audio files — all in your browser.',
-  keywords: 'riptag, vinyl digitizer, record splitter, vinyl to digital, audio splitter, Discogs tags, vinyl rip, music digitization, vinyl recording',
+  metadataBase: new URL('https://riptag.app'),
+  title: 'RipTag – Record Audio Splitter | riptag.app',
+  description: 'RipTag (riptag.app) splits your record recordings into individual tracks, tags them with Discogs metadata, and exports tagged audio files — all in your browser.',
+  keywords: 'riptag, riptag.app, record splitter, audio splitter, track splitter, Discogs tags, record rip, music digitization, audio tagging',
+  alternates: {
+    canonical: 'https://riptag.app',
+  },
   openGraph: {
-    title: 'RipTag – Record Audio Splitter',
-    description: 'Split vinyl recordings into individual tracks, tag them with Discogs metadata, and export as tagged audio files — all in your browser.',
-    url: 'https://martinbarker.me/riptag',
-    siteName: 'Martin Barker Portfolio',
+    title: 'RipTag – Record Audio Splitter | riptag.app',
+    description: 'RipTag (riptag.app) splits your record recordings into individual tracks, tags them with Discogs metadata, and exports tagged audio files — all in your browser.',
+    url: 'https://riptag.app',
+    siteName: 'RipTag',
     images: [
       {
         url: 'https://martinbarker.me/images/vinyldigitizer_previewCard.jpg',
         width: 800,
         height: 600,
-        alt: 'RipTag - Record Audio Splitter',
+        alt: 'RipTag – Record Audio Splitter (riptag.app)',
       },
     ],
     locale: 'en_US',
@@ -35,8 +38,8 @@ export const metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'RipTag – Record Audio Splitter',
-    description: 'Split vinyl recordings into individual tracks, tag them with Discogs metadata, and export as tagged audio files — all in your browser.',
+    title: 'RipTag – Record Audio Splitter | riptag.app',
+    description: 'RipTag (riptag.app) splits your record recordings into individual tracks, tags them with Discogs metadata, and exports tagged audio files — all in your browser.',
     images: ['https://martinbarker.me/images/vinyldigitizer_previewCard.jpg'],
   },
 };
