@@ -56,6 +56,12 @@ export default function ResultsView({
   const [connected, setConnected] = useState(alreadyConnected);
   const [channel, setChannel] = useState(youtubeChannel);
 
+  // Which end of the playlist the newest-shared track lands on. 'newest' (default)
+  // puts the most recently shared video on top; 'oldest' flips it. Sent to the
+  // push endpoint and used as the track table's default sort so the on-screen
+  // order matches what YouTube will build.
+  const [playlistOrder, setPlaylistOrder] = useState('newest');
+
   // Destination: an existing playlist, or a new one built from `newPlaylist`.
   const [mode, setMode] = useState(targetPlaylist ? 'existing' : 'new');
   const [playlists, setPlaylists] = useState(null);
@@ -202,7 +208,7 @@ export default function ResultsView({
   };
 
   const pushUrl = () => {
-    const params = new URLSearchParams({ t: token });
+    const params = new URLSearchParams({ t: token, order: playlistOrder });
     if (mode === 'existing') {
       params.set('playlistId', selectedPlaylistId);
     } else {
@@ -432,6 +438,24 @@ export default function ResultsView({
       {/* ---------- Step 3: Push ---------- */}
       <Card t={t}>
         <SectionTitle t={t}>3 · Add the videos</SectionTitle>
+
+        <Field
+          t={t}
+          label="Playlist order"
+          hint="How the videos are stacked in the YouTube playlist. Only affects videos added from now on."
+          style={{ maxWidth: 360, marginBottom: 16 }}
+        >
+          <select
+            value={playlistOrder}
+            onChange={e => setPlaylistOrder(e.target.value)}
+            disabled={pushing}
+            style={inputStyle(t)}
+          >
+            <option value="newest">Newest shared on top (most recent first)</option>
+            <option value="oldest">Oldest shared on top (most recent last)</option>
+          </select>
+        </Field>
+
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <button onClick={addAll} disabled={!canPush} style={btnStyle(t.accent, !canPush)}>
             {pushing
@@ -517,7 +541,13 @@ export default function ResultsView({
       />
 
       {/* ---------- Track table ---------- */}
-      <TrackTable t={t} tracks={tracks} statusFor={statusFor} showStatus={!!activePlaylistId || Object.keys(liveStatuses).length > 0} />
+      <TrackTable
+        t={t}
+        tracks={tracks}
+        statusFor={statusFor}
+        showStatus={!!activePlaylistId || Object.keys(liveStatuses).length > 0}
+        playlistOrder={playlistOrder}
+      />
     </div>
   );
 }
@@ -813,12 +843,26 @@ function AutoAddInstructions({ t, scanJob, discord, connected, playlistTitle }) 
 /* Paginated track table                                               */
 /* ------------------------------------------------------------------ */
 
-function TrackTable({ t, tracks, statusFor, showStatus }) {
+function TrackTable({ t, tracks, statusFor, showStatus, playlistOrder = 'newest' }) {
   const [query, setQuery] = useState('');
-  const [platform, setPlatform] = useState('all');
+  // Default to YouTube (the only addable platform) when there are any, else show
+  // everything so the table is never empty on a non-YouTube-only scan.
+  const [platform, setPlatform] = useState(() =>
+    tracks.some(tr => tr.platform === 'youtube') ? 'youtube' : 'all'
+  );
   const [statusFilter, setStatusFilter] = useState('all');
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(0);
+  const [embed, setEmbed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  // { key: 'order' | 'platform' | 'author' | 'date', dir: 'asc' | 'desc' }.
+  // Seed the direction from the chosen playlist order so the table opens showing
+  // roughly the order YouTube will build.
+  const [sort, setSort] = useState({ key: 'order', dir: playlistOrder === 'oldest' ? 'asc' : 'desc' });
+
+  // Tracks arrive oldest-first (the API orders by id ASC); tag each with its
+  // chronological index so we can sort by share order regardless of the display.
+  const indexed = useMemo(() => tracks.map((tr, i) => ({ ...tr, _i: i })), [tracks]);
 
   const platforms = useMemo(
     () => [...new Set(tracks.map(tr => tr.platform))].sort(),
@@ -827,7 +871,7 @@ function TrackTable({ t, tracks, statusFor, showStatus }) {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return tracks.filter(tr => {
+    return indexed.filter(tr => {
       if (platform !== 'all' && tr.platform !== platform) return false;
       if (statusFilter !== 'all') {
         const s = statusFor(tr.media_id)?.status || 'pending';
@@ -840,25 +884,66 @@ function TrackTable({ t, tracks, statusFor, showStatus }) {
         (tr.author_username || '').toLowerCase().includes(q)
       );
     });
-  }, [tracks, query, platform, statusFilter, statusFor]);
+  }, [indexed, query, platform, statusFilter, statusFor]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const sorted = useMemo(() => {
+    const mul = sort.dir === 'asc' ? 1 : -1;
+    const cmp = (a, b) => {
+      if (sort.key === 'platform') return (a.platform || '').localeCompare(b.platform || '') || a._i - b._i;
+      if (sort.key === 'author') return (a.author_username || '').localeCompare(b.author_username || '') || a._i - b._i;
+      if (sort.key === 'date') return (new Date(a.extracted_at) - new Date(b.extracted_at)) || a._i - b._i;
+      return a._i - b._i; // 'order' — chronological share order
+    };
+    return [...filtered].sort((a, b) => cmp(a, b) * mul);
+  }, [filtered, sort]);
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   // Filters can shrink the result set below the current page; clamp instead of
   // rendering an empty page.
   const safePage = Math.min(page, pageCount - 1);
   const rows = useMemo(
-    () => filtered.slice(safePage * pageSize, safePage * pageSize + pageSize),
-    [filtered, safePage, pageSize]
+    () => sorted.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    [sorted, safePage, pageSize]
   );
 
-  useEffect(() => { setPage(0); }, [query, platform, statusFilter, pageSize]);
+  useEffect(() => { setPage(0); }, [query, platform, statusFilter, pageSize, sort]);
+  useEffect(() => {
+    setSort(s => ({ ...s, key: 'order', dir: playlistOrder === 'oldest' ? 'asc' : 'desc' }));
+  }, [playlistOrder]);
+
+  const toggleSort = key =>
+    setSort(s => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+
+  // Export operates on the whole filtered+sorted set (every page), not just the
+  // current page — "all media ids in the table".
+  const ids = useMemo(() => sorted.map(tr => tr.media_id), [sorted]);
+
+  const copyIds = async () => {
+    const text = ids.join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Older/permission-restricted browsers: fall back to a hidden textarea.
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch {}
+      ta.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   const th = { textAlign: 'left', padding: '10px 12px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '.04em', color: t.sub, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap' };
   const td = { padding: '10px 12px', borderBottom: `1px solid ${t.border}`, verticalAlign: 'middle' };
+  const colSpan = showStatus ? 6 : 5;
 
   return (
     <Card t={t}>
-      <SectionTitle t={t}>Tracks ({filtered.length})</SectionTitle>
+      <SectionTitle t={t}>Tracks ({sorted.length})</SectionTitle>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         <input
@@ -884,54 +969,102 @@ function TrackTable({ t, tracks, statusFor, showStatus }) {
         )}
       </div>
 
+      {/* Export + embed toolbar */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ color: t.sub, fontSize: 13 }}>
+          Export {ids.length} id{ids.length === 1 ? '' : 's'}:
+        </span>
+        <button onClick={copyIds} disabled={ids.length === 0} style={pagerStyle(t, ids.length === 0)}>
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+        <button
+          onClick={() => downloadFile('trawl-media-ids.txt', ids.join('\n'), 'text/plain')}
+          disabled={ids.length === 0}
+          style={pagerStyle(t, ids.length === 0)}
+        >
+          .txt
+        </button>
+        <button
+          onClick={() => downloadFile('trawl-tracks.csv', toCsv(sorted), 'text/csv')}
+          disabled={ids.length === 0}
+          style={pagerStyle(t, ids.length === 0)}
+        >
+          .csv
+        </button>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', color: t.text, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={embed} onChange={e => setEmbed(e.target.checked)} />
+          Embed videos on this page
+        </label>
+      </div>
+
       <div style={{ overflowX: 'auto', border: `1px solid ${t.border}`, borderRadius: 8 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr>
-              <th style={{ ...th, width: 44 }}>#</th>
-              <th style={{ ...th, width: 100 }}>Platform</th>
+              <SortHeader t={t} th={th} label="#" col="order" sort={sort} onClick={toggleSort} width={56} />
+              <SortHeader t={t} th={th} label="Platform" col="platform" sort={sort} onClick={toggleSort} width={100} />
               <th style={th}>Link</th>
-              <th style={{ ...th, width: 140 }}>Shared by</th>
+              <SortHeader t={t} th={th} label="Shared by" col="author" sort={sort} onClick={toggleSort} width={140} />
+              <SortHeader t={t} th={th} label="Shared" col="date" sort={sort} onClick={toggleSort} width={110} />
               {showStatus && <th style={{ ...th, width: 150 }}>Status</th>}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={showStatus ? 5 : 4} style={{ ...td, color: t.sub, textAlign: 'center', padding: 24 }}>
+                <td colSpan={colSpan} style={{ ...td, color: t.sub, textAlign: 'center', padding: 24 }}>
                   No tracks match these filters.
                 </td>
               </tr>
             )}
             {rows.map((tr, i) => {
               const status = statusFor(tr.media_id);
+              const isYouTube = tr.platform === 'youtube';
               return (
-                <tr key={`${tr.platform}:${tr.media_id}`}>
-                  <td style={{ ...td, color: t.sub, fontVariantNumeric: 'tabular-nums' }}>
-                    {safePage * pageSize + i + 1}
-                  </td>
-                  <td style={{ ...td, color: t.sub, fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>
-                    {PLATFORM_LABEL[tr.platform] || tr.platform}
-                  </td>
-                  <td style={td}>
-                    <a
-                      href={tr.media_url ? `https://${tr.media_url}` : '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: t.text, textDecoration: 'none', wordBreak: 'break-all' }}
-                    >
-                      {tr.media_url || tr.media_id}
-                    </a>
-                  </td>
-                  <td style={{ ...td, color: t.sub, fontSize: 13 }}>{tr.author_username || '—'}</td>
-                  {showStatus && (
-                    <td style={td}>
-                      {tr.platform === 'youtube'
-                        ? <StatusBadge t={t} status={status?.status || 'pending'} title={status?.error} />
-                        : <span style={{ color: t.sub }}>—</span>}
+                <React.Fragment key={`${tr.platform}:${tr.media_id}:${tr._i}`}>
+                  <tr>
+                    <td style={{ ...td, color: t.sub, fontVariantNumeric: 'tabular-nums' }}>
+                      {safePage * pageSize + i + 1}
                     </td>
+                    <td style={{ ...td, color: t.sub, fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {PLATFORM_LABEL[tr.platform] || tr.platform}
+                    </td>
+                    <td style={td}>
+                      <a
+                        href={tr.media_url ? `https://${tr.media_url}` : '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: t.text, textDecoration: 'none', wordBreak: 'break-all' }}
+                      >
+                        {tr.media_url || tr.media_id}
+                      </a>
+                    </td>
+                    <td style={{ ...td, color: t.sub, fontSize: 13 }}>{tr.author_username || '—'}</td>
+                    <td style={{ ...td, color: t.sub, fontSize: 13, whiteSpace: 'nowrap' }}>{formatShared(tr.extracted_at)}</td>
+                    {showStatus && (
+                      <td style={td}>
+                        {isYouTube
+                          ? <StatusBadge t={t} status={status?.status || 'pending'} title={status?.error} />
+                          : <span style={{ color: t.sub }}>—</span>}
+                      </td>
+                    )}
+                  </tr>
+                  {embed && isYouTube && (
+                    <tr>
+                      <td colSpan={colSpan} style={{ ...td, paddingTop: 0 }}>
+                        <iframe
+                          src={`https://www.youtube-nocookie.com/embed/${tr.media_id}`}
+                          title={tr.media_url || tr.media_id}
+                          loading="lazy"
+                          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          style={{ width: '100%', maxWidth: 480, aspectRatio: '16 / 9', border: 0, borderRadius: 8, display: 'block' }}
+                        />
+                      </td>
+                    </tr>
                   )}
-                </tr>
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -957,6 +1090,54 @@ function TrackTable({ t, tracks, statusFor, showStatus }) {
       </div>
     </Card>
   );
+}
+
+// Clickable column header that toggles/indicates the current sort.
+function SortHeader({ t, th, label, col, sort, onClick, width }) {
+  const active = sort.key === col;
+  return (
+    <th
+      onClick={() => onClick(col)}
+      style={{ ...th, width, cursor: 'pointer', userSelect: 'none', color: active ? t.text : t.sub }}
+      title={`Sort by ${label}`}
+    >
+      {label} {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+    </th>
+  );
+}
+
+// UTC date so server-rendered and client-rendered output match (no hydration
+// mismatch); '—' when the row has no timestamp.
+function formatShared(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '—' : d.toISOString().slice(0, 10);
+}
+
+function downloadFile(name, text, type) {
+  const blob = new Blob([text], { type: `${type};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function toCsv(rows) {
+  const esc = v => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = ['order', 'platform', 'media_id', 'media_url', 'shared_by', 'shared_at'];
+  const lines = [header.join(',')];
+  rows.forEach((r, i) => {
+    lines.push([i + 1, r.platform, r.media_id, r.media_url || '', r.author_username || '', r.extracted_at || '']
+      .map(esc).join(','));
+  });
+  return lines.join('\n');
 }
 
 /* ------------------------------------------------------------------ */

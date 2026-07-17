@@ -152,7 +152,21 @@ export default function HomeContent() {
                 {[
                     {
                         company: "The Walt Disney Company",
-                        date: "January 2026 - Present",
+                        date: "July 2026 - Present",
+                        location: "Seattle, WA",
+                        title: "Software Developer II",
+                        responsibilities: [
+                            "Converted from contractor to full-time, continuing to lead the Seattle device lab and cross-platform testing infrastructure",
+                            "Own device provisioning, inventory, and lab operations across a wide range of consumer devices",
+                            "Build and maintain internal tools using Electron, React, and Socket.IO for real-time device management and test orchestration",
+                            "Author and maintain Cucumber/Gherkin-based test suites in Java for behavior-driven end-to-end testing",
+                            "Implement self-healing test automation to reduce flakiness and improve reliability across CI pipelines",
+                            "Support DevOps workflows including deployment automation, environment management, and continuous integration/delivery",
+                        ],
+                    },
+                    {
+                        company: "The Walt Disney Company",
+                        date: "January 2026 - July 2026",
                         location: "Seattle, WA",
                         title: "Software Developer II / Contractor",
                         responsibilities: [
