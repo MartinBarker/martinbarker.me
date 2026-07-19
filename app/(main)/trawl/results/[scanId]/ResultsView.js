@@ -62,6 +62,11 @@ export default function ResultsView({
   // order matches what YouTube will build.
   const [playlistOrder, setPlaylistOrder] = useState('newest');
 
+  // Duplicate prevention. On by default: videos already in the target playlist
+  // are skipped instead of added a second time. Un-checking sends
+  // allowDuplicates=1 so the push adds every scanned video regardless.
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
+
   // Destination: an existing playlist, or a new one built from `newPlaylist`.
   const [mode, setMode] = useState(targetPlaylist ? 'existing' : 'new');
   const [playlists, setPlaylists] = useState(null);
@@ -209,6 +214,7 @@ export default function ResultsView({
 
   const pushUrl = () => {
     const params = new URLSearchParams({ t: token, order: playlistOrder });
+    if (!skipDuplicates) params.set('allowDuplicates', '1');
     if (mode === 'existing') {
       params.set('playlistId', selectedPlaylistId);
     } else {
@@ -455,6 +461,24 @@ export default function ResultsView({
             <option value="oldest">Oldest shared on top (most recent last)</option>
           </select>
         </Field>
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16, cursor: pushing ? 'not-allowed' : 'pointer', maxWidth: 520 }}>
+          <input
+            type="checkbox"
+            checked={skipDuplicates}
+            disabled={pushing}
+            onChange={e => setSkipDuplicates(e.target.checked)}
+            style={{ marginTop: 3 }}
+          />
+          <span>
+            <span style={{ fontWeight: 600 }}>Skip videos already in the playlist</span>
+            <span style={{ display: 'block', fontSize: 12, color: t.sub, marginTop: 2 }}>
+              On by default. A video that&apos;s already in the target playlist is skipped instead of
+              added a second time, so re-running never creates duplicates. Un-check to add every
+              scanned video regardless.
+            </span>
+          </span>
+        </label>
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <button onClick={addAll} disabled={!canPush} style={btnStyle(t.accent, !canPush)}>
