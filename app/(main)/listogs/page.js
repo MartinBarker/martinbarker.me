@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, Suspense, useContext, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, useContext, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import io from 'socket.io-client';
 import VideoTable from './Table';
@@ -70,6 +70,42 @@ function getAllVideoIds(videoData) {
   return ids;
 }
 
+// Discogs artist-page section/subsection taxonomy (mirrors the server). The
+// pre-search tree lets you pick exactly which sections/subsections to fetch;
+// leaf keys are "Section/Subsection". Labels & masters have no roles, so they
+// only expose the format subsections under a single "Releases" section.
+const FORMAT_SUBSECTIONS = ['Albums', 'Singles & EPs', 'Compilations', 'Mixes', 'Videos', 'Miscellaneous'];
+const CREDIT_SUBSECTIONS = ['Remix', 'Vocal', 'Instruments & Performance', 'Writing & Arrangement', 'Featuring & Presenting', 'Conducting & Leading', 'Production', 'DJ Mix', 'Technical', 'Visual', 'Acting, Literary & Spoken', 'Management'];
+const ARTIST_TAXONOMY = [
+  { section: 'Releases', subs: FORMAT_SUBSECTIONS },
+  { section: 'Appearances', subs: FORMAT_SUBSECTIONS },
+  { section: 'Unofficial', subs: FORMAT_SUBSECTIONS },
+  { section: 'Credits', subs: CREDIT_SUBSECTIONS },
+];
+const RELEASE_TAXONOMY = [{ section: 'Releases', subs: FORMAT_SUBSECTIONS }];
+function taxonomyFor(type) {
+  return type === 'artist' ? ARTIST_TAXONOMY : RELEASE_TAXONOMY;
+}
+function allCategoryKeys(taxonomy) {
+  return taxonomy.flatMap(s => s.subs.map(sub => `${s.section}/${sub}`));
+}
+
+// Listogs version + changelog. Bump LISTOGS_VERSION and prepend an entry when
+// shipping user-facing changes; the newest entry drives the "NEW" badge.
+const LISTOGS_VERSION = '1.1.0';
+const LISTOGS_CHANGELOG = [
+  {
+    version: '1.1.0',
+    date: 'July 2026',
+    changes: [
+      'Filter what gets fetched: pick which artist roles to include (Main, Appearances, Track appearances, Credits, Unofficial) before searching.',
+      'De-select release types (e.g. Compilation) so they’re never added to the playlist.',
+      'New “Artist Role” column and filter in the results table.',
+      'More accurate release-type detection — compilations are no longer mislabeled as albums.',
+    ],
+  },
+];
+
 function DiscogsAuthTestPageInner() {
   const [results, setResults] = useState([]);
   const params = useSearchParams();
@@ -136,6 +172,16 @@ function DiscogsAuthTestPageInner() {
   const [useExistingPlaylist, setUseExistingPlaylist] = useState(false);
   const [existingPlaylistId, setExistingPlaylistId] = useState('');
   const [filteredTableRows, setFilteredTableRows] = useState([]);
+  // Pre-search section/subsection selection: a Set of "Section/Subsection" leaf
+  // keys to fetch. `null` means "all selected" (the default) — this way the
+  // count is never spuriously 0, so the submit button can't get stuck disabled.
+  // An explicit empty Set only happens when the user deselects everything.
+  // `sectionCounts` is the count tree the server emits once it has loaded the
+  // discography listing.
+  const [selectedCategories, setSelectedCategories] = useState(null);
+  const [sectionCounts, setSectionCounts] = useState(null);
+  const [showFetchFilters, setShowFetchFilters] = useState(true);
+  const [showWhatsNew, setShowWhatsNew] = useState(true);
   const [imageExtractionStatus, setImageExtractionStatus] = useState(null);
   const [imageDownloadUrl, setImageDownloadUrl] = useState(null);
   const [imageDownloadFileName, setImageDownloadFileName] = useState('');
@@ -417,6 +463,12 @@ function DiscogsAuthTestPageInner() {
       //setResults(result);
     });
 
+    // Section/subsection counts for the whole discography (emitted once the
+    // listing is loaded, before/while videos are fetched).
+    sock.on('sectionCounts', (counts) => {
+      if (Array.isArray(counts)) setSectionCounts(counts);
+    });
+
     // Listen for videos 
     sock.on('sessionVideos', (videos) => {
       // --- Remove duplicate videoIds ---
@@ -531,6 +583,7 @@ function DiscogsAuthTestPageInner() {
   const discogsApiQuery = async (discogsType, discogsId) => {
     try {
       setLogLines([]); // Clear logs before each request
+      setSectionCounts(null); // reset counts for the new search
       const apiBaseURL =
         process.env.NODE_ENV === 'development'
           ? 'http://localhost:3030'
@@ -560,7 +613,17 @@ function DiscogsAuthTestPageInner() {
           discogsId,
           oauthToken,
           oauthVerifier,
-          socketId
+          socketId,
+          // Selected section/subsection leaf keys. `null` = all → omit so the
+          // server fetches everything. Otherwise send a proper non-empty subset.
+          ...(() => {
+            if (!selectedCategories) return {};
+            const keys = allCategoryKeys(taxonomyFor(discogsType));
+            const selected = keys.filter(k => selectedCategories.has(k));
+            return selected.length > 0 && selected.length < keys.length
+              ? { includeCategories: selected }
+              : {};
+          })(),
         })
       });
 
@@ -593,6 +656,56 @@ function DiscogsAuthTestPageInner() {
   const [selectedType, setSelectedType] = useState(null);
   const [inputError, setInputError] = useState('');
   const [discogsResponse, setDiscogsResponse] = useState('');
+
+  // When the detected type changes, reset to the default "all selected" (null),
+  // so switching artists starts fresh rather than carrying over a narrowed set.
+  useEffect(() => {
+    setSelectedCategories(null);
+  }, [selectedType]);
+
+  // Flatten the emitted count tree into a { "Section": n, "Section/Sub": n } map
+  // for quick lookup next to each checkbox.
+  const categoryCountMap = useMemo(() => {
+    const m = {};
+    if (Array.isArray(sectionCounts)) {
+      sectionCounts.forEach(sec => {
+        m[sec.section] = sec.count;
+        (sec.subsections || []).forEach(sub => { m[`${sec.section}/${sub.name}`] = sub.count; });
+      });
+    }
+    return m;
+  }, [sectionCounts]);
+
+  const isFilterableType = selectedType === 'artist' || selectedType === 'label' || selectedType === 'master';
+  const activeTaxonomy = useMemo(
+    () => (isFilterableType ? taxonomyFor(selectedType) : []),
+    [isFilterableType, selectedType]
+  );
+  const taxonomyKeys = useMemo(() => allCategoryKeys(activeTaxonomy), [activeTaxonomy]);
+
+  // `null` selection means "all". Materialize it to a full Set for reads and on
+  // the first toggle so checkbox state and the submit-gate stay consistent.
+  const effectiveCategories = selectedCategories || new Set(taxonomyKeys);
+  const selectedCategoryCount = taxonomyKeys.filter(k => effectiveCategories.has(k)).length;
+  const allCategoriesSelected = taxonomyKeys.length > 0 && selectedCategoryCount === taxonomyKeys.length;
+
+  const toggleCategory = (key) => setSelectedCategories(prev => {
+    const next = new Set(prev || taxonomyKeys);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const toggleSection = (section, subs) => setSelectedCategories(prev => {
+    const next = new Set(prev || taxonomyKeys);
+    const keys = subs.map(s => `${section}/${s}`);
+    const allOn = keys.every(k => next.has(k));
+    keys.forEach(k => { if (allOn) next.delete(k); else next.add(k); });
+    return next;
+  });
+
+  const toggleAllCategories = () => setSelectedCategories(
+    allCategoriesSelected ? new Set() : null
+  );
 
   // Discogs input change handler (copied logic)
   const handleInputChange = (value) => {
@@ -764,13 +877,23 @@ function DiscogsAuthTestPageInner() {
     playlistLinks.push(url);
   }
 
-  // --- All video IDs as comma separated string ---
-  const allVideoIdsString = videoIds.join(',');
+  // Video IDs limited to the rows currently showing under the table's filters,
+  // so the "Video IDs" tab and CSV export track the filter (and stay in sync
+  // when switching tabs — the table stays mounted, so its filter persists).
+  const filteredVideoIds = useMemo(() => {
+    const seen = new Set();
+    const ids = [];
+    (filteredTableRows || []).forEach(r => {
+      if (r && r.videoId && !seen.has(r.videoId)) { seen.add(r.videoId); ids.push(r.videoId); }
+    });
+    return ids;
+  }, [filteredTableRows]);
+  const filteredVideoIdsString = filteredVideoIds.join(', ');
 
   // --- Copy to clipboard handler with visual feedback ---
   const [copyButtonClicked, setCopyButtonClicked] = useState(false);
   const handleCopyIds = () => {
-    navigator.clipboard.writeText(allVideoIdsString);
+    navigator.clipboard.writeText(filteredVideoIdsString);
     setCopyButtonClicked(true);
     setTimeout(() => setCopyButtonClicked(false), 1000); // Reset after 1 second
   };
@@ -778,10 +901,6 @@ function DiscogsAuthTestPageInner() {
   const handleFilteredDataChange = useCallback((rows) => {
     setFilteredTableRows(rows || []);
   }, []);
-
-  useEffect(() => {
-    setFilteredTableRows(flattenVideoData(results));
-  }, [results]);
 
   useEffect(() => {
     return () => {
@@ -960,7 +1079,8 @@ function DiscogsAuthTestPageInner() {
 
   // Check if user can create YouTube playlists
   const canCreatePlaylists = ytAuthState.canAuth;
-  const isSubmitDisabled = !extractedId || !selectedType || !discogsAuthStatus.exists;
+  const isSubmitDisabled = !extractedId || !selectedType || !discogsAuthStatus.exists
+    || (isFilterableType && selectedCategoryCount === 0);
 
   // Fetch Discogs info for the given URL
   const fetchDiscogsInfo = async (url) => {
@@ -1172,15 +1292,15 @@ function DiscogsAuthTestPageInner() {
       return;
     }
 
-    if (videoIds.length === 0) {
-      setYoutubeError('No videos found to add to playlist');
+    if (filteredVideoIds.length === 0) {
+      setYoutubeError('No videos to add — adjust the Videos table filters.');
       return;
     }
 
     // Reset rate limiting state when starting new playlist creation
     resetRateLimitState();
     setPlaylistLoading(true);
-    setPlaylistProgress({ added: 0, total: videoIds.length });
+    setPlaylistProgress({ added: 0, total: filteredVideoIds.length });
 
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
@@ -1240,11 +1360,12 @@ function DiscogsAuthTestPageInner() {
         }
       }
       
-      // Now add videos to the playlist with progress tracking
+      // Now add videos to the playlist with progress tracking. Use the filtered
+      // set so the playlist matches exactly what the Videos table shows.
       if (process.env.NODE_ENV === 'development') {
-        console.log(`Adding ${videoIds.length} videos to playlist...`);
+        console.log(`Adding ${filteredVideoIds.length} videos to playlist...`);
       }
-      await addVideosToPlaylist(playlistId, videoIds, tokens);
+      await addVideosToPlaylist(playlistId, filteredVideoIds, tokens);
         
       setPlaylistData({
         title: '',
@@ -1641,26 +1762,58 @@ function DiscogsAuthTestPageInner() {
         marginBottom: 32,
         boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
       }}>
-        <h1 style={{
-          fontSize: 42,
-          fontWeight: 700,
-          margin: '0 0 12px 0',
-          color: t.text,
-          letterSpacing: '-0.02em',
-          lineHeight: 1.1
-        }}>
-          Listogs
-        </h1>
-        <p style={{ fontSize: 14, marginBottom: 8, color: t.textSecondary, lineHeight: 1.5 }}>
-          A tool for converting <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>Discogs</a> artist, label, master, and list pages into YouTube playlists, CSV exports, and image bundles.
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', margin: '0 0 8px 0' }}>
+          <h1 style={{
+            fontSize: 42,
+            fontWeight: 700,
+            margin: 0,
+            color: t.text,
+            letterSpacing: '-0.02em',
+            lineHeight: 1.1
+          }}>
+            Listogs
+          </h1>
+          <span style={{ fontSize: 14, fontWeight: 600, color: t.textSecondary, fontVariantNumeric: 'tabular-nums' }}>
+            v{LISTOGS_VERSION}
+          </span>
+        </div>
+
+        <p style={{ fontSize: 15, margin: '0 0 16px 0', color: t.textSecondary, lineHeight: 1.5 }}>
+          Turn a <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>Discogs</a> artist, label, master, or list URL into a YouTube playlist, CSV export, or image bundle.
         </p>
-        <ul style={{ fontSize: 13, marginBottom: 0, paddingLeft: 20, color: t.text, lineHeight: 1.6 }}>
-          <li>Authenticate with Discogs to access lists, releases, and related media.</li>
-          <li>Paste any Discogs artist, label, master, release, or list URL and submit.</li>
-          <li>For a master release URL, videos are gathered from every version/release under that master.</li>
-          <li>Generate a YouTube-ready table for every release, with CSV export and copyable video IDs.</li>
-          <li>For Discogs list URLs, extract the primary image for each release and download them all as a single .zip file.</li>
-        </ul>
+
+        {/* What's new — visible by default */}
+        {showWhatsNew && LISTOGS_CHANGELOG[0] && (
+          <div style={{
+            margin: 0, padding: '12px 16px',
+            background: darkMode ? 'rgba(225,29,72,0.12)' : 'rgba(225,29,72,0.06)',
+            border: `1px solid ${darkMode ? 'rgba(225,29,72,0.4)' : 'rgba(225,29,72,0.25)'}`,
+            borderRadius: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{
+                padding: '2px 10px', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
+                textTransform: 'uppercase', color: '#fff', background: '#e11d48', borderRadius: 999,
+              }}>
+                New
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
+                in v{LISTOGS_CHANGELOG[0].version}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowWhatsNew(false)}
+                aria-label="Dismiss what's new"
+                style={{ marginLeft: 'auto', fontSize: 16, lineHeight: 1, color: t.textSecondary, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              >
+                ×
+              </button>
+            </div>
+            <ul style={{ fontSize: 13, margin: 0, paddingLeft: 20, color: t.text, lineHeight: 1.6 }}>
+              {LISTOGS_CHANGELOG[0].changes.map((c, i) => <li key={i}>{c}</li>)}
+            </ul>
+          </div>
+        )}
       </div>
       {/* Discogs Auth Status and Button (combined in one line) */}
       <div style={{
@@ -1765,6 +1918,100 @@ function DiscogsAuthTestPageInner() {
             style={{ width: '100%', padding: 8, fontSize: 16 }}
             disabled={!discogsAuthStatus.exists}
           />
+
+          {/* Pre-search section/subsection picker. Only for sources that expand
+              into many releases (artist/label/master). Counts fill in after the
+              discography listing loads. */}
+          {isFilterableType && (
+            <div style={{ border: `1px solid ${t.border}`, borderRadius: 6, background: t.bg }}>
+              <button
+                type="button"
+                onClick={() => setShowFetchFilters(v => !v)}
+                style={{
+                  width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 14,
+                  fontWeight: 600, background: 'transparent', color: t.text, border: 'none',
+                  cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <span>
+                  Sections to fetch
+                  <span style={{ color: t.textSecondary, fontWeight: 400 }}>
+                    {' '}— {selectedCategoryCount} of {taxonomyKeys.length} selected
+                  </span>
+                </span>
+                <span>{showFetchFilters ? '▲' : '▼'}</span>
+              </button>
+
+              {showFetchFilters && (
+                <div style={{ padding: '4px 12px 12px', maxHeight: 340, overflowY: 'auto' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <button
+                      type="button"
+                      onClick={toggleAllCategories}
+                      style={{
+                        padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        background: 'transparent', color: '#0066cc', border: `1px solid ${t.border}`, borderRadius: 4,
+                      }}
+                    >
+                      {allCategoriesSelected ? 'Deselect all' : 'Select all'}
+                    </button>
+                    <span style={{ fontSize: 11, color: t.textSecondary }}>
+                      {sectionCounts ? 'Counts are from the last fetch.' : 'Counts appear after you fetch.'}
+                    </span>
+                  </div>
+
+                  {activeTaxonomy.map(({ section, subs }) => {
+                    const keys = subs.map(s => `${section}/${s}`);
+                    const allOn = keys.every(k => effectiveCategories.has(k));
+                    const someOn = keys.some(k => effectiveCategories.has(k));
+                    const sectionCount = categoryCountMap[section];
+                    return (
+                      <div key={section} style={{ marginBottom: 10 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: t.text, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={allOn}
+                            ref={el => { if (el) el.indeterminate = !allOn && someOn; }}
+                            onChange={() => toggleSection(section, subs)}
+                          />
+                          {section}
+                          {sectionCount != null && (
+                            <span style={{ color: t.textSecondary, fontWeight: 600 }}>({sectionCount})</span>
+                          )}
+                        </label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px', paddingLeft: 22, marginTop: 2 }}>
+                          {subs.map(sub => {
+                            const key = `${section}/${sub}`;
+                            const count = categoryCountMap[key];
+                            return (
+                              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: t.text, padding: '1px 0', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={effectiveCategories.has(key)}
+                                  onChange={() => toggleCategory(key)}
+                                />
+                                <span style={{ flex: 1 }}>{sub}</span>
+                                {count != null && (
+                                  <span style={{ color: t.textSecondary }}>{count}</span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {selectedCategoryCount === 0 && (
+                    <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
+                      Select at least one section to fetch.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             onClick={handleSearchClick}
             style={{ 
@@ -1940,6 +2187,7 @@ function DiscogsAuthTestPageInner() {
               onAuthStateChange={setYtAuthState}
               blackTextOnWhite
               darkMode={darkMode}
+              invalidAuthMessage="If you are not signed in you cannot create YouTube playlists"
             />
           </div>
           {canCreatePlaylists && (
@@ -2058,37 +2306,38 @@ function DiscogsAuthTestPageInner() {
 
             <div style={{ marginBottom: 16 }}>
               <p style={{ fontSize: 14, color: t.text, margin: 0 }}>
-                This will create a playlist with <strong>{videoIds.length} videos</strong> found in your search results.
+                This will {useExistingPlaylist ? 'add' : 'create a playlist with'} <strong>{filteredVideoIds.length} video{filteredVideoIds.length === 1 ? '' : 's'}</strong>
+                {filteredVideoIds.length !== videoIds.length ? ` (filtered from ${videoIds.length} — matches the Videos table)` : ' found in your search results'}.
               </p>
             </div>
 
             <div>
               <button
                 onClick={createYouTubePlaylist}
-                disabled={playlistLoading}
+                disabled={playlistLoading || filteredVideoIds.length === 0}
                 style={{
                   padding: '12px 24px',
                   fontSize: 16,
-                  background: playlistLoading ? '#6c757d' : buttonColor,
+                  background: (playlistLoading || filteredVideoIds.length === 0) ? '#6c757d' : buttonColor,
                   color: 'white',
                   border: 'none',
                   borderRadius: 6,
-                  cursor: playlistLoading ? 'not-allowed' : 'pointer',
+                  cursor: (playlistLoading || filteredVideoIds.length === 0) ? 'not-allowed' : 'pointer',
                   fontWeight: 'bold',
                   transition: 'background 0.2s'
                 }}
                 onMouseOver={e => {
-                  if (!playlistLoading) {
+                  if (!playlistLoading && filteredVideoIds.length > 0) {
                     e.currentTarget.style.background = darkenColor(buttonColor);
                   }
                 }}
                 onMouseOut={e => {
-                  if (!playlistLoading) {
+                  if (!playlistLoading && filteredVideoIds.length > 0) {
                     e.currentTarget.style.background = buttonColor;
                   }
                 }}
               >
-                {playlistLoading ? (useExistingPlaylist ? 'Adding videos...' : 'Creating...') : (useExistingPlaylist ? `Add to Playlist (${videoIds.length} videos)` : `Create Playlist (${videoIds.length} videos)`)}
+                {playlistLoading ? (useExistingPlaylist ? 'Adding videos...' : 'Creating...') : (useExistingPlaylist ? `Add to Playlist (${filteredVideoIds.length} videos)` : `Create Playlist (${filteredVideoIds.length} videos)`)}
               </button>
               
               {/* Progress Display */}
@@ -2234,7 +2483,7 @@ function DiscogsAuthTestPageInner() {
       )}
 
       {/* Videos - tabbed: Table | Video IDs */}
-      <div style={{ marginTop: 32, background: t.bg, color: t.text, padding: '20px', borderRadius: 8, border: `1px solid ${t.border}` }}>
+      <div style={{ marginTop: 32, background: t.bg, color: t.text, padding: '20px', borderRadius: 8, border: `1px solid ${t.border}`, boxSizing: 'border-box', maxWidth: '100%', overflowX: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 16, borderBottom: '2px solid #dee2e6' }}>
           <h3 style={{ color: t.text, margin: '0 24px 0 0' }}>Videos</h3>
           <button
@@ -2272,78 +2521,92 @@ function DiscogsAuthTestPageInner() {
           </button>
         </div>
 
-        {videosViewTab === 'table' && (
-          <>
-            <VideoTable
-              videoData={results}
-              onFilteredDataChange={handleFilteredDataChange}
+        {/* VideoTable stays mounted across tab switches (hidden, not unmounted)
+            so its filter selections persist and keep driving filteredTableRows
+            for both the CSV export and the Video IDs tab. */}
+        <div style={{ display: videosViewTab === 'table' ? 'block' : 'none' }}>
+          <VideoTable
+            videoData={results}
+            onFilteredDataChange={handleFilteredDataChange}
+            sourceType={selectedType}
+          />
+          <div style={{ marginTop: 16 }}>
+            <ExportCSVButton
+              data={filteredTableRows}
+              fileName={extractedId ? `discogs-${extractedId}-videos.csv` : "videos.csv"}
+              headers={[
+                "releaseTitle",
+                "artist",
+                "year",
+                "releaseType",
+                "role",
+                "section",
+                "subsection",
+                "labelsAndCompanies",
+                "country",
+                "genres",
+                "styles",
+                "masterId",
+                "isMasterRelease",
+                "title",
+                "videoId",
+                "fullUrl",
+                "discogsUrl"
+              ]}
             />
-            <div style={{ marginTop: 16 }}>
-              <ExportCSVButton
-                data={filteredTableRows}
-                fileName={extractedId ? `discogs-${extractedId}-videos.csv` : "videos.csv"}
-                headers={[
-                  "releaseTitle",
-                  "artist",
-                  "year",
-                  "releaseType",
-                  "labelsAndCompanies",
-                  "country",
-                  "genres",
-                  "styles",
-                  "masterId",
-                  "isMasterRelease",
-                  "title",
-                  "videoId",
-                  "fullUrl",
-                  "discogsUrl"
-                ]}
-              />
-              <div style={{ fontSize: 14, color: t.text, marginTop: 8 }}>
-                Exports the rows exactly as they appear with the active table filters.
-              </div>
+            <div style={{ fontSize: 14, color: t.text, marginTop: 8 }}>
+              Exports the rows exactly as they appear with the active table filters.
             </div>
-          </>
-        )}
+          </div>
+        </div>
 
         {videosViewTab === 'ids' && videoIds.length > 0 && (
           <div>
             <p style={{ fontSize: 14, color: t.text, marginBottom: 12 }}>
-              All YouTube Video IDs (comma separated) - {videoIds.length} videos:
+              YouTube Video IDs (comma separated) — <strong>{filteredVideoIds.length}</strong> of {videoIds.length} videos
+              {filteredVideoIds.length !== videoIds.length ? ' (filtered to match the table)' : ''}:
             </p>
-            <textarea
-              value={allVideoIdsString}
-              readOnly
-              rows={Math.min(6, Math.ceil(allVideoIdsString.length / 80))}
-              style={{
-                width: '100%',
-                fontSize: 14,
-                padding: 8,
-                marginBottom: 8,
-                resize: 'vertical',
-                background: t.bg,
-                color: t.text,
-                border: '1px solid #ccc'
-              }}
-            />
-            <button
-              onClick={handleCopyIds}
-              style={{
-                padding: '8px 16px',
-                fontSize: 16,
-                background: t.bg,
-                color: t.text,
-                border: '2px solid #333',
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                transition: 'background-color 0.2s ease'
-              }}
-              onMouseOver={e => { e.currentTarget.style.background = t.hoverBg; }}
-              onMouseOut={e => { e.currentTarget.style.background = t.bg; }}
-            >
-              {copyButtonClicked ? `Copied ${videoIds.length} IDs!` : `Copy ${videoIds.length} IDs to Clipboard`}
-            </button>
+            {filteredVideoIds.length === 0 ? (
+              <p style={{ fontSize: 14, color: t.textSecondary, marginBottom: 12 }}>
+                No videos match the current table filters. Switch to the Table tab to adjust which sections are shown.
+              </p>
+            ) : (
+              <>
+                <textarea
+                  value={filteredVideoIdsString}
+                  readOnly
+                  rows={Math.min(6, Math.max(2, Math.ceil(filteredVideoIdsString.length / 80)))}
+                  style={{
+                    width: '100%',
+                    fontSize: 14,
+                    padding: 8,
+                    marginBottom: 8,
+                    resize: 'vertical',
+                    background: t.bg,
+                    color: t.text,
+                    border: '1px solid #ccc'
+                  }}
+                />
+                <button
+                  onClick={handleCopyIds}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 16,
+                    background: t.bg,
+                    color: t.text,
+                    border: '2px solid #333',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    transition: 'background-color 0.2s ease'
+                  }}
+                  onMouseOver={e => { e.currentTarget.style.background = t.hoverBg; }}
+                  onMouseOut={e => { e.currentTarget.style.background = t.bg; }}
+                >
+                  {copyButtonClicked ? `Copied ${filteredVideoIds.length} IDs!` : `Copy ${filteredVideoIds.length} IDs to Clipboard`}
+                </button>
+              </>
+            )}
           </div>
         )}
 
