@@ -23,7 +23,7 @@ const apiBaseURL = () => {
   return 'https://martinbarker.me/internal-api';
 };
 
-function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, blackTextOnWhite = false, darkMode = false }, _ref) {
+function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, blackTextOnWhite = false, darkMode = false, invalidAuthMessage = 'YouTube sign-in is invalid — uploads will fail' }, _ref) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
   const [authUrlLoading, setAuthUrlLoading] = useState(true);
@@ -413,7 +413,7 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
             borderRadius: 6, color: textColor,
           }}>
             <div style={{ fontWeight: 700, color: darkMode ? '#fc8181' : '#c53030' }}>
-              ⚠️ YouTube sign-in is invalid — uploads will fail
+              ⚠️ {invalidAuthMessage}
             </div>
             <div style={{ fontSize: 13 }}>
               {reasonLabel || 'Your stored YouTube credentials are no longer valid.'} Please sign in again to continue.

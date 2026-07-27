@@ -974,6 +974,167 @@ async function fetchWithRetry(url, options, maxRetries = 15) {
   throw lastError || new Error('Max retries exceeded');
 }
 
+// Map a Discogs artist-release `role` string to one of a few UI-facing buckets
+// so the /listogs pre-search "which type of search" checkboxes can include or
+// exclude whole categories (main discography vs appearances vs credits, etc.).
+// Roles seen on /artists/{id}/releases: Main, Appearance, TrackAppearance,
+// UnofficialRelease, Remix, Producer, Co-producer, Composed By, Written-By,
+// DJ Mix, Mixed, Arranged By, … Anything production/writing/remix collapses to
+// "Credits".
+function roleBucket(role) {
+  const r = String(role || '').trim().toLowerCase();
+  if (!r || r === 'main') return 'Main';
+  if (r === 'appearance') return 'Appearance';
+  if (r === 'trackappearance' || r === 'track appearance') return 'TrackAppearance';
+  if (r === 'unofficialrelease' || r === 'unofficial release') return 'Unofficial';
+  return 'Credits';
+}
+
+// True when this release passes the fetch-time role filter. `includeRoles` is a
+// list of bucket names to keep; null/empty means keep everything (legacy).
+function releasePassesRoleFilter(release, includeRoles) {
+  if (!Array.isArray(includeRoles) || includeRoles.length === 0) return true;
+  return includeRoles.includes(roleBucket(release?.role));
+}
+
+// ---------------------------------------------------------------------------
+// Discogs artist-page section/subsection taxonomy
+// ---------------------------------------------------------------------------
+// The /listogs filter tree mirrors how a Discogs artist page is laid out:
+//   Releases / Appearances / Unofficial   → grouped by FORMAT
+//     Albums · Singles & EPs · Compilations · Mixes · Videos · Miscellaneous
+//   Credits                               → grouped by CREDIT HEADING
+//     Remix · Vocal · Instruments & Performance · Writing & Arrangement ·
+//     Featuring & Presenting · Conducting & Leading · Production · DJ Mix ·
+//     Technical · Visual · Acting, Literary & Spoken · Management
+// The top-level section comes straight from the release's `role` (exact); the
+// subsection is a best-effort reproduction of Discogs' own sort algorithm from
+// the format summary / credit role (the API omits track counts & durations, so
+// a few items can land a subsection off from the website).
+const FORMAT_SUBSECTIONS = ['Albums', 'Singles & EPs', 'Compilations', 'Mixes', 'Videos', 'Miscellaneous'];
+const CREDIT_SUBSECTIONS = ['Remix', 'Vocal', 'Instruments & Performance', 'Writing & Arrangement', 'Featuring & Presenting', 'Conducting & Leading', 'Production', 'DJ Mix', 'Technical', 'Visual', 'Acting, Literary & Spoken', 'Management'];
+
+function sectionForRole(role) {
+  const r = String(role || '').trim().toLowerCase();
+  if (!r || r === 'main') return 'Releases';
+  if (r === 'appearance' || r === 'trackappearance' || r === 'track appearance') return 'Appearances';
+  if (r === 'unofficialrelease' || r === 'unofficial release') return 'Unofficial';
+  return 'Credits';
+}
+
+// Tokenize a Discogs format summary ("LP, Album, Compilation" / "12\", 45 RPM")
+// into lowercased, trimmed tokens so we can match on whole tags (avoids e.g.
+// "Repress" matching "EP").
+function formatTokens(formatValue) {
+  let str = '';
+  if (Array.isArray(formatValue)) {
+    // Full release `formats` array of { name, descriptions:[] }.
+    str = formatValue
+      .map(f => [f?.name, ...(Array.isArray(f?.descriptions) ? f.descriptions : [])].filter(Boolean).join(', '))
+      .join(', ');
+  } else {
+    str = String(formatValue || '');
+  }
+  return str.split(/[,/]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function formatSubsection(formatValue) {
+  const tokens = formatTokens(formatValue);
+  const has = (...vals) => tokens.some(tok => vals.includes(tok));
+  const hasSub = (...subs) => tokens.some(tok => subs.some(s => tok.includes(s)));
+
+  const VIDEO = ['dvd', 'dvdr', 'dvd-video', 'dvd-vid', 'hd dvd', 'hd dvd-r', 'blu-ray', 'blu-ray-r', 'vhs', 'laserdisc', 'betamax', 'video 2000', 'cdv', 'vcd', 'svcd', 'selectavision', 'video'];
+  if (has(...VIDEO)) return 'Videos';
+  if (has('mixed', 'dj mix')) return 'Mixes';
+  if (hasSub('comp')) return 'Compilations';
+
+  const isSingle = has('single', 'maxi-single', 'ep', '7"', '10"', '12"', 'minimax', 'mini');
+  if (has('album', 'lp', 'mini-album', 'mini album') && !isSingle) return 'Albums';
+  if (isSingle) return 'Singles & EPs';
+  return 'Miscellaneous';
+}
+
+// Map a raw Discogs credit role ("Producer", "Written-By", "Bass", …) to one of
+// the 12 credit headings the artist page groups by. Order matters (most
+// specific first). Anything unrecognized falls to "Miscellaneous".
+function creditSubsection(role) {
+  const r = String(role || '').trim().toLowerCase();
+  if (!r) return 'Miscellaneous';
+  if (r.includes('remix')) return 'Remix';
+  if (r.includes('dj mix')) return 'DJ Mix';
+  if (r.includes('produc')) return 'Production';
+  if (/(written|compos|lyric|music by|arrang|songwriter|words by|adapt|orchestrat)/.test(r)) return 'Writing & Arrangement';
+  if (/(featuring|present|host)/.test(r)) return 'Featuring & Presenting';
+  if (/(conduct|orchestra leader|choir master|choirmaster|bandleader|leader)/.test(r)) return 'Conducting & Leading';
+  if (/(vocal|voice|choir|sung|backing vo|lead vo)/.test(r)) return 'Vocal';
+  if (/(engineer|master|mix|record|programm|edit|technician|transfer|sequenc)/.test(r)) return 'Technical';
+  if (/(artwork|design|photo|illustrat|cover|layout|graphic|paint|sculpt|lettering)/.test(r)) return 'Visual';
+  if (/(actor|narrat|spoken|reader|words\b|liner notes|written-by)/.test(r)) return 'Acting, Literary & Spoken';
+  if (/(management|manager|a&r|booking|coordinator|licensing|legal)/.test(r)) return 'Management';
+  if (/(bass|guitar|drum|keyboard|piano|synth|percussion|sax|trumpet|violin|cello|flute|horn|organ|performer|instrument|strings|brass|harmonica|banjo|accordion|clarinet|trombone|viola|harp|marimba|vibraphone|turntable|programming)/.test(r)) return 'Instruments & Performance';
+  return 'Miscellaneous';
+}
+
+// Categorize a release-listing item into { section, subsection }. `format` is
+// the artist-listing summary string; full releases pass their `formats` array.
+function categorizeRelease(release) {
+  const section = sectionForRole(release?.role);
+  const subsection = section === 'Credits'
+    ? creditSubsection(release?.role)
+    : formatSubsection(release?.format != null ? release.format : release?.formats);
+  return { section, subsection };
+}
+
+// Tally a release listing into the count tree the /listogs panel renders:
+// [{ section, count, subsections: [{ name, count }] }], ordered like the page.
+function buildSectionCounts(releases, isArtist) {
+  const sectionOrder = isArtist ? ['Releases', 'Appearances', 'Unofficial', 'Credits'] : ['Releases'];
+  const tree = new Map();
+  for (const rel of releases) {
+    const { section, subsection } = categorizeRelease(rel);
+    if (!tree.has(section)) tree.set(section, { total: 0, subs: new Map() });
+    const node = tree.get(section);
+    node.total += 1;
+    node.subs.set(subsection, (node.subs.get(subsection) || 0) + 1);
+  }
+  const orderFor = section => (section === 'Credits' ? CREDIT_SUBSECTIONS : FORMAT_SUBSECTIONS);
+  const seen = [...tree.keys()];
+  const orderedSections = [...sectionOrder.filter(s => tree.has(s)), ...seen.filter(s => !sectionOrder.includes(s))];
+  return orderedSections.map(section => {
+    const node = tree.get(section);
+    const subOrder = orderFor(section);
+    const subEntries = [...node.subs.entries()];
+    const orderedSubs = [
+      ...subOrder.filter(s => node.subs.has(s)).map(name => ({ name, count: node.subs.get(name) })),
+      ...subEntries.filter(([name]) => !subOrder.includes(name)).map(([name, count]) => ({ name, count })),
+    ];
+    return { section, count: node.total, subsections: orderedSubs };
+  });
+}
+
+// True when this release passes the section/subsection selection. `include` is a
+// Set of "Section/Subsection" leaf keys; null/empty means keep everything.
+function releasePassesCategoryFilter(release, includeSet) {
+  if (!includeSet || includeSet.size === 0) return true;
+  const { section, subsection } = categorizeRelease(release);
+  return includeSet.has(`${section}/${subsection}`);
+}
+
+// Emit section counts for a release listing and apply the user's category
+// selection, returning the releases to actually fetch videos for. Used by the
+// label/master paths (the artist path inlines this plus a legacy role fallback).
+function countAndFilterByCategory(releases, fetchFilters, socketId, isArtist) {
+  sendSectionCountsToSession(buildSectionCounts(releases, isArtist), socketId);
+  const includeCategories = Array.isArray(fetchFilters?.includeCategories) && fetchFilters.includeCategories.length > 0
+    ? new Set(fetchFilters.includeCategories)
+    : null;
+  if (!includeCategories) return releases;
+  const before = releases.length;
+  const filtered = releases.filter((rel) => releasePassesCategoryFilter(rel, includeCategories));
+  sendLogMessageToSession(`Section filter: kept ${filtered.length} of ${before} releases`, socketId);
+  return filtered;
+}
+
 // Helper function to extract release type from Discogs formats
 function extractReleaseType(releaseData) {
   let releaseType = '';
@@ -983,8 +1144,16 @@ function extractReleaseType(releaseData) {
       // Check for common release types in descriptions
       const descriptions = format.descriptions.join(' ').toLowerCase();
       
-      // Look for specific release types (case insensitive)
-      if (descriptions.includes('album')) {
+      // Look for specific release types (case insensitive). Check the more
+      // specific "compilation"/"mixtape" BEFORE album/single/EP/LP: Discogs
+      // formats a compilation as e.g. ["LP", "Compilation"] or ["Album",
+      // "Compilation"], so testing album/lp first would mislabel it "Album" and
+      // let it slip past a "de-select Compilation" filter.
+      if (descriptions.includes('compilation')) {
+        releaseType = 'Compilation';
+      } else if (descriptions.includes('mixtape')) {
+        releaseType = 'Mixtape';
+      } else if (descriptions.includes('album')) {
         releaseType = 'Album';
       } else if (descriptions.includes('single')) {
         releaseType = 'Single';
@@ -992,10 +1161,6 @@ function extractReleaseType(releaseData) {
         releaseType = 'EP';
       } else if (descriptions.includes('lp')) {
         releaseType = 'Album'; // LP is typically an album
-      } else if (descriptions.includes('compilation')) {
-        releaseType = 'Compilation';
-      } else if (descriptions.includes('mixtape')) {
-        releaseType = 'Mixtape';
       } else {
         // If no specific type found, use the first non-format description
         // Skip technical formats like MP3, FLAC, WAV, CD, Vinyl, etc.
@@ -4244,6 +4409,13 @@ function sendResultsToSession(results, socketId) {
   }
 }
 
+function sendSectionCountsToSession(sectionCounts, socketId) {
+  const target = socketId && io.sockets.sockets.get(socketId);
+  if (target) {
+    target.emit('sectionCounts', sectionCounts);
+  }
+}
+
 function sendVideosToSession(videos, socketId) {
   // Early return if socket is not connected
   if (!isSocketConnected(socketId)) {
@@ -4570,7 +4742,7 @@ async function newDiscogsAPIRequest(discogsURL, oauthToken, socketId, cancelled 
   return firstResponse;
 }
 
-async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false) {
+async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false, fetchFilters = {}) {
   // Check if socket is still connected before starting
   if (!isSocketConnected(socketId)) {
     console.log(`[getAllArtistReleaseVideos] Socket ${socketId} disconnected, aborting`);
@@ -4586,6 +4758,33 @@ async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, s
     return res.status(500).json({ error: error.message });
   }
 
+  // Count the whole discography by section/subsection and push it to the panel
+  // so the counts show up next to each category as the fetch runs.
+  const sectionCounts = buildSectionCounts(artistReleases, true);
+  sendSectionCountsToSession(sectionCounts, socketId);
+
+  // Section/subsection selection (fetch-time): drop releases whose category the
+  // user didn't tick BEFORE we spend an API call per release fetching its videos.
+  const includeCategories = Array.isArray(fetchFilters.includeCategories) && fetchFilters.includeCategories.length > 0
+    ? new Set(fetchFilters.includeCategories)
+    : null;
+  if (includeCategories) {
+    const before = artistReleases.length;
+    artistReleases = artistReleases.filter((rel) => releasePassesCategoryFilter(rel, includeCategories));
+    sendLogMessageToSession(`Section filter: kept ${artistReleases.length} of ${before} releases`, socketId);
+  } else {
+    // Legacy role-bucket filter still honored if no category selection sent.
+    const includeRoles = fetchFilters.includeRoles;
+    if (Array.isArray(includeRoles) && includeRoles.length > 0) {
+      const before = artistReleases.length;
+      artistReleases = artistReleases.filter((rel) => releasePassesRoleFilter(rel, includeRoles));
+      sendLogMessageToSession(
+        `Role filter (${includeRoles.join(', ')}): kept ${artistReleases.length} of ${before} releases`,
+        socketId
+      );
+    }
+  }
+
   // Check again before proceeding to video fetching
   if (!isSocketConnected(socketId)) {
     console.log(`[getAllArtistReleaseVideos] Socket ${socketId} disconnected during video fetching, aborting`);
@@ -4594,8 +4793,8 @@ async function getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, s
 
   let artistVideos = [];
   try {
-    artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId, cancelled);
-    sendLogMessageToSession(`Fetched artist videos: ${artistVideos['totalVideoCount']} videos`, socketId);
+    artistVideos = await getAllReleaseVideos(artistReleases, oauthToken, socketId, cancelled, fetchFilters);
+    sendLogMessageToSession(`✅ Done! Finished fetching Discogs — ${artistVideos['totalVideoCount']} videos total.`, socketId);
   } catch (error) {
     sendLogMessageToSession(`Error fetching artist videos: ${error.message}`, socketId);
   }
@@ -4611,43 +4810,40 @@ async function getAllArtistReleases(artistId, oauthToken, oauthVerifier, socketI
   try {
     devLog(`[getAllArtistReleases] Start: artistId=${artistId}, oauthToken=${oauthToken ? '[provided]' : '[none]'}, oauthVerifier=${oauthVerifier ? '[provided]' : '[none]'}`);
     let allReleases = [];
-    let url = `${DISCOGS_API_URL}/artists/${artistId}/releases`;
-    let retryCount = 0;
+    // per_page=100 keeps the listing to ~1 request per 100 releases; follow
+    // pagination so the section counts reflect the WHOLE discography, not just
+    // the first page.
+    let url = `${DISCOGS_API_URL}/artists/${artistId}/releases?per_page=100&page=1`;
 
-    try {
-      // Check for cancellation before making the request
+    while (url) {
       if (cancelled) {
         console.log(`[getAllArtistReleases] Job cancelled for socket ${socketId}`);
+        return allReleases;
+      }
+      if (!isSocketConnected(socketId)) {
+        console.log(`[getAllArtistReleases] Socket ${socketId} disconnected, aborting`);
         return allReleases;
       }
 
       devLog(`[getAllArtistReleases] Fetching: ${url}`);
       const response = await newDiscogsAPIRequest(url, oauthToken, socketId, cancelled);
 
-      // Check for cancellation after the request
       if (cancelled) {
         console.log(`[getAllArtistReleases] Job cancelled for socket ${socketId}`);
         return allReleases;
       }
 
-      if (response && response.releases) {
+      if (response && Array.isArray(response.releases)) {
         devLog(`[getAllArtistReleases] Fetched ${response.releases.length} releases from current page.`);
         allReleases = allReleases.concat(response.releases);
+        sendLogMessageToSession(`Loading artist discography… ${allReleases.length} releases`, socketId);
       } else {
         devLog(`[getAllArtistReleases] No releases found in response.`);
       }
 
-      url = response.pagination?.urls?.next || null;
-      if (url) {
-        devLog(`[getAllArtistReleases] Next page URL: ${url}`);
-      } else {
-        devLog(`[getAllArtistReleases] No more pages.`);
-      }
-      retryCount = 0;
-    } catch (error) {
-      console.error(`[getAllArtistReleases] Error: ${error.message}`);
-      throw error;
+      url = response?.pagination?.urls?.next || null;
     }
+
     devLog(`[getAllArtistReleases] Done. Total releases fetched: ${allReleases.length}`);
     return allReleases;
   } catch (err) {
@@ -4700,7 +4896,7 @@ async function getAllMasterVersions(masterId, oauthToken, oauthVerifier, socketI
 }
 
 // Fetch all videos from every release under a Discogs master release
-async function getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false) {
+async function getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false, fetchFilters = {}) {
   // Check if socket is still connected before starting
   if (!isSocketConnected(socketId)) {
     console.log(`[getAllMasterReleaseVideos] Socket ${socketId} disconnected, aborting`);
@@ -4722,10 +4918,12 @@ async function getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, s
     return;
   }
 
+  masterVersions = countAndFilterByCategory(masterVersions, fetchFilters, socketId, false);
+
   let masterVideos = [];
   try {
-    masterVideos = await getAllReleaseVideos(masterVersions, oauthToken, socketId, cancelled);
-    sendLogMessageToSession(`Fetched master videos: ${masterVideos['totalVideoCount']} videos`, socketId);
+    masterVideos = await getAllReleaseVideos(masterVersions, oauthToken, socketId, cancelled, fetchFilters);
+    sendLogMessageToSession(`✅ Done! Finished fetching Discogs — ${masterVideos['totalVideoCount']} videos total.`, socketId);
   } catch (error) {
     sendLogMessageToSession(`Error fetching master videos: ${error.message}`, socketId);
   }
@@ -4737,9 +4935,16 @@ async function getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, s
   }
 }
 
-async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancelled = false) {
+async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancelled = false, fetchFilters = {}) {
 
-  // Map all videos by releaseId and videoId 
+  // Release-type exclusions (fetch-time): once a release's type is known we can
+  // drop it (e.g. "Compilation") so its videos never reach the results/playlist.
+  const excludeReleaseTypes = Array.isArray(fetchFilters.excludeReleaseTypes)
+    ? fetchFilters.excludeReleaseTypes.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
+    : [];
+  let skippedByType = 0;
+
+  // Map all videos by releaseId and videoId
   const allVideos = {};
   let addedCount = 0;
 
@@ -4779,6 +4984,27 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
       const releaseUrl = `${DISCOGS_API_URL}/releases/${releaseId}`;
       const releaseData = await newDiscogsAPIRequest(releaseUrl, oauthToken, socketId, cancelled);
 
+      // Extract release type from formats once, so we can both filter on it and
+      // attach it to each video row.
+      const releaseType = extractReleaseType(releaseData);
+
+      // Release-type exclusion (e.g. drop all "Compilation" releases before the
+      // videos are ever added — the playlist adds every fetched video, so this
+      // is the point where the user's "de-select compilations" takes effect).
+      if (excludeReleaseTypes.length > 0 && excludeReleaseTypes.includes(String(releaseType).trim().toLowerCase())) {
+        skippedByType++;
+        sendLogMessageToSession(`Skipped release ${releaseId} (type "${releaseType}" is de-selected)`, socketId);
+        continue;
+      }
+
+      // Artist role for this release (empty for label/master sources, whose
+      // release objects carry no `role`), carried onto every video row so the
+      // results table can show/filter by it.
+      const role = release.role ? roleBucket(release.role) : '';
+      // Discogs artist-page section/subsection, so the results table can filter
+      // "after" by the same taxonomy as the pre-search panel.
+      const { section, subsection } = categorizeRelease(release);
+
       // If release has videos, process them
       if (releaseData && Array.isArray(releaseData.videos) && releaseData.videos.length > 0) {
 
@@ -4801,15 +5027,15 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
 
           // Only add if this videoId is not already present for this release
           if (!allVideos[releaseId][videoId]) {
-            // Extract release type from formats
-            const releaseType = extractReleaseType(releaseData);
-
             allVideos[releaseId][videoId] = {
               releaseId,
               releaseTitle: releaseData.title,
               artist: releaseData.artists_sort || (releaseData.artists && releaseData.artists[0]?.name) || '',
               year: releaseData.year || '',
               releaseType: releaseType,
+              role,
+              section,
+              subsection,
               discogsUrl: releaseData.uri || `https://www.discogs.com/release/${releaseId}`,
               videoId,
               fullUrl: video.uri,
@@ -4858,7 +5084,7 @@ async function getAllReleaseVideos(artistReleases, oauthToken, socketId, cancell
   return allVideos;
 }
 
-async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false){
+async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false, fetchFilters = {}){
   // Check if socket is still connected before starting
   if (!isSocketConnected(socketId)) {
     console.log(`[getAllLabelReleaseVideos] Socket ${socketId} disconnected, aborting`);
@@ -4881,11 +5107,13 @@ async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, so
     return;
   }
   
+  labelReleases = countAndFilterByCategory(labelReleases, fetchFilters, socketId, false);
+
   // Get all videos from all label releases
   let labelVideos = [];
   try {
-    labelVideos = await getAllReleaseVideos(labelReleases, oauthToken, socketId, cancelled);
-    sendLogMessageToSession(`Fetched label videos: ${labelVideos['totalVideoCount']} videos`, socketId);
+    labelVideos = await getAllReleaseVideos(labelReleases, oauthToken, socketId, cancelled, fetchFilters);
+    sendLogMessageToSession(`✅ Done! Finished fetching Discogs — ${labelVideos['totalVideoCount']} videos total.`, socketId);
   } catch (error) {
     sendLogMessageToSession(`Error fetching label videos: ${error.message}`, socketId);
     return res.status(500).json({ error: error.message });
@@ -4899,23 +5127,29 @@ async function getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, so
 } 
 
 async function getAllDiscogsLabelReleases(discogsId, oauthToken, oauthVerifier, socketId, cancelled = false) {
-  // Check for cancellation before making the request
-  if (cancelled) {
-    console.log(`[getAllDiscogsLabelReleases] Job cancelled for socket ${socketId}`);
-    return [];
+  let allReleases = [];
+  // per_page=100 + follow pagination so section counts cover the whole label.
+  let url = `https://api.discogs.com/labels/${discogsId}/releases?per_page=100&page=1`;
+
+  while (url) {
+    if (cancelled) {
+      console.log(`[getAllDiscogsLabelReleases] Job cancelled for socket ${socketId}`);
+      return allReleases;
+    }
+    if (!isSocketConnected(socketId)) {
+      console.log(`[getAllDiscogsLabelReleases] Socket ${socketId} disconnected, aborting`);
+      return allReleases;
+    }
+
+    const response = await newDiscogsAPIRequest(url, oauthToken, socketId, cancelled);
+    if (response && Array.isArray(response.releases)) {
+      allReleases = allReleases.concat(response.releases);
+      sendLogMessageToSession(`Loading label catalog… ${allReleases.length} releases`, socketId);
+    }
+    url = response?.pagination?.urls?.next || null;
   }
 
-  const apiUrl = `https://api.discogs.com/labels/${discogsId}/releases`;
-  const response = await newDiscogsAPIRequest(apiUrl, oauthToken, socketId, cancelled);
-  
-  // Check for cancellation after the request
-  if (cancelled) {
-    console.log(`[getAllDiscogsLabelReleases] Job cancelled for socket ${socketId}`);
-    return [];
-  }
-  
-  // Always return the releases array if present, otherwise fallback to response
-  return response && Array.isArray(response.releases) ? response.releases : response;
+  return allReleases;
 }
 
 async function getAllListVideos(discogsId, oauthToken, oauthVerifier, socketId) {
@@ -5088,6 +5322,22 @@ app.post('/discogs/api', async (req, res) => {
   const { discogsType, discogsId, oauthToken, oauthVerifier, socketId } = req.body;
   devLog(`discogsType=${discogsType}, discogsId=${discogsId}, oauthToken=${oauthToken}, oauthVerifier=${oauthVerifier}, socketId=${socketId}`);
 
+  // Fetch-time filters (optional; empty/missing = include everything, i.e. the
+  // legacy behavior). `includeRoles` narrows an artist's releases by the artist's
+  // role bucket BEFORE per-release video fetches (saves Discogs API calls).
+  // `excludeReleaseTypes` drops releases of a given type (e.g. "Compilation")
+  // once their type is known, so they never reach the results/playlist.
+  const includeRoles = Array.isArray(req.body.includeRoles) ? req.body.includeRoles : null;
+  const excludeReleaseTypes = Array.isArray(req.body.excludeReleaseTypes)
+    ? req.body.excludeReleaseTypes.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
+    : [];
+  // Section/subsection selection: a list of "Section/Subsection" leaf keys the
+  // user ticked in the pre-search taxonomy tree. Empty/missing = include all.
+  const includeCategories = Array.isArray(req.body.includeCategories)
+    ? req.body.includeCategories.map((s) => String(s).trim()).filter(Boolean)
+    : null;
+  const fetchFilters = { includeRoles, excludeReleaseTypes, includeCategories };
+
   // Check if socket is still connected
   const target = socketId && io.sockets.sockets.get(socketId);
   if (!target || !target.connected) {
@@ -5107,12 +5357,12 @@ app.post('/discogs/api', async (req, res) => {
   try {
     if (discogsType == 'artist') {
       sendLogMessageToSession(`Calling getAllArtistReleases with artistId=${discogsId}`, socketId);
-      getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
+      getAllArtistReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled, fetchFilters);
     } else if (discogsType == 'label') {
-      getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
+      getAllLabelReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled, fetchFilters);
     } else if (discogsType == 'master') {
       sendLogMessageToSession(`Calling getAllMasterReleaseVideos with masterId=${discogsId}`, socketId);
-      getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled);
+      getAllMasterReleaseVideos(discogsId, oauthToken, oauthVerifier, socketId, cancelled, fetchFilters);
     }else if(discogsType == 'release'){
 
 
