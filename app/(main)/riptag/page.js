@@ -18,51 +18,15 @@ import {
 import { initFirebase } from "../../utils/firebase";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-
-// ---- IndexedDB helpers for persisting large blobs (rendered video) ----
-const IDB_NAME = 'vinyl_digitizer_store';
-const IDB_VERSION = 1;
-const IDB_STORE = 'blobs';
-
-function openIDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
-    req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function idbSave(key, blob) {
-  try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(blob, key);
-    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
-    db.close();
-  } catch (e) { console.warn('IDB save failed:', e); }
-}
-
-async function idbLoad(key) {
-  try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE, 'readonly');
-    const req = tx.objectStore(IDB_STORE).get(key);
-    const result = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = rej; });
-    db.close();
-    return result || null;
-  } catch { return null; }
-}
-
-async function idbDelete(key) {
-  try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete(key);
-    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
-    db.close();
-  } catch {}
-}
+import {
+  blobKey, putBlob, getBlob, deleteBlob, getFile,
+  listProjects as storeListProjects, getProject as storeGetProject,
+  putProject as storePutProject, deleteProject as storeDeleteProject,
+  deleteAllProjects as storeDeleteAllProjects, trimProjectAssets,
+  estimateStorage, requestPersistence,
+  idbSave, idbLoad, idbDelete,
+} from "./riptagStore";
+import * as renderQueue from "./renderQueue";
 
 // ---- Helpers ----
 function formatTime(s) {
@@ -114,27 +78,233 @@ function formatBytes(b) {
 const AUDIO_COLORS = ["#667eea","#764ba2","#f093fb","#4facfe","#43e97b","#fa709a","#fee140","#30cfd0"];
 const IMG_COLORS   = ["#f7971e","#12c2e9","#f64f59","#c471ed","#11998e","#ee0979","#ff6a00","#3f5efb"];
 
-// ---- History (localStorage) ----
-const HISTORY_KEY = "vinyl_digitizer_projects";
+// ---- Image motion (Ken Burns) ----
+// Applied to the composed frame (after letterbox / blur-bg compositing) via
+// zoompan. STILL_FPS is enough for a static slideshow; anything with motion
+// has to be encoded at a real frame rate, which costs a lot more time.
+const IMAGE_MOTIONS = [
+  { value: "none",      label: "Still (no motion)", short: "still" },
+  { value: "zoom-in",   label: "Zoom in",           short: "zoom in" },
+  { value: "zoom-out",  label: "Zoom out",          short: "zoom out" },
+  { value: "pan-right", label: "Pan left → right",  short: "pan →" },
+  { value: "pan-left",  label: "Pan right → left",  short: "pan ←" },
+  { value: "pan-down",  label: "Pan top → bottom",  short: "pan ↓" },
+  { value: "pan-up",    label: "Pan bottom → top",  short: "pan ↑" },
+];
+// CSS-module class that mimics each motion in the in-table preview.
+const MOTION_PREVIEW_CLASS = {
+  "zoom-in": "motionZoomIn",
+  "zoom-out": "motionZoomOut",
+  "pan-right": "motionPanRight",
+  "pan-left": "motionPanLeft",
+  "pan-down": "motionPanDown",
+  "pan-up": "motionPanUp",
+};
+const BG_MOTIONS = [
+  { value: "none",  label: "Static blur", short: "static bg" },
+  { value: "drift", label: "Slow drift",  short: "drifting bg" },
+];
+const MOTION_ZOOM = 1.25;      // how far zoom/pan moves (1.25 = 25%)
+// Speed is relative to the image's own on-screen time: 1× sweeps the full
+// travel exactly once across the segment, 2× sweeps out and back, 0.5× covers
+// half of it. Foreground and background speeds are stored separately per image.
+const MOTION_SPEED_MIN = 0.25;
+const MOTION_SPEED_MAX = 4;
+const MOTION_SPEED_STEP = 0.25;
+const clampMotionSpeed = (v) => {
+  const n = parseFloat(v);
+  if (!isFinite(n) || n <= 0) return 1;
+  return Math.min(MOTION_SPEED_MAX, Math.max(MOTION_SPEED_MIN, n));
+};
+const STILL_FPS = 2;           // frame rate for motionless slideshows
+const BG_DRIFT_ZOOM = 1.2;     // blur bg is scaled this much larger so it has room to drift
+const BG_DRIFT_AMOUNT = 0.06;  // drift travel, as a fraction of the output size
+const BG_DRIFT_PERIOD = 24;    // seconds for one full drift cycle
+
+// ---- Text overlay ----
+// The overlay is rasterised in the browser with a 2D canvas at the output
+// resolution and handed to FFmpeg as a transparent PNG per segment. That keeps
+// the on-page preview and the encoded frame pixel-identical, and avoids relying
+// on drawtext/libfreetype being compiled into the ffmpeg.wasm core.
+const OVERLAY_FONTS = [
+  { label: "Arial",           value: "Arial, Helvetica, sans-serif" },
+  { label: "Helvetica",       value: "Helvetica, Arial, sans-serif" },
+  { label: "Verdana",         value: "Verdana, Geneva, sans-serif" },
+  { label: "Tahoma",          value: "Tahoma, Geneva, sans-serif" },
+  { label: "Trebuchet MS",    value: "'Trebuchet MS', Helvetica, sans-serif" },
+  { label: "Impact",          value: "Impact, Haettenschweiler, sans-serif" },
+  { label: "Georgia",         value: "Georgia, 'Times New Roman', serif" },
+  { label: "Times New Roman", value: "'Times New Roman', Times, serif" },
+  { label: "Courier New",     value: "'Courier New', Courier, monospace" },
+  { label: "System UI",       value: "system-ui, -apple-system, sans-serif" },
+];
+const OVERLAY_POSITIONS = [
+  { value: "top-left",      label: "Top left" },
+  { value: "top-center",    label: "Top center" },
+  { value: "top-right",     label: "Top right" },
+  { value: "middle-left",   label: "Middle left" },
+  { value: "middle-center", label: "Middle center" },
+  { value: "middle-right",  label: "Middle right" },
+  { value: "bottom-left",   label: "Bottom left" },
+  { value: "bottom-center", label: "Bottom center" },
+  { value: "bottom-right",  label: "Bottom right" },
+];
+// Every size below is a percentage of the output *height* (margins use width for
+// the horizontal axis), so a look set up at 1080p survives a resolution change.
+const DEFAULT_TEXT_OVERLAY = {
+  enabled: false,
+  source: "track",          // "track" = the playing track's title | "custom"
+  customText: "",
+  fontFamily: OVERLAY_FONTS[0].value,
+  fontSize: 5.5,            // % of output height
+  fontWeight: 700,
+  italic: false,
+  uppercase: false,
+  color: "#ffffff",
+  outlineWidth: 0,          // % of font size
+  outlineColor: "#000000",
+  shadow: true,
+  bgEnabled: true,
+  bgColor: "#000000",
+  bgOpacity: 0.55,
+  bgPadX: 1.6,              // % of output height
+  bgPadY: 0.9,
+  bgRadius: 0.8,
+  position: "bottom-center",
+  marginX: 4,               // % of output width
+  marginY: 6,               // % of output height
+  maxWidthPct: 88,          // wrap width, % of output width
+  // How long the caption stays up once its image appears. "full" spans the
+  // whole segment; "seconds" shows it for the first N seconds and then drops it.
+  durationMode: "full",     // "full" | "seconds"
+  durationSeconds: 5,
+};
+
+// Seconds a caption is visible within a segment of `segDur`. null means "the
+// whole segment" — the caller then skips the enable expression entirely.
+function overlayVisibleFor(o, segDur) {
+  if (!o || o.durationMode !== "seconds") return null;
+  const n = Number(o.durationSeconds);
+  if (!isFinite(n) || n <= 0) return 0;
+  // No point gating when it already covers the segment.
+  return n >= segDur ? null : n;
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  ctx.lineTo(x + rad, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
+  ctx.closePath();
+}
+
+function wrapOverlayLines(ctx, text, maxWidth) {
+  const lines = [];
+  for (const para of String(text).split("\n")) {
+    const words = para.split(/\s+/).filter(Boolean);
+    if (!words.length) { lines.push(""); continue; }
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const test = `${cur} ${words[i]}`;
+      if (ctx.measureText(test).width <= maxWidth) cur = test;
+      else { lines.push(cur); cur = words[i]; }
+    }
+    lines.push(cur);
+  }
+  return lines;
+}
+
+// Draws the overlay onto an already-sized 2D context. Used both for the
+// on-page preview and for the transparent PNG fed to FFmpeg — one code path so
+// the two can never drift apart.
+function drawTextOverlay(ctx, text, o, w, h) {
+  const raw = o.uppercase ? String(text ?? "").toUpperCase() : String(text ?? "");
+  if (!raw.trim()) return;
+  const fontPx = Math.max(8, Math.round((o.fontSize / 100) * h));
+  ctx.save();
+  ctx.font = `${o.italic ? "italic " : ""}${o.fontWeight} ${fontPx}px ${o.fontFamily}`;
+  ctx.textBaseline = "alphabetic";
+  const lines = wrapOverlayLines(ctx, raw, (o.maxWidthPct / 100) * w);
+  const lineHeight = Math.round(fontPx * 1.22);
+  const textW = Math.ceil(Math.max(...lines.map(l => ctx.measureText(l).width)));
+  const textH = lineHeight * lines.length;
+  const padX = Math.round((o.bgPadX / 100) * h);
+  const padY = Math.round((o.bgPadY / 100) * h);
+  const boxW = textW + padX * 2;
+  const boxH = textH + padY * 2;
+  const [vPos, hPos] = o.position.split("-");
+  const mx = (o.marginX / 100) * w;
+  const my = (o.marginY / 100) * h;
+  const boxX = Math.round(hPos === "left" ? mx : hPos === "right" ? w - mx - boxW : (w - boxW) / 2);
+  const boxY = Math.round(vPos === "top" ? my : vPos === "bottom" ? h - my - boxH : (h - boxH) / 2);
+
+  if (o.bgEnabled && o.bgOpacity > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, Math.max(0, o.bgOpacity));
+    ctx.fillStyle = o.bgColor;
+    roundRectPath(ctx, boxX, boxY, boxW, boxH, (o.bgRadius / 100) * h);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.textAlign = hPos === "left" ? "left" : hPos === "right" ? "right" : "center";
+  const textX = hPos === "left" ? boxX + padX
+    : hPos === "right" ? boxX + boxW - padX
+    : boxX + boxW / 2;
+  if (o.shadow) {
+    ctx.shadowColor = "rgba(0,0,0,0.75)";
+    ctx.shadowBlur = Math.round(fontPx * 0.18);
+    ctx.shadowOffsetY = Math.round(fontPx * 0.06);
+  }
+  lines.forEach((line, i) => {
+    const y = boxY + padY + lineHeight * i + Math.round(fontPx * 0.86);
+    if (o.outlineWidth > 0) {
+      ctx.lineWidth = Math.max(1, (o.outlineWidth / 100) * fontPx * 2);
+      ctx.lineJoin = "round";
+      ctx.miterLimit = 2;
+      ctx.strokeStyle = o.outlineColor;
+      ctx.strokeText(line, textX, y);
+    }
+    ctx.fillStyle = o.color;
+    ctx.fillText(line, textX, y);
+  });
+  ctx.restore();
+}
+
+// Rasterise one overlay to a transparent PNG File for the ffmpeg VFS.
+function renderOverlayPngFile(text, o, w, h, name) {
+  return new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    drawTextOverlay(ctx, text, o, w, h);
+    canvas.toBlob((blob) => resolve(blob ? new File([blob], name, { type: "image/png" }) : null), "image/png");
+  });
+}
+
+const loadImageElement = (src) => new Promise((resolve, reject) => {
+  const im = new Image();
+  im.onload = () => resolve(im);
+  im.onerror = reject;
+  im.src = src;
+});
+
+// ---- Persistence keys ----
+// Projects themselves live in IndexedDB (see riptagStore); localStorage only
+// remembers which one was open and holds the pre-projects autosave blob that
+// gets migrated into a real project on first run.
 const STORAGE_KEY = "vinyl_digitizer_progress";
-function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
-  catch { return []; }
-}
-function saveHistoryItem(item) {
-  try {
-    const h = loadHistory();
-    const idx = h.findIndex(p => p.id === item.id);
-    if (idx >= 0) h[idx] = item; else h.unshift(item);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(0, 50)));
-  } catch {}
-}
-function deleteHistoryItem(id) {
-  try {
-    const h = loadHistory().filter(p => p.id !== id);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
-  } catch {}
-}
+const ACTIVE_PROJECT_KEY = "riptag_active_project";
+// User-saved Text Overlay defaults, applied to new projects.
+const TEXT_DEFAULTS_KEY = "riptag_text_overlay_defaults";
+const LEGACY_MIGRATED_KEY = "riptag_legacy_migrated";
 
 // ---- Discogs ----
 function parseDiscogsId(url) {
@@ -306,9 +476,18 @@ export default function RipTagPage() {
   const [filenameFormat, setFilenameFormat] = useState("%num%. %title%");
 
   // History
-  const [projects, setProjects] = useState([]);
+  // ---- Projects ----
+  const [projects, setProjects] = useState([]);        // stored project records, newest first
   const [showHistory, setShowHistory] = useState(false);
-  const [currentProjectId] = useState(() => Date.now().toString());
+  const [activeProjectId, setActiveProjectId] = useState(null);
+  const activeProjectIdRef = useRef(null);
+  const [projectBusy, setProjectBusy] = useState("");  // "" | "saving" | "loading"
+  const [storageInfo, setStorageInfo] = useState(null);
+  // Set while switching projects so the autosave effects don't write the
+  // half-applied state of a load back over the record being loaded.
+  const hydratingRef = useRef(false);
+  const [renderJobs, setRenderJobs] = useState([]);
+  useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
 
   // Cloud sync (hidden — enable via window.showauth() in the console)
   const [showAuthPanel, setShowAuthPanel] = useState(false);
@@ -320,7 +499,7 @@ export default function RipTagPage() {
   const [cloudSavedAt, setCloudSavedAt] = useState(null);
 
   // Video render (Step 5)
-  const [videoImages, setVideoImages] = useState([]);  // [{id, file, thumbUrl, previewUrl, stretchToFit, useBlurBg, paddingColor}]
+  const [videoImages, setVideoImages] = useState([]);  // [{id, file, thumbUrl, previewUrl, stretchToFit, useBlurBg, paddingColor, motion, motionSpeed, bgMotion, bgMotionSpeed}]
   const [selectedVideoAudios, setSelectedVideoAudios] = useState(new Set());
   const [selectedVideoImages, setSelectedVideoImages] = useState(new Set());
   const [showImageModal, setShowImageModal] = useState(false);
@@ -373,8 +552,41 @@ export default function RipTagPage() {
   // Video timeline / ordering (Step 5)
   const [slideshowMode, setSlideshowMode] = useState("distribute"); // "distribute" | "loop" | "per-track" | "manual"
   const [loopInterval, setLoopInterval] = useState(10); // seconds per image when mode is "loop"
+  const [motionFps, setMotionFps] = useState(24); // output fps when any image has a motion effect
   const [manualImageTimings, setManualImageTimings] = useState({}); // {imgId: {startTime, endTime}}
   const [expandedImgPreviews, setExpandedImgPreviews] = useState(new Set());
+  // Per-audio image pick — {trackIdx: imgId}. Only consulted in "per-track"
+  // mode; an unset track falls back to cycling through the selected images.
+  const [trackImageAssign, setTrackImageAssign] = useState({});
+  // Per-track caption overrides: { [trackIdx]: { text?, position? } }. Applies
+  // to both the concat render's per-track captions and to batch videos, so
+  // there's one place to edit them rather than two.
+  const [trackTextOverrides, setTrackTextOverrides] = useState({});
+  const [showTextPerTrack, setShowTextPerTrack] = useState(false);
+  // Text burned over the video (song title or a fixed custom string).
+  const [textOverlay, setTextOverlay] = useState(DEFAULT_TEXT_OVERLAY);
+  // Open by default — the preview is the fastest way to see what the overlay
+  // settings actually do, and it costs nothing until text is switched on.
+  const [showTextPreview, setShowTextPreview] = useState(true);
+  const [textPreviewImgId, setTextPreviewImgId] = useState(null);
+  const [textPreviewTrackIdx, setTextPreviewTrackIdx] = useState(null);
+  const [textPreviewBusy, setTextPreviewBusy] = useState(false);
+  const textPreviewCanvasRef = useRef(null);
+  // When on, the output resolution tracks the image the video opens with (the
+  // pinned image of the first track, else the first selected image) instead of
+  // being set by hand. Batch renders take it per-video, from each track's image.
+  const [autoMatchImageRes, setAutoMatchImageRes] = useState(false);
+  // Batch render: one video per track, each with that track's image.
+  const [batchSettings, setBatchSettings] = useState({
+    scope: "selected",        // "selected" = every selected track | "pinned" = only tracks with a pinned image
+    resolution: "auto",       // "auto" = match each track's image | "fixed" = use the Video Settings resolution
+    scale: 1,                 // multiplier applied to every batch video's resolution
+    textMode: "track",        // "off" | "track" (song title) | "custom"
+    customText: "",
+    nameTemplate: "%num% - %title%",
+  });
+  const [showBatchSettings, setShowBatchSettings] = useState(false);
+  const [batchVideos, setBatchVideos] = useState([]); // [{jobId, trackIdx, title, name, url, size}]
   const [videoAudioOrder, setVideoAudioOrder] = useState([]); // ordered indices into exportedTracks
   // Per-track clip ranges keyed by exportedTracks index: { [idx]: { start, end } } in seconds, relative to the track
   const [trackClips, setTrackClips] = useState({});
@@ -405,11 +617,9 @@ export default function RipTagPage() {
   const animFrameRef = useRef(null);
   const logOutputRef = useRef("");
   const cancelRef = useRef(false);
-  const videoFfmpegRef = useRef(null);
   // Synchronous re-entrancy guard for the video render. isRenderingVideo is
   // async React state, so the Render button can be re-triggered before it
   // disables; this ref blocks a second concurrent render instantly.
-  const videoRenderingRef = useRef(false);
   const getTokensRef = useRef(null);
   const thumbnailInputRef = useRef(null);
   const modalFileInputRef = useRef(null);
@@ -423,9 +633,10 @@ export default function RipTagPage() {
   const playbackTimerRef = useRef(null);
   const previewCheckRef = useRef(null);
 
-  // Reset entire workflow to fresh state
-  const resetAll = () => {
-    if (!window.confirm("Start over? This will clear all current work.")) return;
+  // Clears the workflow back to a blank slate. Shared by "Start Over" and by
+  // "New project" — the latter must NOT touch the stored project list, only the
+  // live editing state.
+  const resetProjectState = () => {
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
     exportedTracks.forEach(t => URL.revokeObjectURL(t.url));
@@ -436,13 +647,40 @@ export default function RipTagPage() {
     setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount(""); setProjectName("My Album");
     setExportedTracks([]); setSelectedTracks(new Set()); setMessage("");
     setVideoImages([]); setSelectedVideoImages(new Set()); setSelectedVideoAudios(new Set()); setRenderedVideoSrc(null);
+    setTrackImageAssign({}); setTrackTextOverrides({});
+    setTextOverlay(loadSavedTextDefaults() || DEFAULT_TEXT_OVERLAY);
+    batchVideos.forEach(v => { try { URL.revokeObjectURL(v.url); } catch {} });
+    setBatchVideos([]);
+    setManualImageTimings({}); setVideoAudioOrder([]); setTrackClips({}); setVideoOutputName("");
+    setSilenceRegions([]); setVolumeSuggestion(null);
     setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" }); setYtTitleSuggestions([]);
     setYtUploadResult(null); setYtUploadError(""); setThumbnailFile(null); setThumbnailPreview(null);
     setRiaaEnabled(false); setVolumeDb(0); setStep(1);
     autoSplitDoneRef.current = false;
     lastYtDiscogsUrlRef.current = null;
+  };
+
+  // Reset entire workflow to fresh state, discarding the active project's data.
+  const resetAll = async () => {
+    if (!window.confirm("Start over? This clears the current project's work.")) return;
+    const id = activeProjectIdRef.current;
+    const live = id ? renderQueue.jobsForProject(id).filter(j => j.status === "running" || j.status === "queued") : [];
+    if (live.length && !window.confirm(`This project has ${live.length} render${live.length === 1 ? "" : "s"} in flight. Cancel ${live.length === 1 ? "it" : "them"} too?`)) return;
+    resetProjectState();
     try { localStorage.removeItem(STORAGE_KEY); } catch {}
     idbDelete('rendered_video');
+    if (id) {
+      hydratingRef.current = true;
+      await storeDeleteProject(id);
+      await storePutProject({
+        id, name: "New project", createdAt: Date.now(), updatedAt: Date.now(),
+        settings: null, audioFiles: [], exportedTracks: [], images: [], video: null,
+        bytes: { audio: 0, tracks: 0, images: 0, video: 0, total: 0 }, trackCount: 0,
+      });
+      renderQueue.purgeProject(id);
+      await refreshProjects();
+      setTimeout(() => { hydratingRef.current = false; }, 0);
+    }
   };
 
   // Reset just the current step
@@ -484,7 +722,6 @@ export default function RipTagPage() {
   useEffect(() => {
     setMounted(true);
     ffmpegRef.current = new FFmpeg();
-    setProjects(loadHistory());
 
     // Restore progress from localStorage
     try {
@@ -509,6 +746,9 @@ export default function RipTagPage() {
         if (saved.imageMaxDim !== undefined) setImageMaxDim(saved.imageMaxDim);
         if (saved.slideshowMode) setSlideshowMode(saved.slideshowMode);
         if (saved.loopInterval != null) setLoopInterval(saved.loopInterval);
+        if (saved.motionFps != null) setMotionFps(saved.motionFps);
+        if (saved.textOverlay) setTextOverlay({ ...DEFAULT_TEXT_OVERLAY, ...saved.textOverlay });
+        if (saved.trackImageAssign) setTrackImageAssign(saved.trackImageAssign);
         if (saved.ytTitleVariation != null) setYtTitleVariation(saved.ytTitleVariation);
         if (saved.ytTimestampFormat) setYtTimestampFormat(saved.ytTimestampFormat);
         if (saved.ytTimestampSeparator != null) setYtTimestampSeparator(saved.ytTimestampSeparator);
@@ -540,6 +780,84 @@ export default function RipTagPage() {
     }).catch(() => {});
   }, []);
 
+  // Bootstrap the project store: adopt the last-open project, or create the
+  // first one. Runs once, after the localStorage restore above has queued its
+  // state writes, so a migrated project captures them.
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    (async () => {
+      hydratingRef.current = true;
+      try {
+        requestPersistence();
+        const all = await storeListProjects();
+        if (cancelled) return;
+        setProjects(all);
+        setStorageInfo(await estimateStorage());
+
+        const lastId = (() => { try { return localStorage.getItem(ACTIVE_PROJECT_KEY); } catch { return null; } })();
+        const last = lastId ? all.find(p => p.id === lastId) : null;
+
+        if (last) {
+          setActiveProjectId(last.id);
+          activeProjectIdRef.current = last.id;
+          // The localStorage restore already repopulated settings for this
+          // same project, so only the blobs still need loading.
+          await hydrateProject(last);
+        } else if (all.length) {
+          setActiveProjectId(all[0].id);
+          activeProjectIdRef.current = all[0].id;
+          try { localStorage.setItem(ACTIVE_PROJECT_KEY, all[0].id); } catch {}
+          await hydrateProject(all[0]);
+        } else {
+          // First run (or a pre-projects install): adopt whatever the old
+          // single-slot autosave left behind rather than discarding it.
+          const id = newProjectId();
+          setActiveProjectId(id);
+          activeProjectIdRef.current = id;
+          try {
+            localStorage.setItem(ACTIVE_PROJECT_KEY, id);
+            localStorage.setItem(LEGACY_MIGRATED_KEY, "1");
+          } catch {}
+          await storePutProject({
+            id, name: "My Album", createdAt: Date.now(), updatedAt: Date.now(),
+            settings: null, audioFiles: [], exportedTracks: [], images: [], video: null,
+            bytes: { audio: 0, tracks: 0, images: 0, video: 0, total: 0 }, trackCount: 0,
+          });
+        }
+        if (!cancelled) await refreshProjects();
+      } catch (e) {
+        if (!cancelled) setMessage(`Project storage unavailable: ${e?.message || e}`);
+      } finally {
+        setTimeout(() => { hydratingRef.current = false; }, 0);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
+
+  // Autosave the active project. Debounced hard — a save rewrites blobs, so it
+  // must not fire on every keystroke.
+  useEffect(() => {
+    if (!mounted || !activeProjectId || hydratingRef.current) return;
+    const t = setTimeout(() => { if (!hydratingRef.current) saveActiveProject(); }, 2500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, activeProjectId, projectName, step, tracks, trackNames, exportedTracks,
+      videoImages, droppedAudioFiles, discogsData, textOverlay, trackImageAssign,
+      slideshowMode, videoWidth, videoHeight, selectedVideoImages, selectedVideoAudios]);
+
+  // Persist in-flight work when the tab goes away.
+  useEffect(() => {
+    if (!mounted) return;
+    const onHide = () => { if (!hydratingRef.current) saveActiveProject(); };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+    // `saveActiveProject` is declared further down the component body, so it
+    // can't appear in this dependency array without tripping its TDZ at render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
+
   // Save progress to localStorage whenever key state changes
   useEffect(() => {
     if (!mounted) return;
@@ -563,6 +881,9 @@ export default function RipTagPage() {
         imageMaxDim,
         slideshowMode,
         loopInterval,
+        motionFps,
+        textOverlay,
+        trackImageAssign,
         ytTitleVariation,
         ytTimestampFormat,
         ytTimestampSeparator,
@@ -578,7 +899,8 @@ export default function RipTagPage() {
     } catch {}
   }, [mounted, step, projectName, discogsUrl, discogsData, trackNames, manualTrackCount,
       tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
-      videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval,
+      videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval, motionFps,
+      textOverlay, trackImageAssign,
       ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
       ytDescSuffix, discogsInputMode, audioFile, videoOutputName, renderedVideoSrc]);
 
@@ -623,7 +945,8 @@ export default function RipTagPage() {
   const buildProgressPayload = () => ({
     step, projectName, discogsUrl, discogsData, trackNames, manualTrackCount,
     tracks, outputFormat, filenameFormat, volumeDb, riaaEnabled, ytUploadData,
-    videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval,
+    videoWidth, videoHeight, videoBgColor, imageMaxDim, slideshowMode, loopInterval, motionFps,
+    textOverlay, trackImageAssign,
     ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums,
     ytDescSuffix, discogsInputMode,
     audioFileName: audioFile?.name || null,
@@ -653,6 +976,9 @@ export default function RipTagPage() {
     if (saved.imageMaxDim !== undefined) setImageMaxDim(saved.imageMaxDim);
     if (saved.slideshowMode) setSlideshowMode(saved.slideshowMode);
     if (saved.loopInterval != null) setLoopInterval(saved.loopInterval);
+    if (saved.motionFps != null) setMotionFps(saved.motionFps);
+    if (saved.textOverlay) setTextOverlay({ ...DEFAULT_TEXT_OVERLAY, ...saved.textOverlay });
+    if (saved.trackImageAssign) setTrackImageAssign(saved.trackImageAssign);
     if (saved.ytTitleVariation != null) setYtTitleVariation(saved.ytTitleVariation);
     if (saved.ytTimestampFormat) setYtTimestampFormat(saved.ytTimestampFormat);
     if (saved.ytTimestampSeparator != null) setYtTimestampSeparator(saved.ytTimestampSeparator);
@@ -2002,7 +2328,7 @@ export default function RipTagPage() {
         await ff.exec(["-i", "input", ...artArgs, "-ss", track.startTime.toFixed(4), "-to", track.endTime.toFixed(4), ...volFilter, ...codec, ...metaArgs(i), "-y", out]);
         const data = await ff.readFile(out);
         const blob = new Blob([data.buffer], { type: mime });
-        exported.push({ index: i, name: fn, url: URL.createObjectURL(blob), size: blob.size, start: track.startTime, end: track.endTime, title: trackNames[i] || track.name });
+        exported.push({ uid: newAssetUid(), index: i, name: fn, url: URL.createObjectURL(blob), size: blob.size, start: track.startTime, end: track.endTime, title: trackNames[i] || track.name });
         try { await ff.deleteFile(out); } catch {}
       }
       if (hasEmbedArt) { try { await ff.deleteFile("cover.jpg"); } catch {} }
@@ -2079,49 +2405,24 @@ export default function RipTagPage() {
     else { safePlay(); setIsPlaying(true); }
   };
 
-  // ---- Project History ----
-  const saveProject = (expTracks = exportedTracks) => {
-    const item = {
-      id: currentProjectId, name: projectName, date: new Date().toISOString(),
-      audioFileName: audioFile?.name || "recording", duration,
-      tracks, trackNames,
-      discogsUrl, discogsData: discogsData ? { title: discogsData.title, year: discogsData.year, artists: discogsData.artists, genres: discogsData.genres, tracklist: discogsData.tracklist } : null,
-      outputFormat, trackCount: trackNames.length,
-    };
-    saveHistoryItem(item); setProjects(loadHistory());
-  };
+  // Export finishing is a natural checkpoint — persist the new track files.
+  // The freshly exported list is passed through because `exportedTracks` state
+  // hasn't committed yet at the call site.
+  const saveProject = (expTracks) => saveActiveProject({ overrides: { exportedTracks: expTracks } });
 
-  const loadProject = p => {
-    setProjectName(p.name);
-    // Handle legacy format (splitPoints → tracks conversion)
-    if (p.tracks && Array.isArray(p.tracks) && p.tracks.length > 0 && p.tracks[0].id) {
-      setTracks(p.tracks);
-    } else if (p.splitPoints) {
-      const ts = p.trimStart || 0;
-      const te = p.trimEnd || p.duration || 0;
-      const pts = (p.splitPoints || []).filter(pt => pt > ts && pt < te).sort((a, b) => a - b);
-      const allPts = [ts, ...pts, te];
-      const converted = [];
-      for (let i = 0; i < allPts.length - 1; i++) {
-        converted.push({
-          id: generateTrackId(),
-          startTime: allPts[i],
-          endTime: allPts[i + 1],
-          name: p.trackNames?.[i] || `Track ${i + 1}`,
-        });
-      }
-      setTracks(converted);
+  const clearAllHistory = async () => {
+    if (renderQueue.pendingCount() > 0) {
+      setMessage("Finish or cancel the active renders before clearing all projects.");
+      return;
     }
-    setTrackNames(p.trackNames || []); setDiscogsUrl(p.discogsUrl || "");
-    setDiscogsData(p.discogsData || null); setOutputFormat(p.outputFormat || "flac");
-    setManualTrackCount(String(p.trackCount || ""));
-    setShowHistory(false); setStep(1); setMessage(`Loaded "${p.name}". Re-select the audio file to continue.`);
-  };
-
-  const removeProject = id => { deleteHistoryItem(id); setProjects(loadHistory()); };
-  const clearAllHistory = () => {
-    try { localStorage.removeItem(HISTORY_KEY); } catch {}
-    setProjects([]);
+    // Same reason as deleteProjectById: clear the pointer so the fresh project
+    // doesn't autosave the wiped one back.
+    activeProjectIdRef.current = null;
+    setActiveProjectId(null);
+    await storeDeleteAllProjects();
+    renderQueue.clearFinished();
+    await refreshProjects();
+    await startNewProject();
   };
 
   // ---- Video Image Helpers ----
@@ -2176,11 +2477,16 @@ export default function RipTagPage() {
       setImageLoadingStatus({ loaded: i, total: fresh.length, current: f.name });
       const id = `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
       // Add a placeholder entry immediately so the row appears with a spinner
-      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: true, paddingColor: "#000000" }]);
+      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: true, paddingColor: "#000000", motion: "none", motionSpeed: 1, bgMotion: "none", bgMotionSpeed: 1 }]);
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
       const { thumbUrl, width, height } = await createThumbnail(f);
       const previewUrl = URL.createObjectURL(f);
-      setVideoImages(prev => prev.map(img => img.id === id ? { ...img, thumbUrl, previewUrl, width, height, loading: false } : img));
+      // Step 1's table reads width/height; step 5 (and the memory estimate,
+      // "Match image" resolution, and Image Settings oversize count) reads
+      // naturalWidth/naturalHeight. Write both so neither silently sees zero.
+      setVideoImages(prev => prev.map(img => img.id === id
+        ? { ...img, thumbUrl, previewUrl, width, height, naturalWidth: width, naturalHeight: height, loading: false }
+        : img));
     }
     setImageLoadingStatus(null);
   };
@@ -2209,7 +2515,7 @@ export default function RipTagPage() {
       }
       const title = f.name.replace(/\.[^.]+$/, "");
       // Add each track immediately so it appears in the table as it loads
-      setExportedTracks(prev => [...prev, { title, name: f.name, start: 0, end: dur, url, file: f }]);
+      setExportedTracks(prev => [...prev, { uid: newAssetUid(), title, name: f.name, size: f.size, start: 0, end: dur, url, file: f }]);
     }
     setAudioLoadingStatus(null);
   };
@@ -2243,6 +2549,106 @@ export default function RipTagPage() {
       return prev.filter(i => i.id !== id);
     });
     setSelectedVideoImages(prev => { const next = new Set(prev); next.delete(id); return next; });
+    // Drop any per-track pins that referenced it, so those tracks go back to Auto.
+    setTrackImageAssign(prev => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([, imgId]) => imgId !== id));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    if (textPreviewImgId === id) setTextPreviewImgId(null);
+  };
+
+  // ---- Bulk clears for the Video step ---------------------------------------
+  // Each of these drops the live state *and* saves, so the project record and
+  // its IndexedDB blobs are pruned too (saveActiveProject deletes any blob whose
+  // slot no longer exists) rather than leaving orphans behind.
+
+  // The state setters below don't commit until after these functions return, so
+  // every save passes explicit overrides. Chaining two clears and letting each
+  // save on its own would make the second one write the first's data back.
+  const wipeAudioState = () => {
+    exportedTracks.forEach(t => { try { URL.revokeObjectURL(t.url); } catch {} });
+    setExportedTracks([]);
+    setSelectedVideoAudios(new Set());
+    setVideoAudioOrder([]);
+    setTrackClips({});
+    setExpandedAudioRows(new Set());
+    // Pins are keyed by track index, so they're meaningless without the tracks.
+    setTrackImageAssign({});
+    setTrackTextOverrides({});
+    setTextPreviewTrackIdx(null);
+  };
+  const AUDIO_CLEARED_SETTINGS = { selectedVideoAudios: [], videoAudioOrder: [], trackClips: {}, trackImageAssign: {}, trackTextOverrides: {} };
+
+  const wipeImageState = () => {
+    videoImages.forEach(im => {
+      if (im.thumbUrl) { try { URL.revokeObjectURL(im.thumbUrl); } catch {} }
+      if (im.previewUrl) { try { URL.revokeObjectURL(im.previewUrl); } catch {} }
+    });
+    setVideoImages([]);
+    setSelectedVideoImages(new Set());
+    setManualImageTimings({});
+    setExpandedImgPreviews(new Set());
+    setTrackImageAssign({});
+    setTextPreviewImgId(null);
+    setShowTextPreview(false);
+  };
+  const IMAGE_CLEARED_SETTINGS = { selectedVideoImages: [], manualImageTimings: {}, trackImageAssign: {} };
+
+  const clearVideoAudioTable = async () => {
+    if (exportedTracks.length === 0) return;
+    if (!window.confirm(`Remove all ${exportedTracks.length} audio track${exportedTracks.length === 1 ? "" : "s"} from the video? Files you already downloaded are unaffected.`)) return;
+    wipeAudioState();
+    await saveActiveProject({ overrides: { exportedTracks: [], settings: { ...AUDIO_CLEARED_SETTINGS } } });
+    setMessage("Cleared the audio tracks table.");
+  };
+
+  const clearVideoImageTable = async () => {
+    if (videoImages.length === 0) return;
+    if (!window.confirm(`Remove all ${videoImages.length} image${videoImages.length === 1 ? "" : "s"} from the video?`)) return;
+    wipeImageState();
+    await saveActiveProject({ overrides: { videoImages: [], settings: { ...IMAGE_CLEARED_SETTINGS } } });
+    setMessage("Cleared the images table.");
+  };
+
+  const clearAllVideoTables = async () => {
+    if (exportedTracks.length === 0 && videoImages.length === 0) return;
+    if (!window.confirm(`Clear both tables — ${exportedTracks.length} audio track${exportedTracks.length === 1 ? "" : "s"} and ${videoImages.length} image${videoImages.length === 1 ? "" : "s"}?`)) return;
+    wipeAudioState();
+    wipeImageState();
+    // One save covering both, so neither wipe's stale closure can undo the other.
+    await saveActiveProject({ overrides: {
+      exportedTracks: [], videoImages: [],
+      settings: { ...AUDIO_CLEARED_SETTINGS, ...IMAGE_CLEARED_SETTINGS },
+    } });
+    setMessage("Cleared the audio and image tables.");
+  };
+
+  const clearRenderedVideo = async () => {
+    if (!renderedVideoSrc) return;
+    if (!window.confirm("Delete the rendered video? This removes it from browser storage — download it first if you want to keep it.")) return;
+    const id = activeProjectIdRef.current;
+    try { URL.revokeObjectURL(renderedVideoSrc); } catch {}
+    setRenderedVideoSrc(null);
+    // A finished job would otherwise keep offering the deleted result.
+    if (id) renderQueue.clear(id);
+    try {
+      if (id) {
+        await deleteBlob(blobKey(id, "video"));
+        const rec = await storeGetProject(id);
+        if (rec) {
+          const bytes = { ...(rec.bytes || {}), video: 0 };
+          bytes.total = (bytes.audio || 0) + (bytes.tracks || 0) + (bytes.images || 0);
+          await storePutProject({ ...rec, video: null, bytes, updatedAt: Date.now() });
+        }
+      }
+      // Legacy single-slot key from before projects existed.
+      await idbDelete("rendered_video");
+      await refreshProjects();
+    } catch (e) {
+      setMessage(`Removed from the page, but storage cleanup failed: ${e?.message || e}`);
+      return;
+    }
+    setMessage("Deleted the rendered video.");
   };
 
   const toggleVideoAudio = (idx) => {
@@ -2306,13 +2712,20 @@ export default function RipTagPage() {
     }
 
     if (slideshowMode === "per-track") {
-      // Sync image transitions with audio track transitions
+      // Sync image transitions with audio track transitions. A track with an
+      // explicit image pick uses it; the rest cycle through the selection.
       const timings = [];
       let cumTime = 0;
       orderedAudios.forEach((audio, i) => {
         const dur = audio.end - audio.start;
-        const img = selectedImgs[i % selectedImgs.length];
-        timings.push({ id: img.id, startTime: cumTime, endTime: cumTime + dur });
+        const pickedId = trackImageAssign[audio._trackIdx];
+        const picked = pickedId ? selectedImgs.find(im => im.id === pickedId) : null;
+        const img = picked || selectedImgs[i % selectedImgs.length];
+        // Consecutive tracks sharing an image become one segment — fewer ffmpeg
+        // inputs, and the timeline reads as one block instead of a false cut.
+        const prev = timings[timings.length - 1];
+        if (prev && prev.id === img.id) prev.endTime = cumTime + dur;
+        else timings.push({ id: img.id, startTime: cumTime, endTime: cumTime + dur });
         cumTime += dur;
       });
       return timings;
@@ -2326,6 +2739,208 @@ export default function RipTagPage() {
       endTime: manualImageTimings[img.id]?.endTime ?? (i + 1) * dur,
     }));
   };
+
+  // Computed once per render — in loop mode this list has one entry per image
+  // *occurrence*, so it can be much longer than videoImages.
+  const rowTimings = getEffectiveImageTimings();
+
+  // ---- Auto-match output resolution to the image ----------------------------
+  // Resolves the image a given track will actually display, honouring pins and
+  // falling back to the same cycling rule getEffectiveImageTimings uses.
+  const imageForTrack = (orderIdx, trackIdx) => {
+    const selectedImgs = videoImages.filter(img => selectedVideoImages.has(img.id));
+    if (!selectedImgs.length) return null;
+    const pinnedId = trackImageAssign[trackIdx];
+    const pinned = pinnedId ? selectedImgs.find(im => im.id === pinnedId) : null;
+    return pinned || selectedImgs[orderIdx % selectedImgs.length];
+  };
+
+  // The image the finished video opens with — what "auto match" follows.
+  const autoMatchSourceImage = (() => {
+    const first = rowTimings[0];
+    if (first) {
+      const img = videoImages.find(im => im.id === first.id);
+      if (img?.naturalWidth) return img;
+    }
+    return videoImages.find(im => selectedVideoImages.has(im.id) && im.naturalWidth) || null;
+  })();
+
+  // Keep the resolution fields in step with that image while auto-match is on.
+  useEffect(() => {
+    if (!autoMatchImageRes) return;
+    const img = autoMatchSourceImage;
+    if (!img?.naturalWidth || !img?.naturalHeight) return;
+    setVideoWidth(String(img.naturalWidth));
+    setVideoHeight(String(img.naturalHeight));
+  }, [autoMatchImageRes, autoMatchSourceImage]);
+
+  // Cumulative [start,end) span of every ordered audio track on the video
+  // timeline, used to caption segments with the track that's playing.
+  const getAudioSpans = (orderedAudios) => {
+    let cum = 0;
+    return orderedAudios.map(a => {
+      const dur = a.end - a.start;
+      const span = { start: cum, end: cum + dur, title: a.title, trackIdx: a._trackIdx };
+      cum += dur;
+      return span;
+    });
+  };
+
+  // A track's caption text and position, after any per-track override.
+  const trackCaptionText = (trackIdx, fallbackTitle) => {
+    const o = trackTextOverrides[trackIdx];
+    return (o && o.text != null && o.text !== "") ? o.text : (fallbackTitle || "");
+  };
+  const trackCaptionPosition = (trackIdx) =>
+    trackTextOverrides[trackIdx]?.position || textOverlay.position;
+
+  const setTrackCaption = (trackIdx, patch) => {
+    setTrackTextOverrides(prev => {
+      const next = { ...prev, [trackIdx]: { ...(prev[trackIdx] || {}), ...patch } };
+      // Drop entries that no longer override anything, so "has overrides"
+      // counts stay honest.
+      const e = next[trackIdx];
+      if ((e.text == null || e.text === "") && !e.position) delete next[trackIdx];
+      return next;
+    });
+  };
+
+  // ---- Text overlay defaults (saved to localStorage, applied to new projects)
+  const loadSavedTextDefaults = () => {
+    try {
+      const raw = localStorage.getItem(TEXT_DEFAULTS_KEY);
+      return raw ? { ...DEFAULT_TEXT_OVERLAY, ...JSON.parse(raw) } : null;
+    } catch { return null; }
+  };
+  const [hasSavedTextDefaults, setHasSavedTextDefaults] = useState(false);
+  useEffect(() => { setHasSavedTextDefaults(!!loadSavedTextDefaults()); }, [mounted]);
+
+  const saveTextDefaults = () => {
+    try {
+      localStorage.setItem(TEXT_DEFAULTS_KEY, JSON.stringify(textOverlay));
+      setHasSavedTextDefaults(true);
+      setMessage("Saved these text settings as your default for new projects.");
+    } catch (e) { setMessage(`Could not save defaults: ${e?.message || e}`); }
+  };
+  const resetTextToDefaults = () => {
+    const saved = loadSavedTextDefaults();
+    setTextOverlay({ ...(saved || DEFAULT_TEXT_OVERLAY), enabled: textOverlay.enabled });
+    setMessage(saved ? "Reset to your saved default." : "Reset to the built-in default.");
+  };
+  const clearTextDefaults = () => {
+    try { localStorage.removeItem(TEXT_DEFAULTS_KEY); } catch {}
+    setHasSavedTextDefaults(false);
+    setTextOverlay({ ...DEFAULT_TEXT_OVERLAY, enabled: textOverlay.enabled });
+    setMessage("Cleared your saved default and restored the built-in one.");
+  };
+
+  // Text only varies over time when it's sourced from the track titles; a
+  // custom string is the same on every segment.
+  const overlayTextVaries = textOverlay.enabled && textOverlay.source === "track";
+
+  // Attach the overlay caption to each image timing, splitting a timing wherever
+  // a track boundary falls inside it so the caption changes with the song.
+  const attachOverlayText = (timings, orderedAudios) => {
+    if (!textOverlay.enabled) return timings.map(t => ({ ...t, text: "", position: textOverlay.position }));
+    if (!overlayTextVaries) return timings.map(t => ({ ...t, text: textOverlay.customText, position: textOverlay.position }));
+    const spans = getAudioSpans(orderedAudios);
+    const out = [];
+    timings.forEach(t => {
+      spans.forEach(s => {
+        const start = Math.max(t.startTime, s.start);
+        const end = Math.min(t.endTime, s.end);
+        if (end - start > 0.02) out.push({
+          id: t.id, startTime: start, endTime: end,
+          text: trackCaptionText(s.trackIdx, s.title),
+          position: trackCaptionPosition(s.trackIdx),
+        });
+      });
+    });
+    return out.length ? out : timings.map(t => ({ ...t, text: "", position: textOverlay.position }));
+  };
+
+  // ---- Text overlay preview -------------------------------------------------
+  const overlayPreviewImage = () =>
+    videoImages.find(i => i.id === textPreviewImgId)
+    || videoImages.find(i => selectedVideoImages.has(i.id))
+    || videoImages[0]
+    || null;
+
+  const overlayPreviewText = () => {
+    if (textOverlay.source === "custom") return textOverlay.customText;
+    const audios = getOrderedAudios();
+    const chosen = audios.find(a => a._trackIdx === textPreviewTrackIdx) || audios[0];
+    return chosen?.title || "Song title";
+  };
+
+  // Reproduces the render's letterbox / stretch / blur-background compositing on
+  // a canvas so the preview frame matches the encoded one.
+  const drawOverlayPreview = async () => {
+    const canvas = textPreviewCanvasRef.current;
+    const img = overlayPreviewImage();
+    if (!canvas || !img) return;
+    const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, w, h);
+    let im = null;
+    try { im = await loadImageElement(img.previewUrl || img.thumbUrl); } catch { /* draw bg only */ }
+    if (im) {
+      const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+      const contain = Math.min(w / iw, h / ih);
+      const cover = Math.max(w / iw, h / ih);
+      if (img.useBlurBg) {
+        ctx.save();
+        ctx.filter = `blur(${Math.max(4, Math.round(h * 0.011))}px)`;
+        const bw = iw * cover * 1.02, bh = ih * cover * 1.02;
+        ctx.drawImage(im, (w - bw) / 2, (h - bh) / 2, bw, bh);
+        ctx.restore();
+        ctx.drawImage(im, (w - iw * contain) / 2, (h - ih * contain) / 2, iw * contain, ih * contain);
+      } else if (img.stretchToFit) {
+        ctx.drawImage(im, 0, 0, w, h);
+      } else {
+        ctx.fillStyle = img.paddingColor || videoBgColor;
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(im, (w - iw * contain) / 2, (h - ih * contain) / 2, iw * contain, ih * contain);
+      }
+    } else {
+      ctx.fillStyle = videoBgColor;
+      ctx.fillRect(0, 0, w, h);
+    }
+    drawTextOverlay(ctx, overlayPreviewText(), textOverlay, w, h);
+  };
+
+  const runOverlayPreview = async () => {
+    setShowTextPreview(true);
+    setTextPreviewBusy(true);
+    try {
+      // System fonts may not be measurable until the font set settles; without
+      // this the first preview can lay out with a fallback metric.
+      if (typeof document !== "undefined" && document.fonts?.ready) await document.fonts.ready;
+      await drawOverlayPreview();
+    } finally {
+      setTextPreviewBusy(false);
+    }
+  };
+
+  // Keep an open preview in sync with the controls.
+  useEffect(() => {
+    if (!showTextPreview) return;
+    let cancelled = false;
+    (async () => {
+      if (typeof document !== "undefined" && document.fonts?.ready) await document.fonts.ready;
+      if (!cancelled) await drawOverlayPreview();
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTextPreview, textOverlay, textPreviewImgId, textPreviewTrackIdx, videoWidth, videoHeight, videoBgColor, videoImages, exportedTracks, trackClips, videoAudioOrder, selectedVideoAudios]);
+
+  // True when any *selected* image has a motion effect. Motion forces the render
+  // to a real frame rate, so the fps control and the slow-render warning key off it.
+  const anySelectedImageMotion = videoImages.some(img =>
+    selectedVideoImages.has(img.id) &&
+    ((img.motion && img.motion !== "none") || (img.useBlurBg && (img.bgMotion || "none") !== "none"))
+  );
 
   // Drag-and-drop reorder for audio table
   const handleAudioDragStart = (orderIdx) => { audioDragRef.current = orderIdx; };
@@ -2471,9 +3086,11 @@ export default function RipTagPage() {
     const refFrames = isHighRes ? 4 : 8;
     const encoderMB = (w * h * 1.5 * refFrames) / (1024 * 1024);
     const muxMB = 80;
-    const totalMB = baseMB + sourceMB + encoderMB + muxMB;
+    // Each caption is an extra full-frame RGBA input alongside its image.
+    const overlayMB = textOverlay.enabled ? (w * h * 4 * 2) / (1024 * 1024) : 0;
+    const totalMB = baseMB + sourceMB + encoderMB + muxMB + overlayMB;
     return {
-      totalMB, baseMB, sourceMB, encoderMB, muxMB,
+      totalMB, baseMB, sourceMB, encoderMB, muxMB, overlayMB,
       effectiveMaxDim,
       overLimit: totalMB > WASM_MEMORY_LIMIT_MB,
       nearLimit: totalMB > WASM_MEMORY_WARN_MB,
@@ -2521,38 +3138,83 @@ export default function RipTagPage() {
   });
 
   // ---- Video Render ----
-  const renderAlbumVideo = async () => {
-    const selectedAudioList = getOrderedAudios();
-    const selectedImageList = videoImages.filter(img => selectedVideoImages.has(img.id));
-    const effectiveTimings = getEffectiveImageTimings();
-    if (selectedImageList.length === 0 || selectedAudioList.length === 0) return;
-    // Block concurrent renders synchronously (button disable is async state).
-    if (videoRenderingRef.current) return;
-    videoRenderingRef.current = true;
-    setIsRenderingVideo(true); setVideoRenderProgress(0);
-    setVideoRenderStartTime(Date.now());
-    setVideoRenderLogs(["Starting FFmpeg…"]);
-    setVideoRenderError(null);
-    setShowVideoLogs(true);
-    const appendVideoLog = (line) => setVideoRenderLogs(prev => { const next = [...prev, line]; return next.length > 300 ? next.slice(-300) : next; });
-    const name = (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || "album";
-    const totalDur = selectedAudioList.reduce((s, t) => s + (t.end - t.start), 0);
-    // Hoisted so catch/finally can tell whether THIS render is still the active
-    // one. If it was cancelled (Cancel nulls videoFfmpegRef) or superseded, any
-    // late rejection from its terminated worker ("ffmpeg is not loaded") must be
-    // swallowed instead of clobbering the page / a newer render.
+  // Freezes everything the encoder needs into a plain object, with the audio
+  // already resolved to Blobs. A queued job can outlive the project it came
+  // from, so past this point the render must never read component state — the
+  // user may have switched to another project by the time it runs.
+  const buildRenderSpec = async () => {
+    const audios = getOrderedAudios();
+    const images = videoImages.filter(img => selectedVideoImages.has(img.id));
+    if (audios.length === 0 || images.length === 0) return null;
+    const resolvedAudios = [];
+    for (const t of audios) {
+      const blob = t.file ? t.file : await (await fetch(t.url)).blob();
+      resolvedAudios.push({
+        title: t.title, name: t.name, blob,
+        start: t.start, end: t.end,
+        clipStart: t.clipStart, clipEnd: t.clipEnd, isClipped: t.isClipped,
+      });
+    }
+    return {
+      name: (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || "album",
+      audios: resolvedAudios,
+      // `file` is a disk-backed File handle, so holding it costs nothing.
+      images: images.map(img => ({
+        id: img.id, file: img.file,
+        stretchToFit: img.stretchToFit, useBlurBg: img.useBlurBg, paddingColor: img.paddingColor,
+        motion: img.motion, motionSpeed: img.motionSpeed,
+        bgMotion: img.bgMotion, bgMotionSpeed: img.bgMotionSpeed,
+      })),
+      timings: attachOverlayText(getEffectiveImageTimings(), audios),
+      totalDur: audios.reduce((s, t) => s + (t.end - t.start), 0),
+      w: parseInt(videoWidth) || 1920,
+      h: parseInt(videoHeight) || 1080,
+      bgColor: videoBgColor,
+      imageMaxDim,
+      motionFps,
+      slideshowMode,
+      loopInterval,
+      textOverlay: { ...textOverlay },
+      overlayTextVaries,
+      // Captured for the post-render YouTube metadata fill-in, which also has
+      // to work when the render finishes on a project that isn't open.
+      ytMeta: { discogsData, ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix },
+    };
+  };
+
+  // Pure with respect to component state: everything comes from `spec`, and all
+  // output goes through `ctx` (supplied by the render queue).
+  const runVideoRender = async (spec, ctx) => {
+    const selectedAudioList = spec.audios;
+    const selectedImageList = spec.images;
+    const effectiveTimings = spec.timings;
+    const appendVideoLog = ctx.onLog;
+    const name = spec.name;
+    const totalDur = spec.totalDur;
+    const { imageMaxDim, motionFps, slideshowMode, loopInterval, textOverlay, overlayTextVaries } = spec;
+    const videoBgColor = spec.bgColor;
     let ffV = null;
-    const isStale = () => videoFfmpegRef.current !== ffV;
-    try {
+    {
       ffV = new FFmpeg();
-      videoFfmpegRef.current = ffV;
+      ctx.registerFfmpeg(ffV);
       const oomState = { detected: false, lastSignal: "", encodeCompleted: false };
+      // Progress window for the pass currently running. Loop mode renders in two
+      // passes (build the image cycle, then repeat it over the audio), so each
+      // pass maps its own time= readout onto a slice of the 0–1 bar.
+      const prog = { dur: totalDur, base: 0, span: 1 };
       // "hard" patterns mean the encode definitely failed; "soft" (plain Aborted()) only counts if Lsize= never appeared.
       const HARD_OOM = /(malloc of size \d+ failed|Cannot enlarge memory|Out of memory|memory access out of bounds|Error submitting video frame to the encoder)/i;
       const SOFT_OOM = /Aborted\(\)/i;
+      // A filtergraph this build won't accept (missing filter, unknown option,
+      // bad expression) fails during graph init, before a single frame is
+      // encoded. Catching it lets us retry without the motion effects instead
+      // of losing the whole render.
+      const GRAPH_ERROR = /(Error initializing filter|Error initializing complex filters|No such filter|Option '[^']*' not found|Error applying options to the filter|Invalid chars found in filter|Unable to parse graph)/i;
+      const graphState = { error: "" };
       ffV.on("log", ({ message: msg }) => {
         appendVideoLog(msg);
         if (/Lsize=\s*\d+/.test(msg)) oomState.encodeCompleted = true;
+        if (!graphState.error && GRAPH_ERROR.test(msg)) graphState.error = msg.trim();
         if (!oomState.detected && HARD_OOM.test(msg)) {
           oomState.detected = true;
           oomState.lastSignal = msg.trim();
@@ -2562,9 +3224,9 @@ export default function RipTagPage() {
         }
         // Parse time= from FFmpeg log for accurate 0–1 progress (progress event overshoots)
         const m = msg.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-        if (m && totalDur > 0) {
+        if (m && prog.dur > 0) {
           const elapsed = parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]);
-          setVideoRenderProgress(Math.min(1, elapsed / totalDur));
+          ctx.onProgress(Math.min(1, prog.base + prog.span * Math.min(1, elapsed / prog.dur)));
         }
       });
       const base = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
@@ -2579,14 +3241,13 @@ export default function RipTagPage() {
       const audioVfsNames = [];
       for (let i = 0; i < selectedAudioList.length; i++) {
         const t = selectedAudioList[i];
-        const ext = (t.name || t.file?.name || "audio").split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "wav";
+        const ext = (t.name || t.blob?.name || "audio").split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") || "wav";
         const vfsName = `audio${i}.${ext}`;
         audioVfsNames.push(vfsName);
-        const blob = t.file ? t.file : await (await fetch(t.url)).blob();
-        await ffV.writeFile(vfsName, await fetchFile(blob));
+        await ffV.writeFile(vfsName, await fetchFile(t.blob));
       }
 
-      const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+      const w = spec.w, h = spec.h;
 
       const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
       const imgMaxDim = parsedMax === 0 ? Infinity
@@ -2611,76 +3272,326 @@ export default function RipTagPage() {
         await ffV.writeFile(vfsName, await fetchFile(f));
       }
       const n = selectedAudioList.length;
-      const args = ["-y"];
 
-      // Audio inputs
-      for (const vfsName of audioVfsNames) args.push("-i", vfsName);
+      // ---- Slideshow segments ----------------------------------------------
+      // One segment per image *occurrence*, not per image. Loop mode (and
+      // per-track mode with more tracks than images) shows the same image
+      // several times, so there are more segments than images.
+      const imgIndexById = new Map(selectedImageList.map((img, i) => [img.id, i]));
+      const evenDur = totalDur / selectedImageList.length;
+      const timingSource = effectiveTimings.length
+        ? effectiveTimings
+        : selectedImageList.map((img, i) => ({ id: img.id, startTime: i * evenDur, endTime: (i + 1) * evenDur }));
+      const usableSegments = timingSource
+        .map(t => ({
+          imgIdx: imgIndexById.get(t.id),
+          dur: t.endTime - t.startTime,
+          text: t.text || "",
+          position: t.position || textOverlay.position,
+        }))
+        .filter(s => s.imgIdx !== undefined && s.dur > 0.02);
+      // Degenerate timings (e.g. manual mode with everything zeroed) must not
+      // produce concat=n=0 — fall back to one image for the whole video.
+      const allSegments = usableSegments.length ? usableSegments : [{ imgIdx: 0, dur: totalDur, text: "", position: textOverlay.position }];
 
-      // Image inputs (at 2fps)
-      for (let i = 0; i < imgVfsNames.length; i++) {
-        args.push("-r", "2", "-i", imgVfsNames[i]);
-      }
-
-      // Filter complex — apply per-input atrim when a clip range is set, then concat.
-      const anyClipped = selectedAudioList.some(t => t.isClipped);
-      let fc = "";
-      if (n > 1) {
-        if (anyClipped) {
-          for (let i = 0; i < selectedAudioList.length; i++) {
-            const t = selectedAudioList[i];
-            if (t.isClipped) {
-              fc += `[${i}:a]atrim=start=${t.clipStart.toFixed(3)}:end=${t.clipEnd.toFixed(3)},asetpts=PTS-STARTPTS[a${i}];`;
-            } else {
-              fc += `[${i}:a]anull[a${i}];`;
-            }
-          }
-          fc += selectedAudioList.map((_, i) => `[a${i}]`).join("") + `concat=n=${n}:v=0:a=1[a];`;
-        } else {
-          fc += selectedAudioList.map((_, i) => `[${i}:a]`).join("") + `concat=n=${n}:v=0:a=1[a];`;
+      // ---- Text overlays ----------------------------------------------------
+      // Each distinct caption is rasterised once, at output resolution, into a
+      // transparent PNG that gets composited over the finished segment. Doing it
+      // in the browser (rather than with drawtext) means the preview and the
+      // encode use the same renderer, and no font has to exist inside ffmpeg.
+      // Keyed by text AND position: a per-track position override means the same
+      // words can need two different PNGs.
+      const overlayKey = (seg) => `${seg.position || textOverlay.position}\u0000${seg.text}`;
+      const overlayVfsByText = new Map();
+      if (textOverlay.enabled) {
+        if (document.fonts?.ready) await document.fonts.ready;
+        const uniq = new Map();
+        for (const seg of allSegments) {
+          if (!seg.text || !seg.text.trim()) continue;
+          const k = overlayKey(seg);
+          if (!uniq.has(k)) uniq.set(k, seg);
         }
-      } else {
-        const t = selectedAudioList[0];
-        if (t.isClipped) {
-          fc += `[0:a]atrim=start=${t.clipStart.toFixed(3)}:end=${t.clipEnd.toFixed(3)},asetpts=PTS-STARTPTS[a];`;
-        } else {
-          fc += `[0:a]acopy[a];`;
+        if (uniq.size) {
+          appendVideoLog(`Rendering ${uniq.size} text overlay${uniq.size === 1 ? "" : "s"} at ${w}×${h}…`);
+        }
+        let i = 0;
+        for (const [k, seg] of uniq) {
+          const vfsName = `overlay${i++}.png`;
+          const opts = { ...textOverlay, position: seg.position || textOverlay.position };
+          const pngFile = await renderOverlayPngFile(seg.text, opts, w, h, vfsName);
+          if (!pngFile) { appendVideoLog(`⚠ Could not rasterise overlay for "${seg.text}" — skipping it.`); continue; }
+          await ffV.writeFile(vfsName, await fetchFile(pngFile));
+          overlayVfsByText.set(k, vfsName);
         }
       }
+      // A caption with a zero-second window would only add an input and a filter
+      // that hides it again, so drop it before it reaches the graph.
+      const overlayFor = (seg) =>
+        overlayVisibleFor(textOverlay, seg.dur) === 0 ? null : (overlayVfsByText.get(overlayKey(seg)) || null);
 
-      for (let i = 0; i < selectedImageList.length; i++) {
-        const imgIdx = n + i;
-        const imgDuration = effectiveTimings[i] ? effectiveTimings[i].endTime - effectiveTimings[i].startTime : totalDur / selectedImageList.length;
-        const loop = Math.max(1, Math.round(imgDuration * 2));
-        const img = selectedImageList[i];
+      const imageHasMotion = (img) => (img.motion && img.motion !== "none") || (img.useBlurBg && (img.bgMotion || "none") !== "none");
+      // Mutable: if FFmpeg rejects the motion filtergraph we drop back to a
+      // still slideshow and re-run, rather than failing the render outright.
+      let motionEnabled = selectedImageList.some(imageHasMotion);
+      // A motionless slideshow only needs a couple of frames per second; motion
+      // has to be encoded at a real frame rate, which is far more expensive.
+      let outFps = motionEnabled ? Math.max(2, Math.min(60, parseInt(motionFps) || 24)) : STILL_FPS;
+      const anyMotion = motionEnabled;
+
+      // zoompan over the *composed* canvas. The frame is upscaled first so the
+      // crop comes out of a larger source instead of magnifying the finished
+      // canvas. `d=1` makes zoompan emit one frame per input frame, so `on`
+      // counts output frames within this segment.
+      const motionFilter = (motion, frames, speed) => {
+        if (!motion || motion === "none") return "";
+        const z = MOTION_ZOOM;
+        const sw = Math.round(w * z / 2) * 2, sh = Math.round(h * z / 2) * 2;
+        const last = Math.max(1, frames - 1);
+        // Frames per one-way sweep. At 1× that's the whole segment (so the move
+        // finishes exactly as the image leaves); faster speeds sweep out and
+        // back, slower ones only get partway. `p` is a 0→1→0 triangle over it.
+        const sweep = Math.max(1, Math.round(last / clampMotionSpeed(speed)));
+        const p = `abs(mod(on/${sweep}+1,2)-1)`;
+        const cx = "iw/2-(iw/zoom/2)", cy = "ih/2-(ih/zoom/2)";
+        const d = (z - 1).toFixed(5);
+        let zExpr = String(z), xExpr = cx, yExpr = cy;
+        if (motion === "zoom-in") zExpr = `1+${d}*${p}`;
+        else if (motion === "zoom-out") zExpr = `${z}-${d}*${p}`;
+        else if (motion === "pan-right") xExpr = `(iw-iw/zoom)*${p}`;
+        else if (motion === "pan-left") xExpr = `(iw-iw/zoom)*(1-${p})`;
+        else if (motion === "pan-down") yExpr = `(ih-ih/zoom)*${p}`;
+        else if (motion === "pan-up") yExpr = `(ih-ih/zoom)*(1-${p})`;
+        return `scale=w=${sw}:h=${sh},zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${w}x${h}:fps=${outFps},`;
+      };
+
+      // One image input (plus an optional text-overlay input) → one finished
+      // segment of `dur` seconds.
+      const buildSegmentChain = (img, inputIdx, dur, tag, overlayInputIdx = null) => {
         const bgHex = (img.paddingColor || videoBgColor).replace("#", "0x");
+        const motion = motionEnabled ? (img.motion || "none") : "none";
+        const bgMotion = (motionEnabled && img.useBlurBg) ? (img.bgMotion || "none") : "none";
+        const frames = Math.max(2, Math.round(dur * outFps));
+        // Image inputs are read at STILL_FPS; upsample here (cheap frame
+        // duplication) rather than re-decoding the PNG at the output rate.
+        const src = `[${inputIdx}:v]${outFps !== STILL_FPS ? `fps=${outFps},` : ""}`;
+        let chain = "";
         if (img.useBlurBg) {
-          fc += `[${imgIdx}:v]scale=w=${w}:h=${h}:force_original_aspect_ratio=increase,boxblur=20:20,crop=${w}:${h}:(iw-${w})/2:(ih-${h})/2,setsar=1[bg${i}];`;
-          fc += `[${imgIdx}:v]scale=w=${w}:h=${h}:force_original_aspect_ratio=decrease,setsar=1,loop=${loop}:${loop}[fg${i}];`;
-          fc += `[bg${i}][fg${i}]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2:shortest=1,loop=${loop}:${loop}[v${i}];`;
+          // Box-blurring a full-res frame is fine at 2fps but crushing at 24+.
+          // For motion renders, blur at ~480p and scale back up — through a
+          // blur that heavy the difference isn't visible.
+          const blurTo = (tw, th) => outFps === STILL_FPS
+            ? `scale=w=${tw}:h=${th}:force_original_aspect_ratio=increase,boxblur=20:20`
+            : `scale=w=480:h=270:force_original_aspect_ratio=increase,boxblur=4:4,scale=w=${tw}:h=${th}:force_original_aspect_ratio=increase`;
+          if (bgMotion === "drift") {
+            // Oversized so there is room to drift, then a slowly circling crop.
+            const bw = Math.round(w * BG_DRIFT_ZOOM), bh = Math.round(h * BG_DRIFT_ZOOM);
+            // Travel is capped in pixels (not as a share of the slack) so the
+            // drift stays equally gentle whatever the source image's aspect is.
+            const ax = Math.round(w * BG_DRIFT_AMOUNT), ay = Math.round(h * BG_DRIFT_AMOUNT);
+            // Background speed is its own knob — it scales the drift period and
+            // is unaffected by the foreground's speed (and vice versa).
+            const p = (BG_DRIFT_PERIOD / clampMotionSpeed(img.bgMotionSpeed)).toFixed(2);
+            // crop has no `eval` option — its x/y expressions are already
+            // re-evaluated for every frame, and `t` is available there.
+            chain += `${src}${blurTo(bw, bh)},`
+              + `crop=w=${w}:h=${h}:x='(iw-ow)/2+min((iw-ow)/2,${ax})*sin(2*PI*t/${p})':y='(ih-oh)/2+min((ih-oh)/2,${ay})*cos(2*PI*t/${p})',setsar=1[bg${tag}];`;
+          } else {
+            chain += `${src}${blurTo(w, h)},crop=${w}:${h}:(iw-${w})/2:(ih-${h})/2,setsar=1[bg${tag}];`;
+          }
+          chain += `${src}scale=w=${w}:h=${h}:force_original_aspect_ratio=decrease,setsar=1[fg${tag}];`;
+          chain += `[bg${tag}][fg${tag}]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2:shortest=1[c${tag}];`;
         } else {
           const scale = img.stretchToFit ? `scale=w=${w}:h=${h}` : `scale=w=${w}:h=${h}:force_original_aspect_ratio=decrease`;
           const pad = img.stretchToFit ? "" : `,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=${bgHex}`;
-          fc += `[${imgIdx}:v]${scale}${pad},setsar=1,loop=${loop}:${loop}[v${i}];`;
+          chain += `${src}${scale}${pad},setsar=1[c${tag}];`;
         }
-      }
+        // format is pinned so every segment reaches concat with identical props.
+        // The caption is composited *after* motion so zoom/pan never drags the
+        // text around or softens it.
+        if (overlayInputIdx != null) {
+          // `t` inside a segment chain is segment-local (each image input is its
+          // own `-loop 1 -t D`), so gating on it hides the caption after N
+          // seconds of *this* image rather than N seconds into the whole video.
+          // The overlay input still spans the full segment so shortest=1 can't
+          // truncate it.
+          const visible = overlayVisibleFor(textOverlay, dur);
+          const gate = visible == null ? "" : `:enable='lt(t,${visible.toFixed(3)})'`;
+          chain += `[c${tag}]${motionFilter(motion, frames, img.motionSpeed)}format=yuv420p,setsar=1[m${tag}];`;
+          chain += `[${overlayInputIdx}:v]${outFps !== STILL_FPS ? `fps=${outFps},` : ""}scale=w=${w}:h=${h},format=yuva420p,setsar=1[o${tag}];`;
+          chain += `[m${tag}][o${tag}]overlay=0:0:shortest=1${gate},format=yuv420p,setsar=1[v${tag}];`;
+        } else {
+          chain += `[c${tag}]${motionFilter(motion, frames, img.motionSpeed)}format=yuv420p,setsar=1[v${tag}];`;
+        }
+        return chain;
+      };
+
+      // `-loop 1 … -t D` gives each segment exactly D seconds of its image (and
+      // of its caption, when there is one).
+      const buildVideoInputArgs = (segments) =>
+        segments.flatMap(seg => {
+          const args = ["-loop", "1", "-framerate", String(STILL_FPS), "-t", seg.dur.toFixed(3), "-i", imgVfsNames[seg.imgIdx]];
+          const ov = overlayFor(seg);
+          if (ov) args.push("-loop", "1", "-framerate", String(STILL_FPS), "-t", seg.dur.toFixed(3), "-i", ov);
+          return args;
+        });
+
+      // Overlay inputs are interleaved with the image inputs, so indices have to
+      // be walked rather than computed as `inputOffset + j`.
+      const buildVideoFilter = (segments, inputOffset) => {
+        let nextInput = inputOffset;
+        return segments.map((seg, j) => {
+          const imgInput = nextInput++;
+          const ovInput = overlayFor(seg) ? nextInput++ : null;
+          return buildSegmentChain(selectedImageList[seg.imgIdx], imgInput, seg.dur, j, ovInput);
+        }).join("")
+        + segments.map((_, j) => `[v${j}]`).join("")
+        + `concat=n=${segments.length}:v=1:a=0,pad=ceil(iw/2)*2:ceil(ih/2)*2[v]`;
+      };
+
+      // Audio: per-input atrim when a clip range is set, then concat.
+      const buildAudioFilter = (offset) => {
+        const anyClipped = selectedAudioList.some(t => t.isClipped);
+        if (n === 1) {
+          const t = selectedAudioList[0];
+          return t.isClipped
+            ? `[${offset}:a]atrim=start=${t.clipStart.toFixed(3)}:end=${t.clipEnd.toFixed(3)},asetpts=PTS-STARTPTS[a]`
+            : `[${offset}:a]acopy[a]`;
+        }
+        if (!anyClipped) {
+          return selectedAudioList.map((_, i) => `[${offset + i}:a]`).join("") + `concat=n=${n}:v=0:a=1[a]`;
+        }
+        return selectedAudioList.map((t, i) => t.isClipped
+          ? `[${offset + i}:a]atrim=start=${t.clipStart.toFixed(3)}:end=${t.clipEnd.toFixed(3)},asetpts=PTS-STARTPTS[a${i}];`
+          : `[${offset + i}:a]anull[a${i}];`).join("")
+          + selectedAudioList.map((_, i) => `[a${i}]`).join("") + `concat=n=${n}:v=0:a=1[a]`;
+      };
+
       // At 1440p+, drop -tune stillimage and use -preset veryfast so x264's lookahead/ref/bframes buffers don't blow the wasm heap.
       const isHighRes = (w * h) >= (2560 * 1440);
-      const x264Args = isHighRes
+      const x264Args = () => (isHighRes || motionEnabled)
         ? ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]
         : ["-c:v", "libx264", "-tune", "stillimage", "-crf", "18"];
-      appendVideoLog(`Running FFmpeg (${w}×${h}, ${Math.ceil(totalDur)}s${isHighRes ? ", high-res preset" : ""})…`);
-      fc += selectedImageList.map((_, i) => `[v${i}]`).join("") + `concat=n=${selectedImageList.length}:v=1:a=0,pad=ceil(iw/2)*2:ceil(ih/2)*2[v]`;
 
-      const exitCode = await ffV.exec([
-        ...args,
-        "-filter_complex", fc,
-        "-map", "[v]", "-map", "[a]",
-        ...x264Args,
-        "-c:a", "aac", "-b:a", "320k",
-        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        "-t", String(Math.ceil(totalDur)),
-        `${name}.mp4`
-      ]);
+      // Runs one FFmpeg pass. If the build rejects the filtergraph (an unknown
+      // filter or option — which fails during graph init, before any encoding),
+      // fall back to a plain still slideshow and run it again so the user still
+      // gets their video.
+      const runPass = async (buildArgs, what) => {
+        graphState.error = "";
+        let code = await ffV.exec(buildArgs());
+        const failed = typeof code === "number" && code !== 0;
+        if (failed && graphState.error && motionEnabled) {
+          appendVideoLog(`⚠ This FFmpeg build rejected the motion filters — ${graphState.error}`);
+          appendVideoLog(`Retrying ${what} without motion effects…`);
+          appendVideoLog("Motion effects aren't supported by this FFmpeg build — rendering without them.");
+          motionEnabled = false;
+          outFps = STILL_FPS;
+          graphState.error = "";
+          oomState.detected = false; oomState.encodeCompleted = false; oomState.lastSignal = "";
+          code = await ffV.exec(buildArgs());
+        }
+        return code;
+      };
+
+      // In loop mode the slideshow is one repeating cycle, which would mean
+      // hundreds of segments in a single filtergraph on a full-length album.
+      // Instead encode one cycle and let ffmpeg loop that clip while muxing.
+      const cycleInterval = Math.max(1, loopInterval);
+      const cycleDur = cycleInterval * selectedImageList.length;
+      // A per-track caption changes on a schedule the image cycle knows nothing
+      // about, so the encode-one-cycle shortcut can't represent it — fall back
+      // to the single-pass path whenever the text varies over time.
+      const useCycleLoop = slideshowMode === "loop" && cycleDur < totalDur - 0.05 && !overlayTextVaries;
+
+      let exitCode;
+      if (useCycleLoop) {
+        // Constant custom caption: it belongs on every segment of the cycle.
+        const cycleText = textOverlay.enabled ? (textOverlay.customText || "") : "";
+        const cycleSegments = selectedImageList.map((_, i) => ({ imgIdx: i, dur: cycleInterval, text: cycleText }));
+        appendVideoLog(`Running FFmpeg (${w}×${h}, ${Math.ceil(totalDur)}s${isHighRes ? ", high-res preset" : ""}${anyMotion ? `, ${outFps}fps motion` : ""})…`);
+        appendVideoLog(`Pass 1/2: building a ${Math.round(cycleDur)}s loop of ${cycleSegments.length} image(s) at ${cycleInterval}s each…`);
+        prog.dur = cycleDur; prog.base = 0; prog.span = 0.85;
+        const cycleExit = await runPass(() => [
+          "-y",
+          ...buildVideoInputArgs(cycleSegments),
+          "-filter_complex", buildVideoFilter(cycleSegments, 0),
+          "-map", "[v]",
+          ...x264Args(),
+          "-pix_fmt", "yuv420p",
+          "-r", String(outFps),
+          "-g", String(Math.max(1, Math.round(outFps * 2))),
+          "cycle.mp4"
+        ], "the image loop");
+        if (typeof cycleExit === "number" && cycleExit !== 0) {
+          throw new Error(graphState.error
+            ? `FFmpeg rejected the video filters while building the image loop: ${graphState.error}`
+            : `FFmpeg exited with code ${cycleExit} while building the image loop. See logs above.`);
+        }
+        if (oomState.detected && !oomState.encodeCompleted) {
+          const err = new Error("__OOM__");
+          err.oom = true; err.signal = oomState.lastSignal; err.dimensions = { w, h };
+          throw err;
+        }
+        // Fresh OOM state for pass 2 — pass 1's Lsize= must not mask a failure here.
+        oomState.detected = false; oomState.encodeCompleted = false; oomState.lastSignal = "";
+        appendVideoLog(`Pass 2/2: repeating the loop across ${Math.ceil(totalDur)}s of audio…`);
+        prog.dur = totalDur; prog.base = 0.85; prog.span = 0.15;
+        exitCode = await runPass(() => [
+          "-y",
+          "-stream_loop", "-1", "-i", "cycle.mp4",
+          ...audioVfsNames.flatMap(v => ["-i", v]),
+          "-filter_complex", buildAudioFilter(1),
+          "-map", "0:v", "-map", "[a]",
+          "-c:v", "copy",
+          "-c:a", "aac", "-b:a", "320k",
+          "-movflags", "+faststart",
+          "-t", totalDur.toFixed(3),
+          `${name}.mp4`
+        ], "the audio mux");
+        // Stream-copying a looped input is the fast path but not universally
+        // supported; re-encode rather than lose the render. Pointless if we ran
+        // out of memory, so skip it in that case.
+        if (typeof exitCode === "number" && exitCode !== 0 && !oomState.detected) {
+          appendVideoLog("⚠ Stream-copy mux failed — retrying with the video re-encoded…");
+          graphState.error = "";
+          oomState.encodeCompleted = false; oomState.lastSignal = "";
+          prog.dur = totalDur; prog.base = 0.85; prog.span = 0.15;
+          exitCode = await runPass(() => [
+            "-y",
+            "-stream_loop", "-1", "-i", "cycle.mp4",
+            ...audioVfsNames.flatMap(v => ["-i", v]),
+            "-filter_complex", buildAudioFilter(1),
+            "-map", "0:v", "-map", "[a]",
+            ...x264Args(),
+            "-c:a", "aac", "-b:a", "320k",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            "-t", totalDur.toFixed(3),
+            `${name}.mp4`
+          ], "the audio mux");
+        }
+        try { await ffV.deleteFile("cycle.mp4"); } catch {}
+      } else {
+        appendVideoLog(`Running FFmpeg (${w}×${h}, ${Math.ceil(totalDur)}s, ${allSegments.length} image segment(s)${isHighRes ? ", high-res preset" : ""}${anyMotion ? `, ${outFps}fps motion` : ""})…`);
+        exitCode = await runPass(() => [
+          "-y",
+          ...audioVfsNames.flatMap(v => ["-i", v]),
+          ...buildVideoInputArgs(allSegments),
+          "-filter_complex", `${buildAudioFilter(0)};${buildVideoFilter(allSegments, n)}`,
+          "-map", "[v]", "-map", "[a]",
+          ...x264Args(),
+          "-c:a", "aac", "-b:a", "320k",
+          "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+          "-r", String(outFps),
+          "-t", totalDur.toFixed(3),
+          `${name}.mp4`
+        ], "the video");
+      }
+
+      // A rejected filtergraph also trips the soft-OOM heuristic (it aborts
+      // before Lsize=), so report it as what it actually is.
+      if (graphState.error) {
+        throw new Error(`FFmpeg rejected the video filters: ${graphState.error}`);
+      }
 
       // If a hard OOM was detected before encoding finished, bail out early.
       if (oomState.detected && !oomState.encodeCompleted) {
@@ -2718,101 +3629,734 @@ export default function RipTagPage() {
         throw new Error(`FFmpeg exited with code ${exitCode}. See logs above.`);
       }
       const blob = new Blob([data.buffer], { type: "video/mp4" });
-      if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc);
-      const renderedUrl = URL.createObjectURL(blob);
+      appendVideoLog("✓ Done!");
 
-      // Persist rendered video to IndexedDB BEFORE exposing it to the UI, so
-      // a user clicking the YouTube "Sign in" link (which does a full-page
-      // redirect) immediately after the render can't navigate away while the
-      // IDB write is still in flight. For typical render sizes this commits
-      // in well under a second.
-      await idbSave('rendered_video', blob);
-
-      setRenderedVideoSrc(renderedUrl);
-
-      // Pre-fill YouTube metadata using shared utilities. The title is NOT
-      // set here — it's bound to videoOutputName by a dedicated effect, so a
-      // user pick in the Output-name picker drives the YT title too. We still
-      // generate ytTitleSuggestions so the dropdown of alternates stays
-      // populated for manual override.
-      const titleSuggestions = generateVideoTitleRecommendations(discogsData, ytTitleVariation);
-      setYtTitleSuggestions(titleSuggestions);
-
+      // Pre-computed here so a render that finishes while another project is
+      // open can still fill in its own YouTube metadata later. The title is
+      // deliberately left out — it's bound to videoOutputName by a dedicated
+      // effect, so a pick in the Output-name picker drives the YT title too.
+      const { discogsData: dd, ytTitleVariation: ytv, ytTimestampFormat: ytf,
+              ytTimestampSeparator: yts, ytIncludeTrackNums: ytn, ytDescSuffix: ytd } = spec.ytMeta;
       const trackTimestamps = selectedAudioList.map((t, i) => ({
         title: t.title,
         startOffset: i === 0 ? 0 : selectedAudioList.slice(0, i).reduce((s, x) => s + (x.end - x.start), 0),
       }));
       const autoDesc = buildTimestampDescription(trackTimestamps, {
-        timestampFormat: ytTimestampFormat,
-        separator: ytTimestampSeparator,
-        includeTrackNumbers: ytIncludeTrackNums,
-        suffix: ytDescSuffix,
+        timestampFormat: ytf, separator: yts, includeTrackNumbers: ytn, suffix: ytd,
       });
-
-      const extractedTags = extractTagsFromDiscogs(discogsData);
       const defaultFilters = { artists: { enabled: true, sliderValue: 100 }, album: { enabled: true, sliderValue: 100 }, tracklist: { enabled: true, sliderValue: 100 }, combinations: { enabled: true, sliderValue: 100 }, credits: { enabled: false, sliderValue: 100 }, filenames: { enabled: false, sliderValue: 100 } };
-      const autoTags = buildTagString(extractedTags, defaultFilters);
+      const autoTags = buildTagString(extractTagsFromDiscogs(dd), defaultFilters);
 
-      setYtUploadData(prev => ({
-        ...prev,
+      return {
+        blob,
+        size: blob.size,
+        fileName: `${name}.mp4`,
+        titleSuggestions: generateVideoTitleRecommendations(dd, ytv),
         description: autoDesc.slice(0, YT_LIMITS.description),
-        tags: prev.tags || autoTags.slice(0, YT_LIMITS.tags),
-      }));
-      appendVideoLog("✓ Done!");
-      setMessage("Video rendered!");
+        tags: autoTags.slice(0, YT_LIMITS.tags),
+      };
+    }
+  };
 
-      // Auto-upload to YouTube if checkbox was checked
-      if (autoUploadYtRef.current) {
-        appendVideoLog("Starting YouTube upload…");
-        setTimeout(() => uploadToYouTube(renderedUrl), 500);
+  // ---- Projects: snapshot / hydrate / switch --------------------------------
+
+  const newProjectId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  // Stable per-asset id, so an autosave can tell "same file, still there"
+  // from "different file re-exported into the same slot".
+  const newAssetUid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+
+  const refreshProjects = useCallback(async () => {
+    try { setProjects(await storeListProjects()); } catch {}
+    try { setStorageInfo(await estimateStorage()); } catch {}
+  }, []);
+
+  // Everything that isn't a Blob. Mirrors buildProgressPayload but covers the
+  // whole route, since a project has to come back exactly as it was left.
+  const collectSettings = () => ({
+    step, audioMode, projectName, discogsUrl, discogsData, discogsInputMode,
+    trackNames, manualTrackCount, tracks, duration,
+    outputFormat, filenameFormat, volumeDb, riaaEnabled,
+    silThresholdDb, silMinDur, silWindowMs, silMinTrackLen,
+    selectedTracks: [...selectedTracks],
+    videoWidth, videoHeight, videoBgColor, imageMaxDim,
+    slideshowMode, loopInterval, motionFps, manualImageTimings,
+    textOverlay, trackImageAssign,
+    videoAudioOrder, trackClips,
+    selectedVideoAudios: [...selectedVideoAudios],
+    selectedVideoImages: [...selectedVideoImages],
+    videoOutputName, ytUploadData, ytTitleVariation, ytTimestampFormat,
+    ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix, ytTitleSuggestions,
+    autoUploadYt, autoMatchImageRes, batchSettings, trackTextOverrides,
+  });
+
+  const applySettings = (s) => {
+    if (!s) return;
+    if (s.step) setStep(s.step);
+    if (s.audioMode) setAudioMode(s.audioMode);
+    setProjectName(s.projectName || "My Album");
+    setDiscogsUrl(s.discogsUrl || "");
+    setDiscogsData(s.discogsData || null);
+    if (s.discogsInputMode) setDiscogsInputMode(s.discogsInputMode);
+    setTrackNames(s.trackNames || []);
+    setManualTrackCount(s.manualTrackCount || "");
+    setTracks(s.tracks || []);
+    if (s.duration != null) setDuration(s.duration);
+    if (s.outputFormat) setOutputFormat(s.outputFormat);
+    if (s.filenameFormat) setFilenameFormat(s.filenameFormat);
+    if (s.volumeDb != null) setVolumeDb(s.volumeDb);
+    if (s.riaaEnabled != null) setRiaaEnabled(s.riaaEnabled);
+    if (s.silThresholdDb != null) setSilThresholdDb(s.silThresholdDb);
+    if (s.silMinDur != null) setSilMinDur(s.silMinDur);
+    if (s.silWindowMs != null) setSilWindowMs(s.silWindowMs);
+    if (s.silMinTrackLen != null) setSilMinTrackLen(s.silMinTrackLen);
+    setSelectedTracks(new Set(s.selectedTracks || []));
+    if (s.videoWidth) setVideoWidth(s.videoWidth);
+    if (s.videoHeight) setVideoHeight(s.videoHeight);
+    if (s.videoBgColor) setVideoBgColor(s.videoBgColor);
+    if (s.imageMaxDim !== undefined) setImageMaxDim(s.imageMaxDim);
+    if (s.slideshowMode) setSlideshowMode(s.slideshowMode);
+    if (s.loopInterval != null) setLoopInterval(s.loopInterval);
+    if (s.motionFps != null) setMotionFps(s.motionFps);
+    setManualImageTimings(s.manualImageTimings || {});
+    setTextOverlay({ ...DEFAULT_TEXT_OVERLAY, ...(s.textOverlay || {}) });
+    setTrackImageAssign(s.trackImageAssign || {});
+    setVideoAudioOrder(s.videoAudioOrder || []);
+    setTrackClips(s.trackClips || {});
+    setSelectedVideoAudios(new Set(s.selectedVideoAudios || []));
+    setSelectedVideoImages(new Set(s.selectedVideoImages || []));
+    setVideoOutputName(s.videoOutputName || "");
+    setYtUploadData(s.ytUploadData || { title: "", description: "", privacyStatus: "private", tags: "" });
+    if (s.ytTitleVariation != null) setYtTitleVariation(s.ytTitleVariation);
+    if (s.ytTimestampFormat) setYtTimestampFormat(s.ytTimestampFormat);
+    if (s.ytTimestampSeparator != null) setYtTimestampSeparator(s.ytTimestampSeparator);
+    if (s.ytIncludeTrackNums != null) setYtIncludeTrackNums(s.ytIncludeTrackNums);
+    if (s.ytDescSuffix != null) setYtDescSuffix(s.ytDescSuffix);
+    setYtTitleSuggestions(s.ytTitleSuggestions || []);
+    if (s.autoUploadYt != null) setAutoUploadYt(s.autoUploadYt);
+    if (s.autoMatchImageRes != null) setAutoMatchImageRes(s.autoMatchImageRes);
+    if (s.batchSettings) setBatchSettings(prev => ({ ...prev, ...s.batchSettings }));
+    setTrackTextOverrides(s.trackTextOverrides || {});
+  };
+
+  // Writes the current project's blobs + record. Blobs are only rewritten when
+  // their identity changed, so an autosave on a settings tweak doesn't re-copy
+  // a gigabyte of audio.
+  const saveActiveProject = useCallback(async ({ silent = true, overrides = {} } = {}) => {
+    const id = activeProjectIdRef.current;
+    if (!id) return null;
+    if (!silent) setProjectBusy("saving");
+    // Callers that save immediately after a setState pass the new value here,
+    // since the state itself hasn't committed yet. `settings` is shallow-merged
+    // over the collected snapshot for the same reason.
+    const droppedAudioFiles_ = overrides.droppedAudioFiles ?? droppedAudioFiles;
+    const exportedTracks_ = overrides.exportedTracks ?? exportedTracks;
+    const videoImages_ = overrides.videoImages ?? videoImages;
+    const settingsOverrides = overrides.settings || null;
+    try {
+      const prev = (await storeGetProject(id)) || {};
+      const prevKeys = new Set([
+        ...(prev.audioFiles || []).map(a => a.key),
+        ...(prev.exportedTracks || []).map(t => t.key),
+        ...(prev.images || []).map(i => i.key),
+      ].filter(Boolean));
+      const liveKeys = new Set();
+      const bytes = { audio: 0, tracks: 0, images: 0, video: 0 };
+
+      // Autosave runs on a 2.5s debounce, so re-writing every blob each time
+      // would push hundreds of megabytes through IndexedDB on a settings tweak.
+      // A slot is only rewritten when the file occupying it actually changed.
+      // Identity has to be exact: a re-export can produce the same filename AND
+      // the same byte count (PCM size is fixed by duration) yet different audio,
+      // so tracks and images are matched on a stable uid rather than on name.
+      const prevBySlot = new Map();
+      for (const a of prev.audioFiles || []) if (a.key) prevBySlot.set(a.key, a);
+      for (const t of prev.exportedTracks || []) if (t.key) prevBySlot.set(t.key, t);
+      for (const i of prev.images || []) if (i.key) prevBySlot.set(i.key, i);
+      const sameFile = (key, f) => {
+        const p = prevBySlot.get(key);
+        return !!p && p.name === f.name && p.size === f.size && p.lastModified === f.lastModified;
+      };
+      const sameUid = (key, uid) => {
+        const p = prevBySlot.get(key);
+        return !!p && !!uid && p.uid === uid;
+      };
+
+      const audioFiles = [];
+      for (let i = 0; i < droppedAudioFiles_.length; i++) {
+        const f = droppedAudioFiles_[i];
+        const key = blobKey(id, "audio", i);
+        liveKeys.add(key);
+        if (!sameFile(key, f)) await putBlob(key, f);
+        bytes.audio += f.size || 0;
+        audioFiles.push({ key, name: f.name, size: f.size, type: f.type, lastModified: f.lastModified });
       }
-    } catch (err) {
-      // A cancelled/superseded render's worker was terminated mid-flight; its
-      // late rejection (ERROR_TERMINATED / "ffmpeg is not loaded") is expected
-      // noise — don't surface it or overwrite the active render's state.
-      if (isStale()) {
-        return;
+
+      const exported = [];
+      for (let i = 0; i < exportedTracks_.length; i++) {
+        const t = exportedTracks_[i];
+        const key = blobKey(id, "track", i);
+        liveKeys.add(key);
+        if (sameUid(key, t.uid)) {
+          bytes.tracks += t.size || 0;
+          exported.push({ key, uid: t.uid, name: t.name, title: t.title, index: t.index, size: t.size, start: t.start, end: t.end });
+          continue;
+        }
+        const blob = t.file ? t.file : await (await fetch(t.url)).blob();
+        await putBlob(key, blob);
+        bytes.tracks += blob.size || 0;
+        exported.push({ key, uid: t.uid, name: t.name, title: t.title, index: t.index, size: blob.size, start: t.start, end: t.end });
       }
-      const isOom = err?.oom || /malloc of size|Cannot enlarge memory|Out of memory|memory access out of bounds|Aborted\(\)|Error submitting video frame/i.test(err?.message || "");
-      if (isOom) {
-        const dims = err?.dimensions ? `${err.dimensions.w}×${err.dimensions.h}` : `${videoWidth}×${videoHeight}`;
-        const friendlyLines = [
-          `ERROR: Ran out of memory while encoding at ${dims}.`,
-          "",
-          "FFmpeg runs in your browser (WebAssembly) and is capped at ~2 GB of memory.",
-          "This job exceeded that limit. To get it to render, try one or more of:",
-          "  • Lower the output resolution (e.g. 1080p instead of 4K).",
-          "  • Use fewer images, or shorter total duration.",
-          "  • Use smaller source images (very large PNGs are decoded uncompressed and use hundreds of MB each).",
-          "",
-          err?.signal ? `Underlying ffmpeg signal: ${err.signal}` : "",
-        ].filter(Boolean);
-        setVideoRenderLogs(prev => [...prev, ...friendlyLines]);
-        setMessage(`Out of memory at ${dims}. Try a lower resolution.`);
-        setVideoRenderError({
-          kind: "oom",
-          dims,
-          signal: err?.signal,
-          tips: [
-            "Lower the output resolution (e.g. 1080p instead of 4K).",
-            "Use fewer images or shorten the total audio duration.",
-            "Cap source images via the Image Settings panel above (very large PNGs decode to hundreds of MB each).",
-          ],
+
+      const images = [];
+      for (let i = 0; i < videoImages_.length; i++) {
+        const im = videoImages_[i];
+        if (!im.file) continue;
+        const key = blobKey(id, "image", i);
+        liveKeys.add(key);
+        if (!sameUid(key, im.id)) await putBlob(key, im.file);
+        bytes.images += im.file.size || 0;
+        images.push({
+          key, uid: im.id, id: im.id, name: im.file.name, size: im.file.size, type: im.file.type,
+          naturalWidth: im.naturalWidth, naturalHeight: im.naturalHeight,
+          stretchToFit: im.stretchToFit, useBlurBg: im.useBlurBg, paddingColor: im.paddingColor,
+          motion: im.motion, motionSpeed: im.motionSpeed, bgMotion: im.bgMotion, bgMotionSpeed: im.bgMotionSpeed,
         });
-      } else {
-        setVideoRenderLogs(prev => [...prev, `ERROR: ${err.message}`]);
-        setMessage("Video render error: " + err.message);
-        setVideoRenderError({ kind: "generic", message: err?.message || "Render failed" });
       }
+
+      // Blobs from a previous save whose slot no longer exists (image deleted,
+      // fewer tracks re-exported) would otherwise leak until the project is.
+      for (const stale of prevKeys) if (!liveKeys.has(stale)) { try { await deleteBlob(stale); } catch {} }
+
+      // Rendered output is owned by the render queue's onSettled, not by this
+      // save — carry whatever is already on the record through untouched.
+      const video = prev.video || null;
+      if (video) bytes.video = video.size || 0;
+      const batchVideos = prev.batchVideos || [];
+      bytes.batch = batchVideos.reduce((sum, v) => sum + (v.size || 0), 0);
+
+      const record = {
+        id,
+        name: projectName || "Untitled project",
+        createdAt: prev.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        settings: settingsOverrides ? { ...collectSettings(), ...settingsOverrides } : collectSettings(),
+        audioFiles,
+        activeAudioName: audioFile?.name || null,
+        exportedTracks: exported,
+        images,
+        video,
+        batchVideos,
+        bytes: { ...bytes, total: bytes.audio + bytes.tracks + bytes.images + bytes.video + bytes.batch },
+        trackCount: tracks.length,
+      };
+      await storePutProject(record);
+      renderQueue.rename(id, record.name);
+      await refreshProjects();
+      return record;
+    } catch (e) {
+      setMessage(`Could not save project: ${e?.message || e}`);
+      return null;
+    } finally {
+      if (!silent) setProjectBusy("");
     }
-    finally {
-      // Only the active render resets shared UI state and releases the guard.
-      // A stale render leaves those to whoever superseded/cancelled it.
-      if (!isStale()) {
-        setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null);
-        videoRenderingRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [droppedAudioFiles, exportedTracks, videoImages, projectName, audioFile, tracks, refreshProjects]);
+
+  // Rebuilds live state (Files, object URLs, decoded waveform) from a record.
+  const hydrateProject = async (rec) => {
+    hydratingRef.current = true;
+    setProjectBusy("loading");
+    try {
+      // Release the outgoing project's URLs first — but never the rendered
+      // video of a project whose job is still running.
+      exportedTracks.forEach(t => { try { URL.revokeObjectURL(t.url); } catch {} });
+      videoImages.forEach(im => {
+        if (im.thumbUrl) URL.revokeObjectURL(im.thumbUrl);
+        if (im.previewUrl) URL.revokeObjectURL(im.previewUrl);
+      });
+      if (renderedVideoSrc) { try { URL.revokeObjectURL(renderedVideoSrc); } catch {} }
+      setRenderedVideoSrc(null);
+      batchVideos.forEach(v => { try { URL.revokeObjectURL(v.url); } catch {} });
+      setBatchVideos([]);
+      setChannelData(null);
+      setExportedTracks([]);
+      setVideoImages([]);
+      setDroppedAudioFiles([]);
+      setAudioFile(null);
+      setPendingAudioFiles([]);
+      setAudioDurationMap({});
+      setSilenceRegions([]);
+      setVolumeSuggestion(null);
+      if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
+
+      applySettings(rec.settings);
+
+      const audios = [];
+      for (const a of rec.audioFiles || []) {
+        if (!a.key) continue;
+        const f = await getFile(a.key, a.name, a.type);
+        if (f) audios.push(f);
       }
+      setDroppedAudioFiles(audios);
+      // Setting audioFile kicks off the decode effect, which rebuilds the
+      // waveform and peaks view for the restored split points.
+      const active = audios.find(f => f.name === rec.activeAudioName) || audios[0] || null;
+      setAudioFile(active || null);
+
+      const tracksOut = [];
+      for (const t of rec.exportedTracks || []) {
+        const blob = await getBlob(t.key);
+        if (!blob) continue;
+        const file = new File([blob], t.name, { type: blob.type || "audio/flac" });
+        tracksOut.push({ uid: t.uid || newAssetUid(), index: t.index, name: t.name, title: t.title, size: blob.size, start: t.start, end: t.end, url: URL.createObjectURL(blob), file });
+      }
+      setExportedTracks(tracksOut);
+
+      const imgsOut = [];
+      for (const im of rec.images || []) {
+        const f = await getFile(im.key, im.name, im.type);
+        if (!f) continue;
+        const thumb = await createThumbnail(f, 160).catch(() => null);
+        imgsOut.push({
+          id: im.id, file: f,
+          thumbUrl: thumb?.thumbUrl || URL.createObjectURL(f),
+          previewUrl: URL.createObjectURL(f),
+          loading: false,
+          naturalWidth: im.naturalWidth ?? thumb?.width, naturalHeight: im.naturalHeight ?? thumb?.height,
+          width: im.naturalWidth ?? thumb?.width, height: im.naturalHeight ?? thumb?.height,
+          stretchToFit: im.stretchToFit, useBlurBg: im.useBlurBg, paddingColor: im.paddingColor,
+          motion: im.motion, motionSpeed: im.motionSpeed, bgMotion: im.bgMotion, bgMotionSpeed: im.bgMotionSpeed,
+        });
+      }
+      setVideoImages(imgsOut);
+
+      if (rec.video?.key) {
+        const blob = await getBlob(rec.video.key);
+        if (blob && blob.size > 0) setRenderedVideoSrc(URL.createObjectURL(blob));
+      }
+
+      const batch = [];
+      for (const v of rec.batchVideos || []) {
+        const blob = await getBlob(v.key);
+        if (!blob || !blob.size) continue;
+        batch.push({ ...v, url: URL.createObjectURL(blob) });
+      }
+      setBatchVideos(batch);
+      setMessage(`Opened "${rec.name}"`);
+    } catch (e) {
+      setMessage(`Could not open project: ${e?.message || e}`);
+    } finally {
+      setProjectBusy("");
+      // Let the state writes above commit before autosave is re-armed.
+      setTimeout(() => { hydratingRef.current = false; }, 0);
     }
+  };
+
+  const openProject = async (id) => {
+    if (id === activeProjectIdRef.current) { setShowHistory(false); return; }
+    await saveActiveProject();
+    const rec = await storeGetProject(id);
+    if (!rec) { setMessage("That project is no longer stored."); await refreshProjects(); return; }
+    setActiveProjectId(id);
+    activeProjectIdRef.current = id;
+    try { localStorage.setItem(ACTIVE_PROJECT_KEY, id); } catch {}
+    await hydrateProject(rec);
+    setShowHistory(false);
+  };
+
+  const startNewProject = async () => {
+    await saveActiveProject();
+    const id = newProjectId();
+    hydratingRef.current = true;
+    resetProjectState();
+    const savedDefaults = loadSavedTextDefaults();
+    if (savedDefaults) setTextOverlay(savedDefaults);
+    setProjectName("New project");
+    setActiveProjectId(id);
+    activeProjectIdRef.current = id;
+    try { localStorage.setItem(ACTIVE_PROJECT_KEY, id); } catch {}
+    await storePutProject({
+      id, name: "New project", createdAt: Date.now(), updatedAt: Date.now(),
+      settings: null, audioFiles: [], exportedTracks: [], images: [], video: null,
+      bytes: { audio: 0, tracks: 0, images: 0, video: 0, total: 0 }, trackCount: 0,
+    });
+    await refreshProjects();
+    setShowHistory(false);
+    setMessage("Started a new project.");
+    setTimeout(() => { hydratingRef.current = false; }, 0);
+  };
+
+  const deleteProjectById = async (id) => {
+    const job = renderQueue.getJob(id);
+    if (job && (job.status === "running" || job.status === "queued")) {
+      if (!window.confirm("That project has a render in progress. Delete it and cancel the render?")) return;
+      renderQueue.cancel(id);
+    } else if (!window.confirm("Delete this project and all of its stored files?")) return;
+    const wasActive = id === activeProjectIdRef.current;
+    // Drop the active pointer *before* opening a replacement: openProject and
+    // startNewProject both save the outgoing project first, which would write
+    // the record we just deleted straight back into the store.
+    if (wasActive) { activeProjectIdRef.current = null; setActiveProjectId(null); }
+    renderQueue.purgeProject(id);
+    await storeDeleteProject(id);
+    await refreshProjects();
+    if (wasActive) {
+      const remaining = await storeListProjects();
+      if (remaining.length) await openProject(remaining[0].id);
+      else await startNewProject();
+    }
+  };
+
+  const freeUpProject = async (id) => {
+    if (!window.confirm("Remove the source audio and rendered video for this project? Settings, splits and images are kept, so it can be re-rendered.")) return;
+    await trimProjectAssets(id);
+    if (id === activeProjectIdRef.current) {
+      if (renderedVideoSrc) { try { URL.revokeObjectURL(renderedVideoSrc); } catch {} }
+      setRenderedVideoSrc(null);
+    }
+    await refreshProjects();
+  };
+
+  // ---- Render queue wiring --------------------------------------------------
+
+  useEffect(() => renderQueue.subscribe(setRenderJobs), []);
+
+  // The open project's single "Render Video" job keys on the project id; its
+  // batch jobs key on `${projectId}:batch:n` and are surfaced separately.
+  const activeRenderJob = renderJobs.find(j => j.jobId === activeProjectId) || null;
+  const queueActive = renderJobs.filter(j => j.status === "running" || j.status === "queued");
+  const activeBatchJobs = renderJobs.filter(j => j.batch && j.projectId === activeProjectId);
+  const batchInFlight = activeBatchJobs.filter(j => j.status === "running" || j.status === "queued");
+  // Finished renders the open project isn't already showing inline — its own
+  // single render and its batch jobs both have their own UI below.
+  const queueFinished = renderJobs.filter(j =>
+    (j.status === "done" || j.status === "error") && j.projectId !== activeProjectId);
+
+  // Mirror the active project's job into the step-5 render UI. Those state
+  // variables are now a view of the queue rather than the source of truth.
+  useEffect(() => {
+    const job = activeRenderJob;
+    setIsRenderingVideo(job?.status === "running" || job?.status === "queued");
+    setVideoRenderProgress(job?.status === "running" ? job.progress : null);
+    setVideoRenderStartTime(job?.startedAt ?? null);
+    setVideoRenderLogs(job?.logs ?? []);
+    if (!job || !job.error) { setVideoRenderError(null); return; }
+    if (job.error.oom) {
+      const dims = job.error.dimensions ? `${job.error.dimensions.w}×${job.error.dimensions.h}` : `${videoWidth}×${videoHeight}`;
+      setVideoRenderError({
+        kind: "oom", dims, signal: job.error.signal,
+        tips: [
+          "Lower the output resolution (e.g. 1080p instead of 4K).",
+          "Use fewer images or shorten the total audio duration.",
+          "Cap source images via the Image Settings panel above (very large PNGs decode to hundreds of MB each).",
+        ],
+      });
+    } else {
+      setVideoRenderError({ kind: "generic", message: job.error.message || "Render failed" });
+    }
+  }, [activeRenderJob, videoWidth, videoHeight]);
+
+  // Queue a render for the current project. The spec is frozen up front, so the
+  // user is free to switch projects — or edit this one — while it waits or runs.
+  const startRender = async () => {
+    const id = activeProjectIdRef.current;
+    if (!id) return;
+    const existing = renderQueue.getJob(id);
+    if (existing && (existing.status === "running" || existing.status === "queued")) return;
+    let spec;
+    try {
+      spec = await buildRenderSpec();
+    } catch (e) {
+      setMessage(`Could not prepare the render: ${e?.message || e}`);
+      return;
+    }
+    if (!spec) return;
+    setShowVideoLogs(true);
+    // Persist first so the queued job's project is on disk even if the tab is
+    // reloaded before it starts.
+    await saveActiveProject();
+    const projectName_ = projectName || "Untitled project";
+
+    renderQueue.enqueue({
+      projectId: id,
+      projectName: projectName_,
+      run: (ctx) => runVideoRender(spec, ctx),
+      onSettled: async (settled) => {
+        if (settled.status !== "done") {
+          if (settled.status === "error" && activeProjectIdRef.current === id) {
+            setMessage(settled.error?.oom ? "Out of memory — try a lower resolution." : `Video render error: ${settled.error?.message}`);
+          }
+          return;
+        }
+        const { blob, size, titleSuggestions, description, tags } = settled.result;
+        const key = blobKey(id, "video");
+        try {
+          await putBlob(key, blob);
+          const rec = await storeGetProject(id);
+          if (rec) {
+            const bytes = { ...(rec.bytes || {}), video: size };
+            bytes.total = (bytes.audio || 0) + (bytes.tracks || 0) + (bytes.images || 0) + size;
+            await storePutProject({ ...rec, video: { key, size, name: settled.result.fileName }, bytes, updatedAt: Date.now() });
+          }
+        } catch (e) {
+          if (activeProjectIdRef.current === id) setMessage(`Rendered, but could not save to storage: ${e?.message || e}`);
+        }
+        await refreshProjects();
+
+        // Only touch page state if this project is still the one on screen.
+        if (activeProjectIdRef.current !== id) return;
+        const url = URL.createObjectURL(blob);
+        setRenderedVideoSrc(prev => { if (prev) { try { URL.revokeObjectURL(prev); } catch {} } return url; });
+        setYtTitleSuggestions(titleSuggestions);
+        setYtUploadData(prev => ({
+          ...prev,
+          description: description,
+          tags: prev.tags || tags,
+        }));
+        setMessage("Video rendered!");
+        if (autoUploadYtRef.current) setTimeout(() => uploadToYouTube(url), 500);
+      },
+    });
+  };
+
+  // ---- Batch render: one video per track ------------------------------------
+
+  // Which tracks get their own video, and which image each one uses.
+  const buildBatchPlan = () => {
+    const audios = getOrderedAudios();
+    const plan = [];
+    audios.forEach((a, orderIdx) => {
+      if (batchSettings.scope === "pinned" && !trackImageAssign[a._trackIdx]) return;
+      const img = imageForTrack(orderIdx, a._trackIdx);
+      if (!img) return;
+      plan.push({ orderIdx, audio: a, img, pinned: !!trackImageAssign[a._trackIdx] });
+    });
+    return plan;
+  };
+
+  const batchPlan = buildBatchPlan();
+
+  const batchOutputName = (item, total) => {
+    const num = String(item.orderIdx + 1).padStart(String(total).length, "0");
+    const raw = (batchSettings.nameTemplate || "%num% - %title%")
+      .replace(/%num%/g, num)
+      .replace(/%title%/g, item.audio.title || `Track ${item.orderIdx + 1}`)
+      .replace(/%album%/g, projectName || "album")
+      .replace(/%artist%/g, discogsData?.artists?.[0]?.name || "");
+    return raw.replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || `track_${num}`;
+  };
+
+  const BATCH_SCALES = [0.25, 0.33, 0.5, 0.75, 1, 1.25, 1.5, 2];
+  const BATCH_MAX_DIM = 7680;
+
+  // Single source of truth for a batch video's output size, so the settings
+  // preview and the encoder can't disagree.
+  const batchDimensionsFor = (img) => {
+    const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
+    const auto = batchSettings.resolution === "auto" && img?.naturalWidth && img?.naturalHeight;
+    const baseW = auto ? img.naturalWidth : (parseInt(videoWidth) || 1920);
+    const baseH = auto ? img.naturalHeight : (parseInt(videoHeight) || 1080);
+    const scale = Number(batchSettings.scale) || 1;
+    // h264 needs even dimensions; matching an odd-sized source would otherwise
+    // get silently padded by the filtergraph's trailing pad.
+    const apply = (n) => even(Math.min(BATCH_MAX_DIM, Math.max(2, Math.round(n * scale))));
+    return { w: apply(baseW), h: apply(baseH) };
+  };
+
+  // What a batch video's caption will actually say, after mode + per-track override.
+  const batchTextFor = (item) => {
+    if (batchSettings.textMode === "off") return "";
+    if (batchSettings.textMode === "custom") {
+      const o = trackTextOverrides[item.audio._trackIdx];
+      return (o && o.text != null && o.text !== "") ? o.text : batchSettings.customText;
+    }
+    return trackCaptionText(item.audio._trackIdx, item.audio.title);
+  };
+
+  const buildBatchSpec = async (item, total) => {
+    const t = item.audio;
+    const img = item.img;
+    const blob = t.file ? t.file : await (await fetch(t.url)).blob();
+    const dur = t.end - t.start;
+    const { w, h } = batchDimensionsFor(img);
+    const text = batchTextFor(item);
+    const position = trackCaptionPosition(item.audio._trackIdx);
+    return {
+      name: batchOutputName(item, total),
+      audios: [{
+        title: t.title, name: t.name, blob,
+        start: t.start, end: t.end,
+        clipStart: t.clipStart, clipEnd: t.clipEnd, isClipped: t.isClipped,
+      }],
+      images: [{
+        id: img.id, file: img.file,
+        stretchToFit: img.stretchToFit, useBlurBg: img.useBlurBg, paddingColor: img.paddingColor,
+        motion: img.motion, motionSpeed: img.motionSpeed,
+        bgMotion: img.bgMotion, bgMotionSpeed: img.bgMotionSpeed,
+      }],
+      // One image for the whole track — no cuts, so no boundary splitting.
+      timings: [{ id: img.id, startTime: 0, endTime: dur, text, position }],
+      totalDur: dur,
+      w, h,
+      bgColor: videoBgColor,
+      imageMaxDim,
+      motionFps,
+      // Never "loop": the two-pass cycle path is meaningless for a single image
+      // and would just add an encode.
+      slideshowMode: "distribute",
+      loopInterval,
+      textOverlay: { ...textOverlay, enabled: batchSettings.textMode !== "off" && !!text.trim() },
+      overlayTextVaries: false,
+      ytMeta: { discogsData, ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix },
+    };
+  };
+
+  // Pins an image to every selected track, cycling through the selected images
+  // in order. With one image per track this is a straight 1:1 mapping; with
+  // fewer images they repeat, which is the same rule "Auto" already follows —
+  // the difference is the pins become explicit and editable per row.
+  const autoAssignTrackImages = () => {
+    const selectedImgs = videoImages.filter(im => selectedVideoImages.has(im.id));
+    if (!selectedImgs.length) { setMessage("Select at least one image below first."); return; }
+    const audios = getOrderedAudios();
+    if (!audios.length) { setMessage("Select at least one audio track first."); return; }
+    const next = {};
+    audios.forEach((a, i) => { next[a._trackIdx] = selectedImgs[i % selectedImgs.length].id; });
+    setTrackImageAssign(next);
+    if (slideshowMode !== "per-track") setSlideshowMode("per-track");
+    setMessage(
+      selectedImgs.length >= audios.length
+        ? `Assigned one image to each of the ${audios.length} track${audios.length === 1 ? "" : "s"}.`
+        : `Assigned ${selectedImgs.length} image${selectedImgs.length === 1 ? "" : "s"} across ${audios.length} tracks (repeating).`
+    );
+  };
+
+  // Stops everything queued or running in this project's batch. Settings stay
+  // editable throughout, so the flow is: stop → change settings → run again.
+  const stopBatchRender = () => {
+    const id = activeProjectIdRef.current;
+    if (!id) return;
+    const live = renderQueue.jobsForProject(id).filter(j => j.batch && (j.status === "running" || j.status === "queued"));
+    if (!live.length) return;
+    live.forEach(j => renderQueue.cancel(j.jobId));
+    setMessage(`Stopped the batch (${live.length} render${live.length === 1 ? "" : "s"} cancelled). Change the settings and run it again when ready.`);
+  };
+
+  const startBatchRender = async () => {
+    const id = activeProjectIdRef.current;
+    if (!id) return;
+    const plan = buildBatchPlan();
+    if (!plan.length) return;
+    setShowVideoLogs(true);
+    // Drop the previous run's finished/cancelled rows so the progress list shows
+    // this batch only — a smaller plan would otherwise leave orphans behind.
+    renderQueue.jobsForProject(id)
+      .filter(j => j.batch && j.status !== "running" && j.status !== "queued")
+      .forEach(j => renderQueue.clear(j.jobId));
+    await saveActiveProject();
+
+    for (const item of plan) {
+      let spec;
+      try {
+        spec = await buildBatchSpec(item, plan.length);
+      } catch (e) {
+        setMessage(`Could not prepare “${item.audio.title}”: ${e?.message || e}`);
+        continue;
+      }
+      const jobId = `${id}:batch:${item.orderIdx}`;
+      const trackIdx = item.audio._trackIdx;
+      renderQueue.enqueue({
+        jobId,
+        projectId: id,
+        projectName: projectName || "Untitled project",
+        label: item.audio.title || `Track ${item.orderIdx + 1}`,
+        batch: true,
+        run: (ctx) => runVideoRender(spec, ctx),
+        onSettled: async (settled) => {
+          if (settled.status !== "done") return;
+          const { blob, size, fileName } = settled.result;
+          const key = blobKey(id, "batch", item.orderIdx);
+          const meta = { key, jobId, trackIdx, orderIdx: item.orderIdx, title: item.audio.title, name: fileName, size };
+          try {
+            await putBlob(key, blob);
+            const rec = await storeGetProject(id);
+            if (rec) {
+              const others = (rec.batchVideos || []).filter(v => v.key !== key);
+              const batchVideos = [...others, meta].sort((a, b) => a.orderIdx - b.orderIdx);
+              const bytes = { ...(rec.bytes || {}) };
+              bytes.batch = batchVideos.reduce((s, v) => s + (v.size || 0), 0);
+              bytes.total = (bytes.audio || 0) + (bytes.tracks || 0) + (bytes.images || 0) + (bytes.video || 0) + bytes.batch;
+              await storePutProject({ ...rec, batchVideos, bytes, updatedAt: Date.now() });
+            }
+          } catch (e) {
+            if (activeProjectIdRef.current === id) setMessage(`Rendered “${meta.title}”, but could not save it: ${e?.message || e}`);
+          }
+          await refreshProjects();
+          if (activeProjectIdRef.current !== id) return;
+          setBatchVideos(prev => {
+            const others = prev.filter(v => v.key !== key);
+            // Replacing an earlier render of the same track — release its URL.
+            prev.filter(v => v.key === key).forEach(v => { try { URL.revokeObjectURL(v.url); } catch {} });
+            return [...others, { ...meta, url: URL.createObjectURL(blob) }].sort((a, b) => a.orderIdx - b.orderIdx);
+          });
+        },
+      });
+    }
+    setMessage(`Queued ${plan.length} batch render${plan.length === 1 ? "" : "s"}.`);
+  };
+
+  const downloadBatchVideo = (v) => {
+    const a = document.createElement("a");
+    a.href = v.url; a.download = v.name || `${v.title || "video"}.mp4`; a.click();
+  };
+
+  const downloadBatchZip = async () => {
+    if (!batchVideos.length) return;
+    setMessage("Building ZIP…");
+    try {
+      const zip = new JSZip();
+      for (const v of batchVideos) {
+        const blob = await (await fetch(v.url)).blob();
+        zip.file(v.name || `${v.title || "video"}.mp4`, blob);
+      }
+      const out = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(out);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || "album"}_videos.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      setMessage(`Zipped ${batchVideos.length} videos.`);
+    } catch (e) {
+      setMessage(`Could not build the ZIP: ${e?.message || e}`);
+    }
+  };
+
+  const clearBatchVideos = async () => {
+    if (!batchVideos.length) return;
+    if (!window.confirm(`Delete all ${batchVideos.length} batch video${batchVideos.length === 1 ? "" : "s"} from browser storage? Download them first if you want to keep them.`)) return;
+    const id = activeProjectIdRef.current;
+    batchVideos.forEach(v => { try { URL.revokeObjectURL(v.url); } catch {} });
+    const keys = batchVideos.map(v => v.key);
+    const jobIds = batchVideos.map(v => v.jobId).filter(Boolean);
+    setBatchVideos([]);
+    jobIds.forEach(j => renderQueue.clear(j));
+    try {
+      for (const k of keys) await deleteBlob(k);
+      if (id) {
+        const rec = await storeGetProject(id);
+        if (rec) {
+          const bytes = { ...(rec.bytes || {}), batch: 0 };
+          bytes.total = (bytes.audio || 0) + (bytes.tracks || 0) + (bytes.images || 0) + (bytes.video || 0);
+          await storePutProject({ ...rec, batchVideos: [], bytes, updatedAt: Date.now() });
+        }
+      }
+      await refreshProjects();
+    } catch (e) {
+      setMessage(`Removed from the page, but storage cleanup failed: ${e?.message || e}`);
+      return;
+    }
+    setMessage("Deleted the batch videos.");
   };
 
   // ---- YouTube Upload ----
@@ -3352,6 +4896,62 @@ export default function RipTagPage() {
         </div>
       )}
 
+      {/* Project bar — which project is open, plus every render in flight */}
+      <div className={styles.projectBar}>
+        <button
+          type="button"
+          className={styles.projectBarBtn}
+          onClick={() => setShowHistory(v => !v)}
+          title="Open, switch or create a project"
+        >
+          <span className={styles.projectBarIcon}>🗂</span>
+          Projects{projects.length ? ` (${projects.length})` : ""}
+        </button>
+        <span className={styles.projectBarName} title={projectName}>
+          {projectBusy === "loading" ? "Opening…" : projectBusy === "saving" ? "Saving…" : (projectName || "Untitled project")}
+        </span>
+        <button type="button" className={styles.projectBarGhost} onClick={startNewProject} disabled={!!projectBusy}>
+          + New
+        </button>
+        {(queueActive.length > 0 || queueFinished.length > 0) && (
+          <div className={styles.projectBarJobs}>
+            {queueActive.map(job => (
+              <button
+                key={job.jobId}
+                type="button"
+                className={`${styles.jobChip} ${job.status === "running" ? styles.jobChipRunning : styles.jobChipQueued}`}
+                onClick={() => openProject(job.projectId)}
+                title={job.status === "running"
+                  ? `Rendering ${job.label}${job.batch ? ` (${job.projectName})` : ""} — click to open that project`
+                  : `Queued behind ${queueActive.length - 1} other render(s) — click to open that project`}
+              >
+                <span className={styles.jobChipDot} />
+                {job.label}
+                <span className={styles.jobChipPct}>
+                  {job.status === "running"
+                    ? (job.progress != null ? `${Math.round(job.progress * 100)}%` : "…")
+                    : `#${job.queuePosition}`}
+                </span>
+              </button>
+            ))}
+            {/* A render that lands while you're in another project would
+                otherwise finish silently — these stay until dismissed. */}
+            {queueFinished.map(job => (
+              <span
+                key={job.jobId}
+                className={`${styles.jobChip} ${job.status === "done" ? styles.jobChipDone : styles.jobChipFailed}`}
+              >
+                <button type="button" className={styles.jobChipOpen} onClick={() => openProject(job.projectId)}
+                  title={`Open ${job.projectName}`}>
+                  {job.status === "done" ? "✓" : "✕"} {job.label}
+                </button>
+                <button type="button" className={styles.jobChipX} onClick={() => renderQueue.clear(job.jobId)} aria-label="Dismiss">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Steps — sticky when rendering/uploading */}
       <div className={`${styles.stepBarWrap} ${(isRenderingVideo || ytUploading) ? styles.stepBarSticky : ""}`}>
         {/* Reset button is rendered as a sibling of .stepBar (not a child), so
@@ -3387,11 +4987,20 @@ export default function RipTagPage() {
             </div>
           ))}
         </div>
-        {(isRenderingVideo || ytUploading) && (
-          <div className={styles.renderingWarningBanner}>
-            ⚠️ WARNING: {isRenderingVideo ? `Video is rendering${videoRenderProgress !== null ? ` (${(videoRenderProgress * 100).toFixed(0)}%)` : ""}` : `Video is uploading${ytUploadProgress !== null ? ` (${ytUploadProgress}%)` : ""}`} — do not navigate away from this page!
-          </div>
-        )}
+        {(queueActive.length > 0 || ytUploading) && (() => {
+          const running = queueActive.find(j => j.status === "running");
+          const waiting = queueActive.length - (running ? 1 : 0);
+          return (
+            <div className={styles.renderingWarningBanner}>
+              ⚠️ WARNING: {running
+                ? `Rendering “${running.projectName}”${running.progress != null ? ` (${(running.progress * 100).toFixed(0)}%)` : ""}${waiting > 0 ? ` · ${waiting} queued` : ""}`
+                : ytUploading
+                  ? `Video is uploading${ytUploadProgress !== null ? ` (${ytUploadProgress}%)` : ""}`
+                  : `${waiting} render${waiting === 1 ? "" : "s"} queued`}
+              {" "}— do not navigate away from this page!
+            </div>
+          );
+        })()}
         {ytUploadAuthError && !ytUploading && (
           <div className={styles.renderingWarningBanner} style={{animation:"none", background: "#fed7d7", color: "#742a2a"}}>
             ⚠️ YouTube sign-in expired — see the YouTube Upload Details panel below to sign in again.
@@ -4258,6 +5867,14 @@ export default function RipTagPage() {
               </div>
 
               {/* Export controls */}
+              {/* Track export spins up its own FFmpeg instance. It's audio-only
+                  and far lighter than a video encode, so it isn't queued — but
+                  say so, since both are competing for the same wasm heap. */}
+              {queueActive.some(j => j.status === "running") && !isExporting && (
+                <div className={styles.renderWarning} style={{background: darkMode ? "#3a2a1a" : "#fffaf0", borderColor: darkMode ? "#6b4d2d" : "#fbd38d", color: darkMode ? "#fbd38d" : "#c05621"}}>
+                  A video render is running in the background. Exporting now is usually fine (audio export uses far less memory), but a very long rip may run the browser out of memory — wait for the render if you hit an error.
+                </div>
+              )}
               <div className={styles.exportRow}>
                 <button className={styles.exportBtn} onClick={exportTracks} disabled={isExporting || !canExport || selectedTracks.size === 0}>
                   {isExporting ? "Exporting…" : `Export ${outputFormat.toUpperCase()} (${selectedTracks.size}/${tracks.length})`}
@@ -4309,6 +5926,38 @@ export default function RipTagPage() {
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Step 5: Video</h2>
 
+              {/* Bulk clears — each section also has its own button; this row
+                  is the one place that can wipe everything at once. */}
+              {(exportedTracks.length > 0 || videoImages.length > 0 || renderedVideoSrc) && (
+                <div className={styles.clearBar}>
+                  <span className={styles.clearBarLabel}>Clear:</span>
+                  <button type="button" className={styles.clearBtn}
+                    onClick={clearAllVideoTables}
+                    disabled={exportedTracks.length === 0 && videoImages.length === 0}
+                    title="Remove every audio track and image from this video">
+                    All tables
+                  </button>
+                  <button type="button" className={styles.clearBtn}
+                    onClick={clearVideoAudioTable}
+                    disabled={exportedTracks.length === 0}
+                    title="Remove every audio track from this video">
+                    Audio tracks{exportedTracks.length > 0 ? ` (${exportedTracks.length})` : ""}
+                  </button>
+                  <button type="button" className={styles.clearBtn}
+                    onClick={clearVideoImageTable}
+                    disabled={videoImages.length === 0}
+                    title="Remove every image from this video">
+                    Images{videoImages.length > 0 ? ` (${videoImages.length})` : ""}
+                  </button>
+                  <button type="button" className={`${styles.clearBtn} ${styles.clearBtnDanger}`}
+                    onClick={clearRenderedVideo}
+                    disabled={!renderedVideoSrc}
+                    title="Delete the rendered .mp4 from browser storage">
+                    Rendered video
+                  </button>
+                </div>
+              )}
+
               {/* Direct file drop zone for audio + image files */}
               <div className={styles.videoSection}>
                 <div
@@ -4349,7 +5998,12 @@ export default function RipTagPage() {
 
               {/* Audio Tracks to include */}
               <div className={styles.videoSection}>
-                <h3 className={styles.sectionTitle}>Audio Tracks ({selectedVideoAudios.size}/{exportedTracks.length} selected)</h3>
+                <div className={styles.sectionTitleRow}>
+                  <h3 className={styles.sectionTitle}>Audio Tracks ({selectedVideoAudios.size}/{exportedTracks.length} selected)</h3>
+                  {exportedTracks.length > 0 && (
+                    <button type="button" className={styles.clearBtn} onClick={clearVideoAudioTable}>Clear table</button>
+                  )}
+                </div>
                 {exportedTracks.length === 0 && !audioLoadingStatus ? (
                   <p className={styles.hintText}>No audio tracks yet. Drop audio files above or go back to Export.</p>
                 ) : (
@@ -4366,7 +6020,9 @@ export default function RipTagPage() {
                               />
                             </div>
                           </th>
-                          <th>#</th><th>Title</th><th>Duration</th><th style={{width:32}}></th>
+                          <th>#</th><th>Title</th><th>Duration</th>
+                          <th title="Pin an image to this track. The image then covers exactly this track's start → end on the timeline.">Image</th>
+                          <th style={{width:32}}></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4392,6 +6048,41 @@ export default function RipTagPage() {
                                 <td>{t.title}{range.isClipped && <span className={styles.clipBadge} title={`Clipped to ${formatTime(range.clipStart)} – ${formatTime(range.clipEnd)}`}> · clip</span>}</td>
                                 <td>{range.isClipped ? `${formatTime(range.clipDur)} / ${formatTime(range.fullDur)}` : formatTime(range.fullDur)}</td>
                                 <td onClick={e => e.stopPropagation()}>
+                                  {(() => {
+                                    const pickable = videoImages.filter(im => selectedVideoImages.has(im.id));
+                                    const assignedId = trackImageAssign[trackIdx] || "";
+                                    const assigned = pickable.find(im => im.id === assignedId);
+                                    return (
+                                      <div className={styles.trackImagePick}>
+                                        {assigned?.thumbUrl && !assigned.loading && <img src={assigned.thumbUrl} alt="" className={styles.trackImagePickThumb} />}
+                                        <select
+                                          className={styles.inputSmall}
+                                          style={{ width: 130, textAlign: "left" }}
+                                          value={assigned ? assignedId : ""}
+                                          disabled={pickable.length === 0}
+                                          title={pickable.length === 0 ? "Select at least one image below first" : "Show this image for this track only"}
+                                          onChange={e => {
+                                            const v = e.target.value;
+                                            setTrackImageAssign(prev => {
+                                              const next = { ...prev };
+                                              if (v) next[trackIdx] = v; else delete next[trackIdx];
+                                              return next;
+                                            });
+                                            // Pinning an image only means anything when images follow
+                                            // the tracks, so switch the slideshow over automatically.
+                                            if (v && slideshowMode !== "per-track") setSlideshowMode("per-track");
+                                          }}
+                                        >
+                                          <option value="">Auto</option>
+                                          {pickable.map((im, k) => (
+                                            <option key={im.id} value={im.id}>{k + 1}. {im.file.name}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    );
+                                  })()}
+                                </td>
+                                <td onClick={e => e.stopPropagation()}>
                                   <button
                                     type="button"
                                     className={styles.expandRowBtn}
@@ -4403,7 +6094,7 @@ export default function RipTagPage() {
                               </tr>
                               {isExpanded && (
                                 <tr className={styles.clipPanelRow}>
-                                  <td colSpan={6} onClick={e => e.stopPropagation()}>
+                                  <td colSpan={7} onClick={e => e.stopPropagation()}>
                                     <TrackClipPanel
                                       track={t}
                                       range={range}
@@ -4420,11 +6111,54 @@ export default function RipTagPage() {
                     </table>
                   </div>
                 )}
+                {exportedTracks.length > 0 && (() => {
+                  // A pin whose image was deselected or removed is inert, so only
+                  // count the ones that actually affect the timeline.
+                  const livePins = Object.values(trackImageAssign).filter(id => selectedVideoImages.has(id)).length;
+                  const pickableCount = videoImages.filter(im => selectedVideoImages.has(im.id)).length;
+                  return (
+                  <div style={{ marginTop: 8 }}>
+                    <div className={styles.pinActionsRow}>
+                      <button
+                        type="button"
+                        className={styles.clearBtn}
+                        onClick={autoAssignTrackImages}
+                        disabled={pickableCount === 0 || exportedTracks.length === 0}
+                        title={pickableCount === 0
+                          ? "Select at least one image below first"
+                          : "Pin an image to every selected track, cycling through the selected images in order"}
+                      >
+                        Auto-assign images
+                      </button>
+                      {livePins > 0 && (
+                        <button type="button" className={styles.clearBtn} onClick={() => setTrackImageAssign({})}>
+                          Clear all pins
+                        </button>
+                      )}
+                    </div>
+                    <p className={styles.hintText} style={{ marginTop: 6 }}>
+                      {livePins > 0 ? (
+                        <>
+                          {livePins} track{livePins === 1 ? " has" : "s have"} a pinned image — each pinned image is shown for exactly that track&apos;s start → end.
+                          {slideshowMode !== "per-track" && " Switch Slideshow to “Sync with tracks” for pins to take effect."}
+                        </>
+                      ) : (
+                        "Set a track's Image to pin it — that image then covers exactly that track on the timeline. Leave it on Auto to keep cycling through the selected images."
+                      )}
+                    </p>
+                  </div>
+                  );
+                })()}
               </div>
 
               {/* Images */}
               <div className={styles.videoSection}>
-                <h3 className={styles.sectionTitle}>Images ({selectedVideoImages.size}/{videoImages.length} selected)</h3>
+                <div className={styles.sectionTitleRow}>
+                  <h3 className={styles.sectionTitle}>Images ({selectedVideoImages.size}/{videoImages.length} selected)</h3>
+                  {videoImages.length > 0 && (
+                    <button type="button" className={styles.clearBtn} onClick={clearVideoImageTable}>Clear table</button>
+                  )}
+                </div>
                 <div className={styles.videoImgActions}>
                   <button className={styles.fetchBtn} onClick={() => setShowImageModal(true)}>+ Add Image</button>
                   {discogsData?.images?.length > 0 && (
@@ -4449,8 +6183,34 @@ export default function RipTagPage() {
                         sec
                       </label>
                     )}
+                    {/* Bulk motion — per-image motion lives under each image's preview */}
+                    <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
+                      Motion (all):
+                      <select className={styles.inputSmall}
+                        value={videoImages.length > 0 && videoImages.every(im => (im.motion || "none") === (videoImages[0].motion || "none")) ? (videoImages[0].motion || "none") : ""}
+                        onChange={e => { const v = e.target.value; if (v) setVideoImages(prev => prev.map(im => ({ ...im, motion: v }))); }}
+                        style={{minWidth:150}}
+                      >
+                        <option value="" disabled>Mixed…</option>
+                        {IMAGE_MOTIONS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                      </select>
+                    </label>
+                    {anySelectedImageMotion && (
+                      <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}} title="Motion has to be encoded at a real frame rate. Lower = much faster render.">
+                        Motion fps:
+                        <select className={styles.inputSmall} value={motionFps} onChange={e => setMotionFps(parseInt(e.target.value) || 24)} style={{width:70}}>
+                          {[12, 15, 24, 30].map(f => <option key={f} value={f}>{f}</option>)}
+                        </select>
+                      </label>
+                    )}
                   </div>
                 </div>
+                {anySelectedImageMotion && (
+                  <p className={styles.hintText} style={{marginTop:6}}>
+                    Motion effects encode every frame at {motionFps} fps instead of 2 — expect a noticeably longer render.
+                    {slideshowMode === "loop" && " In loop mode only one cycle is encoded and then repeated, so this stays cheap."}
+                  </p>
+                )}
                 {/* Discogs art fetch progress */}
                 {discogsArtStatus && (
                   <div className={styles.imageStatusBar}>
@@ -4519,7 +6279,9 @@ export default function RipTagPage() {
                       </thead>
                       <tbody>
                         {videoImages.map((img, i) => {
-                          const timing = getEffectiveImageTimings().find(t => t.id === img.id);
+                          // First slot the image occupies — in loop mode it gets several.
+                          const timing = rowTimings.find(t => t.id === img.id);
+                          const showCount = rowTimings.filter(t => t.id === img.id).length;
                           return (
                             <React.Fragment key={img.id}>
                               <tr
@@ -4535,12 +6297,35 @@ export default function RipTagPage() {
                                   <input type="checkbox" checked={selectedVideoImages.has(img.id)} onChange={() => toggleVideoImage(img.id)} />
                                 </td>
                                 <td>{i + 1}</td>
-                                <td><img src={img.thumbUrl} alt={img.file.name} className={styles.videoThumb} /></td>
+                                <td>
+                                  {/* The row is inserted as soon as the file is
+                                      picked, before its thumbnail exists — render
+                                      a spinner rather than a broken <img>. */}
+                                  {img.loading || !img.thumbUrl ? (
+                                    <div className={styles.videoThumbPlaceholder}>
+                                      <span className={styles.fileLoadingSpinner} style={{ borderTopColor: "#48bb78" }} />
+                                    </div>
+                                  ) : (
+                                    <img src={img.thumbUrl} alt={img.file.name} className={styles.videoThumb} />
+                                  )}
+                                </td>
                                 <td className={styles.filenameCell}>
                                   <div>{img.file.name}</div>
                                   <div style={{ fontSize: "0.72rem", opacity: 0.7, marginTop: 2 }}>
-                                    {img.file.size ? formatBytes(img.file.size) : "—"}
-                                    {(img.naturalWidth && img.naturalHeight) ? ` · ${img.naturalWidth}×${img.naturalHeight}` : ""}
+                                    {img.loading ? (
+                                      <span className={styles.fileStatusLoading}>
+                                        <span className={styles.fileLoadingSpinner} />
+                                        <span>Loading…</span>
+                                      </span>
+                                    ) : (
+                                      <>
+                                        {img.file.size ? formatBytes(img.file.size) : "—"}
+                                        {(img.naturalWidth && img.naturalHeight) ? ` · ${img.naturalWidth}×${img.naturalHeight}` : ""}
+                                        {showCount > 1 ? ` · shown ${showCount}×` : ""}
+                                        {(img.motion && img.motion !== "none") ? ` · ${IMAGE_MOTIONS.find(m => m.value === img.motion)?.short} ${clampMotionSpeed(img.motionSpeed)}×` : ""}
+                                        {(img.useBlurBg && (img.bgMotion || "none") !== "none") ? ` · ${BG_MOTIONS.find(m => m.value === img.bgMotion)?.short} ${clampMotionSpeed(img.bgMotionSpeed)}×` : ""}
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                                 <td onClick={e => e.stopPropagation()}>
@@ -4605,26 +6390,106 @@ export default function RipTagPage() {
                                   <button className={styles.removeBtn} onClick={() => removeVideoImage(img.id)}>×</button>
                                 </td>
                               </tr>
-                              {expandedImgPreviews.has(img.id) && (
+                              {expandedImgPreviews.has(img.id) && (() => {
+                                const motion = img.motion || "none";
+                                const bgMotion = img.bgMotion || "none";
+                                const motionSpeed = clampMotionSpeed(img.motionSpeed);
+                                const bgSpeed = clampMotionSpeed(img.bgMotionSpeed);
+                                // Animate the preview over the segment's real on-screen
+                                // duration so what you see matches what gets rendered.
+                                const segDur = Math.min(20, Math.max(2, timing ? timing.endTime - timing.startTime : 6));
+                                const motionClass = MOTION_PREVIEW_CLASS[motion];
+                                return (
                                 <tr>
-                                  <td colSpan={10} className={styles.imgPreviewRow}>
+                                  <td colSpan={12} className={styles.imgPreviewRow}>
                                     <div className={styles.imgPreviewWrap} style={{ background: img.useBlurBg ? "transparent" : (img.paddingColor || videoBgColor) }}>
+                                      <div
+                                        className={`${styles.motionStage} ${motionClass ? styles[motionClass] : ""}`}
+                                        style={motionClass ? {
+                                          animationDuration: `${(segDur / motionSpeed).toFixed(2)}s`,
+                                          // Above 1× the render sweeps back within the
+                                          // segment; at or below it never reverses.
+                                          animationDirection: motionSpeed > 1 ? "alternate" : "normal",
+                                        } : undefined}
+                                      >
+                                        {img.useBlurBg && (
+                                          <div
+                                            className={`${styles.imgPreviewBlurBg} ${bgMotion === "drift" ? styles.bgDrift : ""}`}
+                                            style={{
+                                              backgroundImage: `url(${img.previewUrl})`,
+                                              ...(bgMotion === "drift" ? { animationDuration: `${(BG_DRIFT_PERIOD / bgSpeed).toFixed(2)}s` } : {}),
+                                            }}
+                                          />
+                                        )}
+                                        <img
+                                          src={img.previewUrl}
+                                          alt={img.file.name}
+                                          className={styles.imgPreviewImg}
+                                          style={{ objectFit: img.stretchToFit ? "fill" : "contain" }}
+                                        />
+                                      </div>
+                                    </div>
+                                    {/* Movement options — foreground and background are
+                                        separate groups so changing one never touches the other. */}
+                                    <div className={styles.motionControls} onClick={e => e.stopPropagation()}>
+                                      <div className={styles.motionGroup}>
+                                        <span className={styles.motionGroupTitle}>Image movement</span>
+                                        <div className={styles.motionGroupRow}>
+                                          <label className={styles.motionControlLabel}>
+                                            Movement
+                                            <select className={styles.inputSmall} value={motion}
+                                              onChange={e => updateVideoImage(img.id, "motion", e.target.value)}>
+                                              {IMAGE_MOTIONS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                            </select>
+                                          </label>
+                                          <label className={styles.motionControlLabel} title="1× completes the move exactly as the image leaves the screen. Higher sweeps back and forth; lower covers less ground.">
+                                            Speed — {motionSpeed}×
+                                            <input type="range" className={styles.motionSlider}
+                                              min={MOTION_SPEED_MIN} max={MOTION_SPEED_MAX} step={MOTION_SPEED_STEP}
+                                              value={motionSpeed} disabled={motion === "none"}
+                                              onChange={e => updateVideoImage(img.id, "motionSpeed", clampMotionSpeed(e.target.value))} />
+                                          </label>
+                                          <button type="button" className={styles.previewBtn}
+                                            title="Apply this image movement + speed to every image (leaves backgrounds alone)"
+                                            onClick={() => setVideoImages(prev => prev.map(im => ({ ...im, motion, motionSpeed })))}
+                                          >Apply to all</button>
+                                        </div>
+                                      </div>
                                       {img.useBlurBg && (
-                                        <div className={styles.imgPreviewBlurBg} style={{ backgroundImage: `url(${img.previewUrl})` }} />
+                                        <div className={styles.motionGroup}>
+                                          <span className={styles.motionGroupTitle}>Blurred background</span>
+                                          <div className={styles.motionGroupRow}>
+                                            <label className={styles.motionControlLabel}>
+                                              Movement
+                                              <select className={styles.inputSmall} value={bgMotion}
+                                                onChange={e => updateVideoImage(img.id, "bgMotion", e.target.value)}>
+                                                {BG_MOTIONS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                              </select>
+                                            </label>
+                                            <label className={styles.motionControlLabel} title={`Drift cycle: ${(BG_DRIFT_PERIOD / bgSpeed).toFixed(0)}s. Independent of the image movement speed.`}>
+                                              Speed — {bgSpeed}×
+                                              <input type="range" className={styles.motionSlider}
+                                                min={MOTION_SPEED_MIN} max={MOTION_SPEED_MAX} step={MOTION_SPEED_STEP}
+                                                value={bgSpeed} disabled={bgMotion === "none"}
+                                                onChange={e => updateVideoImage(img.id, "bgMotionSpeed", clampMotionSpeed(e.target.value))} />
+                                            </label>
+                                            <button type="button" className={styles.previewBtn}
+                                              title="Apply this background movement + speed to every image (leaves image movement alone)"
+                                              onClick={() => setVideoImages(prev => prev.map(im => ({ ...im, bgMotion, bgMotionSpeed: bgSpeed })))}
+                                            >Apply to all</button>
+                                          </div>
+                                        </div>
                                       )}
-                                      <img
-                                        src={img.previewUrl}
-                                        alt={img.file.name}
-                                        className={styles.imgPreviewImg}
-                                        style={{ objectFit: img.stretchToFit ? "fill" : "contain" }}
-                                      />
                                     </div>
                                     <p className={styles.hintText} style={{marginTop:4}}>
                                       {img.useBlurBg ? "Blur background" : img.stretchToFit ? "Stretch to fit" : `Letterbox · padding: ${img.paddingColor || videoBgColor}`}
+                                      {motion !== "none" && ` · ${IMAGE_MOTIONS.find(m => m.value === motion)?.label.toLowerCase()} at ${motionSpeed}× over ${Math.round(segDur)}s`}
+                                      {img.useBlurBg && bgMotion === "drift" && ` · background drifts on a ${(BG_DRIFT_PERIOD / bgSpeed).toFixed(0)}s cycle`}
                                     </p>
                                   </td>
                                 </tr>
-                              )}
+                                );
+                              })()}
                             </React.Fragment>
                           );
                         })}
@@ -4634,11 +6499,344 @@ export default function RipTagPage() {
                 )}
               </div>
 
+              {/* Text overlay — burned into the video over each image */}
+              <div className={styles.videoSection}>
+                <h3 className={styles.sectionTitle}>Text Overlay</h3>
+                <label className={styles.videoCheckLabel} style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={textOverlay.enabled}
+                    onChange={e => setTextOverlay(o => ({ ...o, enabled: e.target.checked }))}
+                  />
+                  Overlay text on the image
+                </label>
+                {!textOverlay.enabled && (
+                  <p className={styles.hintText} style={{ marginTop: 6 }}>
+                    Burns the song name (or any text you choose) into the video over each image.
+                  </p>
+                )}
+                {textOverlay.enabled && (() => {
+                  const set = (key) => (value) => setTextOverlay(o => ({ ...o, [key]: value }));
+                  const num = (key, parse = parseFloat) => (e) => {
+                    const v = parse(e.target.value);
+                    setTextOverlay(o => ({ ...o, [key]: isNaN(v) ? o[key] : v }));
+                  };
+                  const orderedAudios = getOrderedAudios();
+                  const pickableImgs = videoImages.filter(im => selectedVideoImages.has(im.id));
+                  return (
+                    <>
+                      <div className={styles.overlayGrid}>
+                        <label className={styles.settingLabel}>
+                          Text source
+                          <select className={styles.input} value={textOverlay.source} onChange={e => set("source")(e.target.value)}>
+                            <option value="track">Song name (changes per track)</option>
+                            <option value="custom">Custom text (same throughout)</option>
+                          </select>
+                        </label>
+                        {textOverlay.source === "custom" && (
+                          <label className={styles.settingLabel} style={{ gridColumn: "span 2" }}>
+                            Custom text
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={textOverlay.customText}
+                              placeholder={projectName || "Your text here"}
+                              onChange={e => set("customText")(e.target.value)}
+                            />
+                          </label>
+                        )}
+                        <label className={styles.settingLabel}>
+                          Font
+                          <select className={styles.input} value={textOverlay.fontFamily} onChange={e => set("fontFamily")(e.target.value)}>
+                            {OVERLAY_FONTS.map(f => <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>)}
+                          </select>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Size — {textOverlay.fontSize}% of height ({Math.round((textOverlay.fontSize / 100) * (parseInt(videoHeight) || 1080))}px)
+                          <input type="range" min="1" max="20" step="0.25" value={textOverlay.fontSize} onChange={num("fontSize")} />
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Weight
+                          <select className={styles.input} value={textOverlay.fontWeight} onChange={num("fontWeight", v => parseInt(v, 10))}>
+                            <option value={300}>Light</option>
+                            <option value={400}>Regular</option>
+                            <option value={600}>Semibold</option>
+                            <option value={700}>Bold</option>
+                            <option value={900}>Black</option>
+                          </select>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Text color
+                          <input type="color" className={styles.colorPicker} value={textOverlay.color} onChange={e => set("color")(e.target.value)} />
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Position
+                          <select className={styles.input} value={textOverlay.position} onChange={e => set("position")(e.target.value)}>
+                            {OVERLAY_POSITIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                          </select>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Edge margin — {textOverlay.marginX}% / {textOverlay.marginY}%
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input type="range" min="0" max="25" step="0.5" value={textOverlay.marginX} onChange={num("marginX")} title="Horizontal margin" />
+                            <input type="range" min="0" max="25" step="0.5" value={textOverlay.marginY} onChange={num("marginY")} title="Vertical margin" />
+                          </div>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Max text width — {textOverlay.maxWidthPct}%
+                          <input type="range" min="20" max="100" step="1" value={textOverlay.maxWidthPct} onChange={num("maxWidthPct")} />
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Show text for
+                          <select className={styles.input} value={textOverlay.durationMode} onChange={e => set("durationMode")(e.target.value)}>
+                            <option value="full">The whole time the image is up</option>
+                            <option value="seconds">Only the first few seconds</option>
+                          </select>
+                          <span className={styles.settingHelp}>
+                            {textOverlay.durationMode === "full"
+                              ? (overlayTextVaries
+                                  ? "Each song's name stays up for that whole track."
+                                  : "The text stays up for the whole video.")
+                              : "Counted from the moment each image appears, then the text disappears."}
+                          </span>
+                        </label>
+                        {textOverlay.durationMode === "seconds" && (
+                          <label className={styles.settingLabel}>
+                            Seconds visible
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <input
+                                type="number"
+                                className={styles.inputSmall}
+                                style={{ width: 90 }}
+                                min="0.5"
+                                max="600"
+                                step="0.5"
+                                value={textOverlay.durationSeconds}
+                                onChange={e => {
+                                  const v = parseFloat(e.target.value);
+                                  setTextOverlay(o => ({ ...o, durationSeconds: isNaN(v) ? o.durationSeconds : Math.min(600, Math.max(0.5, v)) }));
+                                }}
+                              />
+                              <span style={{ fontSize: "0.78rem", opacity: 0.75, fontWeight: 400 }}>seconds</span>
+                            </div>
+                            <span className={styles.settingHelp}>
+                              {(() => {
+                                // Show it against the shortest segment, since that's
+                                // where a long window silently becomes "full".
+                                const durs = rowTimings.map(t => t.endTime - t.startTime).filter(d => d > 0);
+                                const shortest = durs.length ? Math.min(...durs) : null;
+                                if (shortest == null) return "Applies to every image in the video.";
+                                return textOverlay.durationSeconds >= shortest
+                                  ? `Longer than the shortest image slot (${formatTime(shortest)}), so there the text stays up the whole time.`
+                                  : `Shortest image slot is ${formatTime(shortest)}, so the text clears well before it ends.`;
+                              })()}
+                            </span>
+                          </label>
+                        )}
+                      </div>
+
+                      <div className={styles.overlayGrid} style={{ marginTop: 4 }}>
+                        <label className={styles.settingLabel}>
+                          Background box
+                          <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 400 }}>
+                            <input type="checkbox" checked={textOverlay.bgEnabled} onChange={e => set("bgEnabled")(e.target.checked)} />
+                            <input type="color" className={styles.colorPicker} value={textOverlay.bgColor} disabled={!textOverlay.bgEnabled} onChange={e => set("bgColor")(e.target.value)} />
+                          </span>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Background opacity — {Math.round(textOverlay.bgOpacity * 100)}%
+                          <input type="range" min="0" max="1" step="0.05" value={textOverlay.bgOpacity} disabled={!textOverlay.bgEnabled} onChange={num("bgOpacity")} />
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Box padding — {textOverlay.bgPadX}% / {textOverlay.bgPadY}%
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <input type="range" min="0" max="8" step="0.1" value={textOverlay.bgPadX} disabled={!textOverlay.bgEnabled} onChange={num("bgPadX")} title="Horizontal padding" />
+                            <input type="range" min="0" max="8" step="0.1" value={textOverlay.bgPadY} disabled={!textOverlay.bgEnabled} onChange={num("bgPadY")} title="Vertical padding" />
+                          </div>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Box corner radius — {textOverlay.bgRadius}%
+                          <input type="range" min="0" max="6" step="0.1" value={textOverlay.bgRadius} disabled={!textOverlay.bgEnabled} onChange={num("bgRadius")} />
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Outline — {textOverlay.outlineWidth}%
+                          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <input type="range" min="0" max="12" step="0.5" value={textOverlay.outlineWidth} onChange={num("outlineWidth")} />
+                            <input type="color" className={styles.colorPicker} value={textOverlay.outlineColor} onChange={e => set("outlineColor")(e.target.value)} />
+                          </span>
+                        </label>
+                        <div className={styles.settingLabel}>
+                          Style
+                          <span style={{ display: "flex", gap: 12, fontWeight: 400, flexWrap: "wrap" }}>
+                            <label className={styles.videoCheckLabel} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <input type="checkbox" checked={textOverlay.shadow} onChange={e => set("shadow")(e.target.checked)} /> Shadow
+                            </label>
+                            <label className={styles.videoCheckLabel} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <input type="checkbox" checked={textOverlay.italic} onChange={e => set("italic")(e.target.checked)} /> Italic
+                            </label>
+                            <label className={styles.videoCheckLabel} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <input type="checkbox" checked={textOverlay.uppercase} onChange={e => set("uppercase")(e.target.checked)} /> UPPERCASE
+                            </label>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Save / reset the look */}
+                      <div className={styles.overlayDefaultsRow}>
+                        <button type="button" className={styles.clearBtn} onClick={saveTextDefaults}
+                          title="Remember these text settings and apply them to new projects">
+                          Save as default
+                        </button>
+                        <button type="button" className={styles.clearBtn} onClick={resetTextToDefaults}
+                          title={hasSavedTextDefaults ? "Go back to your saved default" : "Go back to the built-in default"}>
+                          Reset to default
+                        </button>
+                        {hasSavedTextDefaults && (
+                          <button type="button" className={styles.linkBtn} onClick={clearTextDefaults}
+                            title="Forget your saved default and restore the built-in one">
+                            Clear saved default
+                          </button>
+                        )}
+                        <span className={styles.settingHelp}>
+                          {hasSavedTextDefaults
+                            ? "New projects start from your saved default."
+                            : "New projects start from the built-in default."}
+                        </span>
+                      </div>
+
+                      {/* Per-track text + position overrides */}
+                      {(() => {
+                        const ordered = getOrderedAudios();
+                        if (!ordered.length) return null;
+                        const overrideCount = ordered.filter(a => trackTextOverrides[a._trackIdx]).length;
+                        return (
+                          <div className={styles.perTrackTextBlock}>
+                            <div className={styles.pinActionsRow}>
+                              <button type="button" className={styles.clearBtn} onClick={() => setShowTextPerTrack(v => !v)}>
+                                {showTextPerTrack ? "Hide per-track text" : "Edit text per track"}
+                              </button>
+                              {overrideCount > 0 && (
+                                <button type="button" className={styles.clearBtn} onClick={() => setTrackTextOverrides({})}>
+                                  Reset all {overrideCount} override{overrideCount === 1 ? "" : "s"}
+                                </button>
+                              )}
+                              <span className={styles.settingHelp}>
+                                Applies to both the concat render and batch videos.
+                              </span>
+                            </div>
+                            {showTextPerTrack && (
+                              <div className={styles.tableWrap} style={{ marginTop: 8 }}>
+                                <table className={styles.table}>
+                                  <thead>
+                                    <tr><th>#</th><th>Track</th><th>Text</th><th>Position</th><th></th></tr>
+                                  </thead>
+                                  <tbody>
+                                    {ordered.map((a, i) => {
+                                      const ov = trackTextOverrides[a._trackIdx] || {};
+                                      const fallback = textOverlay.source === "custom" ? (textOverlay.customText || "") : (a.title || "");
+                                      return (
+                                        <tr key={a._trackIdx}>
+                                          <td>{i + 1}</td>
+                                          <td className={styles.filenameCell}>{a.title}</td>
+                                          <td>
+                                            <input
+                                              type="text"
+                                              className={styles.input}
+                                              style={{ minWidth: 200 }}
+                                              value={ov.text ?? ""}
+                                              placeholder={fallback || "(no text)"}
+                                              onChange={e => setTrackCaption(a._trackIdx, { text: e.target.value })}
+                                            />
+                                          </td>
+                                          <td>
+                                            <select
+                                              className={styles.inputSmall}
+                                              style={{ width: 140, textAlign: "left" }}
+                                              value={ov.position || ""}
+                                              onChange={e => setTrackCaption(a._trackIdx, { position: e.target.value || undefined })}
+                                            >
+                                              <option value="">Default ({OVERLAY_POSITIONS.find(x => x.value === textOverlay.position)?.label})</option>
+                                              {OVERLAY_POSITIONS.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                                            </select>
+                                          </td>
+                                          <td>
+                                            <button type="button" className={styles.jobChipX}
+                                              disabled={!trackTextOverrides[a._trackIdx]}
+                                              onClick={() => setTrackTextOverrides(prev => { const n = { ...prev }; delete n[a._trackIdx]; return n; })}
+                                              aria-label="Reset this track">×</button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Preview */}
+                      <div className={styles.overlayPreviewBar}>
+                        <button type="button" className={styles.fetchBtn} onClick={runOverlayPreview} disabled={pickableImgs.length === 0}>
+                          {textPreviewBusy ? "Rendering…" : showTextPreview ? "Refresh preview" : "Render preview"}
+                        </button>
+                        {showTextPreview && (
+                          <button type="button" className={styles.linkBtn} onClick={() => setShowTextPreview(false)}>Hide</button>
+                        )}
+                        {pickableImgs.length > 1 && (
+                          <label className={styles.videoCheckLabel} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            Image:
+                            <select className={styles.inputSmall} style={{ width: 150, textAlign: "left" }}
+                              value={textPreviewImgId ?? ""}
+                              onChange={e => setTextPreviewImgId(e.target.value || null)}>
+                              <option value="">First selected</option>
+                              {pickableImgs.map((im, k) => <option key={im.id} value={im.id}>{k + 1}. {im.file.name}</option>)}
+                            </select>
+                          </label>
+                        )}
+                        {textOverlay.source === "track" && orderedAudios.length > 1 && (
+                          <label className={styles.videoCheckLabel} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            Track:
+                            <select className={styles.inputSmall} style={{ width: 150, textAlign: "left" }}
+                              value={textPreviewTrackIdx ?? ""}
+                              onChange={e => setTextPreviewTrackIdx(e.target.value === "" ? null : parseInt(e.target.value, 10))}>
+                              <option value="">First track</option>
+                              {orderedAudios.map((a, k) => <option key={a._trackIdx} value={a._trackIdx}>{k + 1}. {a.title}</option>)}
+                            </select>
+                          </label>
+                        )}
+                        {pickableImgs.length === 0 && (
+                          <span className={styles.hintText}>Select an image above to preview.</span>
+                        )}
+                      </div>
+                      {showTextPreview && (
+                        <div className={styles.overlayPreviewWrap}>
+                          <canvas ref={textPreviewCanvasRef} className={styles.overlayPreviewCanvas} />
+                          <p className={styles.hintText} style={{ marginTop: 6 }}>
+                            Rendered at {videoWidth}×{videoHeight} with the same code the encoder uses — what you see here is what gets burned in.
+                            {textOverlay.durationMode === "seconds" && ` This is a still frame: in the video the text shows for the first ${textOverlay.durationSeconds}s of each image, then disappears.`}
+                          </p>
+                        </div>
+                      )}
+                      {overlayTextVaries && slideshowMode === "loop" && (
+                        <p className={styles.hintText} style={{ marginTop: 6 }}>
+                          Per-track text can&apos;t reuse the looped image cycle, so the render encodes the full timeline — expect it to take longer than a plain loop.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
               {/* Video Timeline */}
               {(() => {
                 const orderedAudios = getOrderedAudios();
                 const totalVideoDur = orderedAudios.reduce((s, t) => s + (t.end - t.start), 0);
-                const imgTimings = getEffectiveImageTimings();
+                // Loop mode can produce hundreds of slots; past a few hundred the
+                // blocks are sub-pixel anyway, so cap what the timeline draws.
+                const MAX_TIMELINE_BLOCKS = 300;
+                const imgTimings = rowTimings.length > MAX_TIMELINE_BLOCKS ? rowTimings.slice(0, MAX_TIMELINE_BLOCKS) : rowTimings;
                 if (orderedAudios.length === 0 || totalVideoDur === 0) return null;
                 return (
                   <div className={styles.videoSection}>
@@ -4709,6 +6907,8 @@ export default function RipTagPage() {
                           title="Source images will be downscaled to this max dimension before rendering. Reduces memory use."
                         >
                           <option value="auto">Auto ({effectiveMaxDim}px — 1.25× output)</option>
+                          <option value="480">480px (lowest memory)</option>
+                          <option value="720">720px</option>
                           <option value="1080">1080px</option>
                           <option value="1440">1440px</option>
                           <option value="1920">1920px</option>
@@ -4725,6 +6925,13 @@ export default function RipTagPage() {
                               ? `${oversized.length} of ${selectedImgs.length} selected image${selectedImgs.length === 1 ? "" : "s"} will be shrunk to ${maxDimLabel} before render.`
                               : `All ${selectedImgs.length} selected image${selectedImgs.length === 1 ? "" : "s"} are within the ${maxDimLabel} limit — no resizing needed.`}
                         </span>
+                        {/* Capping below the output size means ffmpeg upscales a
+                            shrunk source back up, which visibly softens the video. */}
+                        {effectiveMaxDim !== Infinity && effectiveMaxDim < Math.max(w, h) && (
+                          <span style={{ fontSize: "0.78rem", marginTop: 4, color: darkMode ? "#fbd38d" : "#c05621" }}>
+                            ⚠️ {maxDimLabel} is below the {w}×{h} output — images get scaled back up and will look soft. Use it to get a render through when memory is tight.
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -4772,7 +6979,10 @@ export default function RipTagPage() {
                                   <button
                                     key={`${p.w}x${p.h}`}
                                     className={`${styles.aspectDropdownItem} ${active ? styles.aspectDropdownItemActive : ""}`}
-                                    onClick={() => { setVideoWidth(String(p.w)); setVideoHeight(String(p.h)); setAspectDropdownOpen(false); }}
+                                    // Choosing a preset is an explicit manual
+                                    // pick, so it releases the auto-match lock
+                                    // instead of being silently overridden.
+                                    onClick={() => { setAutoMatchImageRes(false); setVideoWidth(String(p.w)); setVideoHeight(String(p.h)); setAspectDropdownOpen(false); }}
                                   >
                                     <svg className={styles.aspectFrameIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                       {p.icon === "landscape" && <rect x="1" y="5" width="22" height="14" rx="2" />}
@@ -4793,14 +7003,31 @@ export default function RipTagPage() {
                   {videoImages.length > 0 && (
                     <div className={styles.presetMatchRow}>
                       <span className={styles.presetMatchLabel}>Match image:</span>
+                      <label className={styles.autoMatchLabel}
+                        title="Keep the output resolution locked to the image the video opens with — the first track's pinned image, or the first selected image. Batch renders match each track's own image.">
+                        <input type="checkbox" checked={autoMatchImageRes} onChange={e => setAutoMatchImageRes(e.target.checked)} />
+                        Auto match image
+                      </label>
                       {videoImages.map((img, i) => (
                         <button key={img.id} className={styles.presetMatchBtn} onClick={() => applyImageResolution(img)}
-                          title={`Set resolution to match ${img.file.name}`}>
-                          <img src={img.thumbUrl} alt="" className={styles.presetMatchThumb} />
+                          disabled={autoMatchImageRes || img.loading || !img.naturalWidth}
+                          title={autoMatchImageRes ? "Turn off Auto match image to set the resolution from a specific image"
+                            : img.loading ? `Still reading ${img.file.name}…`
+                            : `Set resolution to match ${img.file.name}`}>
+                          {img.loading || !img.thumbUrl
+                            ? <span className={`${styles.presetMatchThumb} ${styles.presetMatchThumbLoading}`}><span className={styles.fileLoadingSpinner} /></span>
+                            : <img src={img.thumbUrl} alt="" className={styles.presetMatchThumb} />}
                           <span>{i + 1}</span>
                         </button>
                       ))}
                     </div>
+                  )}
+                  {autoMatchImageRes && (
+                    <p className={styles.hintText} style={{ marginTop: 6 }}>
+                      {autoMatchSourceImage
+                        ? <>Resolution follows <b>{autoMatchSourceImage.file.name}</b> ({autoMatchSourceImage.naturalWidth}×{autoMatchSourceImage.naturalHeight}) and updates when the opening image changes.</>
+                        : "No selected image has readable dimensions yet — the resolution below stays as-is until one does."}
+                    </p>
                   )}
                 </div>
 
@@ -4820,11 +7047,11 @@ export default function RipTagPage() {
                     </div>
                   </label>
                   <div className={styles.settingLabel}>
-                    Resolution
-                    <div className={styles.dimensionRow}>
-                      <input type="number" className={styles.dimensionInput} value={videoWidth} onChange={e => setVideoWidth(e.target.value)} min="1" max="3840" placeholder="W" title="Width" />
+                    Resolution{autoMatchImageRes ? " (auto)" : ""}
+                    <div className={styles.dimensionRow} style={autoMatchImageRes ? { opacity: 0.55 } : undefined}>
+                      <input type="number" className={styles.dimensionInput} value={videoWidth} onChange={e => setVideoWidth(e.target.value)} min="1" max="3840" placeholder="W" title={autoMatchImageRes ? "Set by Auto match image" : "Width"} disabled={autoMatchImageRes} />
                       <span className={styles.dimensionX}>×</span>
-                      <input type="number" className={styles.dimensionInput} value={videoHeight} onChange={e => setVideoHeight(e.target.value)} min="1" max="2160" placeholder="H" title="Height" />
+                      <input type="number" className={styles.dimensionInput} value={videoHeight} onChange={e => setVideoHeight(e.target.value)} min="1" max="2160" placeholder="H" title={autoMatchImageRes ? "Set by Auto match image" : "Height"} disabled={autoMatchImageRes} />
                     </div>
                   </div>
                   <label className={styles.settingLabel}>
@@ -4919,32 +7146,289 @@ export default function RipTagPage() {
                       : "Select at least one audio track above to render the video."}
                 </div>
               )}
+              {/* The two render modes, side by side so the choice is obvious:
+                  one video with everything joined, or one video per track. */}
+              <div className={styles.renderModeRow}>
+                <div className={styles.renderModeCol}>
+                  <button className={styles.exportBtn} onClick={startRender}
+                    disabled={isRenderingVideo || selectedVideoImages.size === 0 || selectedVideoAudios.size === 0}
+                    style={!isRenderingVideo && (selectedVideoImages.size === 0 || selectedVideoAudios.size === 0) ? {background:"#cbd5e0",cursor:"not-allowed"} : undefined}>
+                    {activeRenderJob?.status === "queued" ? `Queued — #${activeRenderJob.queuePosition} in line`
+                      : isRenderingVideo ? "Rendering Concat…"
+                      : selectedVideoImages.size === 0 ? "Render Concat — no images selected"
+                      : selectedVideoAudios.size === 0 ? "Render Concat — no audio selected"
+                      : `Render Concat (${selectedVideoImages.size} image${selectedVideoImages.size !== 1 ? "s" : ""}, ${selectedVideoAudios.size} track${selectedVideoAudios.size !== 1 ? "s" : ""})`}
+                  </button>
+                  <span className={styles.renderModeHint}>One video — every track joined end to end, images following the slideshow settings.</span>
+                </div>
+                <span className={styles.renderModeOr}>or</span>
+                <div className={styles.renderModeCol}>
+                  <button
+                    type="button"
+                    className={styles.batchBtn}
+                    onClick={startBatchRender}
+                    disabled={batchPlan.length === 0 || batchInFlight.length > 0}
+                    title={batchPlan.length === 0
+                      ? "Select audio tracks and at least one image first"
+                      : `Queue one video per track (${batchPlan.length})`}
+                  >
+                    {batchInFlight.length > 0
+                      ? `Rendering Batch — ${activeBatchJobs.filter(j => j.status === "done").length}/${activeBatchJobs.length} done`
+                      : batchPlan.length === 0
+                        ? "Render Batch — nothing to render"
+                        : `Render Batch (${batchPlan.length} video${batchPlan.length === 1 ? "" : "s"}, ${batchPlan.length} track${batchPlan.length === 1 ? "" : "s"})`}
+                  </button>
+                  <span className={styles.renderModeHint}>Separate videos — one per track, each with its own image.</span>
+                </div>
+              </div>
               <div className={styles.exportRow}>
-                <button className={styles.exportBtn} onClick={renderAlbumVideo}
-                  disabled={isRenderingVideo || selectedVideoImages.size === 0 || selectedVideoAudios.size === 0}
-                  style={!isRenderingVideo && (selectedVideoImages.size === 0 || selectedVideoAudios.size === 0) ? {background:"#cbd5e0",cursor:"not-allowed"} : undefined}>
-                  {isRenderingVideo ? "Rendering…"
-                    : selectedVideoImages.size === 0 ? "Render Video — no images selected"
-                    : selectedVideoAudios.size === 0 ? "Render Video — no audio selected"
-                    : `Render Video (${selectedVideoImages.size} image${selectedVideoImages.size !== 1 ? "s" : ""}, ${selectedVideoAudios.size} track${selectedVideoAudios.size !== 1 ? "s" : ""})`}
-                </button>
                 {isRenderingVideo && (
                   <button className={styles.cancelBtn} onClick={() => {
-                    try { videoFfmpegRef.current?.terminate(); } catch {}
-                    // Mark the in-flight render stale so its late worker rejection
-                    // ("ffmpeg is not loaded") is swallowed, then release the guard
-                    // so the user can immediately start a fresh render.
-                    videoFfmpegRef.current = null;
-                    videoRenderingRef.current = false;
-                    setIsRenderingVideo(false); setVideoRenderProgress(null); setVideoRenderStartTime(null);
-                    setVideoRenderLogs(prev => [...prev, "— Render cancelled —"]);
+                    renderQueue.cancel(activeProjectId);
                     setMessage("Render cancelled");
-                  }}>Cancel</button>
+                  }}>Cancel Concat</button>
+                )}
+                {batchInFlight.length > 0 && (
+                  <button type="button" className={styles.cancelBtn} onClick={stopBatchRender}>Stop Batch</button>
                 )}
               </div>
-              {isRenderingVideo && (
+              {activeRenderJob?.status === "queued" && (
                 <div className={styles.renderWarning}>
-                  Rendering in browser — you can continue interacting with the page while this completes.
+                  Waiting for {renderJobs.find(j => j.status === "running")?.projectName || "another render"} to finish — only one render runs at a time so they don&apos;t exhaust browser memory. This one starts automatically.
+                </div>
+              )}
+              {activeRenderJob?.status === "running" && (
+                <div className={styles.renderWarning}>
+                  Rendering in browser — you can keep working, switch projects, or start a new one. The render continues as long as this tab stays open.
+                </div>
+              )}
+
+              {/* Batch render — one video per track, each with that track's image */}
+              <div className={styles.batchBlock}>
+                <div className={styles.batchHeadRow}>
+                  <b style={{ fontSize: "0.9rem" }}>Render Batch settings</b>
+                  <button type="button" className={styles.clearBtn} onClick={() => setShowBatchSettings(v => !v)}>
+                    {showBatchSettings ? "Hide settings" : "Show settings"}
+                  </button>
+                  {batchInFlight.length > 0 && (
+                    <button type="button" className={styles.cancelBtn} onClick={stopBatchRender}>
+                      Stop batch
+                    </button>
+                  )}
+                </div>
+
+                {/* Plain-language summary of exactly what pressing the button does */}
+                <ul className={styles.batchSummary}>
+                  <li><b>{batchPlan.length}</b> video{batchPlan.length === 1 ? "" : "s"} — one per {batchSettings.scope === "pinned" ? "track that has a pinned image" : "selected track"}</li>
+                  <li>Each video is <b>one track&apos;s audio</b> over <b>one still image</b> (its pinned image, or the cycling image if unpinned)</li>
+                  <li>Resolution: {batchSettings.resolution === "auto"
+                    ? <b>each video matches its own image</b>
+                    : <>fixed at <b>{videoWidth}×{videoHeight}</b></>}
+                    {Number(batchSettings.scale) !== 1 && <>, scaled <b>{batchSettings.scale}×</b></>}</li>
+                  <li>Text: {batchSettings.textMode === "off"
+                    ? <b>none</b>
+                    : batchSettings.textMode === "custom"
+                      ? <>the same custom text on every video — <b>{batchSettings.customText || "(empty — nothing will be drawn)"}</b></>
+                      : <b>each track&apos;s song name</b>}
+                    {batchSettings.textMode !== "off" && (
+                      textOverlay.durationMode === "seconds"
+                        ? ` — shown for the first ${textOverlay.durationSeconds}s of each video, styled by the Text Overlay section above`
+                        : " — shown for the whole video, styled by the Text Overlay section above"
+                    )}</li>
+                  <li>Runs <b>one at a time</b> in the background — you can keep working, and stop the batch at any point</li>
+                </ul>
+
+                {showBatchSettings && (() => {
+                  const setB = (key) => (value) => setBatchSettings(o => ({ ...o, [key]: value }));
+                  const pinnedCount = getOrderedAudios().filter(a => selectedVideoImages.has(trackImageAssign[a._trackIdx])).length;
+                  return (
+                    <div className={styles.batchSettingsPanel}>
+                      {batchInFlight.length > 0 && (
+                        <div className={styles.batchEditNotice}>
+                          A batch is already queued with the old settings — changes here apply to the <b>next</b> run.
+                          <button type="button" className={styles.cancelBtn} onClick={stopBatchRender}>Stop batch to apply now</button>
+                        </div>
+                      )}
+                      <div className={styles.overlayGrid}>
+                        <label className={styles.settingLabel}>
+                          Which tracks get a video
+                          <select className={styles.input} value={batchSettings.scope} onChange={e => setB("scope")(e.target.value)}>
+                            <option value="selected">Every selected track ({getOrderedAudios().length})</option>
+                            <option value="pinned">Only tracks with a pinned image ({pinnedCount})</option>
+                          </select>
+                          <span className={styles.settingHelp}>
+                            Pin an image to a track in the Audio Tracks table above.
+                          </span>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Video resolution
+                          <select className={styles.input} value={batchSettings.resolution} onChange={e => setB("resolution")(e.target.value)}>
+                            <option value="auto">Match each track&apos;s image</option>
+                            <option value="fixed">Fixed — {videoWidth}×{videoHeight}</option>
+                          </select>
+                          <span className={styles.settingHelp}>
+                            {batchSettings.resolution === "auto"
+                              ? "Each video comes out at its own image's pixel size (rounded to even numbers)."
+                              : "Every video uses the size set in Video Settings, letterboxing images that don't fit."}
+                          </span>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Scale — {batchSettings.scale}×
+                          <select className={styles.input} value={batchSettings.scale}
+                            onChange={e => setB("scale")(parseFloat(e.target.value) || 1)}>
+                            {BATCH_SCALES.map(v => (
+                              <option key={v} value={v}>{v}× {v < 1 ? "(smaller)" : v > 1 ? "(larger)" : "(original)"}</option>
+                            ))}
+                          </select>
+                          <span className={styles.settingHelp}>
+                            Applied to every video in the batch, on top of the resolution above.
+                            {batchSettings.scale < 1 && " Smaller renders are much faster and far less likely to run out of memory."}
+                            {batchSettings.scale > 1 && " Upscaling won't add detail and makes each render slower."}
+                          </span>
+                        </label>
+                        <label className={styles.settingLabel}>
+                          Text on each video
+                          <select className={styles.input} value={batchSettings.textMode} onChange={e => setB("textMode")(e.target.value)}>
+                            <option value="track">Song name (different per video)</option>
+                            <option value="custom">Custom text (same on every video)</option>
+                            <option value="off">No text</option>
+                          </select>
+                          <span className={styles.settingHelp}>
+                            Font, size, colour, background and position come from the <b>Text Overlay</b> section above — this only chooses what it says.
+                          </span>
+                        </label>
+                        {batchSettings.textMode === "custom" && (
+                          <label className={styles.settingLabel}>
+                            Custom text
+                            <input type="text" className={styles.input} value={batchSettings.customText}
+                              placeholder={projectName || "Your text here"}
+                              onChange={e => setB("customText")(e.target.value)} />
+                          </label>
+                        )}
+                        <label className={styles.settingLabel} style={{ gridColumn: "span 2" }}>
+                          File name pattern
+                          <input type="text" className={styles.input} value={batchSettings.nameTemplate}
+                            onChange={e => setB("nameTemplate")(e.target.value)}
+                            placeholder="%num% - %title%" />
+                          <span className={styles.settingHelp}>
+                            %num% · %title% · %album% · %artist% — anything else is kept, punctuation is stripped.
+                          </span>
+                        </label>
+                      </div>
+
+                      {/* Exactly what will be produced, row by row */}
+                      {batchPlan.length > 0 && (
+                        <div className={styles.tableWrap} style={{ marginTop: 12 }}>
+                          <table className={styles.table}>
+                            <thead>
+                              <tr>
+                                <th>#</th><th>Track</th><th>Image</th><th>Size</th><th>Text</th><th>Position</th><th>Output file</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {batchPlan.map(item => {
+                                const { w, h } = batchDimensionsFor(item.img);
+                                const ov = trackTextOverrides[item.audio._trackIdx] || {};
+                                const fallbackText = batchSettings.textMode === "custom"
+                                  ? (batchSettings.customText || "")
+                                  : (item.audio.title || "");
+                                return (
+                                  <tr key={item.orderIdx}>
+                                    <td>{item.orderIdx + 1}</td>
+                                    <td className={styles.filenameCell}>{item.audio.title}</td>
+                                    <td>
+                                      <span className={styles.batchPlanImg}>
+                                        {item.img.thumbUrl && !item.img.loading
+                                          ? <img src={item.img.thumbUrl} alt="" className={styles.trackImagePickThumb} />
+                                          : <span className={styles.trackImagePickThumb} />}
+                                        {item.pinned
+                                          ? <span className={styles.batchPinTag}>pinned</span>
+                                          : <span className={styles.batchAutoTag}>auto</span>}
+                                      </span>
+                                    </td>
+                                    <td>{w}×{h}</td>
+                                    <td>
+                                      {batchSettings.textMode === "off" ? <span style={{ opacity: 0.5 }}>—</span> : (
+                                        <input
+                                          type="text"
+                                          className={styles.input}
+                                          style={{ minWidth: 180 }}
+                                          value={ov.text ?? ""}
+                                          placeholder={fallbackText || "(no text)"}
+                                          onChange={e => setTrackCaption(item.audio._trackIdx, { text: e.target.value })}
+                                          title="Overrides the text for this video only"
+                                        />
+                                      )}
+                                    </td>
+                                    <td>
+                                      {batchSettings.textMode === "off" ? <span style={{ opacity: 0.5 }}>—</span> : (
+                                        <select
+                                          className={styles.inputSmall}
+                                          style={{ width: 130, textAlign: "left" }}
+                                          value={ov.position || ""}
+                                          onChange={e => setTrackCaption(item.audio._trackIdx, { position: e.target.value || undefined })}
+                                        >
+                                          <option value="">Default</option>
+                                          {OVERLAY_POSITIONS.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                                        </select>
+                                      )}
+                                    </td>
+                                    <td className={styles.filenameCell}>{batchOutputName(item, batchPlan.length)}.mp4</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {activeBatchJobs.length > 0 && (
+                  <div className={styles.batchJobList}>
+                    {activeBatchJobs.map(j => (
+                      <div key={j.jobId} className={styles.batchJobRow}>
+                        <span className={styles.batchJobName} title={j.label}>{j.label}</span>
+                        <span className={styles.batchJobStatus}>
+                          {j.status === "running" ? `${j.progress != null ? Math.round(j.progress * 100) : 0}%`
+                            : j.status === "queued" ? `queued #${j.queuePosition}`
+                            : j.status === "done" ? "✓ done"
+                            : j.status === "error" ? `✕ ${j.error?.oom ? "out of memory" : "failed"}`
+                            : j.status === "cancelled" ? "stopped"
+                            : j.status}
+                        </span>
+                        {(j.status === "running" || j.status === "queued")
+                          ? <button type="button" className={styles.jobChipX} onClick={() => renderQueue.cancel(j.jobId)} aria-label="Cancel">×</button>
+                          : <button type="button" className={styles.jobChipX} onClick={() => renderQueue.clear(j.jobId)} aria-label="Dismiss">×</button>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Batch render output */}
+              {batchVideos.length > 0 && (
+                <div className={styles.videoSection}>
+                  <div className={styles.sectionTitleRow}>
+                    <h3 className={styles.sectionTitle}>Batch Videos ({batchVideos.length})</h3>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button type="button" className={styles.zipBtn} onClick={downloadBatchZip}>Download all as ZIP</button>
+                      <button type="button" className={`${styles.clearBtn} ${styles.clearBtnDanger}`} onClick={clearBatchVideos}>Delete all</button>
+                    </div>
+                  </div>
+                  <div className={styles.batchVideoGrid}>
+                    {batchVideos.map(v => (
+                      <div key={v.key} className={styles.batchVideoCard}>
+                        <video src={v.url} controls preload="metadata" className={styles.batchVideoPlayer} />
+                        <div className={styles.batchVideoMeta}>
+                          <b className={styles.batchVideoTitle} title={v.title}>{v.title}</b>
+                          <span className={styles.batchVideoSize}>{formatBytes(v.size)}</span>
+                        </div>
+                        <button type="button" className={styles.dlBtnCard} onClick={() => downloadBatchVideo(v)} title={`Download ${v.name}`}>↓</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               {videoRenderProgress !== null && (
@@ -5030,7 +7514,12 @@ export default function RipTagPage() {
               {renderedVideoSrc && (
                 <div className={styles.videoPreviewSection}>
                   <video src={renderedVideoSrc} controls className={styles.videoPreview} />
-                  <button className={styles.dlAllBtn} onClick={() => { const a = document.createElement("a"); a.href = renderedVideoSrc; a.download = `${videoOutputName || projectName || "album"}.mp4`; a.click(); }}>Download Video</button>
+                  <div className={styles.videoPreviewActions}>
+                    <button className={styles.dlAllBtn} onClick={() => { const a = document.createElement("a"); a.href = renderedVideoSrc; a.download = `${videoOutputName || projectName || "album"}.mp4`; a.click(); }}>Download Video</button>
+                    <button type="button" className={`${styles.clearBtn} ${styles.clearBtnDanger}`} onClick={clearRenderedVideo}>
+                      Delete Video
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -5453,7 +7942,9 @@ export default function RipTagPage() {
                     <div className={styles.imageModalGrid}>
                       {videoImages.map((img, i) => (
                         <div key={img.id} className={styles.imageModalThumbWrap}>
-                          <img src={img.thumbUrl} alt={img.file.name} className={styles.imageModalThumb} />
+                          {img.loading || !img.thumbUrl
+                            ? <span className={`${styles.imageModalThumb} ${styles.imageModalThumbLoading}`}><span className={styles.fileLoadingSpinner} /></span>
+                            : <img src={img.thumbUrl} alt={img.file.name} className={styles.imageModalThumb} />}
                           <span className={styles.imageModalThumbIdx}>{i + 1}</span>
                           <button className={styles.imageModalThumbRemove} onClick={() => removeVideoImage(img.id)}>×</button>
                         </div>
@@ -5469,36 +7960,78 @@ export default function RipTagPage() {
             </div>
           )}
 
-        {/* History Sidebar */}
+        {/* Projects sidebar */}
         {showHistory && (
           <div className={styles.historySidebar}>
             <div className={styles.historyHead}>
-              <h3 className={styles.historyTitle}>Project History</h3>
+              <h3 className={styles.historyTitle}>Projects</h3>
               <div className={styles.historyHeadBtns}>
                 {projects.length > 0 && (
-                  <button className={styles.clearHistoryBtn} onClick={() => { if (window.confirm("Clear all saved projects?")) clearAllHistory(); }}>Clear All</button>
+                  <button className={styles.clearHistoryBtn} onClick={() => { if (window.confirm("Delete every saved project and all of their files?")) clearAllHistory(); }}>Clear All</button>
                 )}
                 <button className={styles.closeHistory} onClick={() => setShowHistory(false)}>×</button>
               </div>
             </div>
+
+            <button className={styles.newProjectBtn} onClick={startNewProject} disabled={!!projectBusy}>
+              + New project
+            </button>
+
+            {storageInfo && (
+              <div className={styles.storageMeter}>
+                <div className={styles.storageMeterHead}>
+                  <span>Browser storage</span>
+                  <span>{formatBytes(storageInfo.usage)} / {formatBytes(storageInfo.quota)}</span>
+                </div>
+                <div className={styles.storageMeterBar}>
+                  <div
+                    className={styles.storageMeterFill}
+                    style={{
+                      width: `${Math.min(100, storageInfo.pct * 100)}%`,
+                      background: storageInfo.pct > 0.9 ? "#e53e3e" : storageInfo.pct > 0.75 ? "#dd6b20" : "#48bb78",
+                    }}
+                  />
+                </div>
+                {storageInfo.pct > 0.75 && (
+                  <p className={styles.storageMeterHint}>
+                    Running low — use “Free up” on a finished project to drop its source audio and rendered video while keeping its settings and images.
+                  </p>
+                )}
+              </div>
+            )}
+
             {projects.length === 0 ? (
-              <p className={styles.historyEmpty}>No saved projects yet. Export tracks to save automatically.</p>
+              <p className={styles.historyEmpty}>No projects yet.</p>
             ) : (
               <div className={styles.projectList}>
-                {projects.map(p => (
-                  <div key={p.id} className={styles.projectCard}>
-                    <div className={styles.projectMeta}>
-                      <b className={styles.projectName}>{p.name}</b>
-                      <span className={styles.projectDate}>{new Date(p.date).toLocaleDateString()}</span>
-                      <span className={styles.projectFile}>{p.audioFileName}</span>
-                      <span className={styles.projectDetails}>{p.trackCount} tracks · {p.outputFormat?.toUpperCase()}</span>
+                {projects.map(p => {
+                  const jobs = renderJobs.filter(j => j.projectId === p.id);
+                  const isActive = p.id === activeProjectId;
+                  const total = p.bytes?.total || 0;
+                  return (
+                    <div key={p.id} className={`${styles.projectCard} ${isActive ? styles.projectCardActive : ""}`}>
+                      <div className={styles.projectMeta}>
+                        <b className={styles.projectName}>{p.name}{isActive && <span className={styles.projectOpenTag}>open</span>}</b>
+                        <span className={styles.projectDate}>{new Date(p.updatedAt || p.createdAt).toLocaleString()}</span>
+                        <span className={styles.projectDetails}>
+                          {p.trackCount || 0} tracks · {(p.images || []).length} image{(p.images || []).length === 1 ? "" : "s"}
+                          {p.video ? " · has video" : ""}
+                        </span>
+                        <span className={styles.projectFile}>{total ? formatBytes(total) : "no files stored"}</span>
+                        {jobs.length > 0 && <RenderJobSummary jobs={jobs} />}
+                      </div>
+                      <div className={styles.projectBtns}>
+                        {!isActive && (
+                          <button className={styles.loadBtn} disabled={!!projectBusy} onClick={() => openProject(p.id)}>Open</button>
+                        )}
+                        {total > 0 && (
+                          <button className={styles.freeUpBtn} title="Delete this project's source audio and rendered video, keeping settings and images" onClick={() => freeUpProject(p.id)}>Free up</button>
+                        )}
+                        <button className={styles.deleteBtn} onClick={() => deleteProjectById(p.id)}>×</button>
+                      </div>
                     </div>
-                    <div className={styles.projectBtns}>
-                      <button className={styles.loadBtn} onClick={() => loadProject(p)}>Load</button>
-                      <button className={styles.deleteBtn} onClick={() => removeProject(p.id)}>×</button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -5508,6 +8041,61 @@ export default function RipTagPage() {
       <audio ref={audioRef} onEnded={() => { setIsPlaying(false); setPreviewingTrack(null); }} preload="auto" />
     </div>
   );
+}
+
+// A project can hold several jobs at once (its own render plus a batch), so the
+// card shows a roll-up rather than one line per job.
+function RenderJobSummary({ jobs }) {
+  const running = jobs.find(j => j.status === "running");
+  const queued = jobs.filter(j => j.status === "queued").length;
+  if (running) {
+    return (
+      <span className={`${styles.jobLine} ${styles.jobLineRunning}`}>
+        <span className={styles.jobChipDot} />
+        Rendering {running.batch ? `“${running.label}” ` : ""}
+        {running.progress != null ? `${Math.round(running.progress * 100)}%` : "…"}
+        {queued > 0 ? ` · ${queued} queued` : ""}
+      </span>
+    );
+  }
+  if (queued > 0) {
+    return <span className={`${styles.jobLine} ${styles.jobLineQueued}`}>{queued} render{queued === 1 ? "" : "s"} queued</span>;
+  }
+  const failed = jobs.filter(j => j.status === "error").length;
+  const done = jobs.filter(j => j.status === "done").length;
+  if (failed > 0) {
+    return <span className={`${styles.jobLine} ${styles.jobLineError}`}>✕ {failed} render{failed === 1 ? "" : "s"} failed</span>;
+  }
+  if (done > 0) {
+    return <span className={`${styles.jobLine} ${styles.jobLineDone}`}>✓ {done === 1 ? "Render complete" : `${done} renders complete`}</span>;
+  }
+  return <RenderJobLine job={jobs[0]} />;
+}
+
+// One line of render status inside a project card. Kept separate so the card
+// re-renders on queue ticks without dragging the whole sidebar with it.
+function RenderJobLine({ job }) {
+  if (job.status === "running") {
+    return (
+      <span className={`${styles.jobLine} ${styles.jobLineRunning}`}>
+        <span className={styles.jobChipDot} />
+        Rendering {job.progress != null ? `${Math.round(job.progress * 100)}%` : "…"}
+      </span>
+    );
+  }
+  if (job.status === "queued") {
+    return <span className={`${styles.jobLine} ${styles.jobLineQueued}`}>Queued — #{job.queuePosition} in line</span>;
+  }
+  if (job.status === "done") {
+    return <span className={`${styles.jobLine} ${styles.jobLineDone}`}>✓ Render complete</span>;
+  }
+  if (job.status === "error") {
+    return <span className={`${styles.jobLine} ${styles.jobLineError}`}>✕ Render failed{job.error?.oom ? " (out of memory)" : ""}</span>;
+  }
+  if (job.status === "cancelled") {
+    return <span className={styles.jobLine}>Render cancelled</span>;
+  }
+  return null;
 }
 
 // Inline panel for selecting a clip range (start/end) within an already-exported track.
@@ -5526,8 +8114,40 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   const [peaks, setPeaks] = useState(null);      // Float32Array of bar amplitudes
   const [wfStatus, setWfStatus] = useState("loading"); // loading | ready | error
   const [playhead, setPlayhead] = useState(null); // seconds, while previewing
+  // Waveform viewport. zoom 1 = whole track; viewStart is the left edge in
+  // seconds. Peaks are stored at a much finer resolution than the canvas so
+  // zooming in reveals real detail instead of stretching the same bars.
+  const [zoom, setZoom] = useState(1);
+  const [viewStart, setViewStart] = useState(0);
 
   const fullDur = range.fullDur;
+  const MAX_ZOOM = 200;
+  const visDur = fullDur / zoom;
+  const clampView = useCallback(
+    (v, z = zoom) => Math.max(0, Math.min(Math.max(0, fullDur - fullDur / z), v)),
+    [fullDur, zoom]
+  );
+
+  // Zoom about a fixed point in time so what you're looking at stays put.
+  const zoomAround = useCallback((nextZoom, anchorSec) => {
+    const z = Math.max(1, Math.min(MAX_ZOOM, nextZoom));
+    const nextVis = fullDur / z;
+    const anchor = anchorSec != null ? anchorSec : viewStart + fullDur / zoom / 2;
+    const frac = fullDur / zoom > 0 ? (anchor - viewStart) / (fullDur / zoom) : 0.5;
+    setZoom(z);
+    setViewStart(Math.max(0, Math.min(Math.max(0, fullDur - nextVis), anchor - frac * nextVis)));
+  }, [fullDur, zoom, viewStart]);
+
+  // Frame the current clip with a little air on each side.
+  const zoomToClip = useCallback(() => {
+    const span = Math.max(0.25, end - start);
+    const pad = span * 0.15;
+    const z = Math.max(1, Math.min(MAX_ZOOM, fullDur / (span + pad * 2)));
+    setZoom(z);
+    setViewStart(Math.max(0, Math.min(Math.max(0, fullDur - fullDur / z), start - pad)));
+  }, [start, end, fullDur]);
+
+  const resetZoom = () => { setZoom(1); setViewStart(0); };
 
   // Sync local state when the external range changes (e.g. another row reset us)
   useEffect(() => {
@@ -5549,7 +8169,10 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
         const decoded = await new OfflineCtx(1, 1, 8000).decodeAudioData(buf);
         if (cancelled) return;
         const data = decoded.getChannelData(0);
-        const BARS = 800;
+        // Far more bars than the canvas has pixels: the draw pass reduces this
+        // to one column per pixel for whatever window is on screen, so zooming
+        // in surfaces detail rather than stretching 800 bars.
+        const BARS = 4000;
         const block = Math.max(1, Math.floor(data.length / BARS));
         const out = new Float32Array(BARS);
         for (let i = 0; i < BARS; i++) {
@@ -5582,28 +8205,49 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const mid = h / 2;
-    const barW = w / peaks.length;
-    const sx = (start / fullDur) * w;
-    const ex = (end / fullDur) * w;
-    // clip region shading
+    const view = fullDur / zoom;
+    const vs = Math.max(0, Math.min(Math.max(0, fullDur - view), viewStart));
+    // Seconds -> canvas x for the window currently on screen.
+    const toX = (t) => ((t - vs) / view) * w;
+    const sx = toX(start);
+    const ex = toX(end);
+
+    // clip region shading, clamped to the visible window
     ctx.fillStyle = "rgba(102,126,234,0.15)";
-    ctx.fillRect(sx, 0, Math.max(0, ex - sx), h);
-    // bars: in-clip bars are vivid, outside bars are muted
-    for (let i = 0; i < peaks.length; i++) {
-      const x = i * barW;
-      ctx.fillStyle = (x >= sx && x <= ex) ? "#667eea" : "#c2c7d4";
-      const bh = Math.max(1, peaks[i] * (h * 0.92));
-      ctx.fillRect(x, mid - bh / 2, Math.max(1, barW - 0.4), bh);
+    const shadeL = Math.max(0, Math.min(w, sx));
+    const shadeR = Math.max(0, Math.min(w, ex));
+    ctx.fillRect(shadeL, 0, Math.max(0, shadeR - shadeL), h);
+
+    // One column per pixel, taking the peak of whatever bars fall in it.
+    const i0 = (vs / fullDur) * peaks.length;
+    const i1 = ((vs + view) / fullDur) * peaks.length;
+    for (let px = 0; px < w; px++) {
+      const a = Math.floor(i0 + ((px) / w) * (i1 - i0));
+      const b = Math.max(a + 1, Math.floor(i0 + ((px + 1) / w) * (i1 - i0)));
+      let max = 0;
+      for (let k = a; k < b && k < peaks.length; k++) if (peaks[k] > max) max = peaks[k];
+      ctx.fillStyle = (px >= sx && px <= ex) ? "#667eea" : "#c2c7d4";
+      const bh = Math.max(1, max * (h * 0.92));
+      ctx.fillRect(px, mid - bh / 2, 1, bh);
     }
-    // start / end markers
-    ctx.fillStyle = "#2f9e44"; ctx.fillRect(sx - 1, 0, 2, h);
-    ctx.fillStyle = "#e64980"; ctx.fillRect(ex - 1, 0, 2, h);
+
+    // start / end markers (only when they're in view)
+    if (sx >= -2 && sx <= w + 2) { ctx.fillStyle = "#2f9e44"; ctx.fillRect(sx - 1, 0, 2, h); }
+    if (ex >= -2 && ex <= w + 2) { ctx.fillStyle = "#e64980"; ctx.fillRect(ex - 1, 0, 2, h); }
     // playhead
     if (playhead != null) {
-      const px = (playhead / fullDur) * w;
-      ctx.fillStyle = "#1a1a2e"; ctx.fillRect(px - 0.5, 0, 1, h);
+      const px = toX(playhead);
+      if (px >= 0 && px <= w) { ctx.fillStyle = "#1a1a2e"; ctx.fillRect(px - 0.5, 0, 1, h); }
     }
-  }, [peaks, start, end, fullDur, playhead]);
+
+    // While zoomed, a strip along the bottom shows where you are in the track.
+    if (zoom > 1) {
+      ctx.fillStyle = "rgba(0,0,0,0.10)";
+      ctx.fillRect(0, h - 4, w, 4);
+      ctx.fillStyle = "rgba(102,126,234,0.85)";
+      ctx.fillRect((vs / fullDur) * w, h - 4, Math.max(2, (view / fullDur) * w), 4);
+    }
+  }, [peaks, start, end, fullDur, playhead, zoom, viewStart]);
 
   const commit = (newStart, newEnd) => {
     const ns = Math.max(0, Math.min(fullDur, newStart));
@@ -5640,20 +8284,52 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   };
 
   // Click the waveform to move the audio playhead to that point.
-  const onWaveClick = (e) => {
-    const canvas = canvasRef.current, a = audioRef.current;
-    if (!canvas || !a) return;
+  const timeAtClientX = (clientX) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return 0;
     const rect = canvas.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    a.currentTime = frac * fullDur;
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    return clampView(viewStart) + frac * visDur;
+  };
+
+  const onWaveClick = (e) => {
+    const a = audioRef.current;
+    if (!a) return;
+    a.currentTime = timeAtClientX(e.clientX);
     setPlayhead(a.currentTime);
   };
+
+  // Wheel zooms about the cursor; shift+wheel pans. Bound natively with
+  // { passive: false } — React's synthetic wheel handler can't preventDefault
+  // reliably, and without it the page scrolls out from under the gesture.
+  const wheelStateRef = useRef(null);
+  wheelStateRef.current = { peaks, zoom, viewStart, visDur, fullDur };
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e) => {
+      const st = wheelStateRef.current;
+      if (!st?.peaks) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      const at = st.viewStart + frac * st.visDur;
+      if (e.shiftKey) {
+        const maxStart = Math.max(0, st.fullDur - st.visDur);
+        setViewStart(Math.max(0, Math.min(maxStart, st.viewStart + (e.deltaY / 400) * st.visDur)));
+        return;
+      }
+      zoomAround(st.zoom * (e.deltaY < 0 ? 1.25 : 1 / 1.25), at);
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [wfStatus, zoomAround]);
 
   return (
     <div className={styles.clipPanel}>
       <div
         className={styles.clipWaveWrap}
-        title="Click to move the playhead"
+        title="Click to move the playhead · scroll to zoom · shift+scroll to pan"
       >
         {wfStatus === "ready" ? (
           <canvas ref={canvasRef} className={styles.clipWaveCanvas} onClick={onWaveClick} />
@@ -5663,6 +8339,33 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
           </div>
         )}
       </div>
+      {wfStatus === "ready" && (
+        <div className={styles.clipZoomRow}>
+          <span className={styles.clipZoomLabel}>Zoom</span>
+          <button type="button" className={styles.clipZoomBtn} onClick={() => zoomAround(zoom / 1.6)} disabled={zoom <= 1} title="Zoom out">−</button>
+          <span className={styles.clipZoomValue}>{zoom < 1.05 ? "Fit" : `${zoom.toFixed(1)}×`}</span>
+          <button type="button" className={styles.clipZoomBtn} onClick={() => zoomAround(zoom * 1.6)} disabled={zoom >= MAX_ZOOM} title="Zoom in">+</button>
+          <button type="button" className={styles.clipZoomTextBtn} onClick={zoomToClip} title="Frame the current clip">Fit clip</button>
+          <button type="button" className={styles.clipZoomTextBtn} onClick={resetZoom} disabled={zoom <= 1} title="Show the whole track">Whole track</button>
+          {zoom > 1 && (
+            <input
+              type="range"
+              className={styles.clipPanSlider}
+              min="0"
+              max={Math.max(0, fullDur - visDur)}
+              step={Math.max(0.01, visDur / 200)}
+              value={clampView(viewStart)}
+              onChange={e => setViewStart(clampView(parseFloat(e.target.value)))}
+              title="Scroll through the track"
+            />
+          )}
+          <span className={styles.clipZoomWindow}>
+            {zoom > 1
+              ? `${formatClock(clampView(viewStart))} – ${formatClock(clampView(viewStart) + visDur)}`
+              : `${formatClock(fullDur)} shown`}
+          </span>
+        </div>
+      )}
       <audio ref={audioRef} src={track.url} controls preload="metadata" onTimeUpdate={onTimeUpdate} className={styles.clipAudio} />
       <div className={styles.clipControlsRow}>
         <label className={styles.clipField}>

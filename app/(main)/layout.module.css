@@ -302,13 +302,17 @@
 
 .colorImage {
   width: 90%;
+  /* Never crop: height follows the image's own aspect ratio. */
+  height: auto;
+  object-fit: contain;
   border-radius: 5px;
   cursor: pointer;
   transition: opacity 0.3s;
   filter: url(#dissolve-filter); /* Apply dissolve filter */
-  /* Performance optimizations */
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
+  /* Smooth downscaling: the 320px thumbnail renders at ~225px in the 250px
+     sidebar, and crisp-edges/optimize-contrast skip interpolation, which makes
+     photographs look jagged. Those values are for pixel art, not photos. */
+  image-rendering: auto;
   contain: layout style paint;
   will-change: transform, opacity;
   backface-visibility: hidden;
@@ -317,9 +321,14 @@
 
 .sidebar.collapsed .colorImage {
   width: 50px;
-  height: 50px;
+  /* Was a fixed 50x50 with object-fit: cover, which cropped everything that
+     wasn't square. Auto height keeps the whole image visible; max-height stops
+     very tall portraits from taking over the collapsed rail, and contain
+     letterboxes rather than distorting if that clamp kicks in. */
+  height: auto;
+  max-height: 90px;
+  object-fit: contain;
   margin-top: 10px; /* Space below the image */
-  object-fit: cover;
   border-radius: 8px;
   /* Mobile performance optimizations */
   image-rendering: auto;
@@ -531,8 +540,10 @@
   
   .sidebar.collapsed .colorImage {
     width: 40px;
-    height: 40px;
     max-width: 40px;
+    height: auto;
+    max-height: 72px;
+    object-fit: contain;
   }
   
   /* Disable expensive animations on mobile */
