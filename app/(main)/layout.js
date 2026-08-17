@@ -653,8 +653,17 @@ export default function RootLayout({ children }) {
                     e.target.style.willChange = 'auto';
                   }}
                   onError={(e) => {
-                    console.warn('Failed to load thumbnail:', e.target.src);
-                    // Hide image on error to prevent layout issues
+                    // Thumbnail generation has gaps (and the thumbnails folder
+                    // has some case mismatches that only bite on a
+                    // case-sensitive host), so fall back to the original before
+                    // giving up — hiding the image left an empty sidebar slot.
+                    const full = randomImage;
+                    if (full && e.target.src !== new URL(full, window.location.origin).href) {
+                      console.warn('Thumbnail missing, falling back to full image:', e.target.src);
+                      e.target.src = full;
+                      return;
+                    }
+                    console.warn('Failed to load image:', e.target.src);
                     e.target.style.display = 'none';
                   }}
                 />
@@ -692,8 +701,12 @@ export default function RootLayout({ children }) {
           </main>
           {imageModalOpen && (
             <ImageModal
-              imageUrl={getThumbnailPath(randomImage, true)} // Force desktop thumbnail for modal
-              onClose={() => setImageModalOpen(false)} 
+              // The original, not a thumbnail — this is the full-size viewer.
+              imageUrl={randomImage}
+              // Already in cache from the sidebar, so it paints instantly while
+              // the original downloads.
+              placeholderUrl={getThumbnailPath(randomImage, true)}
+              onClose={() => setImageModalOpen(false)}
             />
           )}
         </div>
