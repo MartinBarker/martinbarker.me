@@ -29,32 +29,22 @@ import {
 import * as renderQueue from "./renderQueue";
 
 // ---- Helpers ----
+// The one duration/timestamp format for the whole page: hh:mm:ss once past an
+// hour, mm:ss below it. Minutes never run past 59 — a 5h15m rip reads
+// 05:15:43, not 315:43. Truncates rather than rounds so a displayed time never
+// reads past the point it refers to.
 function formatTime(s) {
-  if (!s || s < 0) return "0:00.00";
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  const ms = Math.floor((s % 1) * 100);
-  return `${m}:${sec.toString().padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
-}
-
-// Format seconds as HH:MM:SS (always shows hours, even if 0)
-function formatHMS(s) {
-  if (s == null || !isFinite(s) || s < 0) return "—";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
-}
-
-// Format seconds as H:MM:SS when >= 1 hour, otherwise M:SS. Whole seconds.
-function formatClock(s) {
-  const total = Math.max(0, Math.round(s || 0));
+  if (!Number.isFinite(s) || s < 0) return "00:00";
+  const total = Math.floor(s);
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const sec = total % 60;
   const p = (n) => n.toString().padStart(2, "0");
-  return h > 0 ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`;
+  return h > 0 ? `${p(h)}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`;
 }
+
+// Alias kept for the clip panel, which reads and writes the same format.
+const formatClock = formatTime;
 
 // Parse "H:MM:SS", "M:SS", or a plain seconds value into seconds.
 function parseClock(str) {
@@ -66,6 +56,26 @@ function parseClock(str) {
   let sec = 0;
   for (const p of parts) sec = sec * 60 + (parseFloat(p) || 0);
   return Math.max(0, sec);
+}
+
+// Duration from the container header via an <audio> metadata read. Decoding a
+// file just to measure it costs ~6 GB of RAM for a multi-hour rip and throws,
+// which used to leave the track recorded as 0 seconds long.
+function probeAudioDuration(url) {
+  return new Promise((resolve) => {
+    const a = new Audio();
+    let settled = false;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      a.removeAttribute("src");
+      resolve(Number.isFinite(v) && v > 0 ? v : 0);
+    };
+    a.addEventListener("loadedmetadata", () => done(a.duration));
+    a.addEventListener("error", () => done(0));
+    a.preload = "metadata";
+    a.src = url;
+  });
 }
 
 function formatBytes(b) {
@@ -629,6 +639,9 @@ export default function RipTagPage() {
   const [aspectDropdownOpen, setAspectDropdownOpen] = useState(false);
   const aspectDropdownRef = useRef(null);
   const audioDragRef = useRef(null);
+  // Set while a Step 5 audio row is duplicated/removed, so the auto-select
+  // effect below doesn't re-select rows the user had deliberately unchecked.
+  const skipAudioAutoSelectRef = useRef(false);
   const imageDragRef = useRef(null);
   const playbackTimerRef = useRef(null);
   const previewCheckRef = useRef(null);
@@ -843,9 +856,21 @@ export default function RipTagPage() {
     const t = setTimeout(() => { if (!hydratingRef.current) saveActiveProject(); }, 2500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, activeProjectId, projectName, step, tracks, trackNames, exportedTracks,
-      videoImages, droppedAudioFiles, discogsData, textOverlay, trackImageAssign,
-      slideshowMode, videoWidth, videoHeight, selectedVideoImages, selectedVideoAudios]);
+    // Every field collectSettings() writes belongs here — anything missing is
+    // silently lost on refresh, because nothing else schedules the save. Clip
+    // ranges were the visible casualty: set a start/end, reload, gone.
+  }, [mounted, activeProjectId, step, audioMode, projectName, discogsUrl, discogsData,
+      discogsInputMode, trackNames, manualTrackCount, tracks, duration,
+      outputFormat, filenameFormat, volumeDb, riaaEnabled,
+      silThresholdDb, silMinDur, silWindowMs, silMinTrackLen, selectedTracks,
+      videoWidth, videoHeight, videoBgColor, imageMaxDim,
+      slideshowMode, loopInterval, motionFps, manualImageTimings,
+      textOverlay, trackImageAssign, videoAudioOrder, trackClips,
+      selectedVideoAudios, selectedVideoImages,
+      videoOutputName, ytUploadData, ytTitleVariation, ytTimestampFormat,
+      ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix, ytTitleSuggestions,
+      autoUploadYt, autoMatchImageRes, batchSettings, trackTextOverrides,
+      exportedTracks, videoImages, droppedAudioFiles]);
 
   // Persist in-flight work when the tab goes away.
   useEffect(() => {
@@ -1215,6 +1240,7 @@ export default function RipTagPage() {
 
   // Auto-select all exported tracks when entering step 5 and sync order
   useEffect(() => {
+    if (skipAudioAutoSelectRef.current) { skipAudioAutoSelectRef.current = false; return; }
     if (step === 5 && exportedTracks.length > 0) {
       setSelectedVideoAudios(prev => {
         // Select any new tracks that aren't already in the set
@@ -1231,6 +1257,10 @@ export default function RipTagPage() {
 
   // ---- Computed ----
   const trackCount = tracks.length;
+  // Distinct files on disk. A Step 5 copy re-uses its source's blob, so the
+  // download list and the ZIP keep one entry per underlying file. Deduping on
+  // url rather than on the copy flag survives deleting the original row.
+  const exportedFiles = exportedTracks.filter((t, i) => exportedTracks.findIndex(o => o.url === t.url) === i);
 
   // Sync track names when track count changes
   useEffect(() => {
@@ -2351,7 +2381,9 @@ export default function RipTagPage() {
     setMessage("Building ZIP…");
     try {
       const zip = new JSZip();
-      for (const t of exportedTracks) zip.file(t.name, await (await fetch(t.url)).blob());
+      // exportedFiles, not exportedTracks: Step 5 copies point at a file that
+      // is already in the archive.
+      for (const t of exportedFiles) zip.file(t.name, await (await fetch(t.url)).blob());
       const blob = await zip.generateAsync({ type: "blob" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -2504,6 +2536,10 @@ export default function RipTagPage() {
       // decode the file here to determine duration.
       const cacheKey = `${f.name}:${f.size}`;
       let dur = typeof audioDurationMap[cacheKey] === "number" ? audioDurationMap[cacheKey] : 0;
+      // Header read first: instant, and the only thing that works on a
+      // multi-hour file. Decoding is the last resort, for containers whose
+      // header carries no duration.
+      if (!dur) dur = await probeAudioDuration(url);
       if (!dur) {
         try {
           const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2659,16 +2695,89 @@ export default function RipTagPage() {
     });
   };
 
+  // Duplicate an audio row so one long file can be rendered several times with
+  // different clip ranges / images. The copy shares the source's blob (same
+  // url/file, new uid) and is appended to exportedTracks, then slotted into the
+  // display order right below the row it came from — appending keeps every
+  // index-keyed piece of state (clips, pins, selection, order) valid as-is.
+  const duplicateAudioRow = (trackIdx, orderIdx) => {
+    const src = exportedTracks[trackIdx];
+    if (!src) return;
+    const newIdx = exportedTracks.length;
+    skipAudioAutoSelectRef.current = true;
+    setExportedTracks(prev => [...prev, { ...prev[trackIdx], uid: newAssetUid(), copyOf: prev[trackIdx].uid }]);
+    setVideoAudioOrder(prev => {
+      const base = prev.length === exportedTracks.length ? prev : exportedTracks.map((_, i) => i);
+      const next = [...base];
+      const at = next.indexOf(trackIdx) === -1 ? next.length - 1 : (orderIdx ?? next.indexOf(trackIdx));
+      next.splice(at + 1, 0, newIdx);
+      return next;
+    });
+    setSelectedVideoAudios(prev => new Set(prev).add(newIdx));
+    // Carry the source row's per-track settings over, so the copy starts as an
+    // exact duplicate and the user only edits what should differ.
+    const range = getTrackClipRange(trackIdx);
+    if (range?.isClipped) setTrackClips(prev => ({ ...prev, [newIdx]: { start: range.clipStart, end: range.clipEnd } }));
+    setTrackImageAssign(prev => (prev[trackIdx] ? { ...prev, [newIdx]: prev[trackIdx] } : prev));
+    setTrackTextOverrides(prev => (prev[trackIdx] ? { ...prev, [newIdx]: { ...prev[trackIdx] } } : prev));
+    setMessage(`Copied “${src.title || src.name}” — set a different clip range on the copy to render it as its own video.`);
+  };
+
+  // Remove a single audio row. Every piece of Step 5 state is keyed by the
+  // exportedTracks index, so dropping one entry means shifting each key above
+  // it down by one.
+  const removeAudioRow = (trackIdx) => {
+    const t = exportedTracks[trackIdx];
+    if (!t) return;
+    const shift = (i) => (i > trackIdx ? i - 1 : i);
+    const shiftMap = (obj) => {
+      const next = {};
+      for (const [k, v] of Object.entries(obj)) {
+        const i = Number(k);
+        if (i === trackIdx) continue;
+        next[shift(i)] = v;
+      }
+      return next;
+    };
+    const shiftSet = (set) => {
+      const next = new Set();
+      set.forEach(i => { if (i !== trackIdx) next.add(shift(i)); });
+      return next;
+    };
+    // Copies share the source's object URL — only release it once nothing else points at it.
+    if (t.url && !exportedTracks.some((o, i) => i !== trackIdx && o.url === t.url)) {
+      try { URL.revokeObjectURL(t.url); } catch {}
+    }
+    skipAudioAutoSelectRef.current = true;
+    setExportedTracks(prev => prev.filter((_, i) => i !== trackIdx));
+    setVideoAudioOrder(prev => {
+      const base = prev.length === exportedTracks.length ? prev : exportedTracks.map((_, i) => i);
+      return base.filter(i => i !== trackIdx).map(shift);
+    });
+    setSelectedVideoAudios(shiftSet);
+    setExpandedAudioRows(shiftSet);
+    setTrackClips(shiftMap);
+    setTrackImageAssign(shiftMap);
+    setTrackTextOverrides(shiftMap);
+    setTextPreviewTrackIdx(prev => (prev == null ? prev : prev === trackIdx ? null : shift(prev)));
+    setMessage(`Removed “${t.title || t.name}” from the video.`);
+  };
+
   // Effective clip range for a track. Falls back to the full track when no clip is set.
   // Returned start/end are file-relative seconds (each exported track file starts at 0).
   const getTrackClipRange = (trackIdx) => {
     const t = exportedTracks[trackIdx];
     if (!t) return null;
     const fullDur = t.end - t.start;
+    // A file whose length couldn't be read is recorded as 0 seconds. Clamping
+    // against that would snap every clip value the user types back to zero, so
+    // an unknown length means "no upper bound" instead.
+    const known = Number.isFinite(fullDur) && fullDur > 0;
+    const limit = known ? fullDur : Infinity;
     const c = trackClips[trackIdx];
-    const cs = c?.start != null ? Math.max(0, Math.min(fullDur, c.start)) : 0;
-    const ce = c?.end != null ? Math.max(cs, Math.min(fullDur, c.end)) : fullDur;
-    return { fullDur, clipStart: cs, clipEnd: ce, clipDur: ce - cs, isClipped: cs > 0 || ce < fullDur };
+    const cs = c?.start != null ? Math.max(0, Math.min(limit, c.start)) : 0;
+    const ce = c?.end != null ? Math.max(cs, Math.min(limit, c.end)) : Math.max(cs, fullDur);
+    return { fullDur, durKnown: known, clipStart: cs, clipEnd: ce, clipDur: ce - cs, isClipped: cs > 0 || ce < fullDur };
   };
 
   const getOrderedAudios = () => {
@@ -3689,6 +3798,13 @@ export default function RipTagPage() {
     autoUploadYt, autoMatchImageRes, batchSettings, trackTextOverrides,
   });
 
+  // saveActiveProject is memoized on the blob-bearing state only, so the
+  // collectSettings it closed over went stale for everything else — clip
+  // ranges, ordering and captions were written as they had been at the last
+  // re-memo, not as they are now. Refreshed every render, read at save time.
+  const collectSettingsRef = useRef(collectSettings);
+  collectSettingsRef.current = collectSettings;
+
   const applySettings = (s) => {
     if (!s) return;
     if (s.step) setStep(s.step);
@@ -3798,13 +3914,13 @@ export default function RipTagPage() {
         liveKeys.add(key);
         if (sameUid(key, t.uid)) {
           bytes.tracks += t.size || 0;
-          exported.push({ key, uid: t.uid, name: t.name, title: t.title, index: t.index, size: t.size, start: t.start, end: t.end });
+          exported.push({ key, uid: t.uid, copyOf: t.copyOf, name: t.name, title: t.title, index: t.index, size: t.size, start: t.start, end: t.end });
           continue;
         }
         const blob = t.file ? t.file : await (await fetch(t.url)).blob();
         await putBlob(key, blob);
         bytes.tracks += blob.size || 0;
-        exported.push({ key, uid: t.uid, name: t.name, title: t.title, index: t.index, size: blob.size, start: t.start, end: t.end });
+        exported.push({ key, uid: t.uid, copyOf: t.copyOf, name: t.name, title: t.title, index: t.index, size: blob.size, start: t.start, end: t.end });
       }
 
       const images = [];
@@ -3839,7 +3955,7 @@ export default function RipTagPage() {
         name: projectName || "Untitled project",
         createdAt: prev.createdAt || Date.now(),
         updatedAt: Date.now(),
-        settings: settingsOverrides ? { ...collectSettings(), ...settingsOverrides } : collectSettings(),
+        settings: settingsOverrides ? { ...collectSettingsRef.current(), ...settingsOverrides } : collectSettingsRef.current(),
         audioFiles,
         activeAudioName: audioFile?.name || null,
         exportedTracks: exported,
@@ -3860,7 +3976,7 @@ export default function RipTagPage() {
       if (!silent) setProjectBusy("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [droppedAudioFiles, exportedTracks, videoImages, projectName, audioFile, tracks, refreshProjects]);
+  }, [droppedAudioFiles, exportedTracks, videoImages, projectName, audioFile, tracks, batchVideos, refreshProjects]);
 
   // Rebuilds live state (Files, object URLs, decoded waveform) from a record.
   const hydrateProject = async (rec) => {
@@ -3908,7 +4024,16 @@ export default function RipTagPage() {
         const blob = await getBlob(t.key);
         if (!blob) continue;
         const file = new File([blob], t.name, { type: blob.type || "audio/flac" });
-        tracksOut.push({ uid: t.uid || newAssetUid(), index: t.index, name: t.name, title: t.title, size: blob.size, start: t.start, end: t.end, url: URL.createObjectURL(blob), file });
+        const url = URL.createObjectURL(blob);
+        // Tracks imported before the header probe existed were stored as 0
+        // seconds long whenever the decode-to-measure step ran out of memory.
+        // Re-read the header so an already-saved long rip repairs itself.
+        let { start, end } = t;
+        if (!(end - start > 0)) {
+          const probed = await probeAudioDuration(url);
+          if (probed > 0) { start = 0; end = probed; }
+        }
+        tracksOut.push({ uid: t.uid || newAssetUid(), copyOf: t.copyOf, index: t.index, name: t.name, title: t.title, size: blob.size, start, end, url, file });
       }
       setExportedTracks(tracksOut);
 
@@ -4173,10 +4298,14 @@ export default function RipTagPage() {
     return trackCaptionText(item.audio._trackIdx, item.audio.title);
   };
 
-  const buildBatchSpec = async (item, total) => {
+  // Everything a batch video needs except its audio blob. Reading the blob is
+  // the slow part (a long rip is hundreds of MB), so it's deferred to when the
+  // job actually starts — see startBatchRender. The rest is captured now, at
+  // click time, so editing the settings mid-batch can't change videos that were
+  // already queued.
+  const buildBatchSpec = (item, total) => {
     const t = item.audio;
     const img = item.img;
-    const blob = t.file ? t.file : await (await fetch(t.url)).blob();
     const dur = t.end - t.start;
     const { w, h } = batchDimensionsFor(img);
     const text = batchTextFor(item);
@@ -4184,7 +4313,7 @@ export default function RipTagPage() {
     return {
       name: batchOutputName(item, total),
       audios: [{
-        title: t.title, name: t.name, blob,
+        title: t.title, name: t.name, file: t.file, url: t.url,
         start: t.start, end: t.end,
         clipStart: t.clipStart, clipEnd: t.clipEnd, isClipped: t.isClipped,
       }],
@@ -4244,25 +4373,23 @@ export default function RipTagPage() {
 
   const startBatchRender = async () => {
     const id = activeProjectIdRef.current;
-    if (!id) return;
+    if (!id) { setMessage("No active project to render into — reload the page if this persists."); return; }
     const plan = buildBatchPlan();
-    if (!plan.length) return;
+    if (!plan.length) { setMessage("Nothing to batch render — select at least one audio track and one image."); return; }
     setShowVideoLogs(true);
     // Drop the previous run's finished/cancelled rows so the progress list shows
     // this batch only — a smaller plan would otherwise leave orphans behind.
     renderQueue.jobsForProject(id)
       .filter(j => j.batch && j.status !== "running" && j.status !== "queued")
       .forEach(j => renderQueue.clear(j.jobId));
-    await saveActiveProject();
+    setMessage(`Queued ${plan.length} video${plan.length === 1 ? "" : "s"} — they render one at a time.`);
 
+    // Enqueue synchronously, before any awaiting: the whole batch shows up in
+    // the progress list the instant the button is pressed. Reading each track's
+    // audio used to happen here first, so on a long rip the button looked dead
+    // for however long that took.
     for (const item of plan) {
-      let spec;
-      try {
-        spec = await buildBatchSpec(item, plan.length);
-      } catch (e) {
-        setMessage(`Could not prepare “${item.audio.title}”: ${e?.message || e}`);
-        continue;
-      }
+      const spec = buildBatchSpec(item, plan.length);
       const jobId = `${id}:batch:${item.orderIdx}`;
       const trackIdx = item.audio._trackIdx;
       renderQueue.enqueue({
@@ -4271,7 +4398,13 @@ export default function RipTagPage() {
         projectName: projectName || "Untitled project",
         label: item.audio.title || `Track ${item.orderIdx + 1}`,
         batch: true,
-        run: (ctx) => runVideoRender(spec, ctx),
+        run: async (ctx) => {
+          const a = spec.audios[0];
+          // Fetched here rather than at queue time so the batch doesn't hold
+          // every track's audio in memory while it waits its turn.
+          const blob = a.file ? a.file : await (await fetch(a.url)).blob();
+          return runVideoRender({ ...spec, audios: [{ ...a, blob }] }, ctx);
+        },
         onSettled: async (settled) => {
           if (settled.status !== "done") return;
           const { blob, size, fileName } = settled.result;
@@ -4302,7 +4435,9 @@ export default function RipTagPage() {
         },
       });
     }
-    setMessage(`Queued ${plan.length} batch render${plan.length === 1 ? "" : "s"}.`);
+    // Persist after queueing, not before — on a big project this write takes a
+    // while and there's no reason to make the user watch a dead button for it.
+    await saveActiveProject();
   };
 
   const downloadBatchVideo = (v) => {
@@ -5880,8 +6015,8 @@ export default function RipTagPage() {
                   {isExporting ? "Exporting…" : `Export ${outputFormat.toUpperCase()} (${selectedTracks.size}/${tracks.length})`}
                 </button>
                 {isExporting && <button className={styles.cancelBtn} onClick={cancelExport}>Cancel</button>}
-                {exportedTracks.length > 0 && (
-                  <button className={styles.zipBtn} onClick={downloadZip}>Download as ZIP ({exportedTracks.length})</button>
+                {exportedFiles.length > 0 && (
+                  <button className={styles.zipBtn} onClick={downloadZip}>Download as ZIP ({exportedFiles.length})</button>
                 )}
               </div>
               <p className={styles.exportHint}>Export audio first before you use it to render a video.</p>
@@ -5895,11 +6030,12 @@ export default function RipTagPage() {
               )}
               {message && <p className={styles.msg}>{message}</p>}
 
-              {/* Exported grid */}
-              {exportedTracks.length > 0 && (
+              {/* Exported grid — copies made in Step 5 share a source file, so
+                  they aren't separate downloads here. */}
+              {exportedFiles.length > 0 && (
                 <div className={styles.exportGrid}>
-                  {exportedTracks.map(t => (
-                    <div key={t.index} className={styles.exportCard}>
+                  {exportedFiles.map(t => (
+                    <div key={t.uid || t.index} className={styles.exportCard}>
                       <div className={styles.exportCardMeta}>
                         <span className={styles.exportNum}>{String(t.index + 1).padStart(2, "0")}</span>
                         <div className={styles.exportCardInfo}>
@@ -6022,13 +6158,13 @@ export default function RipTagPage() {
                           </th>
                           <th>#</th><th>Title</th><th>Duration</th>
                           <th title="Pin an image to this track. The image then covers exactly this track's start → end on the timeline.">Image</th>
-                          <th style={{width:32}}></th>
+                          <th style={{width:90}}></th>
                         </tr>
                       </thead>
                       <tbody>
                         {(videoAudioOrder.length === exportedTracks.length ? videoAudioOrder : exportedTracks.map((_, i) => i)).map((trackIdx, orderIdx) => {
                           const t = exportedTracks[trackIdx];
-                          const range = getTrackClipRange(trackIdx) || { fullDur: t.end - t.start, clipStart: 0, clipEnd: t.end - t.start, clipDur: t.end - t.start, isClipped: false };
+                          const range = getTrackClipRange(trackIdx) || { fullDur: t.end - t.start, durKnown: t.end - t.start > 0, clipStart: 0, clipEnd: t.end - t.start, clipDur: t.end - t.start, isClipped: false };
                           const isExpanded = expandedAudioRows.has(trackIdx);
                           return (
                             <React.Fragment key={trackIdx}>
@@ -6045,8 +6181,16 @@ export default function RipTagPage() {
                                   <input type="checkbox" checked={selectedVideoAudios.has(trackIdx)} onChange={() => toggleVideoAudio(trackIdx)} />
                                 </td>
                                 <td>{orderIdx + 1}</td>
-                                <td>{t.title}{range.isClipped && <span className={styles.clipBadge} title={`Clipped to ${formatTime(range.clipStart)} – ${formatTime(range.clipEnd)}`}> · clip</span>}</td>
-                                <td>{range.isClipped ? `${formatTime(range.clipDur)} / ${formatTime(range.fullDur)}` : formatTime(range.fullDur)}</td>
+                                <td>
+                                  {t.title}
+                                  {t.copyOf && <span className={styles.copyBadge} title="A copy of another row — same audio file, its own clip range and image"> · copy</span>}
+                                  {range.isClipped && <span className={styles.clipBadge} title={`Clipped to ${formatTime(range.clipStart)} – ${formatTime(range.clipEnd)}`}> · clip</span>}
+                                </td>
+                                <td>
+                                  {!range.durKnown
+                                    ? <span className={styles.durUnknown} title="Couldn't read this file's length from its header. Type a start and end time to clip it anyway.">unknown</span>
+                                    : range.isClipped ? `${formatTime(range.clipDur)} / ${formatTime(range.fullDur)}` : formatTime(range.fullDur)}
+                                </td>
                                 <td onClick={e => e.stopPropagation()}>
                                   {(() => {
                                     const pickable = videoImages.filter(im => selectedVideoImages.has(im.id));
@@ -6083,13 +6227,29 @@ export default function RipTagPage() {
                                   })()}
                                 </td>
                                 <td onClick={e => e.stopPropagation()}>
-                                  <button
-                                    type="button"
-                                    className={styles.expandRowBtn}
-                                    onClick={() => setExpandedAudioRows(prev => { const n = new Set(prev); n.has(trackIdx) ? n.delete(trackIdx) : n.add(trackIdx); return n; })}
-                                    title={isExpanded ? "Hide clip controls" : "Set clip range"}
-                                    aria-label={isExpanded ? "Hide clip controls" : "Set clip range"}
-                                  >{isExpanded ? "▾" : "▸"}</button>
+                                  <div className={styles.rowActions}>
+                                    <button
+                                      type="button"
+                                      className={styles.expandRowBtn}
+                                      onClick={() => duplicateAudioRow(trackIdx, orderIdx)}
+                                      title="Copy this row — same audio file, its own clip range and image, so you can render several videos from one file"
+                                      aria-label="Copy this row"
+                                    >⧉</button>
+                                    <button
+                                      type="button"
+                                      className={`${styles.expandRowBtn} ${styles.removeRowBtn}`}
+                                      onClick={() => removeAudioRow(trackIdx)}
+                                      title="Remove this row from the video"
+                                      aria-label="Remove this row"
+                                    >×</button>
+                                    <button
+                                      type="button"
+                                      className={styles.expandRowBtn}
+                                      onClick={() => setExpandedAudioRows(prev => { const n = new Set(prev); n.has(trackIdx) ? n.delete(trackIdx) : n.add(trackIdx); return n; })}
+                                      title={isExpanded ? "Hide clip controls" : "Set clip range"}
+                                      aria-label={isExpanded ? "Hide clip controls" : "Set clip range"}
+                                    >{isExpanded ? "▾" : "▸"}</button>
+                                  </div>
                                 </td>
                               </tr>
                               {isExpanded && (
@@ -6110,6 +6270,12 @@ export default function RipTagPage() {
                       </tbody>
                     </table>
                   </div>
+                )}
+                {exportedTracks.length > 0 && (
+                  <p className={styles.hintText} style={{ marginTop: 6 }}>
+                    Use ⧉ to copy a row. The copy points at the same audio file but keeps its own clip range,
+                    image and caption — that&apos;s how you get several videos out of one long recording.
+                  </p>
                 )}
                 {exportedTracks.length > 0 && (() => {
                   // A pin whose image was deselected or removed is inert, so only
@@ -6166,51 +6332,7 @@ export default function RipTagPage() {
                       {discogsArtStatus ? "Fetching…" : `Use Discogs Art (${discogsData.images.length})`}
                     </button>
                   )}
-                  <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                    <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
-                      Slideshow:
-                      <select className={styles.inputSmall} value={slideshowMode} onChange={e => setSlideshowMode(e.target.value)} style={{minWidth:140}}>
-                        <option value="distribute">Distribute evenly</option>
-                        <option value="loop">Loop / repeat</option>
-                        <option value="per-track">Sync with tracks</option>
-                        <option value="manual">Manual timing</option>
-                      </select>
-                    </label>
-                    {slideshowMode === "loop" && (
-                      <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
-                        Every
-                        <input type="number" className={styles.inputSmall} value={loopInterval} onChange={e => setLoopInterval(Math.max(1, parseInt(e.target.value) || 1))} min="1" max="600" style={{width:60}} />
-                        sec
-                      </label>
-                    )}
-                    {/* Bulk motion — per-image motion lives under each image's preview */}
-                    <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
-                      Motion (all):
-                      <select className={styles.inputSmall}
-                        value={videoImages.length > 0 && videoImages.every(im => (im.motion || "none") === (videoImages[0].motion || "none")) ? (videoImages[0].motion || "none") : ""}
-                        onChange={e => { const v = e.target.value; if (v) setVideoImages(prev => prev.map(im => ({ ...im, motion: v }))); }}
-                        style={{minWidth:150}}
-                      >
-                        <option value="" disabled>Mixed…</option>
-                        {IMAGE_MOTIONS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                      </select>
-                    </label>
-                    {anySelectedImageMotion && (
-                      <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}} title="Motion has to be encoded at a real frame rate. Lower = much faster render.">
-                        Motion fps:
-                        <select className={styles.inputSmall} value={motionFps} onChange={e => setMotionFps(parseInt(e.target.value) || 24)} style={{width:70}}>
-                          {[12, 15, 24, 30].map(f => <option key={f} value={f}>{f}</option>)}
-                        </select>
-                      </label>
-                    )}
-                  </div>
                 </div>
-                {anySelectedImageMotion && (
-                  <p className={styles.hintText} style={{marginTop:6}}>
-                    Motion effects encode every frame at {motionFps} fps instead of 2 — expect a noticeably longer render.
-                    {slideshowMode === "loop" && " In loop mode only one cycle is encoded and then repeated, so this stays cheap."}
-                  </p>
-                )}
                 {/* Discogs art fetch progress */}
                 {discogsArtStatus && (
                   <div className={styles.imageStatusBar}>
@@ -6230,6 +6352,52 @@ export default function RipTagPage() {
                     </div>
                     <span className={styles.imageStatusCount}>{imageLoadingStatus.loaded}/{imageLoadingStatus.total}</span>
                   </div>
+                )}
+                {/* Timing / motion controls — these drive the columns below, so they
+                    sit directly on top of the table rather than off in the button row. */}
+                <div className={styles.slideshowBar}>
+                  <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
+                    Slideshow:
+                    <select className={styles.inputSmall} value={slideshowMode} onChange={e => setSlideshowMode(e.target.value)} style={{minWidth:140}}>
+                      <option value="distribute">Distribute evenly</option>
+                      <option value="loop">Loop / repeat</option>
+                      <option value="per-track">Sync with tracks</option>
+                      <option value="manual">Manual timing</option>
+                    </select>
+                  </label>
+                  {slideshowMode === "loop" && (
+                    <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
+                      Every
+                      <input type="number" className={styles.inputSmall} value={loopInterval} onChange={e => setLoopInterval(Math.max(1, parseInt(e.target.value) || 1))} min="1" max="600" style={{width:60}} />
+                      sec
+                    </label>
+                  )}
+                  {/* Bulk motion — per-image motion lives under each image's preview */}
+                  <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}}>
+                    Motion (all):
+                    <select className={styles.inputSmall}
+                      value={videoImages.length > 0 && videoImages.every(im => (im.motion || "none") === (videoImages[0].motion || "none")) ? (videoImages[0].motion || "none") : ""}
+                      onChange={e => { const v = e.target.value; if (v) setVideoImages(prev => prev.map(im => ({ ...im, motion: v }))); }}
+                      style={{minWidth:150}}
+                    >
+                      <option value="" disabled>Mixed…</option>
+                      {IMAGE_MOTIONS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  </label>
+                  {anySelectedImageMotion && (
+                    <label className={styles.videoCheckLabel} style={{display:"flex",alignItems:"center",gap:4}} title="Motion has to be encoded at a real frame rate. Lower = much faster render.">
+                      Motion fps:
+                      <select className={styles.inputSmall} value={motionFps} onChange={e => setMotionFps(parseInt(e.target.value) || 24)} style={{width:70}}>
+                        {[12, 15, 24, 30].map(f => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                {anySelectedImageMotion && (
+                  <p className={styles.hintText} style={{marginTop:6}}>
+                    Motion effects encode every frame at {motionFps} fps instead of 2 — expect a noticeably longer render.
+                    {slideshowMode === "loop" && " In loop mode only one cycle is encoded and then repeated, so this stays cheap."}
+                  </p>
                 )}
                 {videoImages.length > 0 && (
                   <div className={styles.tableWrap} style={{ marginTop: 12 }}>
@@ -7063,8 +7231,6 @@ export default function RipTagPage() {
                 {(() => {
                   const est = estimateVideoSize();
                   if (!est) return null;
-                  const durMin = Math.floor(est.totalDur / 60);
-                  const durSec = Math.round(est.totalDur % 60);
                   return (
                     <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 6, fontSize: "0.82rem",
                       background: est.overLimit ? (darkMode ? "#5a1a1a" : "#fff5f5") : (darkMode ? "#252538" : "#f7fafc"),
@@ -7072,7 +7238,7 @@ export default function RipTagPage() {
                       color: darkMode ? "#fff" : "#2d3748"
                     }}>
                       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                        <span>Duration: <strong>{durMin}:{String(durSec).padStart(2,"0")}</strong></span>
+                        <span>Duration: <strong>{formatTime(est.totalDur)}</strong></span>
                         <span>Resolution: <strong>{videoWidth}×{videoHeight}</strong></span>
                         <span>Est. size: <strong>{est.totalMB < 1024 ? `${est.totalMB.toFixed(0)} MB` : `${(est.totalMB/1024).toFixed(1)} GB`}</strong></span>
                         <span>Upload limit: <strong>{YT_UPLOAD_LIMIT_MB / 1024} GB</strong></span>
@@ -8098,6 +8264,14 @@ function RenderJobLine({ job }) {
   return null;
 }
 
+// Decoding a multi-hour file to draw the clip waveform blocks the main thread
+// for minutes, so anything past this length opens with the waveform off and the
+// text fields ready to type into. The checkbox overrides it either way.
+const WAVEFORM_AUTO_SKIP_SEC = 30 * 60;
+// Remembered per file for the session, so collapsing and re-expanding a row
+// doesn't kick off a decode the user already opted out of.
+const waveformDisabledByUrl = new Map();
+
 // Inline panel for selecting a clip range (start/end) within an already-exported track.
 // The track's file plays from 0 to its full duration; start/end are in file-relative seconds.
 function TrackClipPanel({ track, range, onChange, onReset }) {
@@ -8112,7 +8286,15 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   const [startText, setStartText] = useState(formatClock(range.clipStart));
   const [endText, setEndText] = useState(formatClock(range.clipEnd));
   const [peaks, setPeaks] = useState(null);      // Float32Array of bar amplitudes
-  const [wfStatus, setWfStatus] = useState("loading"); // loading | ready | error
+  const [wfStatus, setWfStatus] = useState("loading"); // loading | ready | error | off
+  const [wfDisabled, setWfDisabled] = useState(() => {
+    const remembered = waveformDisabledByUrl.get(track.url);
+    return remembered != null ? remembered : range.fullDur > WAVEFORM_AUTO_SKIP_SEC;
+  });
+  const toggleWaveform = (disabled) => {
+    waveformDisabledByUrl.set(track.url, disabled);
+    setWfDisabled(disabled);
+  };
   const [playhead, setPlayhead] = useState(null); // seconds, while previewing
   // Waveform viewport. zoom 1 = whole track; viewStart is the left edge in
   // seconds. Peaks are stored at a much finer resolution than the canvas so
@@ -8121,6 +8303,9 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   const [viewStart, setViewStart] = useState(0);
 
   const fullDur = range.fullDur;
+  const durKnown = range.durKnown !== false && Number.isFinite(fullDur) && fullDur > 0;
+  const isLongTrack = fullDur > WAVEFORM_AUTO_SKIP_SEC;
+  const clockPlaceholder = fullDur >= 3600 ? "h:mm:ss" : "m:ss";
   const MAX_ZOOM = 200;
   const visDur = fullDur / zoom;
   const clampView = useCallback(
@@ -8159,12 +8344,15 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   // amplitude bars for the waveform. Low-rate mono keeps memory tiny (same
   // approach as the main decode) and the decoded buffer is released immediately.
   useEffect(() => {
+    if (wfDisabled) { setPeaks(null); setWfStatus("off"); return; }
     let cancelled = false;
+    const abort = new AbortController();
     (async () => {
       try {
         setWfStatus("loading");
-        const resp = await fetch(track.url);
+        const resp = await fetch(track.url, { signal: abort.signal });
         const buf = await resp.arrayBuffer();
+        if (cancelled) return;
         const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
         const decoded = await new OfflineCtx(1, 1, 8000).decodeAudioData(buf);
         if (cancelled) return;
@@ -8189,8 +8377,11 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
         if (!cancelled) setWfStatus("error");
       }
     })();
-    return () => { cancelled = true; };
-  }, [track.url]);
+    // Aborting only helps while the bytes are still being read — once
+    // decodeAudioData has the buffer it runs to completion — but it does stop a
+    // multi-hundred-megabyte read the moment the user ticks the box.
+    return () => { cancelled = true; abort.abort(); };
+  }, [track.url, wfDisabled]);
 
   // Draw the waveform with the selected clip region highlighted plus the
   // start/end markers and the live playhead.
@@ -8250,8 +8441,11 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   }, [peaks, start, end, fullDur, playhead, zoom, viewStart]);
 
   const commit = (newStart, newEnd) => {
-    const ns = Math.max(0, Math.min(fullDur, newStart));
-    const ne = Math.max(ns, Math.min(fullDur, newEnd));
+    // With an unreadable duration there is nothing sane to clamp against —
+    // clamping to 0 is what made every typed start time snap back to 0:00.
+    const limit = durKnown ? fullDur : Infinity;
+    const ns = Math.max(0, Math.min(limit, newStart));
+    const ne = Math.max(ns, Math.min(limit, newEnd));
     setStart(ns); setEnd(ne);
     setStartText(formatClock(ns)); setEndText(formatClock(ne));
     if (ns === 0 && ne === fullDur) onReset();
@@ -8328,15 +8522,36 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
   return (
     <div className={styles.clipPanel}>
       <div
-        className={styles.clipWaveWrap}
-        title="Click to move the playhead · scroll to zoom · shift+scroll to pan"
+        className={`${styles.clipWaveWrap} ${wfStatus === "ready" ? "" : styles.clipWaveWrapIdle}`}
+        title={wfStatus === "ready" ? "Click to move the playhead · scroll to zoom · shift+scroll to pan" : undefined}
       >
         {wfStatus === "ready" ? (
           <canvas ref={canvasRef} className={styles.clipWaveCanvas} onClick={onWaveClick} />
         ) : (
           <div className={styles.clipWaveStatus}>
-            {wfStatus === "error" ? "Waveform unavailable" : "Loading waveform…"}
+            {wfStatus === "off" && "Waveform off — type the start and end times below, or scrub the player."}
+            {wfStatus === "error" && "Waveform unavailable"}
+            {wfStatus === "loading" && (
+              <>
+                <span className={styles.spinnerInline} /> Loading waveform…
+                {isLongTrack && " This track is long, so this can take a while — tick “Disable waveform” to skip it."}
+              </>
+            )}
           </div>
+        )}
+      </div>
+      <div className={styles.clipWaveToggleRow}>
+        <label className={styles.clipWaveToggle} title="Drawing the waveform means decoding the whole file, which is slow on multi-hour rips. The start/end fields work either way.">
+          <input type="checkbox" checked={wfDisabled} onChange={e => toggleWaveform(e.target.checked)} />
+          Disable waveform
+        </label>
+        {wfDisabled && isLongTrack && (
+          <span className={styles.clipWaveToggleHint}>Off by default over {Math.round(WAVEFORM_AUTO_SKIP_SEC / 60)} min.</span>
+        )}
+        {!durKnown && (
+          <span className={styles.clipWaveToggleHint}>
+            Track length unknown — start/end still apply, they just aren&apos;t bounded.
+          </span>
         )}
       </div>
       {wfStatus === "ready" && (
@@ -8371,7 +8586,7 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
         <label className={styles.clipField}>
           <span>Start</span>
           <input
-            type="text" inputMode="numeric" placeholder="m:ss"
+            type="text" inputMode="numeric" placeholder={clockPlaceholder}
             value={startText}
             onChange={e => setStartText(e.target.value)}
             onBlur={() => commit(parseClock(startText), end)}
@@ -8382,7 +8597,7 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
         <label className={styles.clipField}>
           <span>End</span>
           <input
-            type="text" inputMode="numeric" placeholder="m:ss"
+            type="text" inputMode="numeric" placeholder={clockPlaceholder}
             value={endText}
             onChange={e => setEndText(e.target.value)}
             onBlur={() => commit(start, parseClock(endText))}
@@ -8391,8 +8606,8 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
           <button type="button" onClick={setEndHere} title="Use current playhead">⏱</button>
         </label>
         <button type="button" className={styles.clipPlayBtn} onClick={playClip}>▶ Preview clip</button>
-        <button type="button" className={styles.clipResetBtn} onClick={() => commit(0, fullDur)} disabled={!range.isClipped}>Reset to full</button>
-        <span className={styles.clipDurLabel}>Clip: {formatClock(end - start)} · Track: {formatClock(fullDur)}</span>
+        <button type="button" className={styles.clipResetBtn} onClick={() => commit(0, fullDur)} disabled={!range.isClipped || !durKnown}>Reset to full</button>
+        <span className={styles.clipDurLabel}>Clip: {formatClock(end - start)} · Track: {durKnown ? formatClock(fullDur) : "unknown"}</span>
       </div>
     </div>
   );
