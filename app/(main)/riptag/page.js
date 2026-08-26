@@ -127,6 +127,83 @@ const clampMotionSpeed = (v) => {
   return Math.min(MOTION_SPEED_MAX, Math.max(MOTION_SPEED_MIN, n));
 };
 const STILL_FPS = 2;           // frame rate for motionless slideshows
+
+// The ffmpeg core is ~32 MB. It was fetched and turned into blob URLs on every
+// single render — once per batch video — which is the bulk of the wait before
+// anything starts happening. The URLs stay valid for the life of the page, so
+// build them once and hand the same pair to every FFmpeg instance. (Each render
+// still gets its own FFmpeg worker; only the core download is shared.)
+const FFMPEG_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+let ffmpegCorePromise = null;
+function loadFFmpegCore() {
+  if (!ffmpegCorePromise) {
+    ffmpegCorePromise = (async () => ({
+      coreURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
+    }))();
+    // A failed fetch must not poison every later render.
+    ffmpegCorePromise.catch(() => { ffmpegCorePromise = null; });
+  }
+  return ffmpegCorePromise;
+}
+
+// Downscaled copies of source images, reused across renders: a batch re-renders
+// the same image once per track, and repeated renders of one project redo the
+// identical work. Weakly keyed on the source File so nothing is pinned.
+const downscaleCache = new WeakMap(); // File -> Map<maxDim, result>
+
+// Re-encoding to PNG was the slow half of preparing an image for the encoder —
+// canvas PNG encoding is slow and the result is large for ffmpeg to read back.
+// Photographic sources go out as high-quality JPEG instead; PNG sources stay
+// PNG so any transparency survives.
+async function computeDownscale(file, maxDim) {
+  const isPng = /png/i.test(file.type || "") || /\.png$/i.test(file.name || "");
+  const outType = isPng ? "image/png" : "image/jpeg";
+  const quality = isPng ? undefined : 0.92;
+  const ext = isPng ? "png" : "jpg";
+
+  const draw = (source, nw, nh) => new Promise((resolve) => {
+    if (!nw || !nh || Math.max(nw, nh) <= maxDim) {
+      resolve({ file, resized: false, original: { w: nw, h: nh } });
+      return;
+    }
+    const scale = maxDim / Math.max(nw, nh);
+    const w = Math.max(1, Math.round(nw * scale));
+    const h = Math.max(1, Math.round(nh * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(source, 0, 0, w, h);
+    canvas.toBlob((blob) => {
+      if (!blob) { resolve({ file, resized: false, original: { w: nw, h: nh } }); return; }
+      const newName = file.name.replace(/(\.[^.]+)?$/, `_resized_${w}x${h}.${ext}`);
+      resolve({
+        file: new File([blob], newName, { type: outType }),
+        resized: true, original: { w: nw, h: nh }, resizedTo: { w, h },
+      });
+    }, outType, quality);
+  });
+
+  // Off-thread decode, so a huge scan doesn't freeze the tab mid-render.
+  if (typeof createImageBitmap === "function") {
+    let bmp = null;
+    try { bmp = await createImageBitmap(file); } catch { bmp = null; }
+    if (bmp) {
+      try { return await draw(bmp, bmp.width, bmp.height); }
+      finally { try { bmp.close(); } catch {} }
+    }
+  }
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = async () => {
+      const out = await draw(img, img.naturalWidth, img.naturalHeight);
+      URL.revokeObjectURL(url);
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve({ file, resized: false }); };
+    img.src = url;
+  });
+}
 const BG_DRIFT_ZOOM = 1.2;     // blur bg is scaled this much larger so it has room to drift
 const BG_DRIFT_AMOUNT = 0.06;  // drift travel, as a fraction of the output size
 const BG_DRIFT_PERIOD = 24;    // seconds for one full drift cycle
@@ -231,6 +308,25 @@ function wrapOverlayLines(ctx, text, maxWidth) {
   return lines;
 }
 
+// Output resolution multiplier, shared by both render modes. h264 needs even
+// dimensions and every mode clamps the same way, so the maths lives in one
+// place rather than once per render path.
+const RENDER_SCALES = [0.25, 0.33, 0.5, 0.75, 1, 1.25, 1.5, 2];
+const RENDER_MAX_DIM = 7680;
+const scaleDimension = (n, scale) => {
+  const v = Math.min(RENDER_MAX_DIM, Math.max(2, Math.round(n * (Number(scale) || 1))));
+  return Math.max(2, Math.floor(v / 2) * 2);
+};
+
+// One list of text-overlay modes for both the Text Overlay section and the
+// batch settings panel. The same choice used to be offered through two
+// different controls in two different places, which is why they could disagree.
+const TEXT_MODE_OPTIONS = [
+  { value: "track", label: "Song name (changes per track)" },
+  { value: "custom", label: "Custom text (same throughout)" },
+  { value: "off", label: "No text" },
+];
+
 // Draws the overlay onto an already-sized 2D context. Used both for the
 // on-page preview and for the transparent PNG fed to FFmpeg — one code path so
 // the two can never drift apart.
@@ -300,6 +396,9 @@ function renderOverlayPngFile(text, o, w, h, name) {
 }
 
 const loadImageElement = (src) => new Promise((resolve, reject) => {
+  // An image that is still being processed has no object URL yet. Without this
+  // the src becomes the string "null" and the browser fetches /null (a 404).
+  if (!src) { reject(new Error("loadImageElement: no source")); return; }
   const im = new Image();
   im.onload = () => resolve(im);
   im.onerror = reject;
@@ -582,17 +681,21 @@ export default function RipTagPage() {
   const [textPreviewTrackIdx, setTextPreviewTrackIdx] = useState(null);
   const [textPreviewBusy, setTextPreviewBusy] = useState(false);
   const textPreviewCanvasRef = useRef(null);
+  const concatPreviewCanvasRef = useRef(null);
   // When on, the output resolution tracks the image the video opens with (the
   // pinned image of the first track, else the first selected image) instead of
   // being set by hand. Batch renders take it per-video, from each track's image.
   const [autoMatchImageRes, setAutoMatchImageRes] = useState(false);
-  // Batch render: one video per track, each with that track's image.
+  // Resolution multiplier applied to whatever the resolution works out to.
+  // Shared by the concat render and the batch, so the two modes can't quietly
+  // produce different sizes from the same project.
+  const [renderScale, setRenderScale] = useState(1);
+  // Batch render: one video per track, each with that track's image. Only the
+  // genuinely batch-only choices live here — resolution mode, scale and the
+  // text overlay are shared with the concat render (see sharedTextMode /
+  // resolutionMode / renderScale below).
   const [batchSettings, setBatchSettings] = useState({
     scope: "selected",        // "selected" = every selected track | "pinned" = only tracks with a pinned image
-    resolution: "auto",       // "auto" = match each track's image | "fixed" = use the Video Settings resolution
-    scale: 1,                 // multiplier applied to every batch video's resolution
-    textMode: "track",        // "off" | "track" (song title) | "custom"
-    customText: "",
     nameTemplate: "%num% - %title%",
   });
   const [showBatchSettings, setShowBatchSettings] = useState(false);
@@ -616,6 +719,9 @@ export default function RipTagPage() {
   // keeps memory under iOS Safari's per-tab limit. Playback/export still use
   // the original-quality file via the <audio> element.
   const decodedBufferRef = useRef(null);
+  // Set when decoding the current file threw, so anything waiting on
+  // decodedBufferRef stops waiting instead of hanging until its timeout.
+  const decodeFailedRef = useRef(false);
   const segmentTimerRef = useRef(null);
   const audioRef = useRef(null);
   const audioUrlRef = useRef(null);
@@ -869,7 +975,7 @@ export default function RipTagPage() {
       selectedVideoAudios, selectedVideoImages,
       videoOutputName, ytUploadData, ytTitleVariation, ytTimestampFormat,
       ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix, ytTitleSuggestions,
-      autoUploadYt, autoMatchImageRes, batchSettings, trackTextOverrides,
+      autoUploadYt, autoMatchImageRes, renderScale, batchSettings, trackTextOverrides,
       exportedTracks, videoImages, droppedAudioFiles]);
 
   // Persist in-flight work when the tab goes away.
@@ -1090,6 +1196,10 @@ export default function RipTagPage() {
     setCurrentTime(0);
     setIsPlaying(false);
     setExportedTracks([]);
+    // Drop the previous file's waveform buffer immediately — otherwise a fast
+    // switch to Step 3 would render the old file's waveform.
+    decodedBufferRef.current = null;
+    decodeFailedRef.current = false;
     // Destroy existing peaks instance
     if (peaksRef.current) {
       peaksRef.current.destroy();
@@ -1146,6 +1256,7 @@ export default function RipTagPage() {
         setChannelData(mono);
         setMessage(`Loaded: ${audioFile.name} (${formatTime(durationSec)})`);
       } catch (err) {
+        decodeFailedRef.current = true;
         setMessage("Error decoding audio: " + err.message);
         setIsLoadingWaveform(false);
         setWaveformLoadStatus("");
@@ -1366,6 +1477,17 @@ export default function RipTagPage() {
     try {
       const Peaks = (await import('peaks.js')).default;
 
+      const getAudioContext = () => {
+        if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          audioContextRef.current = new Ctx();
+        }
+        return audioContextRef.current;
+      };
+      const webAudio = decodedBufferRef.current
+        ? { audioBuffer: decodedBufferRef.current }
+        : { audioContext: getAudioContext() };
+
       const options = {
         zoomview: {
           container: zoomviewRef.current,
@@ -1378,9 +1500,11 @@ export default function RipTagPage() {
         // webAudio.audioBuffer makes peaks.js build the waveform from this
         // buffer instead of fetching + decoding the media element again (a
         // second full-resolution decode was a primary cause of iOS crashes).
-        webAudio: {
-          audioBuffer: decodedBufferRef.current,
-        },
+        // If the decode hasn't finished (or failed), hand peaks.js a real
+        // AudioContext instead and let it decode the media itself — a webAudio
+        // object with neither is what raised "The webAudio.audioContext option
+        // must be a valid AudioContext" and left Step 3 with no waveform.
+        webAudio,
         zoomLevels: [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536],
         segmentOptions: {
           overlay: true,
@@ -1405,11 +1529,12 @@ export default function RipTagPage() {
         Peaks.init(options, (err, peaksInstance) => {
           if (err) {
             console.error('peaks.js init error:', err);
-            // Retry without webAudio if we get "illegal path" or similar errors
-            if (String(err).includes('illegal') || String(err.message || '').includes('illegal') || String(err).includes('not-allowed')) {
-              console.log('Retrying peaks.js init without webAudio...');
-              const fallbackOptions = { ...options };
-              delete fallbackOptions.webAudio;
+            // Retry once by letting peaks.js decode the media through an
+            // AudioContext. Deleting webAudio outright isn't a fallback —
+            // peaks.js then has no source at all and fails again.
+            if (options.webAudio.audioBuffer) {
+              console.log('Retrying peaks.js init with an AudioContext...');
+              const fallbackOptions = { ...options, webAudio: { audioContext: getAudioContext() } };
               Peaks.init(fallbackOptions, (retryErr, retryInstance) => {
                 if (retryErr) { reject(retryErr); return; }
                 peaksRef.current = retryInstance;
@@ -1564,6 +1689,18 @@ export default function RipTagPage() {
         await new Promise(r => setTimeout(r, 50));
         if (cancelled) { setIsLoadingWaveform(false); setWaveformLoadStatus(""); return; }
       }
+      // Wait for the decode effect to produce the waveform AudioBuffer.
+      // Entering Step 3 while a long rip is still decoding used to init
+      // peaks.js with an empty webAudio option, which failed outright.
+      if (!decodedBufferRef.current && !decodeFailedRef.current) {
+        setWaveformLoadStatus("Decoding audio data…");
+        const deadline = Date.now() + 120000;
+        while (!decodedBufferRef.current && !decodeFailedRef.current && Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 100));
+          if (cancelled) { setIsLoadingWaveform(false); setWaveformLoadStatus(""); return; }
+        }
+      }
+
       // Brief extra delay to ensure audio is ready
       await new Promise(r => setTimeout(r, 200));
 
@@ -2047,11 +2184,10 @@ export default function RipTagPage() {
 
   // ---- FFmpeg ----
   const loadFFmpeg = async () => {
-    const base = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
     const ff = ffmpegRef.current;
     ff.on("log", ({ message: msg }) => { logOutputRef.current += msg + "\n"; });
     ff.on("progress", ({ progress: p }) => setProgress(p));
-    await ff.load({ coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"), wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm") });
+    await ff.load(await loadFFmpegCore());
     setLoaded(true);
   };
 
@@ -2406,7 +2542,13 @@ export default function RipTagPage() {
   const safePlay = () => {
     if (!audioRef.current) return;
     const p = audioRef.current.play();
-    if (p && p.catch) p.catch(() => {});
+    // A rejected play() used to be swallowed while isPlaying stayed true, so
+    // the button showed "pause" over silent audio and the next press only
+    // paused an already-paused element.
+    if (p && p.catch) p.catch((err) => {
+      if (err?.name !== 'AbortError') console.warn('audio play() failed:', err);
+      setIsPlaying(false);
+    });
   };
 
   // ---- Track Preview ----
@@ -2432,8 +2574,11 @@ export default function RipTagPage() {
   };
 
   const togglePlay = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) { stopPreview(); }
+    const el = audioRef.current;
+    if (!el) return;
+    // Read the element rather than isPlaying — the flag can drift out of sync
+    // with actual playback, and then the first press does nothing audible.
+    if (!el.paused) { stopPreview(); }
     else { safePlay(); setIsPlaying(true); }
   };
 
@@ -2458,29 +2603,63 @@ export default function RipTagPage() {
   };
 
   // ---- Video Image Helpers ----
-  const createThumbnail = (file, maxSize = 160) => {
+  // Longest edge of the on-screen preview image. Big enough for the overlay
+  // preview canvas, small enough to decode in a few milliseconds.
+  const PREVIEW_MAX_DIM = 1600;
+
+  // Produces the 160px table thumbnail and a display-sized preview from a
+  // single decode. Two things used to make dropping a large image feel like a
+  // hang: the file was decoded on the main thread, and previewUrl pointed at
+  // the original, so every preview redraw decoded the full-resolution image
+  // again. Neither is true now.
+  const createThumbnail = async (file, maxSize = 160) => {
+    const scaleToUrl = (source, sw, sh, limit, type, quality) => new Promise((done) => {
+      const s = Math.min(limit / sw, limit / sh, 1);
+      const w = Math.max(1, Math.round(sw * s));
+      const h = Math.max(1, Math.round(sh * s));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(source, 0, 0, w, h);
+      canvas.toBlob((blob) => done(blob ? URL.createObjectURL(blob) : null), type, quality);
+    });
+
+    const build = async (source, sw, sh) => {
+      const thumbUrl = await scaleToUrl(source, sw, sh, maxSize, "image/jpeg", 0.7);
+      // Only re-encode when there's something to save — a small image is
+      // cheaper shown as-is. webp so a transparent PNG keeps its alpha.
+      const previewUrl = Math.max(sw, sh) > PREVIEW_MAX_DIM
+        ? await scaleToUrl(source, sw, sh, PREVIEW_MAX_DIM, "image/webp", 0.85)
+        : null;
+      return {
+        thumbUrl: thumbUrl || URL.createObjectURL(file),
+        previewUrl: previewUrl || URL.createObjectURL(file),
+        width: sw, height: sh,
+      };
+    };
+
+    // createImageBitmap decodes off the main thread, so the tab stays
+    // responsive while a 60-megapixel scan is being read.
+    if (typeof createImageBitmap === "function") {
+      let bmp = null;
+      try { bmp = await createImageBitmap(file); } catch { bmp = null; }
+      if (bmp) {
+        try { return await build(bmp, bmp.width, bmp.height); }
+        finally { try { bmp.close(); } catch {} }
+      }
+    }
+
     return new Promise((resolve) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
-      img.onload = () => {
-        const naturalWidth = img.width;
-        const naturalHeight = img.height;
-        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      img.onload = async () => {
+        const out = await build(img, img.width, img.height);
         URL.revokeObjectURL(url);
-        canvas.toBlob((blob) => {
-          const thumbUrl = blob ? URL.createObjectURL(blob) : URL.createObjectURL(file);
-          resolve({ thumbUrl, width: naturalWidth, height: naturalHeight });
-        }, 'image/jpeg', 0.7);
+        resolve(out);
       };
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        resolve({ thumbUrl: URL.createObjectURL(file), width: 0, height: 0 });
+        resolve({ thumbUrl: URL.createObjectURL(file), previewUrl: URL.createObjectURL(file), width: 0, height: 0 });
       };
       img.src = url;
     });
@@ -2511,8 +2690,7 @@ export default function RipTagPage() {
       // Add a placeholder entry immediately so the row appears with a spinner
       setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: true, paddingColor: "#000000", motion: "none", motionSpeed: 1, bgMotion: "none", bgMotionSpeed: 1 }]);
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
-      const { thumbUrl, width, height } = await createThumbnail(f);
-      const previewUrl = URL.createObjectURL(f);
+      const { thumbUrl, previewUrl, width, height } = await createThumbnail(f);
       // Step 1's table reads width/height; step 5 (and the memory estimate,
       // "Match image" resolution, and Image Settings oversize count) reads
       // naturalWidth/naturalHeight. Write both so neither silently sees zero.
@@ -2883,6 +3061,31 @@ export default function RipTagPage() {
     setVideoHeight(String(img.naturalHeight));
   }, [autoMatchImageRes, autoMatchSourceImage]);
 
+  // ---- Settings shared by both render modes ---------------------------------
+  // The concat render and the batch used to keep their own copies of the
+  // resolution mode, the scale and the text overlay, so the same project could
+  // be set two ways at once. These are the single source of truth; both panels
+  // read and write them, and both panels show the same value.
+  //
+  // "auto" means the image decides the size: the opening image for the concat
+  // render, each track's own image for the batch.
+  const resolutionMode = autoMatchImageRes ? "auto" : "fixed";
+  // "off" | "track" | "custom" — the enable switch and the text source folded
+  // into one control, matching what the batch panel always offered.
+  const sharedTextMode = textOverlay.enabled ? textOverlay.source : "off";
+  const setSharedTextMode = (mode) => setTextOverlay(o => ({
+    ...o,
+    enabled: mode !== "off",
+    // Keep the last real source when switching off, so turning it back on
+    // returns to what the user had chosen.
+    source: mode === "off" ? o.source : mode,
+  }));
+  // Final output size of the concat render, scale included.
+  const concatDimensions = {
+    w: scaleDimension(parseInt(videoWidth) || 1920, renderScale),
+    h: scaleDimension(parseInt(videoHeight) || 1080, renderScale),
+  };
+
   // Cumulative [start,end) span of every ordered audio track on the video
   // timeline, used to caption segments with the track that's playing.
   const getAudioSpans = (orderedAudios) => {
@@ -2983,17 +3186,24 @@ export default function RipTagPage() {
   };
 
   // Reproduces the render's letterbox / stretch / blur-background compositing on
-  // a canvas so the preview frame matches the encoded one.
-  const drawOverlayPreview = async () => {
-    const canvas = textPreviewCanvasRef.current;
-    const img = overlayPreviewImage();
-    if (!canvas || !img) return;
-    const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+  // a canvas so the preview frame matches the encoded one. Both previews — the
+  // Text Overlay one and the small one under the Render Concat button — go
+  // through here, so neither can drift from the other or from the encoder.
+  const paintFramePreview = async (canvas, { img, text, overlay, outW, outH, maxWidth }) => {
+    if (!canvas) return;
+    // Everything drawTextOverlay does is a percentage of the frame, so shrinking
+    // the canvas keeps the composition identical at a fraction of the pixels.
+    const shrink = maxWidth ? Math.min(1, maxWidth / outW) : 1;
+    const w = Math.max(2, Math.round(outW * shrink));
+    const h = Math.max(2, Math.round(outH * shrink));
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, w, h);
     let im = null;
-    try { im = await loadImageElement(img.previewUrl || img.thumbUrl); } catch { /* draw bg only */ }
+    const src = img?.previewUrl || img?.thumbUrl;
+    if (src) {
+      try { im = await loadImageElement(src); } catch { /* draw bg only */ }
+    }
     if (im) {
       const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
       const contain = Math.min(w / iw, h / ih);
@@ -3016,7 +3226,54 @@ export default function RipTagPage() {
       ctx.fillStyle = videoBgColor;
       ctx.fillRect(0, 0, w, h);
     }
-    drawTextOverlay(ctx, overlayPreviewText(), textOverlay, w, h);
+    drawTextOverlay(ctx, text, overlay, w, h);
+  };
+
+  const drawOverlayPreview = async () => {
+    const img = overlayPreviewImage();
+    if (!img) return;
+    await paintFramePreview(textPreviewCanvasRef.current, {
+      img,
+      text: overlayPreviewText(),
+      overlay: textOverlay,
+      outW: concatDimensions.w,
+      outH: concatDimensions.h,
+    });
+  };
+
+  // ---- Concat button preview ------------------------------------------------
+  // The frame the concat video opens with: the first image on the timeline,
+  // captioned the way the first track will be. Drawn automatically so the
+  // button underneath it isn't the only description of what it produces.
+  const concatPreviewImage = (() => {
+    const first = rowTimings[0];
+    const img = first ? videoImages.find(im => im.id === first.id) : null;
+    return img || videoImages.find(im => selectedVideoImages.has(im.id)) || null;
+  })();
+
+  const concatPreviewFrame = () => {
+    const firstAudio = getOrderedAudios()[0];
+    if (!textOverlay.enabled) return { text: "", overlay: textOverlay };
+    if (textOverlay.source === "custom") return { text: textOverlay.customText, overlay: textOverlay };
+    if (!firstAudio) return { text: "", overlay: textOverlay };
+    return {
+      text: trackCaptionText(firstAudio._trackIdx, firstAudio.title),
+      overlay: { ...textOverlay, position: trackCaptionPosition(firstAudio._trackIdx) },
+    };
+  };
+
+  const drawConcatPreview = async () => {
+    const canvas = concatPreviewCanvasRef.current;
+    if (!canvas) return;
+    const { text, overlay } = concatPreviewFrame();
+    await paintFramePreview(canvas, {
+      img: concatPreviewImage,
+      text,
+      overlay,
+      outW: concatDimensions.w,
+      outH: concatDimensions.h,
+      maxWidth: 420,
+    });
   };
 
   const runOverlayPreview = async () => {
@@ -3042,7 +3299,28 @@ export default function RipTagPage() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showTextPreview, textOverlay, textPreviewImgId, textPreviewTrackIdx, videoWidth, videoHeight, videoBgColor, videoImages, exportedTracks, trackClips, videoAudioOrder, selectedVideoAudios]);
+  }, [showTextPreview, textOverlay, textPreviewImgId, textPreviewTrackIdx, concatDimensions.w, concatDimensions.h, videoBgColor, videoImages, exportedTracks, trackClips, videoAudioOrder, selectedVideoAudios]);
+
+  // Warm the ffmpeg core as soon as the user reaches the export/render steps,
+  // so pressing Render doesn't begin with a 32 MB download.
+  useEffect(() => {
+    if (step < 4) return;
+    loadFFmpegCore().catch(() => {});
+  }, [step]);
+
+  // Redraw the concat preview whenever anything it shows can have changed.
+  useEffect(() => {
+    if (step !== 5) return;
+    let cancelled = false;
+    (async () => {
+      if (typeof document !== "undefined" && document.fonts?.ready) await document.fonts.ready;
+      if (!cancelled) await drawConcatPreview();
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, textOverlay, trackTextOverrides, concatDimensions.w, concatDimensions.h, videoBgColor,
+      videoImages, selectedVideoImages, selectedVideoAudios, videoAudioOrder, exportedTracks,
+      slideshowMode, trackImageAssign, manualImageTimings, loopInterval]);
 
   // True when any *selected* image has a motion effect. Motion forces the render
   // to a real frame rate, so the fps control and the slow-render warning key off it.
@@ -3154,7 +3432,7 @@ export default function RipTagPage() {
   const YT_MAX_DURATION_SEC = 12 * 60 * 60; // 12 hours
 
   const estimateVideoSize = () => {
-    const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+    const { w, h } = concatDimensions;
     const audios = exportedTracks.filter((_, i) => selectedVideoAudios.has(i));
     const totalDur = audios.reduce((s, t) => s + (t.end - t.start), 0);
     if (totalDur <= 0) return null;
@@ -3174,7 +3452,7 @@ export default function RipTagPage() {
   const WASM_MEMORY_LIMIT_MB = 2048;
   const WASM_MEMORY_WARN_MB = 1500;
   const estimateMemoryUsage = () => {
-    const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+    const { w, h } = concatDimensions;
     const selectedImgs = videoImages.filter(img => selectedVideoImages.has(img.id));
     if (selectedImgs.length === 0) return null;
     const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
@@ -3217,53 +3495,33 @@ export default function RipTagPage() {
   };
 
   // Pre-shrink huge source images: a 7000+ px PNG decodes to >200 MB of RGBA in the wasm heap, which combined with x264's frame buffers exceeds the ~2 GB wasm ceiling.
-  const downscaleImageForRender = (file, maxDim) => new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const { naturalWidth: nw, naturalHeight: nh } = img;
-      if (!nw || !nh || Math.max(nw, nh) <= maxDim) {
-        URL.revokeObjectURL(url);
-        resolve({ file, resized: false, original: { w: nw, h: nh } });
-        return;
-      }
-      const scale = maxDim / Math.max(nw, nh);
-      const w = Math.max(1, Math.round(nw * scale));
-      const h = Math.max(1, Math.round(nh * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(url);
-        if (!blob) { resolve({ file, resized: false, original: { w: nw, h: nh } }); return; }
-        const newName = file.name.replace(/(\.[^.]+)?$/, `_resized_${w}x${h}.png`);
-        const newFile = new File([blob], newName, { type: "image/png" });
-        resolve({ file: newFile, resized: true, original: { w: nw, h: nh }, resizedTo: { w, h } });
-      }, "image/png");
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve({ file, resized: false }); };
-    img.src = url;
-  });
+  const downscaleImageForRender = async (file, maxDim) => {
+    let perFile = downscaleCache.get(file);
+    if (perFile?.has(maxDim)) return perFile.get(maxDim);
+    const result = await computeDownscale(file, maxDim);
+    if (!perFile) { perFile = new Map(); downscaleCache.set(file, perFile); }
+    perFile.set(maxDim, result);
+    return result;
+  };
 
   // ---- Video Render ----
-  // Freezes everything the encoder needs into a plain object, with the audio
-  // already resolved to Blobs. A queued job can outlive the project it came
-  // from, so past this point the render must never read component state — the
-  // user may have switched to another project by the time it runs.
-  const buildRenderSpec = async () => {
+  // Freezes everything the encoder needs into a plain object. A queued job can
+  // outlive the project it came from, so past this point the render must never
+  // read component state — the user may have switched to another project by the
+  // time it runs.
+  //
+  // Synchronous on purpose: the audio *bytes* are read later, by resolveSpecAudios
+  // when the job actually starts. Reading them here meant the button did several
+  // seconds of blob I/O before the job (and its progress bar) existed.
+  const buildRenderSpec = () => {
     const audios = getOrderedAudios();
     const images = videoImages.filter(img => selectedVideoImages.has(img.id));
     if (audios.length === 0 || images.length === 0) return null;
-    const resolvedAudios = [];
-    for (const t of audios) {
-      const blob = t.file ? t.file : await (await fetch(t.url)).blob();
-      resolvedAudios.push({
-        title: t.title, name: t.name, blob,
-        start: t.start, end: t.end,
-        clipStart: t.clipStart, clipEnd: t.clipEnd, isClipped: t.isClipped,
-      });
-    }
+    const resolvedAudios = audios.map(t => ({
+      title: t.title, name: t.name, file: t.file, url: t.url,
+      start: t.start, end: t.end,
+      clipStart: t.clipStart, clipEnd: t.clipEnd, isClipped: t.isClipped,
+    }));
     return {
       name: (videoOutputName || projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || "album",
       audios: resolvedAudios,
@@ -3276,8 +3534,8 @@ export default function RipTagPage() {
       })),
       timings: attachOverlayText(getEffectiveImageTimings(), audios),
       totalDur: audios.reduce((s, t) => s + (t.end - t.start), 0),
-      w: parseInt(videoWidth) || 1920,
-      h: parseInt(videoHeight) || 1080,
+      w: concatDimensions.w,
+      h: concatDimensions.h,
       bgColor: videoBgColor,
       imageMaxDim,
       motionFps,
@@ -3290,6 +3548,12 @@ export default function RipTagPage() {
       ytMeta: { discogsData, ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix },
     };
   };
+
+  // Reads each track's bytes. Deferred to the moment a job starts so a queued
+  // render doesn't pin hundreds of megabytes of audio while it waits its turn.
+  const resolveSpecAudios = (audios) => Promise.all(
+    audios.map(async (t) => ({ ...t, blob: t.file ? t.file : await (await fetch(t.url)).blob() }))
+  );
 
   // Pure with respect to component state: everything comes from `spec`, and all
   // output goes through `ctx` (supplied by the render queue).
@@ -3338,11 +3602,7 @@ export default function RipTagPage() {
           ctx.onProgress(Math.min(1, prog.base + prog.span * Math.min(1, elapsed / prog.dur)));
         }
       });
-      const base = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-      await ffV.load({
-        coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
-      });
+      await ffV.load(await loadFFmpegCore());
 
       appendVideoLog(`Writing ${selectedAudioList.length} audio + ${selectedImageList.length} image file(s)…`);
 
@@ -3795,7 +4055,7 @@ export default function RipTagPage() {
     selectedVideoImages: [...selectedVideoImages],
     videoOutputName, ytUploadData, ytTitleVariation, ytTimestampFormat,
     ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix, ytTitleSuggestions,
-    autoUploadYt, autoMatchImageRes, batchSettings, trackTextOverrides,
+    autoUploadYt, autoMatchImageRes, renderScale, batchSettings, trackTextOverrides,
   });
 
   // saveActiveProject is memoized on the blob-bearing state only, so the
@@ -3850,7 +4110,15 @@ export default function RipTagPage() {
     setYtTitleSuggestions(s.ytTitleSuggestions || []);
     if (s.autoUploadYt != null) setAutoUploadYt(s.autoUploadYt);
     if (s.autoMatchImageRes != null) setAutoMatchImageRes(s.autoMatchImageRes);
-    if (s.batchSettings) setBatchSettings(prev => ({ ...prev, ...s.batchSettings }));
+    if (s.batchSettings) {
+      // Projects saved before the two render modes shared their settings kept
+      // scale/resolution/text on batchSettings; carry the scale over and drop
+      // the rest, which now come from the shared controls.
+      const { scale, resolution, textMode, customText, ...batchOnly } = s.batchSettings;
+      setBatchSettings(prev => ({ ...prev, ...batchOnly }));
+      if (s.renderScale == null && scale != null) setRenderScale(scale);
+    }
+    if (s.renderScale != null) setRenderScale(s.renderScale);
     setTrackTextOverrides(s.trackTextOverrides || {});
   };
 
@@ -4045,7 +4313,7 @@ export default function RipTagPage() {
         imgsOut.push({
           id: im.id, file: f,
           thumbUrl: thumb?.thumbUrl || URL.createObjectURL(f),
-          previewUrl: URL.createObjectURL(f),
+          previewUrl: thumb?.previewUrl || URL.createObjectURL(f),
           loading: false,
           naturalWidth: im.naturalWidth ?? thumb?.width, naturalHeight: im.naturalHeight ?? thumb?.height,
           width: im.naturalWidth ?? thumb?.width, height: im.naturalHeight ?? thumb?.height,
@@ -4188,24 +4456,22 @@ export default function RipTagPage() {
     if (!id) return;
     const existing = renderQueue.getJob(id);
     if (existing && (existing.status === "running" || existing.status === "queued")) return;
-    let spec;
-    try {
-      spec = await buildRenderSpec();
-    } catch (e) {
-      setMessage(`Could not prepare the render: ${e?.message || e}`);
-      return;
-    }
+    // Everything but the audio bytes is captured synchronously, so the job —
+    // and its progress bar — exist the instant the button is pressed. Reading
+    // the blobs and saving the project used to happen first, which is what left
+    // the button looking dead for a couple of seconds on a long rip.
+    const spec = buildRenderSpec();
     if (!spec) return;
     setShowVideoLogs(true);
-    // Persist first so the queued job's project is on disk even if the tab is
-    // reloaded before it starts.
-    await saveActiveProject();
     const projectName_ = projectName || "Untitled project";
 
     renderQueue.enqueue({
       projectId: id,
       projectName: projectName_,
-      run: (ctx) => runVideoRender(spec, ctx),
+      run: async (ctx) => {
+        const audios = await resolveSpecAudios(spec.audios);
+        return runVideoRender({ ...spec, audios }, ctx);
+      },
       onSettled: async (settled) => {
         if (settled.status !== "done") {
           if (settled.status === "error" && activeProjectIdRef.current === id) {
@@ -4242,6 +4508,10 @@ export default function RipTagPage() {
         if (autoUploadYtRef.current) setTimeout(() => uploadToYouTube(url), 500);
       },
     });
+
+    // Persist after queueing, not before — on a big project this write takes a
+    // while, and the job is already safely on the queue.
+    await saveActiveProject();
   };
 
   // ---- Batch render: one video per track ------------------------------------
@@ -4271,29 +4541,23 @@ export default function RipTagPage() {
     return raw.replace(/[^a-zA-Z0-9 _\-]/g, "").trim().replace(/\s+/g, "_") || `track_${num}`;
   };
 
-  const BATCH_SCALES = [0.25, 0.33, 0.5, 0.75, 1, 1.25, 1.5, 2];
-  const BATCH_MAX_DIM = 7680;
-
   // Single source of truth for a batch video's output size, so the settings
-  // preview and the encoder can't disagree.
+  // preview and the encoder can't disagree. Resolution mode and scale are the
+  // shared ones, so a batch video is the concat video's size unless its own
+  // image says otherwise.
   const batchDimensionsFor = (img) => {
-    const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
-    const auto = batchSettings.resolution === "auto" && img?.naturalWidth && img?.naturalHeight;
+    const auto = resolutionMode === "auto" && img?.naturalWidth && img?.naturalHeight;
     const baseW = auto ? img.naturalWidth : (parseInt(videoWidth) || 1920);
     const baseH = auto ? img.naturalHeight : (parseInt(videoHeight) || 1080);
-    const scale = Number(batchSettings.scale) || 1;
-    // h264 needs even dimensions; matching an odd-sized source would otherwise
-    // get silently padded by the filtergraph's trailing pad.
-    const apply = (n) => even(Math.min(BATCH_MAX_DIM, Math.max(2, Math.round(n * scale))));
-    return { w: apply(baseW), h: apply(baseH) };
+    return { w: scaleDimension(baseW, renderScale), h: scaleDimension(baseH, renderScale) };
   };
 
   // What a batch video's caption will actually say, after mode + per-track override.
   const batchTextFor = (item) => {
-    if (batchSettings.textMode === "off") return "";
-    if (batchSettings.textMode === "custom") {
+    if (sharedTextMode === "off") return "";
+    if (sharedTextMode === "custom") {
       const o = trackTextOverrides[item.audio._trackIdx];
-      return (o && o.text != null && o.text !== "") ? o.text : batchSettings.customText;
+      return (o && o.text != null && o.text !== "") ? o.text : textOverlay.customText;
     }
     return trackCaptionText(item.audio._trackIdx, item.audio.title);
   };
@@ -4334,7 +4598,7 @@ export default function RipTagPage() {
       // and would just add an encode.
       slideshowMode: "distribute",
       loopInterval,
-      textOverlay: { ...textOverlay, enabled: batchSettings.textMode !== "off" && !!text.trim() },
+      textOverlay: { ...textOverlay, enabled: sharedTextMode !== "off" && !!text.trim() },
       overlayTextVaries: false,
       ytMeta: { discogsData, ytTitleVariation, ytTimestampFormat, ytTimestampSeparator, ytIncludeTrackNums, ytDescSuffix },
     };
@@ -6670,13 +6934,17 @@ export default function RipTagPage() {
               {/* Text overlay — burned into the video over each image */}
               <div className={styles.videoSection}>
                 <h3 className={styles.sectionTitle}>Text Overlay</h3>
-                <label className={styles.videoCheckLabel} style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
-                  <input
-                    type="checkbox"
-                    checked={textOverlay.enabled}
-                    onChange={e => setTextOverlay(o => ({ ...o, enabled: e.target.checked }))}
-                  />
-                  Overlay text on the image
+                {/* The one text switch for the whole step. The batch panel shows
+                    this same control, bound to this same state, so the concat
+                    render and the batch videos always say the same thing. */}
+                <label className={styles.settingLabel} style={{ maxWidth: 380 }}>
+                  Text on the video
+                  <select className={styles.input} value={sharedTextMode} onChange={e => setSharedTextMode(e.target.value)}>
+                    {TEXT_MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <span className={styles.settingHelp}>
+                    Applies to both render modes — the concat video and every batch video.
+                  </span>
                 </label>
                 {!textOverlay.enabled && (
                   <p className={styles.hintText} style={{ marginTop: 6 }}>
@@ -6694,13 +6962,6 @@ export default function RipTagPage() {
                   return (
                     <>
                       <div className={styles.overlayGrid}>
-                        <label className={styles.settingLabel}>
-                          Text source
-                          <select className={styles.input} value={textOverlay.source} onChange={e => set("source")(e.target.value)}>
-                            <option value="track">Song name (changes per track)</option>
-                            <option value="custom">Custom text (same throughout)</option>
-                          </select>
-                        </label>
                         {textOverlay.source === "custom" && (
                           <label className={styles.settingLabel} style={{ gridColumn: "span 2" }}>
                             Custom text
@@ -7055,7 +7316,7 @@ export default function RipTagPage() {
 
               {/* Image Settings — controls how source images are pre-processed before render */}
               {videoImages.length > 0 && (() => {
-                const w = parseInt(videoWidth) || 1920, h = parseInt(videoHeight) || 1080;
+                const { w, h } = concatDimensions;
                 const parsedMax = imageMaxDim === "auto" ? null : parseInt(imageMaxDim);
                 const effectiveMaxDim = parsedMax === 0 ? Infinity
                   : (parsedMax && parsedMax > 0 ? parsedMax : Math.round(Math.max(w, h) * 1.25));
@@ -7223,6 +7484,20 @@ export default function RipTagPage() {
                     </div>
                   </div>
                   <label className={styles.settingLabel}>
+                    Scale — {renderScale}×
+                    <select className={styles.input} value={renderScale}
+                      onChange={e => setRenderScale(parseFloat(e.target.value) || 1)}>
+                      {RENDER_SCALES.map(v => (
+                        <option key={v} value={v}>{v}× {v < 1 ? "(smaller)" : v > 1 ? "(larger)" : "(original)"}</option>
+                      ))}
+                    </select>
+                    <span className={styles.settingHelp}>
+                      Applied on top of the resolution, to the concat render and every batch video — output {concatDimensions.w}×{concatDimensions.h}.
+                      {renderScale < 1 && " Smaller renders are much faster and far less likely to run out of memory."}
+                      {renderScale > 1 && " Upscaling won't add detail and makes each render slower."}
+                    </span>
+                  </label>
+                  <label className={styles.settingLabel}>
                     Background color
                     <input type="color" value={videoBgColor} onChange={e => setVideoBgColor(e.target.value)} style={{ width: 44, height: 34, padding: 2, borderRadius: 4, border: "1px solid #cbd5e0", cursor: "pointer" }} />
                   </label>
@@ -7239,7 +7514,7 @@ export default function RipTagPage() {
                     }}>
                       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                         <span>Duration: <strong>{formatTime(est.totalDur)}</strong></span>
-                        <span>Resolution: <strong>{videoWidth}×{videoHeight}</strong></span>
+                        <span>Resolution: <strong>{concatDimensions.w}×{concatDimensions.h}</strong>{renderScale !== 1 && <> ({videoWidth}×{videoHeight} × {renderScale})</>}</span>
                         <span>Est. size: <strong>{est.totalMB < 1024 ? `${est.totalMB.toFixed(0)} MB` : `${(est.totalMB/1024).toFixed(1)} GB`}</strong></span>
                         <span>Upload limit: <strong>{YT_UPLOAD_LIMIT_MB / 1024} GB</strong></span>
                       </div>
@@ -7326,6 +7601,22 @@ export default function RipTagPage() {
                       : `Render Concat (${selectedVideoImages.size} image${selectedVideoImages.size !== 1 ? "s" : ""}, ${selectedVideoAudios.size} track${selectedVideoAudios.size !== 1 ? "s" : ""})`}
                   </button>
                   <span className={styles.renderModeHint}>One video — every track joined end to end, images following the slideshow settings.</span>
+                  {/* Auto-drawn opening frame, so the button shows what it makes. */}
+                  {concatPreviewImage ? (
+                    <figure className={styles.renderModePreview}>
+                      <canvas ref={concatPreviewCanvasRef} className={styles.renderModePreviewCanvas} />
+                      <figcaption className={styles.renderModePreviewCap}>
+                        {concatPreviewImage.loading ? <>Reading {concatPreviewImage.file?.name}…</> : (
+                          <>
+                            Opening frame — {concatDimensions.w}×{concatDimensions.h}
+                            {getOrderedAudios().length > 1 && <>, then {getOrderedAudios().length - 1} more track{getOrderedAudios().length === 2 ? "" : "s"}</>}
+                          </>
+                        )}
+                      </figcaption>
+                    </figure>
+                  ) : (
+                    <div className={styles.renderModePreviewEmpty}>Select an image to see a preview of the first frame.</div>
+                  )}
                 </div>
                 <span className={styles.renderModeOr}>or</span>
                 <div className={styles.renderModeCol}>
@@ -7387,16 +7678,16 @@ export default function RipTagPage() {
                 <ul className={styles.batchSummary}>
                   <li><b>{batchPlan.length}</b> video{batchPlan.length === 1 ? "" : "s"} — one per {batchSettings.scope === "pinned" ? "track that has a pinned image" : "selected track"}</li>
                   <li>Each video is <b>one track&apos;s audio</b> over <b>one still image</b> (its pinned image, or the cycling image if unpinned)</li>
-                  <li>Resolution: {batchSettings.resolution === "auto"
+                  <li>Resolution: {resolutionMode === "auto"
                     ? <b>each video matches its own image</b>
                     : <>fixed at <b>{videoWidth}×{videoHeight}</b></>}
-                    {Number(batchSettings.scale) !== 1 && <>, scaled <b>{batchSettings.scale}×</b></>}</li>
-                  <li>Text: {batchSettings.textMode === "off"
+                    {renderScale !== 1 && <>, scaled <b>{renderScale}×</b></>}</li>
+                  <li>Text: {sharedTextMode === "off"
                     ? <b>none</b>
-                    : batchSettings.textMode === "custom"
-                      ? <>the same custom text on every video — <b>{batchSettings.customText || "(empty — nothing will be drawn)"}</b></>
+                    : sharedTextMode === "custom"
+                      ? <>the same custom text on every video — <b>{textOverlay.customText || "(empty — nothing will be drawn)"}</b></>
                       : <b>each track&apos;s song name</b>}
-                    {batchSettings.textMode !== "off" && (
+                    {sharedTextMode !== "off" && (
                       textOverlay.durationMode === "seconds"
                         ? ` — shown for the first ${textOverlay.durationSeconds}s of each video, styled by the Text Overlay section above`
                         : " — shown for the whole video, styled by the Text Overlay section above"
@@ -7426,49 +7717,51 @@ export default function RipTagPage() {
                             Pin an image to a track in the Audio Tracks table above.
                           </span>
                         </label>
+                        {/* Resolution, scale and text are the same settings the
+                            concat render uses — changing them here changes them
+                            in Video Settings / Text Overlay too, and vice versa. */}
                         <label className={styles.settingLabel}>
                           Video resolution
-                          <select className={styles.input} value={batchSettings.resolution} onChange={e => setB("resolution")(e.target.value)}>
+                          <select className={styles.input} value={resolutionMode} onChange={e => setAutoMatchImageRes(e.target.value === "auto")}>
                             <option value="auto">Match each track&apos;s image</option>
                             <option value="fixed">Fixed — {videoWidth}×{videoHeight}</option>
                           </select>
                           <span className={styles.settingHelp}>
-                            {batchSettings.resolution === "auto"
+                            {resolutionMode === "auto"
                               ? "Each video comes out at its own image's pixel size (rounded to even numbers)."
                               : "Every video uses the size set in Video Settings, letterboxing images that don't fit."}
+                            {" "}Shared with <b>Auto match image</b> in Video Settings.
                           </span>
                         </label>
                         <label className={styles.settingLabel}>
-                          Scale — {batchSettings.scale}×
-                          <select className={styles.input} value={batchSettings.scale}
-                            onChange={e => setB("scale")(parseFloat(e.target.value) || 1)}>
-                            {BATCH_SCALES.map(v => (
+                          Scale — {renderScale}×
+                          <select className={styles.input} value={renderScale}
+                            onChange={e => setRenderScale(parseFloat(e.target.value) || 1)}>
+                            {RENDER_SCALES.map(v => (
                               <option key={v} value={v}>{v}× {v < 1 ? "(smaller)" : v > 1 ? "(larger)" : "(original)"}</option>
                             ))}
                           </select>
                           <span className={styles.settingHelp}>
-                            Applied to every video in the batch, on top of the resolution above.
-                            {batchSettings.scale < 1 && " Smaller renders are much faster and far less likely to run out of memory."}
-                            {batchSettings.scale > 1 && " Upscaling won't add detail and makes each render slower."}
+                            Applied on top of the resolution above. Shared with <b>Scale</b> in Video Settings, so the concat render uses it too.
+                            {renderScale < 1 && " Smaller renders are much faster and far less likely to run out of memory."}
+                            {renderScale > 1 && " Upscaling won't add detail and makes each render slower."}
                           </span>
                         </label>
                         <label className={styles.settingLabel}>
-                          Text on each video
-                          <select className={styles.input} value={batchSettings.textMode} onChange={e => setB("textMode")(e.target.value)}>
-                            <option value="track">Song name (different per video)</option>
-                            <option value="custom">Custom text (same on every video)</option>
-                            <option value="off">No text</option>
+                          Text on the video
+                          <select className={styles.input} value={sharedTextMode} onChange={e => setSharedTextMode(e.target.value)}>
+                            {TEXT_MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                           </select>
                           <span className={styles.settingHelp}>
-                            Font, size, colour, background and position come from the <b>Text Overlay</b> section above — this only chooses what it says.
+                            The same switch as the <b>Text Overlay</b> section above, which is also where font, size, colour, background and position come from.
                           </span>
                         </label>
-                        {batchSettings.textMode === "custom" && (
+                        {sharedTextMode === "custom" && (
                           <label className={styles.settingLabel}>
                             Custom text
-                            <input type="text" className={styles.input} value={batchSettings.customText}
+                            <input type="text" className={styles.input} value={textOverlay.customText}
                               placeholder={projectName || "Your text here"}
-                              onChange={e => setB("customText")(e.target.value)} />
+                              onChange={e => setTextOverlay(o => ({ ...o, customText: e.target.value }))} />
                           </label>
                         )}
                         <label className={styles.settingLabel} style={{ gridColumn: "span 2" }}>
@@ -7495,8 +7788,8 @@ export default function RipTagPage() {
                               {batchPlan.map(item => {
                                 const { w, h } = batchDimensionsFor(item.img);
                                 const ov = trackTextOverrides[item.audio._trackIdx] || {};
-                                const fallbackText = batchSettings.textMode === "custom"
-                                  ? (batchSettings.customText || "")
+                                const fallbackText = sharedTextMode === "custom"
+                                  ? (textOverlay.customText || "")
                                   : (item.audio.title || "");
                                 return (
                                   <tr key={item.orderIdx}>
@@ -7514,7 +7807,7 @@ export default function RipTagPage() {
                                     </td>
                                     <td>{w}×{h}</td>
                                     <td>
-                                      {batchSettings.textMode === "off" ? <span style={{ opacity: 0.5 }}>—</span> : (
+                                      {sharedTextMode === "off" ? <span style={{ opacity: 0.5 }}>—</span> : (
                                         <input
                                           type="text"
                                           className={styles.input}
@@ -7527,7 +7820,7 @@ export default function RipTagPage() {
                                       )}
                                     </td>
                                     <td>
-                                      {batchSettings.textMode === "off" ? <span style={{ opacity: 0.5 }}>—</span> : (
+                                      {sharedTextMode === "off" ? <span style={{ opacity: 0.5 }}>—</span> : (
                                         <select
                                           className={styles.inputSmall}
                                           style={{ width: 130, textAlign: "left" }}
@@ -8204,7 +8497,13 @@ export default function RipTagPage() {
         )}
       </div>
 
-      <audio ref={audioRef} onEnded={() => { setIsPlaying(false); setPreviewingTrack(null); }} preload="auto" />
+      <audio
+        ref={audioRef}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => { setIsPlaying(false); setPreviewingTrack(null); }}
+        preload="auto"
+      />
     </div>
   );
 }

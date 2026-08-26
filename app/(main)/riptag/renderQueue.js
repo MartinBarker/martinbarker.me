@@ -188,6 +188,21 @@ async function pump() {
   job.progress = 0;
   emit();
 
+  // Let the browser paint the "running" state before the encoder starts. pump()
+  // is called synchronously from enqueue(), which is called from the click
+  // handler, so without this yield the first expensive thing run() does happens
+  // in the same task as the click and the progress bar only appears after it.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  if (job._cancelled) {
+    pumping = false;
+    job._run = null;
+    job.endedAt = job.endedAt || Date.now();
+    emit();
+    try { job._onSettled?.({ status: "cancelled" }, publicView(job)); } catch {}
+    pump();
+    return;
+  }
+
   // Progress and log updates arrive far faster than the UI needs them; batch
   // them onto animation frames so a chatty ffmpeg log can't thrash React.
   let dirty = false;
