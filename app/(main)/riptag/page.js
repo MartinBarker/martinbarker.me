@@ -405,6 +405,138 @@ const loadImageElement = (src) => new Promise((resolve, reject) => {
   im.src = src;
 });
 
+// ---- Render timing instrumentation ----------------------------------------
+// A render that starts fast and crawls later is the hard one to explain from a
+// raw ffmpeg log: the log says what it is doing but never how fast, and the
+// queue's line cap means the early part has scrolled away by the time it is
+// slow. This records wall-clock per stage, samples the encode rate in short
+// windows while a pass runs, and prints a per-decile breakdown at the end —
+// which is what actually shows *where* a render loses its speed.
+const RENDER_SAMPLE_LOG_MS = 5000;   // how often the live rate line is logged
+const RENDER_SAMPLE_CAP = 20000;     // ceiling on retained samples per pass
+
+const nowMs = () => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+
+const fmtWall = (ms) => {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m${String(Math.round((ms % 60000) / 1000)).padStart(2, "0")}s`;
+};
+const fmtClock = (sec) => {
+  const s = Math.max(0, Math.round(sec || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+           : `${m}:${String(s % 60).padStart(2, "0")}`;
+};
+const pctOf = (part, whole) => whole > 0 ? `${((part / whole) * 100).toFixed(0)}%` : "—";
+
+// Chrome-only, and it does NOT cover the wasm heap ffmpeg actually lives in.
+// Useful as a secondary signal (blob/array accumulation on our side), not as
+// "the" memory number.
+const jsHeapNote = () => {
+  const m = typeof performance !== "undefined" && performance.memory;
+  if (!m?.usedJSHeapSize) return "";
+  return ` · js-heap ${Math.round(m.usedJSHeapSize / 1048576)}MB`;
+};
+
+function createRenderTimer(log) {
+  const t0 = nowMs();
+  let last = t0;
+  const entries = [];   // chronological, {kind: "stage" | "pass", ...}
+  let pass = null;
+
+  const stage = (label) => {
+    const now = nowMs();
+    entries.push({ kind: "stage", label, ms: now - last });
+    log(`⏱ ${label} — ${fmtWall(now - last)} (total ${fmtWall(now - t0)})${jsHeapNote()}`);
+    last = now;
+  };
+
+  const beginPass = (label, mediaDur, note = "") => {
+    const now = nowMs();
+    pass = {
+      kind: "pass", label, mediaDur: mediaDur > 0 ? mediaDur : 0,
+      startedAt: now, endedAt: null, lastLogAt: now,
+      window: { wall: now, media: 0 }, samples: [], maxMedia: 0, lastStatus: "",
+    };
+    entries.push(pass);
+    log(`⏱ ${label}: encoding ${fmtClock(mediaDur)} of media${note ? ` — ${note}` : ""}…`);
+    last = now;
+  };
+
+  // Fed from every `time=` line ffmpeg prints. `status` carries fps/size/speed
+  // off the same line, which is how a slowdown gets correlated with output
+  // growth rather than just observed.
+  const sample = (mediaSec, status) => {
+    if (!pass) return;
+    const now = nowMs();
+    if (mediaSec > pass.maxMedia) pass.maxMedia = mediaSec;
+    if (pass.samples.length < RENDER_SAMPLE_CAP) pass.samples.push({ wall: now - pass.startedAt, media: mediaSec });
+    if (status) pass.lastStatus = status;
+    if (now - pass.lastLogAt < RENDER_SAMPLE_LOG_MS) return;
+    const winSec = (now - pass.window.wall) / 1000;
+    const winRate = winSec > 0 ? (mediaSec - pass.window.media) / winSec : 0;
+    const avgRate = mediaSec / Math.max(0.001, (now - pass.startedAt) / 1000);
+    const pct = pass.mediaDur > 0 ? ` ${((mediaSec / pass.mediaDur) * 100).toFixed(0)}%` : "";
+    log(`⏱ ${pass.label}${pct} — ${fmtClock(mediaSec)}/${fmtClock(pass.mediaDur)} encoded in ${fmtWall(now - pass.startedAt)}`
+      + ` · ${winRate.toFixed(2)}× now, ${avgRate.toFixed(2)}× avg${status ? ` · ${status}` : ""}${jsHeapNote()}`);
+    pass.lastLogAt = now;
+    pass.window = { wall: now, media: mediaSec };
+  };
+
+  const endPass = () => {
+    if (!pass) return;
+    pass.endedAt = nowMs();
+    const wall = pass.endedAt - pass.startedAt;
+    log(`⏱ ${pass.label} finished — ${fmtWall(wall)} for ${fmtClock(pass.maxMedia)} of media `
+      + `(${(pass.maxMedia / Math.max(0.001, wall / 1000)).toFixed(2)}× average)`);
+    last = pass.endedAt;
+    pass = null;
+  };
+
+  // Wall time spent on each 10% band of a pass's media. A render that "gets
+  // slow halfway" shows up here as the later bands costing multiples of the
+  // earlier ones — and if they don't, the slowdown is somewhere else.
+  const deciles = (p) => {
+    if (!p.samples.length || p.mediaDur <= 0) return [];
+    const out = [];
+    let prevWall = 0, i = 0;
+    for (let d = 1; d <= 10; d++) {
+      const target = (p.mediaDur * d) / 10;
+      while (i < p.samples.length && p.samples[i].media < target) i++;
+      if (i >= p.samples.length) break;
+      out.push({ band: `${(d - 1) * 10}-${d * 10}%`, ms: p.samples[i].wall - prevWall });
+      prevWall = p.samples[i].wall;
+    }
+    return out;
+  };
+
+  // Printed last, so it survives the queue's log cap even when ffmpeg has been
+  // chatty enough to push every heartbeat out of the buffer.
+  const summary = () => {
+    if (pass) endPass();
+    const total = nowMs() - t0;
+    log(`⏱ ═══ Render timing — total ${fmtWall(total)} ═══`);
+    for (const e of entries) {
+      if (e.kind === "stage") { log(`⏱   ${e.label}: ${fmtWall(e.ms)} (${pctOf(e.ms, total)})`); continue; }
+      const wall = (e.endedAt || nowMs()) - e.startedAt;
+      log(`⏱   ${e.label}: ${fmtWall(wall)} (${pctOf(wall, total)}) — ${fmtClock(e.maxMedia)} of media `
+        + `at ${(e.maxMedia / Math.max(0.001, wall / 1000)).toFixed(2)}× average`);
+      const bands = deciles(e);
+      if (bands.length > 1) {
+        const fastest = Math.min(...bands.map(b => b.ms)) || 1;
+        for (const b of bands) {
+          log(`⏱     ${b.band.padStart(8)} ${fmtWall(b.ms).padStart(8)}  (${(b.ms / fastest).toFixed(1)}× the fastest band)`);
+        }
+      }
+      if (e.lastStatus) log(`⏱     last ffmpeg status: ${e.lastStatus}`);
+    }
+    log("⏱ ═══ end timing ═══");
+  };
+
+  return { stage, beginPass, sample, endPass, summary };
+}
+
 // ---- Persistence keys ----
 // Projects themselves live in IndexedDB (see riptagStore); localStorage only
 // remembers which one was open and holds the pre-projects autosave blob that
@@ -3567,7 +3699,8 @@ export default function RipTagPage() {
     const { imageMaxDim, motionFps, slideshowMode, loopInterval, textOverlay, overlayTextVaries } = spec;
     const videoBgColor = spec.bgColor;
     let ffV = null;
-    {
+    const timer = createRenderTimer(appendVideoLog);
+    try {
       ffV = new FFmpeg();
       ctx.registerFfmpeg(ffV);
       const oomState = { detected: false, lastSignal: "", encodeCompleted: false };
@@ -3600,9 +3733,20 @@ export default function RipTagPage() {
         if (m && prog.dur > 0) {
           const elapsed = parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]);
           ctx.onProgress(Math.min(1, prog.base + prog.span * Math.min(1, elapsed / prog.dur)));
+          // The rest of the same status line carries the rate-bearing fields.
+          // Handing them to the timer is what lets the summary say whether a
+          // slowdown tracks output growth, a frame-rate drop, or neither.
+          const fps = msg.match(/fps=\s*([\d.]+)/)?.[1];
+          const size = msg.match(/L?size=\s*(\S+)/)?.[1];
+          const speed = msg.match(/speed=\s*([\d.]+x)/)?.[1];
+          const q = msg.match(/\sq=\s*(-?[\d.]+)/)?.[1];
+          timer.sample(elapsed, [
+            fps && `fps ${fps}`, q && `q ${q}`, size && `out ${size}`, speed && `ffmpeg ${speed}`,
+          ].filter(Boolean).join(" · "));
         }
       });
       await ffV.load(await loadFFmpegCore());
+      timer.stage("ffmpeg core loaded");
 
       appendVideoLog(`Writing ${selectedAudioList.length} audio + ${selectedImageList.length} image file(s)…`);
 
@@ -3615,6 +3759,8 @@ export default function RipTagPage() {
         audioVfsNames.push(vfsName);
         await ffV.writeFile(vfsName, await fetchFile(t.blob));
       }
+      timer.stage(`wrote ${selectedAudioList.length} audio file(s) — `
+        + `${(selectedAudioList.reduce((sum, t) => sum + (t.blob?.size || 0), 0) / 1048576).toFixed(1)} MB`);
 
       const w = spec.w, h = spec.h;
 
@@ -3630,6 +3776,9 @@ export default function RipTagPage() {
         }
         resizedImageFiles.push(result.file);
       }
+      timer.stage(`prepared ${resizedImageFiles.length} image(s) — `
+        + `${(resizedImageFiles.reduce((sum, f) => sum + (f.size || 0), 0) / 1048576).toFixed(1)} MB, `
+        + `max ${imgMaxDim === Infinity ? "unlimited" : `${imgMaxDim}px`}`);
 
       // Write image files (using resized versions where applicable)
       const imgVfsNames = [];
@@ -3640,6 +3789,7 @@ export default function RipTagPage() {
         imgVfsNames.push(vfsName);
         await ffV.writeFile(vfsName, await fetchFile(f));
       }
+      timer.stage(`wrote ${imgVfsNames.length} image file(s) to the ffmpeg VFS`);
       const n = selectedAudioList.length;
 
       // ---- Slideshow segments ----------------------------------------------
@@ -3662,6 +3812,24 @@ export default function RipTagPage() {
       // Degenerate timings (e.g. manual mode with everything zeroed) must not
       // produce concat=n=0 — fall back to one image for the whole video.
       const allSegments = usableSegments.length ? usableSegments : [{ imgIdx: 0, dur: totalDur, text: "", position: textOverlay.position }];
+      // Segment map, so a slow band in the timing summary can be matched to the
+      // image (and caption) that was on screen at that point in the video. Long
+      // slideshows get the shape instead of every row — hundreds of lines here
+      // would push the summary out of the log buffer.
+      if (allSegments.length <= 40) {
+        let at = 0;
+        allSegments.forEach((seg, i) => {
+          const from = at; at += seg.dur;
+          appendVideoLog(`   seg ${i + 1}/${allSegments.length}: ${fmtClock(from)}–${fmtClock(at)} `
+            + `(${seg.dur.toFixed(1)}s) img${seg.imgIdx}${seg.text ? ` · "${seg.text.slice(0, 40)}"` : ""}`);
+        });
+      } else {
+        const durs = allSegments.map(sg => sg.dur);
+        appendVideoLog(`   ${allSegments.length} segments, `
+          + `${Math.min(...durs).toFixed(1)}–${Math.max(...durs).toFixed(1)}s each, `
+          + `${new Set(allSegments.map(sg => sg.imgIdx)).size} distinct image(s)`);
+      }
+      timer.stage(`built ${allSegments.length} slideshow segment(s)`);
 
       // ---- Text overlays ----------------------------------------------------
       // Each distinct caption is rasterised once, at output resolution, into a
@@ -3692,6 +3860,7 @@ export default function RipTagPage() {
           await ffV.writeFile(vfsName, await fetchFile(pngFile));
           overlayVfsByText.set(k, vfsName);
         }
+        if (uniq.size) timer.stage(`rasterised ${overlayVfsByText.size} text overlay PNG(s) at ${w}×${h}`);
       }
       // A caption with a zero-second window would only add an input and a filter
       // that hides it again, so drop it before it reaches the graph.
@@ -3845,9 +4014,22 @@ export default function RipTagPage() {
       // filter or option — which fails during graph init, before any encoding),
       // fall back to a plain still slideshow and run it again so the user still
       // gets their video.
+      // Shape of the work being handed to ffmpeg. A filtergraph that grows with
+      // the number of segments is a prime suspect for a render that degrades as
+      // it goes, so the numbers go in the log next to the timing.
+      const passShape = (args) => {
+        const inputs = args.filter(a => a === "-i").length;
+        const fi = args.indexOf("-filter_complex");
+        const filterLen = fi >= 0 ? (args[fi + 1] || "").length : 0;
+        return `${inputs} input(s), ${filterLen ? `${filterLen}-char filtergraph` : "no filtergraph"}`;
+      };
+
       const runPass = async (buildArgs, what) => {
         graphState.error = "";
-        let code = await ffV.exec(buildArgs());
+        let args = buildArgs();
+        timer.beginPass(what, prog.dur, passShape(args));
+        let code = await ffV.exec(args);
+        timer.endPass();
         const failed = typeof code === "number" && code !== 0;
         if (failed && graphState.error && motionEnabled) {
           appendVideoLog(`⚠ This FFmpeg build rejected the motion filters — ${graphState.error}`);
@@ -3857,7 +4039,10 @@ export default function RipTagPage() {
           outFps = STILL_FPS;
           graphState.error = "";
           oomState.detected = false; oomState.encodeCompleted = false; oomState.lastSignal = "";
-          code = await ffV.exec(buildArgs());
+          args = buildArgs();
+          timer.beginPass(`${what} (retry without motion)`, prog.dur, passShape(args));
+          code = await ffV.exec(args);
+          timer.endPass();
         }
         return code;
       };
@@ -3997,6 +4182,7 @@ export default function RipTagPage() {
       if (typeof exitCode === "number" && exitCode !== 0 && !oomState.encodeCompleted) {
         throw new Error(`FFmpeg exited with code ${exitCode}. See logs above.`);
       }
+      timer.stage(`read ${(data.byteLength / 1048576).toFixed(1)} MB of output out of the ffmpeg VFS`);
       const blob = new Blob([data.buffer], { type: "video/mp4" });
       appendVideoLog("✓ Done!");
 
@@ -4024,6 +4210,10 @@ export default function RipTagPage() {
         description: autoDesc.slice(0, YT_LIMITS.description),
         tags: autoTags.slice(0, YT_LIMITS.tags),
       };
+    } finally {
+      // Runs on the failure paths too — a render that OOMs halfway is exactly
+      // the one whose timing you want to read.
+      timer.summary();
     }
   };
 
@@ -7954,14 +8144,29 @@ export default function RipTagPage() {
               {/* FFmpeg log output */}
               {videoRenderLogs.length > 0 && (
                 <div className={styles.videoLogWrap}>
-                  <button className={styles.analyzeLogToggle} onClick={() => setShowVideoLogs(v => !v)}>
-                    {showVideoLogs ? "▼" : "▶"} FFmpeg Logs ({videoRenderLogs.length} lines)
-                    {isRenderingVideo && <span className={styles.spinnerInline} style={{ marginLeft: 8 }} />}
-                  </button>
+                  <div className={styles.videoLogHeadRow}>
+                    <button className={styles.analyzeLogToggle} onClick={() => setShowVideoLogs(v => !v)}>
+                      {showVideoLogs ? "▼" : "▶"} FFmpeg Logs ({videoRenderLogs.length} lines)
+                      {isRenderingVideo && <span className={styles.spinnerInline} style={{ marginLeft: 8 }} />}
+                    </button>
+                    {/* The timing summary is the point of the ⏱ lines — make it
+                        one click to get the whole log somewhere readable. */}
+                    <button type="button" className={styles.linkBtn}
+                      onClick={() => {
+                        navigator.clipboard?.writeText(videoRenderLogs.join("\n"))
+                          .then(() => setMessage(`Copied ${videoRenderLogs.length} log lines to the clipboard.`))
+                          .catch(() => setMessage("Could not copy the logs — the browser blocked clipboard access."));
+                      }}>
+                      Copy logs
+                    </button>
+                  </div>
                   {showVideoLogs && (
                     <div className={styles.videoLogBox}>
                       {videoRenderLogs.map((line, i) => (
-                        <div key={i} className={`${styles.videoLogLine} ${line.startsWith("ERROR") ? styles.videoLogError : line.startsWith("✓") ? styles.videoLogDone : ""}`}>{line}</div>
+                        <div key={i} className={`${styles.videoLogLine} ${
+                          line.startsWith("ERROR") ? styles.videoLogError
+                            : line.startsWith("✓") ? styles.videoLogDone
+                            : line.startsWith("⏱") ? styles.videoLogTiming : ""}`}>{line}</div>
                       ))}
                       <div ref={videoLogsEndRef} />
                     </div>

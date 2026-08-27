@@ -4872,6 +4872,20 @@
 .perTrackTextBlock { margin-top: 10px; }
 
 /* ── Paired render modes ── */
+/* Render timing lines stand out from the ffmpeg firehose around them. */
+.videoLogHeadRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.videoLogTiming {
+  color: #2b6cb0;
+  font-weight: 600;
+  white-space: pre;
+}
+:global(.darkContent) .videoLogTiming { color: #90cdf4; }
+
 .renderModeRow {
   display: flex;
   align-items: flex-start;
