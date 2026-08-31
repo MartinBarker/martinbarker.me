@@ -827,6 +827,10 @@ export default function RipTagPage() {
   const [projects, setProjects] = useState([]);        // stored project records, newest first
   const [showHistory, setShowHistory] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState(null);
+  // Consecutive autosave failures. Storage that is broken stays broken, and
+  // hammering it just floods the console.
+  const saveFailuresRef = useRef(0);
+  const SAVE_FAILURE_LIMIT = 3;
   const activeProjectIdRef = useRef(null);
   const [projectBusy, setProjectBusy] = useState("");  // "" | "saving" | "loading"
   const [storageInfo, setStorageInfo] = useState(null);
@@ -1197,6 +1201,10 @@ export default function RipTagPage() {
   // must not fire on every keystroke.
   useEffect(() => {
     if (!mounted || !activeProjectId || hydratingRef.current) return;
+    // A storage layer that is failing fails every time. Retrying every 2.5s
+    // produced twenty-odd identical errors a minute and did nothing useful, so
+    // it gives up after a few and says so once.
+    if (saveFailuresRef.current >= SAVE_FAILURE_LIMIT) return;
     const t = setTimeout(() => { if (!hydratingRef.current) saveActiveProject(); }, 2500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2916,7 +2924,29 @@ export default function RipTagPage() {
   const downloadZip = async () => {
     if (!exportedFiles.length) { setMessage("Nothing to zip — export some tracks first."); return; }
     const total = exportedFiles.length;
+    const zipName = `${(projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim() || "album"}_tracks.zip`;
     rlog("downloadZip: started", { files: total, format: outputFormat });
+
+    // Ask for the destination before anything is awaited: showSaveFilePicker
+    // needs the click's transient activation, and reading the tracks would
+    // spend it. Streaming to that handle keeps the whole archive off the heap
+    // and out of the download manager — a 450 MB blob: URL handed to Edge is
+    // what produced "Couldn't download – network issue".
+    let fileHandle = null;
+    if (typeof window.showSaveFilePicker === "function") {
+      try {
+        fileHandle = await window.showSaveFilePicker({
+          suggestedName: zipName,
+          types: [{ description: "ZIP archive", accept: { "application/zip": [".zip"] } }],
+        });
+      } catch (e) {
+        if (e?.name === "AbortError") { rlog("downloadZip: cancelled at the save dialog"); return; }
+        // Any other failure (a browser without it, a blocked picker) falls
+        // through to the blob download below.
+        rlog("downloadZip: save picker unavailable, falling back to a blob download", e?.message || String(e));
+      }
+    }
+
     setMessage(`Building ZIP — 0/${total}…`);
     try {
       const zip = new JSZip();
@@ -2939,10 +2969,52 @@ export default function RipTagPage() {
       // FLAC and WAV differ here: FLAC is already compressed, so deflating it
       // burns CPU and a second full copy of the data for ~nothing.
       const alreadyCompressed = /^(flac|mp3|m4a|ogg|opus)$/i.test(outputFormat);
+      const zipOptions = alreadyCompressed
+        ? { compression: "STORE" }
+        : { compression: "DEFLATE", compressionOptions: { level: 1 } };
+
+      if (fileHandle) {
+        // Chunks go straight to the file the user picked, so peak memory is one
+        // track rather than the whole archive twice over.
+        const writable = await fileHandle.createWritable();
+        let written = 0;
+        try {
+          await new Promise((resolve, reject) => {
+            const stream = zip.generateInternalStream({ ...zipOptions, type: "uint8array", streamFiles: true });
+            // Serialised through one promise chain: write() is async and the
+            // stream would otherwise hand us chunks faster than the disk takes
+            // them.
+            let chain = Promise.resolve();
+            let lastPct = -1;
+            stream.on("data", (chunk, meta) => {
+              stream.pause();
+              written += chunk.byteLength;
+              const pct = Math.round(meta?.percent ?? 0);
+              if (pct !== lastPct && pct % 5 === 0) {
+                lastPct = pct;
+                setMessage(`Writing ZIP — ${pct}% (${formatBytes(written)})`);
+              }
+              chain = chain
+                .then(() => writable.write(chunk))
+                .then(() => stream.resume())
+                .catch(reject);
+            });
+            stream.on("error", reject);
+            stream.on("end", () => { chain.then(resolve, reject); });
+            stream.resume();
+          });
+          await writable.close();
+        } catch (e) {
+          try { await writable.abort(); } catch {}
+          throw e;
+        }
+        rlog("downloadZip: done (streamed to disk)", { bytes: written, compression: zipOptions.compression });
+        setMessage(`ZIP saved (${formatBytes(written)}) — ${fileHandle.name}`);
+        return;
+      }
+
       const blob = await zip.generateAsync(
-        alreadyCompressed
-          ? { type: "blob", compression: "STORE" }
-          : { type: "blob", compression: "DEFLATE", compressionOptions: { level: 1 } },
+        { ...zipOptions, type: "blob" },
         (meta) => {
           if (Math.round(meta.percent) % 10 === 0) setMessage(`Building ZIP — ${Math.round(meta.percent)}%`);
         },
@@ -2950,12 +3022,20 @@ export default function RipTagPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim()}_tracks.zip`;
+      a.download = zipName;
+      // In the document, not detached: a detached anchor's download can be
+      // dropped for a large blob, which the browser then reports as a network
+      // failure rather than anything it can explain.
+      a.style.display = "none";
+      document.body.appendChild(a);
       a.click();
-      // Revoked on a timer, not immediately: revoking in the same tick can
-      // cancel the download before the browser has read the blob.
-      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 30000);
-      rlog("downloadZip: done", { bytes: blob.size, compression: alreadyCompressed ? "STORE" : "DEFLATE" });
+      a.remove();
+      // Held for five minutes. Thirty seconds is not enough when the browser is
+      // prompting for a save location or flushing hundreds of megabytes, and
+      // revoking mid-write is exactly the "network issue" the download manager
+      // reports.
+      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 300000);
+      rlog("downloadZip: done (blob download)", { bytes: blob.size, compression: zipOptions.compression });
       setMessage(`ZIP downloaded (${formatBytes(blob.size)})`);
     } catch (err) {
       rlog("downloadZip: FAILED", err?.message || String(err));
@@ -3817,11 +3897,13 @@ export default function RipTagPage() {
   // order; these are the one-click orderings on top of it.
   const sortVideoAudio = (mode) => {
     const idx = exportedTracks.map((_, i) => i);
-    const titleOf = (i) => (exportedTracks[i]?.title || exportedTracks[i]?.name || "");
+    // Sorted on the filename, because that is the column on screen — sorting
+    // by one string while displaying another reads as a broken sort.
+    const nameOf = (i) => (exportedTracks[i]?.name || exportedTracks[i]?.title || "");
     const sorted = mode === "index"
       ? idx
       : [...idx].sort((a, b) => {
-          const cmp = titleOf(a).localeCompare(titleOf(b), undefined, { numeric: true, sensitivity: "base" });
+          const cmp = nameOf(a).localeCompare(nameOf(b), undefined, { numeric: true, sensitivity: "base" });
           // Ties keep export order, so equal titles don't shuffle between renders.
           return cmp !== 0 ? (mode === "title-desc" ? -cmp : cmp) : a - b;
         });
@@ -4888,6 +4970,7 @@ export default function RipTagPage() {
         trackCount: tracks.length,
       };
       await storePutProject(record);
+      saveFailuresRef.current = 0;
       renderQueue.rename(id, record.name);
       await refreshProjects();
       return record;
@@ -4905,7 +4988,18 @@ export default function RipTagPage() {
       } else {
         setMessage(`Could not save project: ${e?.message || e}`);
       }
-      rlog("saveActiveProject: FAILED", { quota: isQuotaError(e), error: e?.message || String(e) });
+      saveFailuresRef.current += 1;
+      rlog("saveActiveProject: FAILED", {
+        attempt: saveFailuresRef.current, quota: isQuotaError(e), error: e?.message || String(e),
+      });
+      if (saveFailuresRef.current >= SAVE_FAILURE_LIMIT && !isQuotaError(e)) {
+        // "Internal error." from IndexedDB is what a browser says when its
+        // storage backend is broken — usually no disk space, sometimes a
+        // corrupted profile database.
+        setMessage(`Saving is switched off after ${SAVE_FAILURE_LIMIT} failed attempts `
+          + `(“${e?.message || e}”). Your work is still in the page and exports still run — `
+          + "but nothing is being written to browser storage. Free disk space and reload to retry.");
+      }
       return null;
     } finally {
       if (!silent) setProjectBusy("");
@@ -6112,23 +6206,9 @@ export default function RipTagPage() {
 
       {/* Project bar — which project is open, plus every render in flight */}
       <div className={styles.projectBar}>
-        {/* One icon. The project name, the switcher and "new project" all live
-            in the panel it opens, so the workflow isn't fronted by a box of
-            chrome that says nothing the panel doesn't say better. */}
-        <button
-          type="button"
-          className={`${styles.projectIconBtn} ${showHistory ? styles.projectIconBtnOpen : ""}`}
-          onClick={() => setShowHistory(v => !v)}
-          aria-expanded={showHistory}
-          aria-label="Projects"
-          title={`Projects — ${projectName || "Untitled project"}`
-            + (projects.length ? ` · ${projects.length} saved` : "")
-            + (projectBusy ? ` · ${projectBusy === "loading" ? "opening…" : "saving…"}` : "")}
-        >
-          <span className={styles.projectIconGlyph}>🗂</span>
-          {projects.length > 0 && <span className={styles.projectIconBadge}>{projects.length}</span>}
-          {projectBusy && <span className={styles.projectIconBusy} />}
-        </button>
+        {/* The projects button is hidden — the 🗂 glyph rendered badly. The
+            drawer and all of its state are untouched, so restoring it is a
+            matter of putting a button back here that calls setShowHistory. */}
         {(queueActive.length > 0 || queueFinished.length > 0) && (
           <div className={styles.projectBarJobs}>
             {queueActive.map(job => (
@@ -6170,11 +6250,9 @@ export default function RipTagPage() {
 
       {/* Steps — sticky when rendering/uploading */}
       <div className={`${styles.stepBarWrap} ${(isRenderingVideo || ytUploading) ? styles.stepBarSticky : ""}`}>
-        {/* Reset button is rendered as a sibling of .stepBar (not a child), so
-            it's anchored to .stepBarWrap via absolute positioning instead of
-            participating in .stepBar's flex flow. That lets .stepBar use
-            overflow-x: auto for narrow viewports without clipping the
-            button's hover tooltip. */}
+        {/* Kept a sibling of .stepBar rather than a child: .stepBar scrolls
+            horizontally on narrow viewports, which would clip the hover
+            tooltip. Its own row, so it can never overlap the first step. */}
         <div className={styles.stepActionGroup}>
         <button
           type="button"
@@ -7348,8 +7426,8 @@ export default function RipTagPage() {
                         <select className={styles.inputSmall} style={{ width: 150, textAlign: "left" }}
                           value={audioSortMode}
                           onChange={e => sortVideoAudio(e.target.value)}>
-                          <option value="title-asc">Title (A→Z)</option>
-                          <option value="title-desc">Title (Z→A)</option>
+                          <option value="title-asc">Filename (A→Z)</option>
+                          <option value="title-desc">Filename (Z→A)</option>
                           <option value="index">Export order</option>
                           <option value="manual" disabled>Manual (dragged)</option>
                         </select>
@@ -7377,10 +7455,10 @@ export default function RipTagPage() {
                           <th>#</th>
                           <th
                             className={styles.sortableTh}
-                            title="Sort by title"
+                            title="Sort by filename"
                             onClick={() => sortVideoAudio(audioSortMode === "title-asc" ? "title-desc" : "title-asc")}
                           >
-                            Title{audioSortMode === "title-asc" ? " ▲" : audioSortMode === "title-desc" ? " ▼" : ""}
+                            Filename{audioSortMode === "title-asc" ? " ▲" : audioSortMode === "title-desc" ? " ▼" : ""}
                           </th>
                           <th>Duration</th>
                           <th title="Pin an image to this track. The image then covers exactly this track's start → end on the timeline.">Image</th>
@@ -7407,8 +7485,8 @@ export default function RipTagPage() {
                                   <input type="checkbox" checked={selectedVideoAudios.has(trackIdx)} onChange={() => toggleVideoAudio(trackIdx)} />
                                 </td>
                                 <td>{orderIdx + 1}</td>
-                                <td>
-                                  {t.title}
+                                <td className={styles.audioFilenameCell} title={t.title && t.title !== t.name ? `Track title: ${t.title}` : t.name}>
+                                  {t.name || t.title}
                                   {t.copyOf && <span className={styles.copyBadge} title="A copy of another row — same audio file, its own clip range and image"> · copy</span>}
                                   {range.isClipped && <span className={styles.clipBadge} title={`Clipped to ${formatTime(range.clipStart)} – ${formatTime(range.clipEnd)}`}> · clip</span>}
                                 </td>

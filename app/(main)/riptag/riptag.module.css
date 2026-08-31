@@ -88,9 +88,7 @@
   background: white;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  /* Left padding reserves space for the absolutely-positioned reset button
-   * so the first step never sits beneath it. */
-  padding: 0.75rem 1rem 0.75rem 56px;
+  padding: 0.75rem 1rem;
   overflow-x: auto;
   /* Avoid a vertical scrollbar appearing alongside the horizontal one — the
    * bar is single-row, so vertical overflow should never happen in practice. */
@@ -126,17 +124,15 @@
  * hover, not after the OS title-tooltip delay. The button itself is still a
  * positioning context for its ::after, since `position: absolute` also
  * establishes a containing block. */
-/* Both step actions ride in one anchored group; the buttons themselves are
-   ordinary flex children so a second one can sit beside the first. */
+/* Both step actions sit in their own row above the bar. They used to be
+   overlaid on it, which worked while the only one was a 32px icon — adding a
+   labelled button put them on top of Step 1, and padding the bar to clear them
+   would need re-tuning every time their contents changed. */
 .stepActionGroup {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 6px;
-  z-index: 2;
+  margin-bottom: 8px;
 }
 .stepStartOverBtn {
   display: inline-flex;
@@ -1120,6 +1116,19 @@
   text-overflow: clip;
   background: rgba(102, 126, 234, 0.08);
 }
+/* Step 5's audio table shows the whole filename — it is the column you sort
+   on, so an ellipsis in the middle of it defeats the point. Wraps instead of
+   truncating. */
+.audioFilenameCell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  min-width: 240px;
+  max-width: 420px;
+  white-space: normal;
+  word-break: break-all;
+}
+
 .timeCell { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.78rem; white-space: nowrap; }
 :global(.darkContent) .filenameCellExpanded { background: rgba(102, 126, 234, 0.18); }
 .exportRow {
