@@ -126,11 +126,46 @@
  * hover, not after the OS title-tooltip delay. The button itself is still a
  * positioning context for its ::after, since `position: absolute` also
  * establishes a containing block. */
-.stepResetBtn {
+/* Both step actions ride in one anchored group; the buttons themselves are
+   ordinary flex children so a second one can sit beside the first. */
+.stepActionGroup {
   position: absolute;
   left: 14px;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+.stepStartOverBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #4a5568;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.stepStartOverBtn:hover:not(:disabled) {
+  background: rgba(229, 62, 62, 0.1);
+  border-color: rgba(229, 62, 62, 0.5);
+  color: #c53030;
+}
+.stepStartOverBtn:hover:not(:disabled) svg { transform: rotate(-45deg); }
+.stepStartOverBtn svg { transition: transform 0.25s ease; }
+.stepStartOverBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+:global(.darkContent) .stepStartOverBtn { background: #1e1e2e; border-color: #555; color: #a0aec0; }
+
+.stepResetBtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -142,7 +177,6 @@
   background: white;
   color: #4a5568;
   cursor: pointer;
-  z-index: 2;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .stepResetBtn:hover:not(:disabled) {
@@ -521,6 +555,96 @@
 .manualRow { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
 .inputSmall { width: 80px; padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.88rem; text-align: center; }
 .inputSmall:focus { outline: none; border-color: #667eea; }
+
+/* ── Marker JSON panel (waveform toolbar cog) ── */
+.tbBtnActive {
+  background: #ebf4ff;
+  border-color: #90cdf4;
+  color: #2b6cb0;
+}
+:global(.darkContent) .tbBtnActive { background: #21365a; border-color: #2b6cb0; color: #90cdf4; }
+.markerJsonPanel {
+  margin: 10px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f7fafc;
+}
+:global(.darkContent) .markerJsonPanel { background: #252538; border-color: #444; }
+.markerJsonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.markerJsonBox {
+  width: 100%;
+  min-height: 160px;
+  max-height: 340px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  background: #fff;
+  color: #1a202c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre;
+  overflow: auto;
+}
+:global(.darkContent) .markerJsonBox { background: #1b1b26; border-color: #444; color: #e2e8f0; }
+.markerJsonActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.markerJsonDirtyTag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #c05621;
+}
+:global(.darkContent) .markerJsonDirtyTag { color: #fbd38d; }
+
+/* Step 1 audio preparation progress. */
+.audioPrepBar {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  background: #f7fafc;
+}
+:global(.darkContent) .audioPrepBar { background: #252538; border-color: #444; }
+.audioPrepHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.audioPrepPct { font-variant-numeric: tabular-nums; }
+.audioPrepTrack {
+  height: 8px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+:global(.darkContent) .audioPrepTrack { background: #1b1b26; }
+.audioPrepFill {
+  height: 100%;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  transition: width 0.2s ease;
+}
+.audioPrepHint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  opacity: 0.65;
+}
 
 /* ---- Waveform ---- */
 .waveToolbar {
@@ -909,6 +1033,61 @@
   transition: transform 0.12s;
 }
 .previewBtn:hover { transform: scale(1.1); }
+
+/* Sort control + clear button share the audio table's header row. */
+.audioSortRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.audioSortLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+}
+.sortableTh {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortableTh:hover { text-decoration: underline; }
+
+
+/* "Apply to all" used .previewBtn, a 26px circle — the label was clipped to a
+   couple of letters. It is a labelled action, so it gets a pill sized by its
+   text instead of a fixed-diameter dot. */
+.applyAllBtn {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 0.12s, transform 0.12s;
+}
+.applyAllBtn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+.applyAllBtn:disabled { background: #cbd5e0; color: #f7fafc; cursor: not-allowed; }
+
+/* Slider + button share a row under the Background blur label. */
+.blurSettingRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.blurSettingRow input[type="range"] { flex: 1 1 auto; min-width: 90px; }
+
 
 /* ---- Export (step 4) ---- */
 .formatRow { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
@@ -3150,15 +3329,34 @@
   background: #f7fafc;
 }
 
+/* The preview is the shape of the output frame, capped so a tall portrait
+   render doesn't push the row off the screen. aspect-ratio comes from the JSX,
+   since it tracks the resolution settings. */
+.imgPreviewFrame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0;
+}
+.imgPreviewFrameCap {
+  font-size: 0.68rem;
+  opacity: 0.6;
+}
 .imgPreviewWrap {
   position: relative;
-  width: 100%;
-  height: 160px;
+  width: auto;
+  max-width: min(100%, 420px);
+  max-height: 260px;
+  height: 260px;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
 }
+:global(.darkContent) .imgPreviewWrap { border-color: #444; }
 
 .imgPreviewBlurBg {
   position: absolute;
@@ -4343,16 +4541,15 @@
 :global(.darkContent) .linkBtn { color: #90b0ff; }
 
 /* ── Project bar ── */
+/* No panel, no border — the projects entry point is one icon, and everything
+   it used to spell out lives in the drawer it opens. */
 .projectBar {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  margin: 0 1rem 0.75rem;
-  padding: 8px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f7fafc;
+  margin: 0 1rem 0.5rem;
+  padding: 0;
   font-size: 0.85rem;
 }
 :global(.darkContent) .projectBar { background: #252538; border-color: #444; color: #fff; }
@@ -4373,6 +4570,67 @@
 .projectBarBtn:hover { border-color: #667eea; color: #4c51bf; }
 :global(.darkContent) .projectBarBtn { background: #1e1e2e; border-color: #555; color: #e2e8f0; }
 .projectBarIcon { font-size: 0.95rem; line-height: 1; }
+
+.projectIconBtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.projectIconBtn:hover, .projectIconBtnOpen {
+  background: rgba(102, 126, 234, 0.12);
+  border-color: rgba(102, 126, 234, 0.55);
+}
+:global(.darkContent) .projectIconBtn { background: #1e1e2e; border-color: #555; }
+.projectIconGlyph { font-size: 1.05rem; line-height: 1; }
+.projectIconBadge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #667eea;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.projectIconBusy {
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: #667eea;
+  animation: rtProjectBusy 1s ease-in-out infinite;
+}
+@keyframes rtProjectBusy { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* Current project name, moved out of the old bar into the drawer header. */
+.historyCurrent {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.7;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .projectBarName {
   font-weight: 700;

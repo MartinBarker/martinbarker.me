@@ -113,14 +113,77 @@ export function extractTagsFromDiscogs(response, filenames = []) {
  */
 export function sanitizeYouTubeTag(tag) {
   if (tag == null) return '';
-  return String(tag)
-    .replace(/[<>"']/g, '')
+  let clean = String(tag)
+    // < and > are the characters the API rejects outright; quote marks break the
+    // way YouTube delimits multi-word keywords.
+    .replace(/[<>"'`]/g, '')
     .replace(/[\x00-\x1F\x7F]/g, '')
+    // Commas and semicolons are separators, never tag content.
     .replace(/[,;]+/g, ' ')
+    // Ampersands and dashes are legal in a keyword, but they are how malformed
+    // tags get made: a Discogs genre like "Folk, World, & Country" splits on the
+    // commas into a "tag" that is just "& Country", and hyphenated fragments
+    // survive truncation as dangling punctuation.
+    .replace(/[&+\u2013\u2014-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 30)
+    // Whatever is left has to start and end on a letter or digit — a tag that is
+    // only punctuation is not a keyword.
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(/[^\p{L}\p{N}]+$/u, '')
     .trim();
+  if (clean.length > YT_LIMITS.tagSingle) {
+    // Cut on a word boundary. Slicing blind produced tags like "Take My Heart
+    // Commercial Mus", which is a different keyword from the one intended.
+    const cut = clean.slice(0, YT_LIMITS.tagSingle);
+    const lastSpace = cut.lastIndexOf(' ');
+    clean = (lastSpace > 8 ? cut.slice(0, lastSpace) : cut).trim();
+  }
+  return clean;
+}
+
+/**
+ * What one tag costs against YouTube's 500-character keyword budget.
+ *
+ * A keyword containing a space is stored quoted, and those two quote characters
+ * count. This is why a tag string that measures exactly 500 characters locally
+ * is still rejected with "The request metadata specifies invalid video
+ * keywords" — a list of multi-word tags can be 60-70 characters over the real
+ * limit while looking like it fits.
+ */
+export function youTubeTagCost(tag) {
+  return tag.length + (/\s/.test(tag) ? 2 : 0);
+}
+
+/**
+ * Turn a comma-separated string (or an array) into the tag list YouTube will
+ * actually accept: sanitized, de-duplicated case-insensitively, and trimmed to
+ * the keyword budget on *tag* boundaries.
+ *
+ * Dropping whole tags matters. Slicing the joined string at 500 characters —
+ * what this replaces — left a half-word as the final keyword ("Up A Lazy ").
+ */
+export function buildSafeTagList(input) {
+  const raw = Array.isArray(input) ? input : String(input ?? '').split(',');
+  const seen = new Set();
+  const out = [];
+  let total = 0;
+  for (const item of raw) {
+    const tag = sanitizeYouTubeTag(item);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    const cost = youTubeTagCost(tag);
+    if (total + cost > YT_LIMITS.tags) continue;
+    seen.add(key);
+    out.push(tag);
+    total += cost;
+  }
+  return out;
+}
+
+export function buildSafeTagString(input) {
+  return buildSafeTagList(input).join(', ');
 }
 
 /**
@@ -140,7 +203,9 @@ export function buildTagString(tags, filters) {
       if (clean) all.add(clean);
     });
   }
-  return Array.from(all).join(', ');
+  // Budgeted here rather than by the caller, so every path that builds tags is
+  // already within what the API accepts.
+  return buildSafeTagString(Array.from(all));
 }
 
 /**

@@ -5,11 +5,16 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import JSZip from "jszip";
 import styles from "./riptag.module.css";
 import YouTubeAuth from "../YouTubeAuth/YouTubeAuth";
+import RipTagDevPanel from "./DevPanel";
+import * as devLog from "./devLog";
 import { ColorContext } from "../ColorContext";
 import {
   extractTagsFromDiscogs,
   buildTagString,
   sanitizeYouTubeTag,
+  buildSafeTagList,
+  buildSafeTagString,
+  youTubeTagCost,
   generateVideoTitleRecommendations,
   buildTimestampDescription,
   formatTimestamp,
@@ -204,6 +209,36 @@ async function computeDownscale(file, maxDim) {
     img.src = url;
   });
 }
+// Background blur strength, 0-100. 100 reproduces the look the render has
+// always had. Expressed as a share of the frame width so a 4K render and a 720p
+// one are blurred the same amount relative to the picture, not in raw pixels.
+// 100 is the strength the render has always used, kept as the reference point
+// so an existing project looks unchanged. The scale runs past it because that
+// turned out not to be blurry enough for a backdrop.
+const BG_BLUR_DEFAULT = 175;
+const BG_BLUR_MAX = 400;
+const BG_BLUR_MAX_SIGMA_PCT = 0.027;
+// Repeated box passes approximate a Gaussian; three is where it stops being
+// visibly boxy. The old expression used twenty, which is ~7x the work for no
+// visible difference — the radius below is scaled to match its blur strength
+// (sigma ~= radius * sqrt(passes / 3)), so the picture is unchanged.
+const BG_BLUR_PASSES = 3;
+const clampBgBlur = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(BG_BLUR_MAX, Math.round(n))) : BG_BLUR_DEFAULT;
+};
+// The boxblur clause for a frame `width` px wide, or "" when blur is off.
+const bgBlurFilter = (width, blurPct) => {
+  const pct = clampBgBlur(blurPct);
+  if (pct === 0) return "";
+  // Past roughly a quarter of the frame the kernel is wider than the picture,
+  // so a bigger radius costs time without looking any softer.
+  const radius = Math.max(1, Math.min(
+    Math.round(width / 4),
+    Math.round(width * BG_BLUR_MAX_SIGMA_PCT * (pct / 100)),
+  ));
+  return `,boxblur=${radius}:${BG_BLUR_PASSES}`;
+};
 const BG_DRIFT_ZOOM = 1.2;     // blur bg is scaled this much larger so it has room to drift
 const BG_DRIFT_AMOUNT = 0.06;  // drift travel, as a fraction of the output size
 const BG_DRIFT_PERIOD = 24;    // seconds for one full drift cycle
@@ -395,6 +430,42 @@ function renderOverlayPngFile(text, o, w, h, name) {
   });
 }
 
+// file.arrayBuffer() gives no progress, which on a multi-hundred-megabyte side
+// means a spinner for the better part of a minute. Streaming the same read
+// yields a real byte count. Falls back to arrayBuffer() where streams aren't
+// available, reporting nothing rather than pretending.
+async function readFileWithProgress(file, onProgress) {
+  if (typeof file.stream !== "function") {
+    onProgress?.(0);
+    const buf = await file.arrayBuffer();
+    onProgress?.(1);
+    return buf;
+  }
+  const total = file.size || 0;
+  const reader = file.stream().getReader();
+  const chunks = [];
+  let read = 0;
+  let lastReport = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    read += value.byteLength;
+    // Throttled: a 700 MB file arrives in thousands of chunks, and a setState
+    // per chunk would cost more than the read itself.
+    const now = performance.now();
+    if (total > 0 && now - lastReport > 100) {
+      lastReport = now;
+      onProgress?.(Math.min(1, read / total));
+    }
+  }
+  onProgress?.(1);
+  const out = new Uint8Array(read);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out.buffer;
+}
+
 const loadImageElement = (src) => new Promise((resolve, reject) => {
   // An image that is still being processed has no object URL yet. Without this
   // the src becomes the string "null" and the browser fetches /null (a 404).
@@ -404,6 +475,28 @@ const loadImageElement = (src) => new Promise((resolve, reject) => {
   im.onerror = reject;
   im.src = src;
 });
+
+// A storage write that runs out of room reports itself in three different
+// shapes depending on the browser and the API. Recognising it matters because
+// the advice — free space, delete a project — is completely different from any
+// other storage error.
+const isQuotaError = (e) =>
+  !!e && (e.name === "QuotaExceededError"
+    || e.name === "NS_ERROR_DOM_QUOTA_REACHED"
+    || e.code === 22
+    || /quota/i.test(e.message || ""));
+
+// Dev-only tracing for the render path. A button that silently does nothing is
+// indistinguishable from a button that isn't wired up, so every branch that can
+// end a render before it starts announces itself.
+const RENDER_DEBUG = process.env.NODE_ENV !== "production";
+const rlog = (message, data) => {
+  if (!RENDER_DEBUG) return;
+  console.log("%c[riptag:render]", "color:#805ad5;font-weight:700", message, data ?? "");
+  const level = /ABORT|THREW|ERROR/.test(message) ? "error"
+    : /enqueued|ok\b|started/.test(message) ? "ok" : "info";
+  devLog.push(level, message, data);
+};
 
 // ---- Render timing instrumentation ----------------------------------------
 // A render that starts fast and crawls later is the hard one to explain from a
@@ -613,10 +706,23 @@ export default function RipTagPage() {
   const [duration, setDuration] = useState(0);
   const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
   const [waveformLoadStatus, setWaveformLoadStatus] = useState(""); // descriptive status text
+  // Preparation progress for the selected file: { pct, label }. Step 1 blocks
+  // on it, so it has to reflect real work — a spinner that means "something is
+  // happening, for an unknown length of time" is what this replaces.
+  const [audioPrepStatus, setAudioPrepStatus] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
   const [tracks, setTracks] = useState([]); // [{id, startTime, endTime, name}]
+  // Marker JSON panel (the cog in the waveform toolbar): the track boundaries
+  // as plain text, so a set of positions can be kept outside the browser and
+  // pasted back — into another tab, another machine, or a rebuilt project — for
+  // the same recording.
+  const [showMarkerJson, setShowMarkerJson] = useState(false);
+  const [markerJsonDraft, setMarkerJsonDraft] = useState("");
+  // Once the box has been edited it stops tracking the live markers, so a drag
+  // on the waveform can't quietly overwrite something half-pasted.
+  const [markerJsonDirty, setMarkerJsonDirty] = useState(false);
 
   // Undo/redo history for waveform marker edits. Snapshots are pushed at the
   // start of drag/split/delete operations; clearing future on each new snapshot
@@ -796,6 +902,9 @@ export default function RipTagPage() {
   const [motionFps, setMotionFps] = useState(24); // output fps when any image has a motion effect
   const [manualImageTimings, setManualImageTimings] = useState({}); // {imgId: {startTime, endTime}}
   const [expandedImgPreviews, setExpandedImgPreviews] = useState(new Set());
+  // "title-asc" | "title-desc" | "index" | "manual" — manual is set by a drag,
+  // and stops the auto-sort from undoing it.
+  const [audioSortMode, setAudioSortMode] = useState("title-asc");
   // Per-audio image pick — {trackIdx: imgId}. Only consulted in "per-track"
   // mode; an unset track falls back to cycling through the selected images.
   const [trackImageAssign, setTrackImageAssign] = useState({});
@@ -818,6 +927,9 @@ export default function RipTagPage() {
   // pinned image of the first track, else the first selected image) instead of
   // being set by hand. Batch renders take it per-video, from each track's image.
   const [autoMatchImageRes, setAutoMatchImageRes] = useState(false);
+  // Strength of the blurred background, 0-100, where 100 is the look the render
+  // has always produced. Per image, with this as the default for new ones.
+  const [defaultBgBlur, setDefaultBgBlur] = useState(100);
   // Resolution multiplier applied to whatever the resolution works out to.
   // Shared by the concat render and the batch, so the two modes can't quietly
   // produce different sizes from the same project.
@@ -911,53 +1023,35 @@ export default function RipTagPage() {
     lastYtDiscogsUrlRef.current = null;
   };
 
-  // Reset entire workflow to fresh state, discarding the active project's data.
+  // Wipes the active project back to a blank slate. Distinct from the trash
+  // icon beside it, which only clears the step you are looking at.
   const resetAll = async () => {
-    if (!window.confirm("Start over? This clears the current project's work.")) return;
+    if (!window.confirm("Start over? This clears the whole project — every step, not just this one.")) return;
     const id = activeProjectIdRef.current;
     const live = id ? renderQueue.jobsForProject(id).filter(j => j.status === "running" || j.status === "queued") : [];
     if (live.length && !window.confirm(`This project has ${live.length} render${live.length === 1 ? "" : "s"} in flight. Cancel ${live.length === 1 ? "it" : "them"} too?`)) return;
     resetProjectState();
     try { localStorage.removeItem(STORAGE_KEY); } catch {}
-    idbDelete('rendered_video');
+    idbDelete("rendered_video");
     if (id) {
       hydratingRef.current = true;
-      await storeDeleteProject(id);
-      await storePutProject({
-        id, name: "New project", createdAt: Date.now(), updatedAt: Date.now(),
-        settings: null, audioFiles: [], exportedTracks: [], images: [], video: null,
-        bytes: { audio: 0, tracks: 0, images: 0, video: 0, total: 0 }, trackCount: 0,
-      });
-      renderQueue.purgeProject(id);
-      await refreshProjects();
+      try {
+        await storeDeleteProject(id);
+        await storePutProject({
+          id, name: "New project", createdAt: Date.now(), updatedAt: Date.now(),
+          settings: null, audioFiles: [], exportedTracks: [], images: [], video: null,
+          bytes: { audio: 0, tracks: 0, images: 0, video: 0, total: 0 }, trackCount: 0,
+        });
+        renderQueue.purgeProject(id);
+        await refreshProjects();
+      } catch (e) {
+        // Storage being unavailable must not leave the page half-reset.
+        setMessage(`Cleared, but the project record could not be rewritten: ${e?.message || e}`);
+      }
       setTimeout(() => { hydratingRef.current = false; }, 0);
     }
-  };
-
-  // Reset just the current step
-  const resetStep = (stepNum) => {
-    if (stepNum === 1) {
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      setAudioFile(null); setDroppedAudioFiles([]); setAudioDurationMap({}); setExpandedFilenames(new Set()); setPendingAudioFiles([]); setAudioPickConfirmed(false); setChannelData(null); setDuration(0); setMessage("");
-      if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
-    } else if (stepNum === 2) {
-      setDiscogsUrl(""); setDiscogsData(null); setDiscogsError(""); setTrackNames([]); setManualTrackCount("");
-    } else if (stepNum === 3) {
-      setTracks([]); setSilenceRegions([]); autoSplitDoneRef.current = false;
-      if (peaksRef.current) peaksRef.current.segments.removeAll();
-    } else if (stepNum === 4) {
-      exportedTracks.forEach(t => URL.revokeObjectURL(t.url)); setExportedTracks([]);
-    } else if (stepNum === 5) {
-      videoImages.forEach(img => { if (img.thumbUrl) URL.revokeObjectURL(img.thumbUrl); if (img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
-      setVideoImages([]); setSelectedVideoImages(new Set()); setSelectedVideoAudios(new Set());
-      if (renderedVideoSrc) URL.revokeObjectURL(renderedVideoSrc); setRenderedVideoSrc(null);
-      idbDelete('rendered_video');
-    } else if (stepNum === 6) {
-      setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" }); setYtTitleSuggestions([]);
-      setYtUploadResult(null); setYtUploadError(""); setThumbnailFile(null);
-      if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview); setThumbnailPreview(null);
-      lastYtDiscogsUrlRef.current = null;
-    }
+    setStep(1);
+    setMessage("Started over — the project is empty.");
   };
 
   // Close aspect ratio dropdown on outside click
@@ -1078,7 +1172,19 @@ export default function RipTagPage() {
         }
         if (!cancelled) await refreshProjects();
       } catch (e) {
-        if (!cancelled) setMessage(`Project storage unavailable: ${e?.message || e}`);
+        if (cancelled) return;
+        setMessage(`Project storage unavailable: ${e?.message || e}`);
+        // Every id assignment above lives inside this try, so a storage layer
+        // that refuses to open (full disk, blocked origin, private window) left
+        // activeProjectId null for the life of the page — and null is what
+        // startRender refuses on. Mint one anyway: renders and exports run
+        // entirely from memory, only *saving* needs IndexedDB.
+        if (!activeProjectIdRef.current) {
+          const id = newProjectId();
+          activeProjectIdRef.current = id;
+          setActiveProjectId(id);
+          try { localStorage.setItem(ACTIVE_PROJECT_KEY, id); } catch {}
+        }
       } finally {
         setTimeout(() => { hydratingRef.current = false; }, 0);
       }
@@ -1337,11 +1443,19 @@ export default function RipTagPage() {
       peaksRef.current.destroy();
       peaksRef.current = null;
     }
+    setAudioPrepStatus({ pct: 0, label: "Reading audio file…" });
     const decode = async () => {
       try {
         setWaveformLoadStatus("Reading audio file…");
-        const buf = await audioFile.arrayBuffer();
+        // Read through the stream rather than arrayBuffer() so the byte count
+        // is a real percentage. On a 700 MB vinyl side this is most of the
+        // wait, and it used to be a spinner with nothing behind it.
+        const buf = await readFileWithProgress(audioFile, (pct) => {
+          // The read is the first 70% of getting to a usable waveform.
+          setAudioPrepStatus({ pct: Math.round(pct * 70), label: "Reading audio file…" });
+        });
         setWaveformLoadStatus("Decoding audio data…");
+        setAudioPrepStatus({ pct: 72, label: "Decoding audio…" });
 
         // Decode through an OfflineAudioContext fixed at a low sample rate so
         // decodeAudioData resamples the whole file down to WAVEFORM_SAMPLE_RATE
@@ -1357,6 +1471,7 @@ export default function RipTagPage() {
         // Take channel 0 only. If a browser ignored the context sample rate and
         // decoded at the native rate, downsample by block-averaging so we never
         // hold a full-resolution array in state.
+        setAudioPrepStatus({ pct: 88, label: "Analysing waveform…" });
         let mono = decoded.getChannelData(0);
         let sr = decoded.sampleRate;
         const durationSec = decoded.duration;
@@ -1379,6 +1494,7 @@ export default function RipTagPage() {
         // Build a compact mono AudioBuffer at the low rate and hand it to
         // peaks.js (via webAudio.audioBuffer) so peaks.js does NOT decode the
         // file a second time.
+        setAudioPrepStatus({ pct: 96, label: "Building waveform…" });
         const wfBuffer = new OfflineCtx(1, mono.length, sr).createBuffer(1, mono.length, sr);
         wfBuffer.copyToChannel(mono, 0);
         decodedBufferRef.current = wfBuffer;
@@ -1386,9 +1502,13 @@ export default function RipTagPage() {
 
         setDuration(durationSec);
         setChannelData(mono);
+        setAudioPrepStatus({ pct: 100, label: "Ready" });
+        // Held briefly at 100 so the bar visibly completes instead of vanishing.
+        setTimeout(() => setAudioPrepStatus(null), 400);
         setMessage(`Loaded: ${audioFile.name} (${formatTime(durationSec)})`);
       } catch (err) {
         decodeFailedRef.current = true;
+        setAudioPrepStatus(null);
         setMessage("Error decoding audio: " + err.message);
         setIsLoadingWaveform(false);
         setWaveformLoadStatus("");
@@ -1545,6 +1665,38 @@ export default function RipTagPage() {
     setSelectedTracks(new Set(tracks.map(t => t.id)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackIds]);
+
+  // An open marker-JSON box follows the waveform — drag a boundary and the text
+  // updates — until the user edits it, at which point their text is what
+  // matters and this stops writing over it.
+  useEffect(() => {
+    if (!showMarkerJson || markerJsonDirty) return;
+    setMarkerJsonDraft(buildMarkerJson());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMarkerJson, markerJsonDirty, tracks, audioFile, duration]);
+
+  // Step 4 exists to produce the track files, so arriving there starts that
+  // rather than waiting for a click. Held back until the Discogs art has
+  // finished loading: FLAC embeds the cover, and exporting a second early would
+  // write every track without one.
+  const autoExportDoneRef = useRef(false);
+  useEffect(() => { autoExportDoneRef.current = false; }, [audioFile, outputFormat]);
+  useEffect(() => {
+    if (step !== 4 || autoExportDoneRef.current) return;
+    if (isExporting || exportedTracks.length > 0) return;
+    // Spelled out rather than reusing `canExport`, which is declared far below
+    // this effect — naming it in the dependency array reads it during render,
+    // inside its temporal dead zone.
+    if (tracks.length === 0 || !audioFile || selectedTracks.size === 0) return;
+    // "Art loaded already" means the fetch isn't still in flight. A release with
+    // no art at all doesn't block it.
+    if (discogsArtStatus) return;
+    if (discogsData?.images?.length && videoImages.every(im => im.source !== "discogs")) return;
+    autoExportDoneRef.current = true;
+    setMessage(`Exporting ${selectedTracks.size} track(s) as ${outputFormat.toUpperCase()}…`);
+    exportTracks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, tracks.length, audioFile, selectedTracks, isExporting, exportedTracks.length, discogsArtStatus, discogsData, videoImages, outputFormat]);
 
   // Auto-run split detection when first entering Step 3
   const autoSplitDoneRef = useRef(false);
@@ -2259,6 +2411,27 @@ export default function RipTagPage() {
   };
 
   // ---- Discogs ----
+  // Which release the Step 5 image table currently holds art for. Compared on
+  // every successful lookup so a *new* release refetches and an unchanged one
+  // (or a project being restored) doesn't.
+  const discogsArtReleaseRef = useRef(null);
+
+  // Shared by the URL box and the search-result picker: both are the user
+  // choosing a release, and both should leave the art matching that release.
+  const onDiscogsReleaseLoaded = (data) => {
+    setDiscogsData(data);
+    setProjectName(data.title || "My Album");
+    setManualTrackCount(String(data.tracklist.length));
+    setTrackNames(data.tracklist.map(t => t.title));
+    const releaseId = data.id ?? null;
+    if (releaseId != null && discogsArtReleaseRef.current === releaseId) return;
+    discogsArtReleaseRef.current = releaseId;
+    if (!data.images?.length) { removeDiscogsImages(); return; }
+    // Fire and forget — the button's own progress bar reports it, and the user
+    // can carry on with Step 2 while the art downloads.
+    fetchDiscogsImage({ replace: true, release: data }).catch(() => {});
+  };
+
   const fetchDiscogs = async () => {
     setDiscogsError("");
     const id = parseDiscogsId(discogsUrl);
@@ -2269,10 +2442,7 @@ export default function RipTagPage() {
         onRetry: (attempt, delay) => setDiscogsError(`Rate limited. Retrying in ${delay}s (attempt ${attempt + 1})…`),
       });
       setDiscogsError("");
-      setDiscogsData(data);
-      setProjectName(data.title || "My Album");
-      setManualTrackCount(String(data.tracklist.length));
-      setTrackNames(data.tracklist.map(t => t.title));
+      onDiscogsReleaseLoaded(data);
     } catch (err) { setDiscogsError(err.message); }
     finally { setIsFetchingDiscogs(false); }
   };
@@ -2304,10 +2474,7 @@ export default function RipTagPage() {
         onRetry: (attempt, delay) => setDiscogsSearchError(`Rate limited. Retrying in ${delay}s (attempt ${attempt + 1})…`),
       });
       setDiscogsSearchError("");
-      setDiscogsData(data);
-      setProjectName(data.title || "My Album");
-      setManualTrackCount(String(data.tracklist.length));
-      setTrackNames(data.tracklist.map(t => t.title));
+      onDiscogsReleaseLoaded(data);
       setDiscogsUrl(`https://www.discogs.com/release/${result.id}`);
       setDiscogsSearchResults([]);
     } catch (err) { setDiscogsSearchError(err.message); }
@@ -2376,6 +2543,102 @@ export default function RipTagPage() {
   // silence auto-detection. Used when the user specified a track count in the
   // previous step (manual count or Discogs tracklist) — we honor that number
   // and let them drag the boundaries to fine-tune.
+  // ---- Marker JSON: export / import track boundaries ------------------------
+  // Versioned, and stamped with the audio it came from: the times are only
+  // meaningful against that exact recording, so an import can say so rather
+  // than silently laying one album's boundaries over another's.
+  const MARKER_JSON_VERSION = 1;
+  const buildMarkerJson = () => JSON.stringify({
+    riptagMarkers: MARKER_JSON_VERSION,
+    audio: audioFile
+      ? { name: audioFile.name, size: audioFile.size, duration: Number((duration || 0).toFixed(3)) }
+      : null,
+    // Milliseconds are finer than any boundary a person drags to, and keep the
+    // text readable.
+    tracks: tracks.map(t => ({
+      start: Number(t.startTime.toFixed(3)),
+      end: Number(t.endTime.toFixed(3)),
+      name: t.name,
+    })),
+  }, null, 2);
+
+  const resetMarkerJson = () => { setMarkerJsonDirty(false); setMarkerJsonDraft(buildMarkerJson()); };
+
+  const copyMarkerJson = () => {
+    navigator.clipboard?.writeText(markerJsonDraft)
+      .then(() => setMessage("Marker JSON copied to the clipboard."))
+      .catch(() => setMessage("Could not copy — the browser blocked clipboard access. Select the text and copy manually."));
+  };
+
+  const downloadMarkerJson = () => {
+    const base = (audioFile?.name || projectName || "riptag")
+      .replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9 _\-]/g, "").trim() || "riptag";
+    const url = URL.createObjectURL(new Blob([markerJsonDraft], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${base}-markers.json`;
+    a.click();
+    setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 1000);
+  };
+
+  const applyMarkerJson = () => {
+    let parsed;
+    try { parsed = JSON.parse(markerJsonDraft); }
+    catch (err) { setMessage(`Marker JSON isn't valid JSON: ${err.message}`); return; }
+    // A bare array is accepted too — it's the obvious thing to paste by hand.
+    const rows = Array.isArray(parsed) ? parsed : parsed?.tracks;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      setMessage('Marker JSON needs a "tracks" array with at least one entry.');
+      return;
+    }
+
+    // Warn, don't refuse: a re-encode of the same rip changes the size and name
+    // while the timings still line up, and only the user knows which it is.
+    const src = Array.isArray(parsed) ? null : parsed.audio;
+    if (src && audioFile) {
+      const mismatch = [];
+      if (src.name && src.name !== audioFile.name) mismatch.push(`name (${src.name})`);
+      if (src.size && src.size !== audioFile.size) mismatch.push("file size");
+      if (src.duration && duration > 0 && Math.abs(src.duration - duration) > 1) {
+        mismatch.push(`length (${formatTime(src.duration)} vs ${formatTime(duration)})`);
+      }
+      if (mismatch.length && !window.confirm(
+        `These markers were saved from a different audio file — ${mismatch.join(", ")} doesn't match.\n\n`
+        + "The positions will only line up if it's the same recording. Apply them anyway?"
+      )) return;
+    }
+
+    const limit = duration > 0 ? duration : Infinity;
+    const cleaned = rows.map((r, i) => {
+      // startTime/endTime as well as start/end, so a block copied straight out
+      // of the internal track shape imports without editing.
+      const rawStart = Number(r?.start ?? r?.startTime);
+      const rawEnd = Number(r?.end ?? r?.endTime);
+      if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd) || rawEnd <= rawStart) return null;
+      const startTime = Math.max(0, Math.min(rawStart, limit));
+      const endTime = Math.max(startTime + 0.01, Math.min(rawEnd, limit));
+      const name = r?.name != null && String(r.name).trim() !== ""
+        ? String(r.name)
+        : (trackNames[i] || discogsData?.tracklist?.[i]?.title || `Track ${i + 1}`);
+      return { id: `${generateTrackId()}-${i}`, startTime, endTime, name };
+    }).filter(Boolean).sort((a, b) => a.startTime - b.startTime);
+
+    if (!cleaned.length) {
+      setMessage("No usable markers in that JSON — every entry needs numeric start and end times, with end after start.");
+      return;
+    }
+
+    snapshotTracks();
+    setSilenceRegions([]);
+    setTracks(cleaned);
+    syncPeaksToTracks(cleaned);
+    setExportedTracks([]);
+    setMarkerJsonDirty(false);
+    const skipped = rows.length - cleaned.length;
+    setMessage(`Applied ${cleaned.length} marker${cleaned.length === 1 ? "" : "s"} from JSON`
+      + `${skipped ? ` — skipped ${skipped} unusable entr${skipped === 1 ? "y" : "ies"}` : ""}.`);
+  };
+
   const splitIntoEqualTracks = (count) => {
     if (!duration || duration <= 0) { setMessage("Load audio first"); return; }
     // If tracks already exist, just refresh names without re-splitting.
@@ -2626,7 +2889,12 @@ export default function RipTagPage() {
         await ff.exec(["-i", "input", ...artArgs, "-ss", track.startTime.toFixed(4), "-to", track.endTime.toFixed(4), ...volFilter, ...codec, ...metaArgs(i), "-y", out]);
         const data = await ff.readFile(out);
         const blob = new Blob([data.buffer], { type: mime });
-        exported.push({ uid: newAssetUid(), index: i, name: fn, url: URL.createObjectURL(blob), size: blob.size, start: track.startTime, end: track.endTime, title: trackNames[i] || track.name });
+        // Keep the Blob itself, not only an object URL for it. Everything that
+        // needs the bytes back — the ZIP, the video render — had to fetch() the
+        // blob: URL through the network stack, which fails outright once the
+        // browser can't serve the blob (net::ERR_UNEXPECTED). A restored project
+        // already carries `file`; a fresh export now does too.
+        exported.push({ uid: newAssetUid(), index: i, name: fn, file: blob, url: URL.createObjectURL(blob), size: blob.size, start: track.startTime, end: track.endTime, title: trackNames[i] || track.name });
         try { await ff.deleteFile(out); } catch {}
       }
       if (hasEmbedArt) { try { await ff.deleteFile("cover.jpg"); } catch {} }
@@ -2646,20 +2914,53 @@ export default function RipTagPage() {
   const downloadTrack = t => { const a = document.createElement("a"); a.href = t.url; a.download = t.name; a.click(); };
   const downloadAll = () => exportedTracks.forEach((t, i) => setTimeout(() => downloadTrack(t), i * 300));
   const downloadZip = async () => {
-    setMessage("Building ZIP…");
+    if (!exportedFiles.length) { setMessage("Nothing to zip — export some tracks first."); return; }
+    const total = exportedFiles.length;
+    rlog("downloadZip: started", { files: total, format: outputFormat });
+    setMessage(`Building ZIP — 0/${total}…`);
     try {
       const zip = new JSZip();
       // exportedFiles, not exportedTracks: Step 5 copies point at a file that
       // is already in the archive.
-      for (const t of exportedFiles) zip.file(t.name, await (await fetch(t.url)).blob());
-      const blob = await zip.generateAsync({ type: "blob" });
+      for (let i = 0; i < total; i++) {
+        const t = exportedFiles[i];
+        setMessage(`Building ZIP — reading ${i + 1}/${total}: ${t.name}`);
+        let bytes;
+        try {
+          bytes = await readTrackBytes(t);
+        } catch (e) {
+          // Name the file. "Failed to fetch" for a whole archive told you
+          // nothing about which track the browser had lost.
+          throw new Error(`${e.message} (failed on “${t.name}”, file ${i + 1} of ${total})`);
+        }
+        zip.file(t.name, bytes);
+      }
+      setMessage(`Building ZIP — compressing ${total} file(s)…`);
+      // FLAC and WAV differ here: FLAC is already compressed, so deflating it
+      // burns CPU and a second full copy of the data for ~nothing.
+      const alreadyCompressed = /^(flac|mp3|m4a|ogg|opus)$/i.test(outputFormat);
+      const blob = await zip.generateAsync(
+        alreadyCompressed
+          ? { type: "blob", compression: "STORE" }
+          : { type: "blob", compression: "DEFLATE", compressionOptions: { level: 1 } },
+        (meta) => {
+          if (Math.round(meta.percent) % 10 === 0) setMessage(`Building ZIP — ${Math.round(meta.percent)}%`);
+        },
+      );
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
+      a.href = url;
       a.download = `${(projectName || "album").replace(/[^a-zA-Z0-9 _\-]/g, "").trim()}_tracks.zip`;
       a.click();
-      URL.revokeObjectURL(a.href);
-      setMessage("ZIP downloaded");
-    } catch (err) { setMessage("ZIP error: " + err.message); }
+      // Revoked on a timer, not immediately: revoking in the same tick can
+      // cancel the download before the browser has read the blob.
+      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 30000);
+      rlog("downloadZip: done", { bytes: blob.size, compression: alreadyCompressed ? "STORE" : "DEFLATE" });
+      setMessage(`ZIP downloaded (${formatBytes(blob.size)})`);
+    } catch (err) {
+      rlog("downloadZip: FAILED", err?.message || String(err));
+      setMessage(`ZIP error: ${err.message}`);
+    }
   };
 
   const toggleTrackSelect = id => setSelectedTracks(prev => {
@@ -2797,14 +3098,21 @@ export default function RipTagPage() {
     });
   };
 
-  const addImagesToVideo = async (files) => {
+  // `meta` is merged into every image this call adds — `source: "discogs"` is
+  // what lets a later release swap replace exactly the art it fetched and leave
+  // the user's own uploads alone. `ignoreIds` excludes images that are being
+  // removed in the same tick from the duplicate check, since `videoImages` in
+  // this closure still has them.
+  const addImagesToVideo = async (files, { meta = {}, ignoreIds = null } = {}) => {
     const imageFiles = Array.from(files || []).filter(f => f?.type?.startsWith("image/"));
     if (!imageFiles.length) return;
     // Dedupe against current state AND within the incoming batch (in case the
     // same file appears twice in one drop). stopPropagation in handleDrop
     // already prevents the handler from firing twice for the same event, so
     // this check is sufficient.
-    const existingKeys = new Set(videoImages.map(img => `${img.file.name}:${img.file.size}`));
+    const existingKeys = new Set(videoImages
+      .filter(img => !ignoreIds?.has(img.id))
+      .map(img => `${img.file.name}:${img.file.size}`));
     const seenInBatch = new Set();
     const fresh = [];
     for (const f of imageFiles) {
@@ -2820,7 +3128,7 @@ export default function RipTagPage() {
       setImageLoadingStatus({ loaded: i, total: fresh.length, current: f.name });
       const id = `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
       // Add a placeholder entry immediately so the row appears with a spinner
-      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: true, paddingColor: "#000000", motion: "none", motionSpeed: 1, bgMotion: "none", bgMotionSpeed: 1 }]);
+      setVideoImages(prev => [...prev, { id, file: f, thumbUrl: null, previewUrl: null, loading: true, width: 0, height: 0, stretchToFit: false, useBlurBg: true, bgBlur: defaultBgBlur, paddingColor: "#000000", motion: "none", motionSpeed: 1, bgMotion: "none", bgMotionSpeed: 1, ...meta }]);
       setSelectedVideoImages(prev => { const next = new Set(prev); next.add(id); return next; });
       const { thumbUrl, previewUrl, width, height } = await createThumbnail(f);
       // Step 1's table reads width/height; step 5 (and the memory estimate,
@@ -3102,6 +3410,32 @@ export default function RipTagPage() {
     }).filter(Boolean);
   };
 
+  // selectedVideoAudios, videoAudioOrder, trackClips and trackImageAssign are
+  // all keyed by index into exportedTracks. A restore that produced fewer
+  // tracks (or none, if IndexedDB refused the read) left those sets pointing at
+  // rows that no longer exist — which is how the Render button could be enabled
+  // while the render had nothing to build from.
+  useEffect(() => {
+    const n = exportedTracks.length;
+    const inRange = (i) => Number(i) >= 0 && Number(i) < n;
+    setSelectedVideoAudios(prev => {
+      const next = new Set([...prev].filter(inRange));
+      return next.size === prev.size ? prev : next;
+    });
+    setVideoAudioOrder(prev => {
+      const next = prev.filter(inRange);
+      return next.length === prev.length ? prev : next;
+    });
+    setTrackClips(prev => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([k]) => inRange(k)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setTrackImageAssign(prev => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([k]) => inRange(k)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [exportedTracks.length]);
+
   const getEffectiveImageTimings = () => {
     const orderedAudios = getOrderedAudios();
     const totalDur = orderedAudios.reduce((s, t) => s + (t.end - t.start), 0);
@@ -3342,7 +3676,8 @@ export default function RipTagPage() {
       const cover = Math.max(w / iw, h / ih);
       if (img.useBlurBg) {
         ctx.save();
-        ctx.filter = `blur(${Math.max(4, Math.round(h * 0.011))}px)`;
+        const blurPct = clampBgBlur(img.bgBlur);
+        ctx.filter = `blur(${Math.max(1, Math.round(h * 0.011 * (blurPct / 100)))}px)`;
         const bw = iw * cover * 1.02, bh = ih * cover * 1.02;
         ctx.drawImage(im, (w - bw) / 2, (h - bh) / 2, bw, bh);
         ctx.restore();
@@ -3433,6 +3768,23 @@ export default function RipTagPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showTextPreview, textOverlay, textPreviewImgId, textPreviewTrackIdx, concatDimensions.w, concatDimensions.h, videoBgColor, videoImages, exportedTracks, trackClips, videoAudioOrder, selectedVideoAudios]);
 
+  // A storage write that isn't awaited — an autosave racing a navigation, a
+  // background putBlob — surfaced as a bare "Uncaught (in promise)
+  // QuotaExceededError" in the console and nothing at all in the UI.
+  useEffect(() => {
+    const onRejection = (e) => {
+      const err = e?.reason;
+      if (!isQuotaError(err)) return;
+      e.preventDefault();
+      rlog("unhandled storage rejection (quota)", err?.message || String(err));
+      setMessage("Out of browser storage — a background save failed. "
+        + "Delete an old project from the Projects panel, or free disk space. "
+        + "Exports and renders still work; only saving is affected.");
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => window.removeEventListener("unhandledrejection", onRejection);
+  }, []);
+
   // Warm the ffmpeg core as soon as the user reaches the export/render steps,
   // so pressing Render doesn't begin with a 32 MB download.
   useEffect(() => {
@@ -3461,6 +3813,35 @@ export default function RipTagPage() {
     ((img.motion && img.motion !== "none") || (img.useBlurBg && (img.bgMotion || "none") !== "none"))
   );
 
+  // Ordering for the Step 5 audio table. Drag-and-drop writes an explicit
+  // order; these are the one-click orderings on top of it.
+  const sortVideoAudio = (mode) => {
+    const idx = exportedTracks.map((_, i) => i);
+    const titleOf = (i) => (exportedTracks[i]?.title || exportedTracks[i]?.name || "");
+    const sorted = mode === "index"
+      ? idx
+      : [...idx].sort((a, b) => {
+          const cmp = titleOf(a).localeCompare(titleOf(b), undefined, { numeric: true, sensitivity: "base" });
+          // Ties keep export order, so equal titles don't shuffle between renders.
+          return cmp !== 0 ? (mode === "title-desc" ? -cmp : cmp) : a - b;
+        });
+    setVideoAudioOrder(sorted);
+    setAudioSortMode(mode);
+  };
+
+  // Tracks arrive in export order, which is the order they were cut from the
+  // side — rarely the order anyone wants to look at them in. Sorted by title on
+  // first sight of a new set, then left alone so a manual drag survives.
+  const autoSortedTracksRef = useRef(0);
+  useEffect(() => {
+    if (exportedTracks.length === 0) { autoSortedTracksRef.current = 0; return; }
+    if (autoSortedTracksRef.current === exportedTracks.length) return;
+    autoSortedTracksRef.current = exportedTracks.length;
+    if (audioSortMode === "manual") return;
+    sortVideoAudio(audioSortMode);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportedTracks.length]);
+
   // Drag-and-drop reorder for audio table
   const handleAudioDragStart = (orderIdx) => { audioDragRef.current = orderIdx; };
   const handleAudioDragOver = (e, orderIdx) => {
@@ -3472,7 +3853,11 @@ export default function RipTagPage() {
     audioDragRef.current = orderIdx;
     setVideoAudioOrder(order);
   };
-  const handleAudioDragEnd = () => { audioDragRef.current = null; };
+  const handleAudioDragEnd = () => {
+    // A hand-placed order is the user's, so stop re-sorting behind them.
+    if (audioDragRef.current !== null) setAudioSortMode("manual");
+    audioDragRef.current = null;
+  };
 
   // Drag-and-drop reorder for images table
   const handleImageDragStart = (imgIdx) => { imageDragRef.current = imgIdx; };
@@ -3495,9 +3880,36 @@ export default function RipTagPage() {
     });
   };
 
-  const fetchDiscogsImage = async () => {
-    const images = discogsData?.images;
-    if (!images?.length) { setMessage("No Discogs images available"); return; }
+  // Every image this page pulled from Discogs, so a release swap can clear
+  // exactly those and leave anything the user added by hand in place.
+  const removeDiscogsImages = () => {
+    const doomed = videoImages.filter(im => im.source === "discogs");
+    if (!doomed.length) return new Set();
+    const ids = new Set(doomed.map(im => im.id));
+    setVideoImages(prev => prev.filter(im => {
+      if (!ids.has(im.id)) return true;
+      if (im.thumbUrl) { try { URL.revokeObjectURL(im.thumbUrl); } catch {} }
+      if (im.previewUrl) { try { URL.revokeObjectURL(im.previewUrl); } catch {} }
+      return false;
+    }));
+    setSelectedVideoImages(prev => { const next = new Set(prev); ids.forEach(i => next.delete(i)); return next; });
+    // Pins pointing at a removed image would leave those tracks on a dead id.
+    setTrackImageAssign(prev => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([, imgId]) => !ids.has(imgId)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setTrackTextOverrides(prev => prev);
+    if (textPreviewImgId && ids.has(textPreviewImgId)) setTextPreviewImgId(null);
+    return ids;
+  };
+
+  // `replace` is what a new Discogs release uses: drop the previous release's
+  // art first, so the table shows this release rather than both.
+  const fetchDiscogsImage = async ({ replace = false, release = null } = {}) => {
+    const data = release || discogsData;
+    const images = data?.images;
+    if (!images?.length) { if (!release) setMessage("No Discogs images available"); return; }
+    const removedIds = replace ? removeDiscogsImages() : new Set();
     const total = images.length;
     setDiscogsArtStatus({ loaded: 0, total, current: "Starting…", images: [] });
     const fetchedFiles = [];
@@ -3518,7 +3930,10 @@ export default function RipTagPage() {
     }
     setDiscogsArtStatus(prev => ({ ...prev, loaded: total, current: `Adding ${fetchedFiles.length} image(s)…` }));
     if (fetchedFiles.length > 0) {
-      await addImagesToVideo(fetchedFiles);
+      await addImagesToVideo(fetchedFiles, {
+        meta: { source: "discogs", releaseId: data.id ?? null },
+        ignoreIds: removedIds,
+      });
       setMessage(`${fetchedFiles.length} Discogs image(s) added`);
     } else {
       setMessage("Could not fetch any Discogs images (CORS?). Upload manually.");
@@ -3660,7 +4075,7 @@ export default function RipTagPage() {
       // `file` is a disk-backed File handle, so holding it costs nothing.
       images: images.map(img => ({
         id: img.id, file: img.file,
-        stretchToFit: img.stretchToFit, useBlurBg: img.useBlurBg, paddingColor: img.paddingColor,
+        stretchToFit: img.stretchToFit, useBlurBg: img.useBlurBg, bgBlur: img.bgBlur, paddingColor: img.paddingColor,
         motion: img.motion, motionSpeed: img.motionSpeed,
         bgMotion: img.bgMotion, bgMotionSpeed: img.bgMotionSpeed,
       })),
@@ -3681,10 +4096,55 @@ export default function RipTagPage() {
     };
   };
 
+  // A track's bytes. `file` is the Blob the export or the project restore kept
+  // hold of; the object URL is only a fallback for older in-memory state, and
+  // it can fail (net::ERR_UNEXPECTED) once the browser drops the blob — so the
+  // failure names the track instead of surfacing as a bare "Failed to fetch".
+  const readTrackBytes = async (t) => {
+    const label = t.title || t.name || "a track";
+    // 1. The Blob the export or the restore is holding. Always present for a
+    //    track produced in this session, and the only source that can't fail.
+    if (t.file) return t.file;
+
+    // 2. IndexedDB. A restored project's blobs live there under a key derived
+    //    from the track's position, so a page that lost its in-memory copy can
+    //    still get the bytes back.
+    const idx = exportedTracks.indexOf(t);
+    const pid = activeProjectIdRef.current;
+    if (pid && idx >= 0) {
+      try {
+        const stored = await getBlob(blobKey(pid, "track", idx));
+        if (stored && stored.size > 0) {
+          rlog("readTrackBytes: served from IndexedDB", { label, bytes: stored.size });
+          return stored;
+        }
+      } catch (e) {
+        rlog("readTrackBytes: IndexedDB read failed", { label, error: e?.message || String(e) });
+      }
+    }
+
+    // 3. The object URL. Last because it goes through the network stack and is
+    //    the one that fails (net::ERR_UNEXPECTED) when the browser can no
+    //    longer serve the blob — out of disk, or over the storage quota.
+    if (t.url) {
+      try {
+        const res = await fetch(t.url);
+        if (res.ok) return await res.blob();
+        rlog("readTrackBytes: blob URL returned a non-OK response", { label, status: res.status });
+      } catch (e) {
+        rlog("readTrackBytes: blob URL fetch threw", { label, error: e?.message || String(e) });
+      }
+    }
+
+    throw new Error(`Could not read the audio for “${label}” — the browser dropped its data `
+      + "and it isn't in storage either. This usually means the browser is out of disk space "
+      + "or over its storage quota. Free some space, then re-export the tracks in Step 4.");
+  };
+
   // Reads each track's bytes. Deferred to the moment a job starts so a queued
   // render doesn't pin hundreds of megabytes of audio while it waits its turn.
   const resolveSpecAudios = (audios) => Promise.all(
-    audios.map(async (t) => ({ ...t, blob: t.file ? t.file : await (await fetch(t.url)).blob() }))
+    audios.map(async (t) => ({ ...t, blob: await readTrackBytes(t) }))
   );
 
   // Pure with respect to component state: everything comes from `spec`, and all
@@ -3916,10 +4376,12 @@ export default function RipTagPage() {
         if (img.useBlurBg) {
           // Box-blurring a full-res frame is fine at 2fps but crushing at 24+.
           // For motion renders, blur at ~480p and scale back up — through a
-          // blur that heavy the difference isn't visible.
+          // blur this heavy the difference isn't visible. Both paths take their
+          // radius from the same percentage, so the two look alike.
+          const blurPct = clampBgBlur(img.bgBlur);
           const blurTo = (tw, th) => outFps === STILL_FPS
-            ? `scale=w=${tw}:h=${th}:force_original_aspect_ratio=increase,boxblur=20:20`
-            : `scale=w=480:h=270:force_original_aspect_ratio=increase,boxblur=4:4,scale=w=${tw}:h=${th}:force_original_aspect_ratio=increase`;
+            ? `scale=w=${tw}:h=${th}:force_original_aspect_ratio=increase${bgBlurFilter(tw, blurPct)}`
+            : `scale=w=480:h=270:force_original_aspect_ratio=increase${bgBlurFilter(480, blurPct)},scale=w=${tw}:h=${th}:force_original_aspect_ratio=increase`;
           if (bgMotion === "drift") {
             // Oversized so there is room to drift, then a slowly circling crop.
             const bw = Math.round(w * BG_DRIFT_ZOOM), bh = Math.round(h * BG_DRIFT_ZOOM);
@@ -4208,7 +4670,7 @@ export default function RipTagPage() {
         fileName: `${name}.mp4`,
         titleSuggestions: generateVideoTitleRecommendations(dd, ytv),
         description: autoDesc.slice(0, YT_LIMITS.description),
-        tags: autoTags.slice(0, YT_LIMITS.tags),
+        tags: autoTags,
       };
     } finally {
       // Runs on the failure paths too — a render that OOMs halfway is exactly
@@ -4262,6 +4724,7 @@ export default function RipTagPage() {
     setProjectName(s.projectName || "My Album");
     setDiscogsUrl(s.discogsUrl || "");
     setDiscogsData(s.discogsData || null);
+    discogsArtReleaseRef.current = s.discogsData?.id ?? null;
     if (s.discogsInputMode) setDiscogsInputMode(s.discogsInputMode);
     setTrackNames(s.trackNames || []);
     setManualTrackCount(s.manualTrackCount || "");
@@ -4391,8 +4854,9 @@ export default function RipTagPage() {
         bytes.images += im.file.size || 0;
         images.push({
           key, uid: im.id, id: im.id, name: im.file.name, size: im.file.size, type: im.file.type,
+          source: im.source ?? null, releaseId: im.releaseId ?? null,
           naturalWidth: im.naturalWidth, naturalHeight: im.naturalHeight,
-          stretchToFit: im.stretchToFit, useBlurBg: im.useBlurBg, paddingColor: im.paddingColor,
+          stretchToFit: im.stretchToFit, useBlurBg: im.useBlurBg, bgBlur: im.bgBlur, paddingColor: im.paddingColor,
           motion: im.motion, motionSpeed: im.motionSpeed, bgMotion: im.bgMotion, bgMotionSpeed: im.bgMotionSpeed,
         });
       }
@@ -4428,7 +4892,20 @@ export default function RipTagPage() {
       await refreshProjects();
       return record;
     } catch (e) {
-      setMessage(`Could not save project: ${e?.message || e}`);
+      if (isQuotaError(e)) {
+        // Say what filled up and by how much, not just that something failed.
+        let where = "";
+        try {
+          const est = await navigator.storage?.estimate?.();
+          if (est?.quota) where = ` (using ${formatBytes(est.usage)} of ${formatBytes(est.quota)})`;
+        } catch {}
+        setMessage(`Out of browser storage${where} — this project could not be saved. `
+          + "Delete an old project from the Projects panel, or free disk space. "
+          + "Your work is still here in the page; don't reload until it saves.");
+      } else {
+        setMessage(`Could not save project: ${e?.message || e}`);
+      }
+      rlog("saveActiveProject: FAILED", { quota: isQuotaError(e), error: e?.message || String(e) });
       return null;
     } finally {
       if (!silent) setProjectBusy("");
@@ -4507,7 +4984,8 @@ export default function RipTagPage() {
           loading: false,
           naturalWidth: im.naturalWidth ?? thumb?.width, naturalHeight: im.naturalHeight ?? thumb?.height,
           width: im.naturalWidth ?? thumb?.width, height: im.naturalHeight ?? thumb?.height,
-          stretchToFit: im.stretchToFit, useBlurBg: im.useBlurBg, paddingColor: im.paddingColor,
+          source: im.source ?? null, releaseId: im.releaseId ?? null,
+          stretchToFit: im.stretchToFit, useBlurBg: im.useBlurBg, bgBlur: im.bgBlur, paddingColor: im.paddingColor,
           motion: im.motion, motionSpeed: im.motionSpeed, bgMotion: im.bgMotion, bgMotionSpeed: im.bgMotionSpeed,
         });
       }
@@ -4533,6 +5011,29 @@ export default function RipTagPage() {
       // Let the state writes above commit before autosave is re-armed.
       setTimeout(() => { hydratingRef.current = false; }, 0);
     }
+  };
+
+  // A render needs a stable job key, not a project record. Returns the current
+  // id, or mints one and persists it in the background — the write is allowed
+  // to fail, because the work it gates does not depend on it. Synchronous on
+  // purpose: the button must not wait on IndexedDB.
+  const ensureActiveProjectId = () => {
+    if (activeProjectIdRef.current) return activeProjectIdRef.current;
+    const id = newProjectId();
+    activeProjectIdRef.current = id;
+    setActiveProjectId(id);
+    try { localStorage.setItem(ACTIVE_PROJECT_KEY, id); } catch {}
+    storePutProject({
+      id, name: projectName || "My Album", createdAt: Date.now(), updatedAt: Date.now(),
+      settings: null, audioFiles: [], exportedTracks: [], images: [], video: null,
+      bytes: { audio: 0, tracks: 0, images: 0, video: 0, total: 0 }, trackCount: 0,
+    }).then(() => refreshProjects()).catch((e) => {
+      rlog("ensureActiveProjectId: could not persist the project record", e?.message || String(e));
+      setMessage("Storage is unavailable, so this project can't be saved — the render will still run. "
+        + "Free up disk space to restore saving.");
+    });
+    rlog("ensureActiveProjectId: created a project id on the fly", id);
+    return id;
   };
 
   const openProject = async (id) => {
@@ -4606,6 +5107,12 @@ export default function RipTagPage() {
 
   // The open project's single "Render Video" job keys on the project id; its
   // batch jobs key on `${projectId}:batch:n` and are surfaced separately.
+  // What the render will actually get, as opposed to what is ticked. These are
+  // the numbers the buttons and the warning banner use, so the UI cannot offer
+  // a render the spec builder will refuse.
+  const renderableAudios = getOrderedAudios().length;
+  const renderableImages = videoImages.filter(img => selectedVideoImages.has(img.id)).length;
+
   const activeRenderJob = renderJobs.find(j => j.jobId === activeProjectId) || null;
   const queueActive = renderJobs.filter(j => j.status === "running" || j.status === "queued");
   const activeBatchJobs = renderJobs.filter(j => j.batch && j.projectId === activeProjectId);
@@ -4642,27 +5149,79 @@ export default function RipTagPage() {
   // Queue a render for the current project. The spec is frozen up front, so the
   // user is free to switch projects — or edit this one — while it waits or runs.
   const startRender = async () => {
-    const id = activeProjectIdRef.current;
-    if (!id) return;
+    const id = ensureActiveProjectId();
+    rlog("startRender: clicked", {
+      projectId: id,
+      exportedTracks: exportedTracks.length,
+      selectedVideoAudios: [...selectedVideoAudios],
+      videoAudioOrder,
+      orderedAudios: getOrderedAudios().length,
+      videoImages: videoImages.length,
+      selectedVideoImages: [...selectedVideoImages],
+      renderableAudios, renderableImages,
+    });
+    if (!id) {
+      rlog("startRender: ABORT — no active project id");
+      setMessage("No active project to render into — reload the page if this persists.");
+      return;
+    }
     const existing = renderQueue.getJob(id);
-    if (existing && (existing.status === "running" || existing.status === "queued")) return;
+    if (existing && (existing.status === "running" || existing.status === "queued")) {
+      rlog("startRender: ABORT — a job for this project already exists",
+        { status: existing.status, queuePosition: existing.queuePosition });
+      setMessage(existing.status === "running"
+        ? "A render for this project is already running."
+        : `This project's render is already queued (#${existing.queuePosition} in line).`);
+      return;
+    }
     // Everything but the audio bytes is captured synchronously, so the job —
     // and its progress bar — exist the instant the button is pressed. Reading
     // the blobs and saving the project used to happen first, which is what left
     // the button looking dead for a couple of seconds on a long rip.
     const spec = buildRenderSpec();
-    if (!spec) return;
+    // Bailing silently here looked exactly like a render that started and did
+    // nothing: the button is enabled off selectedVideoAudios, but the spec is
+    // built from getOrderedAudios(), and the two can disagree.
+    if (!spec) {
+      const audios = getOrderedAudios().length;
+      const images = videoImages.filter(img => selectedVideoImages.has(img.id)).length;
+      rlog("startRender: ABORT — buildRenderSpec() returned null", {
+        orderedAudios: audios, selectedImages: images, exportedTracks: exportedTracks.length,
+      });
+      setMessage(audios === 0
+        ? (exportedTracks.length === 0
+            ? "Nothing to render — there are no exported tracks. Run the export in Step 4 first."
+            : "Nothing to render — no audio tracks are selected. Tick them in the audio table above.")
+        : images === 0
+          ? "Nothing to render — no images are selected."
+          : "Nothing to render — check the audio and image selections above.");
+      return;
+    }
     setShowVideoLogs(true);
     const projectName_ = projectName || "Untitled project";
+    rlog("startRender: spec built", {
+      name: spec.name, audios: spec.audios.length, images: spec.images.length,
+      timings: spec.timings.length, totalDur: spec.totalDur, w: spec.w, h: spec.h,
+    });
 
-    renderQueue.enqueue({
+    const queued = renderQueue.enqueue({
       projectId: id,
       projectName: projectName_,
       run: async (ctx) => {
-        const audios = await resolveSpecAudios(spec.audios);
-        return runVideoRender({ ...spec, audios }, ctx);
+        rlog("run: started, reading audio", spec.audios.map(a => ({ title: a.title, hasFile: !!a.file, hasUrl: !!a.url })));
+        ctx.onLog(`Reading ${spec.audios.length} audio track(s)…`);
+        try {
+          const audios = await resolveSpecAudios(spec.audios);
+          rlog("run: audio read ok", audios.map(a => a.blob?.size));
+          return await runVideoRender({ ...spec, audios }, ctx);
+        } catch (err) {
+          rlog("run: THREW", err);
+          ctx.onLog(`ERROR ${err?.message || err}`);
+          throw err;
+        }
       },
       onSettled: async (settled) => {
+        rlog(`onSettled: ${settled.status}`, settled.error || undefined);
         if (settled.status !== "done") {
           if (settled.status === "error" && activeProjectIdRef.current === id) {
             setMessage(settled.error?.oom ? "Out of memory — try a lower resolution." : `Video render error: ${settled.error?.message}`);
@@ -4699,6 +5258,7 @@ export default function RipTagPage() {
       },
     });
 
+    rlog("startRender: enqueued", queued);
     // Persist after queueing, not before — on a big project this write takes a
     // while, and the job is already safely on the queue.
     await saveActiveProject();
@@ -4773,7 +5333,7 @@ export default function RipTagPage() {
       }],
       images: [{
         id: img.id, file: img.file,
-        stretchToFit: img.stretchToFit, useBlurBg: img.useBlurBg, paddingColor: img.paddingColor,
+        stretchToFit: img.stretchToFit, useBlurBg: img.useBlurBg, bgBlur: img.bgBlur, paddingColor: img.paddingColor,
         motion: img.motion, motionSpeed: img.motionSpeed,
         bgMotion: img.bgMotion, bgMotionSpeed: img.bgMotionSpeed,
       }],
@@ -4826,7 +5386,7 @@ export default function RipTagPage() {
   };
 
   const startBatchRender = async () => {
-    const id = activeProjectIdRef.current;
+    const id = ensureActiveProjectId();
     if (!id) { setMessage("No active project to render into — reload the page if this persists."); return; }
     const plan = buildBatchPlan();
     if (!plan.length) { setMessage("Nothing to batch render — select at least one audio track and one image."); return; }
@@ -4854,9 +5414,9 @@ export default function RipTagPage() {
         batch: true,
         run: async (ctx) => {
           const a = spec.audios[0];
-          // Fetched here rather than at queue time so the batch doesn't hold
-          // every track's audio in memory while it waits its turn.
-          const blob = a.file ? a.file : await (await fetch(a.url)).blob();
+          // Read here rather than at queue time so the batch doesn't hold every
+          // track's audio in memory while it waits its turn.
+          const blob = await readTrackBytes(a);
           return runVideoRender({ ...spec, audios: [{ ...a, blob }] }, ctx);
         },
         onSettled: async (settled) => {
@@ -4973,7 +5533,7 @@ export default function RipTagPage() {
       // with exactly what we send so they stay accurate.
       const finalTitle = (currentYtData.title || videoOutputName || projectName || "Untitled").slice(0, YT_LIMITS.title);
       const finalDescription = (currentYtData.description || (ytDescSuffix || "").replace(/^\s+/, "")).slice(0, YT_LIMITS.description);
-      const finalTags = (currentYtData.tags || [videoOutputName || projectName, "full album", "vinyl rip"].filter(Boolean).join(", ")).slice(0, YT_LIMITS.tags);
+      const finalTags = buildSafeTagString(currentYtData.tags || [videoOutputName || projectName, "full album", "vinyl rip"].filter(Boolean));
       if (finalTitle !== currentYtData.title || finalDescription !== currentYtData.description || finalTags !== currentYtData.tags) {
         setYtUploadData(prev => ({ ...prev, title: finalTitle, description: finalDescription, tags: finalTags }));
       }
@@ -4984,18 +5544,11 @@ export default function RipTagPage() {
       fd.append("title", finalTitle || name);
       fd.append("description", finalDescription);
       fd.append("privacyStatus", currentYtData.privacyStatus || "private");
-      const cleanedTags = (finalTags || "")
-        .split(",")
-        .map(t => sanitizeYouTubeTag(t))
-        .filter(Boolean);
-      let tagsTotal = 0;
-      const safeTags = [];
-      for (const t of cleanedTags) {
-        const projected = tagsTotal + (safeTags.length ? 2 : 0) + t.length;
-        if (projected > YT_LIMITS.tags) break;
-        safeTags.push(t);
-        tagsTotal = projected;
-      }
+      // finalTags is already sanitized, but the user can type freely into the
+      // tags field, so this is the last gate before the request goes out.
+      const safeTags = buildSafeTagList(finalTags);
+      log("info", `[${elapsed()}] tags: ${safeTags.length} keyword(s), `
+        + `${safeTags.reduce((sum, t) => sum + youTubeTagCost(t), 0)}/${YT_LIMITS.tags} of YouTube's keyword budget`);
       fd.append("tags", safeTags.join(", "));
       fd.append("tokens", JSON.stringify(tokens));
       if (thumbnailFile) fd.append("thumbnail", thumbnailFile, thumbnailFile.name);
@@ -5245,7 +5798,7 @@ export default function RipTagPage() {
     const extracted = extractTagsFromDiscogs(discogsData);
     const filters = { artists: { enabled: true, sliderValue: 100 }, album: { enabled: true, sliderValue: 100 }, tracklist: { enabled: true, sliderValue: 100 }, combinations: { enabled: true, sliderValue: 100 }, credits: { enabled: false, sliderValue: 100 }, filenames: { enabled: false, sliderValue: 100 } };
     const tags = buildTagString(extracted, filters);
-    setYtUploadData(prev => ({ ...prev, tags: tags.slice(0, YT_LIMITS.tags) }));
+    setYtUploadData(prev => ({ ...prev, tags }));
   };
 
   // Track last discogs URL and rendered video used to generate YouTube metadata
@@ -5295,7 +5848,7 @@ export default function RipTagPage() {
     // defaults (never clobbering a value that's already there).
     const fallbackTitle = (videoOutputName || projectName || "Untitled").slice(0, YT_LIMITS.title);
     const fallbackDesc = (ytDescSuffix || "").replace(/^\s+/, "").slice(0, YT_LIMITS.description);
-    const fallbackTags = [videoOutputName || projectName, "full album", "vinyl rip"].filter(Boolean).join(", ").slice(0, YT_LIMITS.tags);
+    const fallbackTags = buildSafeTagString([videoOutputName || projectName, "full album", "vinyl rip"].filter(Boolean));
     setYtUploadData(prev => {
       const title = prev.title || fallbackTitle;
       const description = prev.description || fallbackDesc;
@@ -5307,11 +5860,83 @@ export default function RipTagPage() {
   }, [step, discogsData, renderedVideoSrc]);
 
   // ---- Derived ----
-  const canGoStep2 = !!audioFile;
+  // Every dropped file needs its duration read before Step 2 can show the
+  // picker, and the selected file needs to be decoded before Step 3 has a
+  // waveform. Advancing early left the next step looking broken while the work
+  // it depended on was still running.
+  const audioDurationsPending = droppedAudioFiles.filter(
+    f => !(`${f.name}:${f.size}` in audioDurationMap)
+  ).length;
+  const audioPrepPending = !!audioPrepStatus || (!!audioFile && !channelData && !decodeFailedRef.current);
+  const audioReady = !!audioFile && !audioPrepPending && audioDurationsPending === 0;
+  const canGoStep2 = audioReady;
   const canGoStep3 = !!audioFile && (parseInt(manualTrackCount) > 0 || (discogsData?.tracklist?.length > 0));
   const canExport = tracks.length > 0 && !!audioFile;
   // True when nothing has been done yet — used to disable the "Start Over" button
   // so it isn't an actionable target on a brand-new / freshly reset session.
+  // What the trash icon clears, per step. Scoped to the step you are looking at
+  // — wiping the whole project from Step 5 because the images are wrong was
+  // never what anyone meant by that button.
+  const stepClearPlan = (() => {
+    switch (step) {
+      case 1: return {
+        label: "input files",
+        detail: "the dropped audio files and the loaded audio",
+        empty: droppedAudioFiles.length === 0 && !audioFile,
+        run: () => {
+          if (audioUrlRef.current) { try { URL.revokeObjectURL(audioUrlRef.current); } catch {} }
+          setAudioFile(null); setDroppedAudioFiles([]); setPendingAudioFiles([]);
+          setAudioDurationMap({}); setExpandedFilenames(new Set()); setAudioPickConfirmed(false);
+          setChannelData(null); setDuration(0); setTracks([]); setSilenceRegions([]);
+        },
+      };
+      case 2: return {
+        label: "release info",
+        detail: "the Discogs release, track names and the manual track count",
+        empty: !discogsData && !discogsUrl && trackNames.length === 0 && !manualTrackCount,
+        run: () => {
+          setDiscogsData(null); setDiscogsUrl(""); setDiscogsError("");
+          setDiscogsSearchResults([]); setDiscogsSearchQuery(""); setDiscogsSearchError("");
+          setTrackNames([]); setManualTrackCount("");
+          discogsArtReleaseRef.current = null;
+        },
+      };
+      case 3: return {
+        label: "track markers",
+        detail: `the ${tracks.length} split point${tracks.length === 1 ? "" : "s"} on the waveform`,
+        empty: tracks.length === 0,
+        run: () => {
+          snapshotTracks();
+          setTracks([]); syncPeaksToTracks([]); setSilenceRegions([]);
+          setExportedTracks([]); autoSplitDoneRef.current = false;
+        },
+      };
+      case 4: return {
+        label: "exported tracks",
+        detail: `the ${exportedTracks.length} exported file${exportedTracks.length === 1 ? "" : "s"}`,
+        empty: exportedTracks.length === 0,
+        run: () => {
+          exportedTracks.forEach(t => { try { URL.revokeObjectURL(t.url); } catch {} });
+          setExportedTracks([]);
+          autoExportDoneRef.current = true; // don't immediately re-export what was just cleared
+        },
+      };
+      default: return {
+        label: "video tables",
+        detail: "every audio track, image and rendered video on this step",
+        empty: exportedTracks.length === 0 && videoImages.length === 0 && !renderedVideoSrc,
+        run: () => clearAllVideoTables(),
+      };
+    }
+  })();
+
+  const clearCurrentStep = () => {
+    if (stepClearPlan.empty) return;
+    if (!window.confirm(`Clear ${stepClearPlan.detail}?\n\nOnly this step is affected — the rest of the project stays as it is.`)) return;
+    stepClearPlan.run();
+    setMessage(`Cleared ${stepClearPlan.label} on step ${step}.`);
+  };
+
   const isFreshStart =
     step === 1 &&
     !audioFile &&
@@ -5487,20 +6112,22 @@ export default function RipTagPage() {
 
       {/* Project bar — which project is open, plus every render in flight */}
       <div className={styles.projectBar}>
+        {/* One icon. The project name, the switcher and "new project" all live
+            in the panel it opens, so the workflow isn't fronted by a box of
+            chrome that says nothing the panel doesn't say better. */}
         <button
           type="button"
-          className={styles.projectBarBtn}
+          className={`${styles.projectIconBtn} ${showHistory ? styles.projectIconBtnOpen : ""}`}
           onClick={() => setShowHistory(v => !v)}
-          title="Open, switch or create a project"
+          aria-expanded={showHistory}
+          aria-label="Projects"
+          title={`Projects — ${projectName || "Untitled project"}`
+            + (projects.length ? ` · ${projects.length} saved` : "")
+            + (projectBusy ? ` · ${projectBusy === "loading" ? "opening…" : "saving…"}` : "")}
         >
-          <span className={styles.projectBarIcon}>🗂</span>
-          Projects{projects.length ? ` (${projects.length})` : ""}
-        </button>
-        <span className={styles.projectBarName} title={projectName}>
-          {projectBusy === "loading" ? "Opening…" : projectBusy === "saving" ? "Saving…" : (projectName || "Untitled project")}
-        </span>
-        <button type="button" className={styles.projectBarGhost} onClick={startNewProject} disabled={!!projectBusy}>
-          + New
+          <span className={styles.projectIconGlyph}>🗂</span>
+          {projects.length > 0 && <span className={styles.projectIconBadge}>{projects.length}</span>}
+          {projectBusy && <span className={styles.projectIconBusy} />}
         </button>
         {(queueActive.length > 0 || queueFinished.length > 0) && (
           <div className={styles.projectBarJobs}>
@@ -5548,21 +6175,38 @@ export default function RipTagPage() {
             participating in .stepBar's flex flow. That lets .stepBar use
             overflow-x: auto for narrow viewports without clipping the
             button's hover tooltip. */}
+        <div className={styles.stepActionGroup}>
         <button
           type="button"
           className={styles.stepResetBtn}
-          onClick={resetAll}
-          disabled={isFreshStart}
-          aria-label={isFreshStart ? "Start Over (nothing to clear)" : "Start Over"}
-          data-tooltip={isFreshStart ? "Nothing to clear" : "Start Over"}
+          onClick={clearCurrentStep}
+          disabled={stepClearPlan.empty}
+          aria-label={stepClearPlan.empty ? "Clear this step (nothing to clear)" : `Clear this step — ${stepClearPlan.label}`}
+          data-tooltip={stepClearPlan.empty ? "Nothing to clear on this step" : "Clear this step"}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+            <path d="M10 11v6M14 11v6"></path>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={styles.stepStartOverBtn}
+          onClick={resetAll}
+          disabled={isFreshStart}
+          title={isFreshStart ? "Nothing to clear" : "Clear the whole project and go back to Step 1"}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <polyline points="1 4 1 10 7 10"></polyline>
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
           </svg>
+          Start over
         </button>
+        </div>
         <div className={styles.stepBar}>
-          {["Input", "Tracks", "Waveform", "Audio", "Video"].map((label, i) => (
+          {["Input", "Source", "Waveform", "Export", "Video"].map((label, i) => (
             <div key={`item-${i}`} className={`${styles.stepItem} ${step === i + 1 ? styles.stepActive : ""} ${step > i + 1 ? styles.stepDone : ""}`}
               onClick={() => setStep(i + 1)}
               style={{ cursor: "pointer" }}
@@ -5801,8 +6445,38 @@ export default function RipTagPage() {
                 <YouTubeAuth compact={true} returnUrl="/riptag" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
               </div>
 
+              {/* Real progress, not a spinner: the read is a byte count, and the
+                  stages after it are named as they happen. */}
+              {audioFile && (audioPrepPending || audioDurationsPending > 0) && (
+                <div className={styles.audioPrepBar}>
+                  <div className={styles.audioPrepHead}>
+                    <span>{audioPrepStatus?.label || `Reading track lengths — ${droppedAudioFiles.length - audioDurationsPending}/${droppedAudioFiles.length}`}</span>
+                    <span className={styles.audioPrepPct}>
+                      {audioPrepStatus
+                        ? `${audioPrepStatus.pct}%`
+                        : `${Math.round(((droppedAudioFiles.length - audioDurationsPending) / Math.max(1, droppedAudioFiles.length)) * 100)}%`}
+                    </span>
+                  </div>
+                  <div className={styles.audioPrepTrack}>
+                    <div className={styles.audioPrepFill} style={{
+                      width: `${audioPrepStatus
+                        ? audioPrepStatus.pct
+                        : Math.round(((droppedAudioFiles.length - audioDurationsPending) / Math.max(1, droppedAudioFiles.length)) * 100)}%`,
+                    }} />
+                  </div>
+                  <span className={styles.audioPrepHint}>
+                    {audioFile.name} · {formatBytes(audioFile.size)} — the next step needs this finished.
+                  </span>
+                </div>
+              )}
+
               <div className={styles.stepNav}>
-                <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>Next: Tracks →</button>
+                <button className={styles.nextBtn} disabled={!canGoStep2} onClick={() => setStep(2)}>
+                  {!audioFile ? "Next: Source →"
+                    : audioPrepPending ? `Preparing audio… ${audioPrepStatus?.pct ?? 0}%`
+                    : audioDurationsPending > 0 ? `Reading ${audioDurationsPending} more file${audioDurationsPending === 1 ? "" : "s"}…`
+                    : "Next: Source →"}
+                </button>
               </div>
             </div>
           )}
@@ -6056,7 +6730,63 @@ export default function RipTagPage() {
                   <span className={styles.tbGroupLabel}>Vol</span>
                   <input type="range" min="0" max="1" step="0.01" value={volume} onChange={e => setVolume(parseFloat(e.target.value))} className={styles.volSlider} title="Playback volume" />
                 </div>
+                <div className={styles.tbSep} />
+                <div className={styles.tbGroup}>
+                  <button
+                    type="button"
+                    className={`${styles.tbBtn} ${showMarkerJson ? styles.tbBtnActive : ""}`}
+                    aria-expanded={showMarkerJson}
+                    title="Marker JSON — copy the track start/end times out, or paste a saved set back in"
+                    onClick={() => setShowMarkerJson(v => {
+                      const next = !v;
+                      // Reopening always starts from the live markers rather
+                      // than whatever was left in the box last time.
+                      if (next) { setMarkerJsonDirty(false); setMarkerJsonDraft(buildMarkerJson()); }
+                      return next;
+                    })}
+                  >⚙</button>
+                </div>
               </div>
+
+              {/* Marker JSON — portable track boundaries */}
+              {showMarkerJson && (
+                <div className={styles.markerJsonPanel}>
+                  <div className={styles.markerJsonHead}>
+                    <strong>Marker JSON</strong>
+                    <span className={styles.settingHelp}>
+                      The start and end of every track, as text. Copy it to keep a backup, or paste a saved set
+                      over it and press <b>Apply</b> to put those positions onto this audio file. Times are in
+                      seconds, and only line up against the same recording.
+                    </span>
+                  </div>
+                  <textarea
+                    className={styles.markerJsonBox}
+                    spellCheck={false}
+                    value={markerJsonDraft}
+                    onChange={e => { setMarkerJsonDirty(true); setMarkerJsonDraft(e.target.value); }}
+                    placeholder={'{\n  "tracks": [\n    { "start": 0, "end": 187.4, "name": "Track One" }\n  ]\n}'}
+                  />
+                  <div className={styles.markerJsonActions}>
+                    <button type="button" className={styles.fetchBtn} onClick={applyMarkerJson} disabled={!markerJsonDraft.trim()}>
+                      Apply to waveform
+                    </button>
+                    <button type="button" className={styles.clearBtn} onClick={copyMarkerJson} disabled={!markerJsonDraft.trim()}>
+                      Copy
+                    </button>
+                    <button type="button" className={styles.clearBtn} onClick={downloadMarkerJson} disabled={!markerJsonDraft.trim()}>
+                      Download .json
+                    </button>
+                    {markerJsonDirty && (
+                      <>
+                        <button type="button" className={styles.linkBtn} onClick={resetMarkerJson}>
+                          Reset to current markers
+                        </button>
+                        <span className={styles.markerJsonDirtyTag}>Edited — not applied yet</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Controls / Keybinds help */}
               <div className={styles.controlsHelpBox}>
@@ -6292,14 +7022,14 @@ export default function RipTagPage() {
                 >
                   Skip →
                 </button>
-                <button className={styles.nextBtn} disabled={!canExport} onClick={() => setStep(4)}>Next: Audio →</button>
+                <button className={styles.nextBtn} disabled={!canExport} onClick={() => setStep(4)}>Next: Export →</button>
               </div>
           </div>
 
           {/* ---- STEP 4 ---- */}
           {step === 4 && (
             <div className={styles.card}>
-              <h2 className={styles.cardTitle}>Step 4: Audio</h2>
+              <h2 className={styles.cardTitle}>Step 4: Export</h2>
 
               {/* Format */}
               <div className={styles.formatRow}>
@@ -6516,6 +7246,27 @@ export default function RipTagPage() {
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Step 5: Video</h2>
 
+              {/* Nothing on this step works without exported audio, and the
+                  step bar lets you jump straight here — so say what's missing
+                  rather than showing an empty audio table. */}
+              {exportedTracks.length === 0 && (
+                <div className={styles.renderWarning} style={{
+                  background: darkMode ? "#3a2a1a" : "#fffaf0",
+                  borderColor: darkMode ? "#6b4d2d" : "#fbd38d",
+                  color: darkMode ? "#fbd38d" : "#c05621",
+                  display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                }}>
+                  <span>
+                    <b>No exported audio yet.</b> Go back to Step 4 and run the export
+                    {outputFormat === "flac" ? " (FLAC)" : ` (${outputFormat.toUpperCase()})`} —
+                    the video is built from those track files.
+                  </span>
+                  <button type="button" className={styles.fetchBtn} onClick={() => setStep(4)}>
+                    ← Back to Step 4
+                  </button>
+                </div>
+              )}
+
               {/* Bulk clears — each section also has its own button; this row
                   is the one place that can wipe everything at once. */}
               {(exportedTracks.length > 0 || videoImages.length > 0 || renderedVideoSrc) && (
@@ -6591,7 +7342,20 @@ export default function RipTagPage() {
                 <div className={styles.sectionTitleRow}>
                   <h3 className={styles.sectionTitle}>Audio Tracks ({selectedVideoAudios.size}/{exportedTracks.length} selected)</h3>
                   {exportedTracks.length > 0 && (
-                    <button type="button" className={styles.clearBtn} onClick={clearVideoAudioTable}>Clear table</button>
+                    <div className={styles.audioSortRow}>
+                      <label className={styles.audioSortLabel}>
+                        Sort
+                        <select className={styles.inputSmall} style={{ width: 150, textAlign: "left" }}
+                          value={audioSortMode}
+                          onChange={e => sortVideoAudio(e.target.value)}>
+                          <option value="title-asc">Title (A→Z)</option>
+                          <option value="title-desc">Title (Z→A)</option>
+                          <option value="index">Export order</option>
+                          <option value="manual" disabled>Manual (dragged)</option>
+                        </select>
+                      </label>
+                      <button type="button" className={styles.clearBtn} onClick={clearVideoAudioTable}>Clear table</button>
+                    </div>
                   )}
                 </div>
                 {exportedTracks.length === 0 && !audioLoadingStatus ? (
@@ -6610,7 +7374,15 @@ export default function RipTagPage() {
                               />
                             </div>
                           </th>
-                          <th>#</th><th>Title</th><th>Duration</th>
+                          <th>#</th>
+                          <th
+                            className={styles.sortableTh}
+                            title="Sort by title"
+                            onClick={() => sortVideoAudio(audioSortMode === "title-asc" ? "title-desc" : "title-asc")}
+                          >
+                            Title{audioSortMode === "title-asc" ? " ▲" : audioSortMode === "title-desc" ? " ▼" : ""}
+                          </th>
+                          <th>Duration</th>
                           <th title="Pin an image to this track. The image then covers exactly this track's start → end on the timeline.">Image</th>
                           <th style={{width:90}}></th>
                         </tr>
@@ -7017,6 +7789,7 @@ export default function RipTagPage() {
                                 const bgMotion = img.bgMotion || "none";
                                 const motionSpeed = clampMotionSpeed(img.motionSpeed);
                                 const bgSpeed = clampMotionSpeed(img.bgMotionSpeed);
+                                const bgBlur = clampBgBlur(img.bgBlur);
                                 // Animate the preview over the segment's real on-screen
                                 // duration so what you see matches what gets rendered.
                                 const segDur = Math.min(20, Math.max(2, timing ? timing.endTime - timing.startTime : 6));
@@ -7024,7 +7797,18 @@ export default function RipTagPage() {
                                 return (
                                 <tr>
                                   <td colSpan={12} className={styles.imgPreviewRow}>
-                                    <div className={styles.imgPreviewWrap} style={{ background: img.useBlurBg ? "transparent" : (img.paddingColor || videoBgColor) }}>
+                                    {/* Shaped by the output resolution rather than the
+                                        table width — a 1:1 sleeve rendered into a 16:9
+                                        video looked nothing like this preview when the
+                                        preview was simply as wide as the table. */}
+                                    <div className={styles.imgPreviewFrame}>
+                                      <div
+                                        className={styles.imgPreviewWrap}
+                                        style={{
+                                          aspectRatio: `${concatDimensions.w} / ${concatDimensions.h}`,
+                                          background: img.useBlurBg ? "transparent" : (img.paddingColor || videoBgColor),
+                                        }}
+                                      >
                                       <div
                                         className={`${styles.motionStage} ${motionClass ? styles[motionClass] : ""}`}
                                         style={motionClass ? {
@@ -7039,6 +7823,9 @@ export default function RipTagPage() {
                                             className={`${styles.imgPreviewBlurBg} ${bgMotion === "drift" ? styles.bgDrift : ""}`}
                                             style={{
                                               backgroundImage: `url(${img.previewUrl})`,
+                                              // Proportional to the render's blur so the slider visibly does
+                                              // the same thing here as it does in the output.
+                                              filter: `blur(${(18 * bgBlur / 100).toFixed(1)}px) brightness(0.7)`,
                                               ...(bgMotion === "drift" ? { animationDuration: `${(BG_DRIFT_PERIOD / bgSpeed).toFixed(2)}s` } : {}),
                                             }}
                                           />
@@ -7049,6 +7836,11 @@ export default function RipTagPage() {
                                           className={styles.imgPreviewImg}
                                           style={{ objectFit: img.stretchToFit ? "fill" : "contain" }}
                                         />
+                                        </div>
+                                      </div>
+                                      <div className={styles.imgPreviewFrameCap}>
+                                        Output frame — {concatDimensions.w}×{concatDimensions.h}
+                                        {img.naturalWidth ? ` · source ${img.naturalWidth}×${img.naturalHeight}` : ""}
                                       </div>
                                     </div>
                                     {/* Movement options — foreground and background are
@@ -7071,7 +7863,7 @@ export default function RipTagPage() {
                                               value={motionSpeed} disabled={motion === "none"}
                                               onChange={e => updateVideoImage(img.id, "motionSpeed", clampMotionSpeed(e.target.value))} />
                                           </label>
-                                          <button type="button" className={styles.previewBtn}
+                                          <button type="button" className={styles.applyAllBtn}
                                             title="Apply this image movement + speed to every image (leaves backgrounds alone)"
                                             onClick={() => setVideoImages(prev => prev.map(im => ({ ...im, motion, motionSpeed })))}
                                           >Apply to all</button>
@@ -7095,16 +7887,29 @@ export default function RipTagPage() {
                                                 value={bgSpeed} disabled={bgMotion === "none"}
                                                 onChange={e => updateVideoImage(img.id, "bgMotionSpeed", clampMotionSpeed(e.target.value))} />
                                             </label>
-                                            <button type="button" className={styles.previewBtn}
+                                            <button type="button" className={styles.applyAllBtn}
                                               title="Apply this background movement + speed to every image (leaves image movement alone)"
                                               onClick={() => setVideoImages(prev => prev.map(im => ({ ...im, bgMotion, bgMotionSpeed: bgSpeed })))}
+                                            >Apply to all</button>
+                                          </div>
+                                          <div className={styles.motionGroupRow}>
+                                            <label className={styles.motionControlLabel}
+                                              title="How hard the background copy is blurred. 0 leaves it sharp, which turns the backdrop into a zoomed-in crop of the image.">
+                                              Blur — {bgBlur === 0 ? "off" : `${bgBlur}%`}
+                                              <input type="range" className={styles.motionSlider}
+                                                min="0" max={BG_BLUR_MAX} step="5" value={bgBlur}
+                                                onChange={e => updateVideoImage(img.id, "bgBlur", clampBgBlur(e.target.value))} />
+                                            </label>
+                                            <button type="button" className={styles.applyAllBtn}
+                                              title="Apply this blur amount to every image"
+                                              onClick={() => setVideoImages(prev => prev.map(im => ({ ...im, bgBlur })))}
                                             >Apply to all</button>
                                           </div>
                                         </div>
                                       )}
                                     </div>
                                     <p className={styles.hintText} style={{marginTop:4}}>
-                                      {img.useBlurBg ? "Blur background" : img.stretchToFit ? "Stretch to fit" : `Letterbox · padding: ${img.paddingColor || videoBgColor}`}
+                                      {img.useBlurBg ? `Blur background · ${bgBlur === 0 ? "no blur" : `${bgBlur}% blur`}` : img.stretchToFit ? "Stretch to fit" : `Letterbox · padding: ${img.paddingColor || videoBgColor}`}
                                       {motion !== "none" && ` · ${IMAGE_MOTIONS.find(m => m.value === motion)?.label.toLowerCase()} at ${motionSpeed}× over ${Math.round(segDur)}s`}
                                       {img.useBlurBg && bgMotion === "drift" && ` · background drifts on a ${(BG_DRIFT_PERIOD / bgSpeed).toFixed(0)}s cycle`}
                                     </p>
@@ -7691,6 +8496,26 @@ export default function RipTagPage() {
                     Background color
                     <input type="color" value={videoBgColor} onChange={e => setVideoBgColor(e.target.value)} style={{ width: 44, height: 34, padding: 2, borderRadius: 4, border: "1px solid #cbd5e0", cursor: "pointer" }} />
                   </label>
+                  <div className={styles.settingLabel}>
+                    Background blur — {defaultBgBlur === 0 ? "off" : `${defaultBgBlur}%`}
+                    <div className={styles.blurSettingRow}>
+                      <input type="range" min="0" max={BG_BLUR_MAX} step="5" value={defaultBgBlur}
+                        onChange={e => setDefaultBgBlur(clampBgBlur(e.target.value))} />
+                      <button type="button" className={styles.applyAllBtn}
+                        disabled={videoImages.length === 0}
+                        title="Set every image in the table to this blur amount"
+                        onClick={() => {
+                          setVideoImages(prev => prev.map(im => ({ ...im, bgBlur: defaultBgBlur })));
+                          setMessage(`Background blur set to ${defaultBgBlur}% on ${videoImages.length} image(s).`);
+                        }}
+                      >Apply to all</button>
+                    </div>
+                    <span className={styles.settingHelp}>
+                      Used by images that have <b>Blur background</b> on. New images start here; each row can
+                      override it, and <b>Apply to all</b> pushes this value onto every image. 100% is the
+                      original strength — the scale runs to {BG_BLUR_MAX}% for a softer backdrop.
+                    </span>
+                  </div>
                 </div>
                 {/* Video estimate */}
                 {(() => {
@@ -7768,13 +8593,20 @@ export default function RipTagPage() {
               </div>
 
               {/* Render */}
-              {(selectedVideoImages.size === 0 || selectedVideoAudios.size === 0) && !isRenderingVideo && (
+              {/* Counted the way buildRenderSpec counts, not from the selection
+                  sets. The button used to enable on selectedVideoAudios.size
+                  while the spec was built from getOrderedAudios() — so a
+                  selection holding indices for tracks that no longer existed
+                  gave an enabled button and a render that produced nothing. */}
+              {(renderableImages === 0 || renderableAudios === 0) && !isRenderingVideo && (
                 <div className={styles.renderWarning} style={{background: darkMode ? "#3a2a1a" : "#fffaf0", borderColor: darkMode ? "#6b4d2d" : "#fbd38d", color: darkMode ? "#fbd38d" : "#c05621"}}>
-                  {selectedVideoImages.size === 0 && selectedVideoAudios.size === 0
+                  {renderableImages === 0 && renderableAudios === 0
                     ? "Add at least one image and select at least one audio track to render."
-                    : selectedVideoImages.size === 0
+                    : renderableImages === 0
                       ? "Add or select at least one image above to render the video."
-                      : "Select at least one audio track above to render the video."}
+                      : exportedTracks.length === 0
+                        ? "No exported audio yet — run the export in Step 4, then select the tracks here."
+                        : "Select at least one audio track above to render the video."}
                 </div>
               )}
               {/* The two render modes, side by side so the choice is obvious:
@@ -7782,13 +8614,13 @@ export default function RipTagPage() {
               <div className={styles.renderModeRow}>
                 <div className={styles.renderModeCol}>
                   <button className={styles.exportBtn} onClick={startRender}
-                    disabled={isRenderingVideo || selectedVideoImages.size === 0 || selectedVideoAudios.size === 0}
-                    style={!isRenderingVideo && (selectedVideoImages.size === 0 || selectedVideoAudios.size === 0) ? {background:"#cbd5e0",cursor:"not-allowed"} : undefined}>
+                    disabled={isRenderingVideo || renderableImages === 0 || renderableAudios === 0}
+                    style={!isRenderingVideo && (renderableImages === 0 || renderableAudios === 0) ? {background:"#cbd5e0",cursor:"not-allowed"} : undefined}>
                     {activeRenderJob?.status === "queued" ? `Queued — #${activeRenderJob.queuePosition} in line`
                       : isRenderingVideo ? "Rendering Concat…"
-                      : selectedVideoImages.size === 0 ? "Render Concat — no images selected"
-                      : selectedVideoAudios.size === 0 ? "Render Concat — no audio selected"
-                      : `Render Concat (${selectedVideoImages.size} image${selectedVideoImages.size !== 1 ? "s" : ""}, ${selectedVideoAudios.size} track${selectedVideoAudios.size !== 1 ? "s" : ""})`}
+                      : renderableImages === 0 ? "Render Concat — no images selected"
+                      : renderableAudios === 0 ? "Render Concat — no audio selected"
+                      : `Render Concat (${renderableImages} image${renderableImages !== 1 ? "s" : ""}, ${renderableAudios} track${renderableAudios !== 1 ? "s" : ""})`}
                   </button>
                   <span className={styles.renderModeHint}>One video — every track joined end to end, images following the slideshow settings.</span>
                   {/* Auto-drawn opening frame, so the button shows what it makes. */}
@@ -8228,7 +9060,16 @@ export default function RipTagPage() {
                   {ytAuthState.canAuth && (() => {
                     const titleLen = ytUploadData.title.length;
                     const descLen = ytUploadData.description.length;
-                    const tagsLen = ytUploadData.tags.length;
+                    // Counted the way YouTube counts, not by raw string length:
+                    // a multi-word keyword is stored quoted and those two quotes
+                    // count, so a 500-character tag string is really over budget.
+                    // Measuring the text was why uploads failed with "invalid
+                    // video keywords" while the counter still read green.
+                    const tagsLen = (ytUploadData.tags || "")
+                      .split(",")
+                      .map(t => sanitizeYouTubeTag(t))
+                      .filter(Boolean)
+                      .reduce((sum, t) => sum + youTubeTagCost(t), 0);
                     const titleOver = titleLen > YT_LIMITS.title;
                     const descOver = descLen > YT_LIMITS.description;
                     const tagsOver = tagsLen > YT_LIMITS.tags;
@@ -8315,7 +9156,12 @@ export default function RipTagPage() {
                       <label className={styles.settingLabel}>
                         <div className={styles.ytFieldHeader}>
                           <span>Tags</span>
-                          <span className={`${styles.ytCharCount} ${tagsOver ? styles.ytCharOver : ""}`}>{tagsLen}/{YT_LIMITS.tags}</span>
+                          <span
+                            className={`${styles.ytCharCount} ${tagsOver ? styles.ytCharOver : ""}`}
+                            title={"YouTube's keyword budget. A tag with a space in it counts two extra characters "
+                              + "for the quotes YouTube stores it with. Anything over the limit is dropped whole at "
+                              + "upload time — never cut mid-word."}
+                          >{tagsLen}/{YT_LIMITS.tags}</span>
                         </div>
                         <input type="text" className={`${styles.input} ${tagsOver ? styles.ytInputOver : ""}`} value={ytUploadData.tags} onChange={e => setYtUploadData(p => ({...p, tags: e.target.value}))} placeholder="tag1, tag2" />
                       </label>
@@ -8628,7 +9474,12 @@ export default function RipTagPage() {
         {showHistory && (
           <div className={styles.historySidebar}>
             <div className={styles.historyHead}>
-              <h3 className={styles.historyTitle}>Projects</h3>
+              <h3 className={styles.historyTitle}>
+                Projects
+                <span className={styles.historyCurrent} title={projectName}>
+                  {projectBusy === "loading" ? "Opening…" : projectBusy === "saving" ? "Saving…" : (projectName || "Untitled project")}
+                </span>
+              </h3>
               <div className={styles.historyHeadBtns}>
                 {projects.length > 0 && (
                   <button className={styles.clearHistoryBtn} onClick={() => { if (window.confirm("Delete every saved project and all of their files?")) clearAllHistory(); }}>Clear All</button>
@@ -8708,6 +9559,19 @@ export default function RipTagPage() {
         onPause={() => setIsPlaying(false)}
         onEnded={() => { setIsPlaying(false); setPreviewingTrack(null); }}
         preload="auto"
+      />
+
+      {/* Local-only resource meters. Renders null in a production build. */}
+      <RipTagDevPanel
+        predictedPeakMB={estimateMemoryUsage()?.totalMB ?? null}
+        wasmLimitMB={WASM_MEMORY_LIMIT_MB}
+        renderInputs={{
+          exportedTracks: exportedTracks.length,
+          selectedAudios: selectedVideoAudios.size,
+          orderedAudios: renderableAudios,
+          videoImages: videoImages.length,
+          selectedImages: renderableImages,
+        }}
       />
     </div>
   );
