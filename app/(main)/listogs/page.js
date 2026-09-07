@@ -1446,10 +1446,15 @@ function DiscogsAuthTestPageInner() {
       // Count how many we can skip upfront
       const skippedCount = uniqueVideoIds.filter(id => confirmedAdded.has(id)).length;
       let addedCount = skippedCount;
+      let skippedUnavailable = 0;
       let consecutiveErrors = 0;
       const MAX_CONSECUTIVE_ERRORS = 10;
       const MAX_RATE_LIMIT_RETRIES = 12;
-      const MAX_SERVER_ERROR_RETRIES = 50;
+      // Generic 5xx responses are retried only a handful of times - a video that can
+      // never be added now comes back as a 4xx with `skip`, so a long 5xx streak means
+      // something is actually broken and grinding through 50 attempts helps nobody.
+      const MAX_SERVER_ERROR_RETRIES = 5;
+      const MAX_NETWORK_RETRIES = 10;
 
       // Reasons that mean the video can never be added - skip immediately, don't retry
       const NON_RETRYABLE_REASONS = [
@@ -1500,82 +1505,76 @@ function DiscogsAuthTestPageInner() {
               continue;
             }
 
-            if (response.status === 429 || response.status === 403) {
-              const errorData = await response.json().catch(() => ({}));
-              rateLimitRetries++;
-
-              if (rateLimitRetries > MAX_RATE_LIMIT_RETRIES) {
-                setRateLimited(false);
-                setYoutubeError(`Gave up after ${MAX_RATE_LIMIT_RETRIES} rate-limit retries. ${addedCount}/${uniqueVideoIds.length} videos added.`);
-                return;
-              }
-
-              // Exponential backoff: 10s, 20s, 40s, 80s, ... capped at 5 min
-              const backoffSec = Math.min(10 * Math.pow(2, rateLimitRetries - 1), 300);
-              const delaySec = errorData.retryAfter ? Math.max(errorData.retryAfter, backoffSec) : backoffSec;
-
-              setRetryReason('rate-limit');
-              setRateLimited(true);
-              setRetryAfter(delaySec);
-              setRetryAttempt(rateLimitRetries);
-              setYoutubeError(`Rate limited. Auto-retrying in ${delaySec}s (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})...`);
-
-              await startCountdown(delaySec);
-
-              setRateLimited(false);
-              setYoutubeError(`Retrying... (${addedCount}/${uniqueVideoIds.length} added so far)`);
-              continue; // Retry same video
-            }
-
-            // Transient server error (5xx) - exponential backoff, retry up to the cap
-            if (response.status >= 500) {
-              const errorData = await response.json().catch(() => ({}));
-
-              // If the server tells us this specific video can't be added (deleted/private/
-              // not found), skip it immediately. This is a terminal state for the video, not
-              // a systemic failure, so it does NOT count toward the consecutive-error bail-out.
-              if (isNonRetryableVideoError(response.status, errorData)) {
-                console.warn(`Skipping video ${videoId} - cannot be added (${errorData.reason || errorData.error || response.status})`);
-                setRateLimited(false);
-                success = true;
-                continue;
-              }
-
-              serverErrorRetries++;
-              if (serverErrorRetries > MAX_SERVER_ERROR_RETRIES) {
-                // Give up on this video after the cap, move on so we never get stuck
-                console.error(`Giving up on video ${videoId} after ${MAX_SERVER_ERROR_RETRIES} server-error retries`);
-                setRateLimited(false);
-                consecutiveErrors++;
-                success = true;
-                if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
-                  setYoutubeError(`Too many consecutive errors (${MAX_CONSECUTIVE_ERRORS}). ${addedCount}/${uniqueVideoIds.length} videos added.`);
-                  return;
-                }
-                continue;
-              }
-
-              // Exponential backoff: 2s, 4s, 8s, 16s, 32s, capped at 60s
-              const backoffSec = Math.min(2 * Math.pow(2, serverErrorRetries - 1), 60);
-              setRetryReason('server-error');
-              setRateLimited(true);
-              setRetryAfter(backoffSec);
-              setRetryAttempt(serverErrorRetries);
-              setYoutubeError(`Server error (HTTP ${response.status}) on video ${addedCount + 1}/${uniqueVideoIds.length}. Retrying automatically (attempt ${serverErrorRetries}/${MAX_SERVER_ERROR_RETRIES})...`);
-              await startCountdown(backoffSec);
-              setYoutubeError(`Retrying now... (${addedCount}/${uniqueVideoIds.length} added so far)`);
-              continue; // Retry same video
-            }
-
+            // Any other non-2xx: read the body once, then decide skip vs. retry.
             if (!response.ok) {
               const errorData = await response.json().catch(() => ({}));
 
-              // Video can't be added (deleted/private/not found) - skip immediately
-              if (isNonRetryableVideoError(response.status, errorData)) {
+              // The video can never be added (unavailable, deleted, private, bad id) -
+              // skip it immediately instead of burning retries on it.
+              if (errorData.skip || isNonRetryableVideoError(response.status, errorData)) {
                 console.warn(`Skipping video ${videoId} - cannot be added (${errorData.reason || errorData.error || response.status})`);
                 setRateLimited(false);
+                setRetryAfter(null);
+                setRetryAttempt(0);
+                skippedUnavailable++;
                 success = true;
                 continue;
+              }
+
+              if (response.status === 429 || response.status === 403) {
+                rateLimitRetries++;
+
+                if (rateLimitRetries > MAX_RATE_LIMIT_RETRIES) {
+                  setRateLimited(false);
+                  setYoutubeError(`Gave up after ${MAX_RATE_LIMIT_RETRIES} rate-limit retries. ${addedCount}/${uniqueVideoIds.length} videos added.`);
+                  return;
+                }
+
+                // Exponential backoff: 10s, 20s, 40s, 80s, ... capped at 5 min
+                const backoffSec = Math.min(10 * Math.pow(2, rateLimitRetries - 1), 300);
+                const delaySec = errorData.retryAfter ? Math.max(errorData.retryAfter, backoffSec) : backoffSec;
+
+                setRetryReason('rate-limit');
+                setRateLimited(true);
+                setRetryAfter(delaySec);
+                setRetryAttempt(rateLimitRetries);
+                setYoutubeError(`Rate limited. Auto-retrying in ${delaySec}s (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})...`);
+
+                await startCountdown(delaySec);
+
+                setRateLimited(false);
+                setYoutubeError(`Retrying... (${addedCount}/${uniqueVideoIds.length} added so far)`);
+                continue; // Retry same video
+              }
+
+              // Transient server error (5xx) - exponential backoff, retry up to the cap
+              if (response.status >= 500) {
+                serverErrorRetries++;
+                if (serverErrorRetries > MAX_SERVER_ERROR_RETRIES) {
+                  // Give up on this video after the cap, move on so we never get stuck
+                  console.error(`Giving up on video ${videoId} after ${MAX_SERVER_ERROR_RETRIES} server-error retries`);
+                  setRateLimited(false);
+                  setRetryAfter(null);
+                  setRetryAttempt(0);
+                  consecutiveErrors++;
+                  success = true;
+                  if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
+                    setYoutubeError(`Too many consecutive errors (${MAX_CONSECUTIVE_ERRORS}). ${addedCount}/${uniqueVideoIds.length} videos added.`);
+                    return;
+                  }
+                  continue;
+                }
+
+                // Exponential backoff: 2s, 4s, 8s, 16s, 32s, capped at 60s
+                const backoffSec = Math.min(2 * Math.pow(2, serverErrorRetries - 1), 60);
+                setRetryReason('server-error');
+                setRateLimited(true);
+                setRetryAfter(backoffSec);
+                setRetryAttempt(serverErrorRetries);
+                setYoutubeError(`Server error (HTTP ${response.status}) on video ${addedCount + 1}/${uniqueVideoIds.length}. Retrying automatically (attempt ${serverErrorRetries}/${MAX_SERVER_ERROR_RETRIES})...`);
+                await startCountdown(backoffSec);
+                setYoutubeError(`Retrying now... (${addedCount}/${uniqueVideoIds.length} added so far)`);
+                continue; // Retry same video
               }
 
               let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
@@ -1583,9 +1582,6 @@ function DiscogsAuthTestPageInner() {
               if (errorData.reason) errorMsg += ` (${errorData.reason})`;
               throw new Error(errorMsg);
             }
-
-            // Reset server-error counter on any successful response
-            serverErrorRetries = 0;
 
             // Success - mark in localStorage
             markVideoAdded(playlistId, videoId, confirmedAdded);
@@ -1627,10 +1623,10 @@ function DiscogsAuthTestPageInner() {
 
             // Network error (fetch rejected) - transient, retry up to the cap
             const isNetworkError = err instanceof TypeError || (err.message && err.message.toLowerCase().includes('fetch'));
-            if (isNetworkError && serverErrorRetries <= MAX_SERVER_ERROR_RETRIES) {
+            if (isNetworkError && serverErrorRetries <= MAX_NETWORK_RETRIES) {
               serverErrorRetries++;
-              if (serverErrorRetries > MAX_SERVER_ERROR_RETRIES) {
-                console.error(`Giving up on video ${videoId} after ${MAX_SERVER_ERROR_RETRIES} network retries`);
+              if (serverErrorRetries > MAX_NETWORK_RETRIES) {
+                console.error(`Giving up on video ${videoId} after ${MAX_NETWORK_RETRIES} network retries`);
                 setRateLimited(false);
                 // fall through to skip below
               } else {
@@ -1639,7 +1635,7 @@ function DiscogsAuthTestPageInner() {
                 setRateLimited(true);
                 setRetryAfter(backoffSec);
                 setRetryAttempt(serverErrorRetries);
-                setYoutubeError(`Network error on video ${addedCount + 1}/${uniqueVideoIds.length}. Retrying automatically (attempt ${serverErrorRetries}/${MAX_SERVER_ERROR_RETRIES})...`);
+                setYoutubeError(`Network error on video ${addedCount + 1}/${uniqueVideoIds.length}. Retrying automatically (attempt ${serverErrorRetries}/${MAX_NETWORK_RETRIES})...`);
                 await startCountdown(backoffSec);
                 setYoutubeError(`Retrying now... (${addedCount}/${uniqueVideoIds.length} added so far)`);
                 continue; // Retry same video
@@ -1665,7 +1661,10 @@ function DiscogsAuthTestPageInner() {
       if (addedCount === uniqueVideoIds.length) {
         setYoutubeError('');
       } else {
-        setYoutubeError(`Finished: ${addedCount}/${uniqueVideoIds.length} videos added.`);
+        const skipNote = skippedUnavailable > 0
+          ? ` (${skippedUnavailable} unavailable video${skippedUnavailable === 1 ? '' : 's'} skipped)`
+          : '';
+        setYoutubeError(`Finished: ${addedCount}/${uniqueVideoIds.length} videos added.${skipNote}`);
       }
 
       if (process.env.NODE_ENV === 'development') {

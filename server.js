@@ -3018,6 +3018,74 @@ app.post('/internal-api/youtube/createPlaylist', (req, res) => {
   }
 });
 
+// Reasons YouTube returns when a specific video can never be added to a playlist
+// (deleted, private, region-blocked, or a bad id). These are terminal for that video.
+const TERMINAL_PLAYLIST_INSERT_REASONS = new Set([
+  'videonotfound', 'invalidvideoid', 'videoidrequired', 'videonoteditable',
+  'playlistnotfound', 'playlistidrequired', 'playlistoperationunsupported',
+  'playlistitemsnotaccessible', 'manualsortrequired',
+  'playlistcontainsmaximumnumberofvideos'
+]);
+const PLAYLIST_INSERT_RATE_LIMIT_REASONS = new Set([
+  'quotaexceeded', 'ratelimitexceeded', 'userratelimitexceeded'
+]);
+
+// Pull the real HTTP status / reason / message out of a googleapis error, whichever
+// shape it arrives in.
+function extractGoogleApiError(error) {
+  const rawStatus = error?.code ?? error?.status ?? error?.response?.status;
+  const errors = error?.errors || error?.response?.data?.error?.errors || [];
+  return {
+    status: typeof rawStatus === 'number' ? rawStatus : null,
+    reason: (errors[0]?.reason || '').toString(),
+    message: errors[0]?.message || error?.response?.data?.error?.message || error?.message || ''
+  };
+}
+
+// Translate a playlistItems.insert failure into a response the client can act on.
+// Previously every failure came back as a blanket 500, so the client treated an
+// unavailable video as a transient error and retried it dozens of times. Now a video
+// that can never be added returns its real 4xx status plus `skip: true` so the client
+// moves on immediately, and 500 is reserved for genuinely transient failures.
+function sendPlaylistInsertError(res, error, videoId) {
+  const { status, reason, message } = extractGoogleApiError(error);
+  const lowerReason = reason.toLowerCase();
+
+  if (PLAYLIST_INSERT_RATE_LIMIT_REASONS.has(lowerReason) || status === 429) {
+    return res.status(429).json({
+      error: 'YouTube API quota exceeded. Please try again later.',
+      reason: reason || 'quotaExceeded',
+      retryAfter: 3600 // 1 hour in seconds
+    });
+  }
+
+  if (TERMINAL_PLAYLIST_INSERT_REASONS.has(lowerReason) || status === 404 || status === 400) {
+    console.warn(`[addVideoToPlaylist] Skipping video ${videoId}: ${status || ''} ${reason || message}`.trim());
+    const skipStatus = status && status >= 400 && status < 500 ? status : 404;
+    return res.status(skipStatus).json({
+      error: message || 'Video is unavailable and cannot be added to the playlist',
+      reason: reason || 'videoNotFound',
+      videoId,
+      skip: true
+    });
+  }
+
+  if (status === 401 || status === 403) {
+    return res.status(status).json({
+      error: message || 'Not authorized to modify this playlist',
+      reason: reason || 'forbidden',
+      videoId
+    });
+  }
+
+  // Unknown / transient - let the client retry with backoff.
+  return res.status(500).json({
+    error: message || 'Failed to add video to playlist',
+    reason: reason || undefined,
+    videoId
+  });
+}
+
 // Add video to YouTube playlist
 app.post('/youtube/addVideoToPlaylist', async (req, res) => {
   if (process.env.NODE_ENV === 'development') {
@@ -3078,20 +3146,8 @@ app.post('/youtube/addVideoToPlaylist', async (req, res) => {
       if (process.env.NODE_ENV === 'development') {
         console.error('Error adding video to playlist after retries:', error);
       }
-      
-      // Check if it's a quota error
-      const isQuotaError = error.code === 403 && 
-        error.errors && 
-        error.errors.some(err => err.reason === 'quotaExceeded');
-      
-      if (isQuotaError) {
-        return res.status(429).json({ 
-          error: 'YouTube API quota exceeded. Please try again later.',
-          retryAfter: 3600 // 1 hour in seconds
-        });
-      }
-      
-      res.status(500).json({ error: 'Failed to add video to playlist' });
+
+      sendPlaylistInsertError(res, error, videoId);
     }
 
   } catch (error) {
@@ -3162,20 +3218,8 @@ app.post('/internal-api/youtube/addVideoToPlaylist', async (req, res) => {
       if (process.env.NODE_ENV === 'development') {
         console.error('Error adding video to playlist after retries:', error);
       }
-      
-      // Check if it's a quota error
-      const isQuotaError = error.code === 403 && 
-        error.errors && 
-        error.errors.some(err => err.reason === 'quotaExceeded');
-      
-      if (isQuotaError) {
-        return res.status(429).json({ 
-          error: 'YouTube API quota exceeded. Please try again later.',
-          retryAfter: 3600 // 1 hour in seconds
-        });
-      }
-      
-      res.status(500).json({ error: 'Failed to add video to playlist' });
+
+      sendPlaylistInsertError(res, error, videoId);
     }
 
   } catch (error) {
