@@ -812,6 +812,9 @@ export default function RipTagPage() {
 
   // Preview playback
   const [previewingTrack, setPreviewingTrack] = useState(null);
+  // Which boundary handle's play button is currently sounding, so that button
+  // shows pause and every other one stays on play.
+  const [playingBoundary, setPlayingBoundary] = useState(null);
 
   // Volume gain (dB) applied at export
   const [volumeDb, setVolumeDb] = useState(0);
@@ -855,6 +858,11 @@ export default function RipTagPage() {
   const [selectedVideoImages, setSelectedVideoImages] = useState(new Set());
   const [showImageModal, setShowImageModal] = useState(false);
   const [modalDragOver, setModalDragOver] = useState(false);
+  // True while an OS file drag is anywhere over the window — drives the
+  // page-wide "drop anywhere" overlay. dragDepthRef counts enter/leave pairs so
+  // moving the cursor between child elements doesn't flicker the overlay off.
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
   const [isRenderingVideo, setIsRenderingVideo] = useState(false);
   const [videoRenderProgress, setVideoRenderProgress] = useState(null);
   const [videoRenderStartTime, setVideoRenderStartTime] = useState(null);
@@ -2387,10 +2395,11 @@ export default function RipTagPage() {
   };
 
   // ---- Upload ----
-  const handleDrop = e => {
-    e.preventDefault();
-    e.stopPropagation();
-    const files = Array.from(e.dataTransfer.files);
+  // Shared by the step 1 drop zone and the page-wide drop overlay, so a file
+  // dropped on blank page space behaves exactly like one dropped on the zone.
+  const ingestDroppedFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
     const audioFiles = files.filter(f => f.type.startsWith("audio/"));
     const imageFiles = files.filter(f => f.type.startsWith("image/"));
 
@@ -2424,6 +2433,13 @@ export default function RipTagPage() {
       }
     }
   };
+
+  const handleDrop = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    ingestDroppedFiles(e.dataTransfer.files);
+  };
+
   const handleFileInput = e => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -3108,6 +3124,26 @@ export default function RipTagPage() {
   const stopPreview = () => {
     clearInterval(previewCheckRef.current);
     audioRef.current?.pause(); setIsPlaying(false); setPreviewingTrack(null);
+    setPlayingBoundary(null);
+  };
+
+  // Play from an exact boundary on the waveform. Deliberately unlike
+  // previewTrack: there's no stop-at timer, because the point is to hear how
+  // the cut sounds *through* the boundary, so playback carries on into the next
+  // track until paused.
+  const playFromBoundary = (key, time) => {
+    const el = audioRef.current;
+    if (!el || !duration) return;
+    // Pressing the same button while it's still sounding pauses it.
+    if (playingBoundary === key && !el.paused) { stopPreview(); return; }
+    clearInterval(previewCheckRef.current);
+    setPreviewingTrack(null);
+    const t = Math.min(Math.max(0, time), Math.max(0, duration - 0.01));
+    el.currentTime = t;
+    setCurrentTime(t);
+    setPlayingBoundary(key);
+    safePlay();
+    setIsPlaying(true);
   };
 
   const togglePlay = () => {
@@ -3287,6 +3323,68 @@ export default function RipTagPage() {
     if (audioFiles.length > 0) await addDirectAudioFiles(audioFiles);
     if (imageFiles.length > 0) await addImagesToVideo(imageFiles);
   };
+
+  // Where a file dropped on blank page space goes: whatever the dropper visible
+  // on this step would have done with it. Previously every such drop ran the
+  // step 1 path, so dropping audio while on step 5 pushed it back through the
+  // splitting flow instead of adding it to the video.
+  const routeDroppedFiles = (files) => {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    if (showImageModal) { addImagesToVideo(list.filter(f => f.type?.startsWith("image/"))); return; }
+    if (step === 5) { handleDirectFileDrop(list); return; }
+    ingestDroppedFiles(list);
+  };
+  // Kept in a ref so the window listeners below can stay subscribed once
+  // instead of re-binding on every render.
+  const routeDropRef = useRef(null);
+  routeDropRef.current = routeDroppedFiles;
+
+  // Page-wide file drag. Listeners sit on window so the whole viewport counts,
+  // not just the page element, which is a centred max-width column.
+  useEffect(() => {
+    // Only real file drags from the OS — internal drags (reordering tracks or
+    // images) carry other types and must not dim the page.
+    const isFileDrag = (e) => Array.from(e.dataTransfer?.types || []).includes("Files");
+    const onDragEnter = (e) => {
+      if (!isFileDrag(e)) return;
+      dragDepthRef.current += 1;
+      setFileDragActive(true);
+    };
+    const onDragOver = (e) => {
+      if (!isFileDrag(e)) return;
+      // Without this the drop event never fires outside a registered zone.
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+    const onDragLeave = (e) => {
+      if (!isFileDrag(e)) return;
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setFileDragActive(false);
+    };
+    const onDrop = (e) => {
+      if (!isFileDrag(e)) return;
+      dragDepthRef.current = 0;
+      setFileDragActive(false);
+      // A drop that landed on one of the real droppers is already handled by
+      // that element (step 1's zone hands it to the file input inside it), and
+      // handling it again here would add every file twice.
+      if (typeof e.target?.closest === "function" && e.target.closest("[data-riptag-drop]")) return;
+      // Otherwise the browser navigates away to the dropped file.
+      e.preventDefault();
+      routeDropRef.current?.(e.dataTransfer?.files);
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
 
   const toggleVideoImage = (id) => {
     setSelectedVideoImages(prev => {
@@ -6153,7 +6251,22 @@ export default function RipTagPage() {
   if (!mounted) return null;
 
   return (
-    <div className={styles.page} onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
+    <div className={styles.page}>
+      {fileDragActive && (
+        <div className={styles.dragOverlay} aria-hidden="true">
+          <div className={styles.dragOverlayCard}>
+            <div className={styles.dragOverlayIcon}>⬇️</div>
+            <p className={styles.dragOverlayTitle}>Drop files anywhere on this page</p>
+            <p className={styles.dragOverlayHint}>
+              {showImageModal
+                ? "Images are added to your video"
+                : step === 5
+                  ? "Audio and image files are added to your video"
+                  : "Audio files to split, and images for cover art"}
+            </p>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
@@ -6367,7 +6480,7 @@ export default function RipTagPage() {
 
               {audioMode === "upload" ? (
                 <div>
-                  <div className={styles.dropZone} onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
+                  <div className={styles.dropZone} data-riptag-drop="" onDrop={handleDrop} onDragOver={e => e.preventDefault()}>
                     <div className={styles.dropIcon}>🎵</div>
                     <p className={styles.dropText}>Drop audio or image files here, or click to browse audio</p>
                     <p className={styles.dropHint}>Audio: WAV · FLAC · MP3 · AIFF · OGG · WebM · Images: PNG · JPG (auto-added to album art &amp; video)</p>
@@ -6928,6 +7041,19 @@ export default function RipTagPage() {
                     };
                     const EPS = 0.02;
                     const handles = [];
+                    // Play button carried by every handle. stopPropagation on
+                    // mousedown matters: without it the press would also start
+                    // a boundary drag, since the bar and leg listen for it.
+                    const playBtn = (key, time) => (
+                      <button
+                        type="button"
+                        className={`${styles.boundaryPlayBtn} ${playingBoundary === key ? styles.boundaryPlayBtnActive : ""}`}
+                        title={`Play from ${formatTime(time)}`}
+                        aria-label={`Play from ${formatTime(time)}`}
+                        onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}
+                        onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); playFromBoundary(key, time); }}
+                      >{playingBoundary === key && isPlaying ? "\u23F8" : "\u25B6"}</button>
+                    );
                     for (let i = 0; i < tracks.length - 1; i++) {
                       const a = tracks[i];
                       const b = tracks[i + 1];
@@ -6947,6 +7073,7 @@ export default function RipTagPage() {
                               title="Drag to move both boundaries together"
                               onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-move', i, i + 1)}
                             />
+                            {playBtn(`joint-${a.id}-${b.id}`, aEnd)}
                             <div
                               className={`${styles.boundaryLeg} ${splitDir === 'left' ? styles.boundaryLegLeft : ''} ${splitDir === 'right' ? styles.boundaryLegRight : ''}`}
                               title="Drag left/right to split into separate start/end"
@@ -6966,6 +7093,7 @@ export default function RipTagPage() {
                                 title={`Drag to move "${a.name}" end`}
                                 onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)}
                               />
+                              {playBtn(`solo-end-${a.id}`, aEnd)}
                               <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)} />
                             </div>
                           );
@@ -6978,6 +7106,7 @@ export default function RipTagPage() {
                                 title={`Drag to move "${b.name}" start`}
                                 onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
                               />
+                              {playBtn(`solo-start-${b.id}`, bStart)}
                               <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)} />
                             </div>
                           );
@@ -7353,27 +7482,6 @@ export default function RipTagPage() {
             <div className={styles.card}>
               <h2 className={styles.cardTitle}>Step 5: Video</h2>
 
-              {/* Nothing on this step works without exported audio, and the
-                  step bar lets you jump straight here — so say what's missing
-                  rather than showing an empty audio table. */}
-              {exportedTracks.length === 0 && (
-                <div className={styles.renderWarning} style={{
-                  background: darkMode ? "#3a2a1a" : "#fffaf0",
-                  borderColor: darkMode ? "#6b4d2d" : "#fbd38d",
-                  color: darkMode ? "#fbd38d" : "#c05621",
-                  display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
-                }}>
-                  <span>
-                    <b>No exported audio yet.</b> Go back to Step 4 and run the export
-                    {outputFormat === "flac" ? " (FLAC)" : ` (${outputFormat.toUpperCase()})`} —
-                    the video is built from those track files.
-                  </span>
-                  <button type="button" className={styles.fetchBtn} onClick={() => setStep(4)}>
-                    ← Back to Step 4
-                  </button>
-                </div>
-              )}
-
               {/* Bulk clears — each section also has its own button; this row
                   is the one place that can wipe everything at once. */}
               {(exportedTracks.length > 0 || videoImages.length > 0 || renderedVideoSrc) && (
@@ -7410,6 +7518,7 @@ export default function RipTagPage() {
               <div className={styles.videoSection}>
                 <div
                   className={`${styles.directDropZone} ${directDropDragOver ? styles.directDropZoneActive : ""}`}
+                  data-riptag-drop=""
                   onDragOver={e => { e.preventDefault(); setDirectDropDragOver(true); }}
                   onDragLeave={() => setDirectDropDragOver(false)}
                   onDrop={e => { e.preventDefault(); e.stopPropagation(); setDirectDropDragOver(false); handleDirectFileDrop(e.dataTransfer.files); }}
@@ -9538,6 +9647,7 @@ export default function RipTagPage() {
 
                 <div
                   className={`${styles.imageDropZone} ${modalDragOver ? styles.imageDropZoneActive : ""}`}
+                  data-riptag-drop=""
                   onDragOver={e => { e.preventDefault(); setModalDragOver(true); }}
                   onDragLeave={() => setModalDragOver(false)}
                   onDrop={e => { e.preventDefault(); e.stopPropagation(); setModalDragOver(false); addImagesToVideo(e.dataTransfer.files); }}
@@ -9669,8 +9779,8 @@ export default function RipTagPage() {
       <audio
         ref={audioRef}
         onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onEnded={() => { setIsPlaying(false); setPreviewingTrack(null); }}
+        onPause={() => { setIsPlaying(false); setPlayingBoundary(null); }}
+        onEnded={() => { setIsPlaying(false); setPreviewingTrack(null); setPlayingBoundary(null); }}
         preload="auto"
       />
 

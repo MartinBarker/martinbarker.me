@@ -1,0 +1,704 @@
+/* eslint-disable @next/next/no-img-element */
+'use client'
+// The site sidebar, lifted out of (main)/layout.js unchanged so that the
+// RenderTune layout (a separate root layout) can render the exact same one.
+// It owns everything the sidebar needs — collapse and mobile state, the random
+// aesthetic image and its colour palette, dark mode, the image viewer — and
+// provides ColorContext. Each layout renders its own content area through the
+// children function, which receives { sidebarActive, isMobile, darkMode, colors }.
+import React, { useState, useEffect } from 'react';
+import styles from '../layout.module.css';
+import Link from 'next/link'
+import { usePathname } from 'next/navigation';
+import { Home, Music, FileMusicIcon, BarChart, Mail, Github, Linkedin, Menu, ChevronRight, Contact, FileText as ResumeIcon, Palette, Video, List, FileText, Zap } from 'lucide-react';
+import ImageModal from '../ImageModal/ImageModal';
+import { ColorContext } from '../ColorContext';
+import { getSidebarTitle } from '../routeInfo';
+
+export default function SiteShell({ children }) {
+  
+  const [isMobile, setIsMobile] = useState(false);
+  const [sidebarActive, setSidebarActive] = useState(true); // Always start with sidebar active
+  const [contactExpanded, setContactExpanded] = useState(false);
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [thumbnailVisible, setThumbnailVisible] = useState(true); // New state for thumbnail visibility
+  const [imageLoaded, setImageLoaded] = useState(false); // Track image load state
+  const [darkMode, setDarkMode] = useState(false);
+  const [colors, setColors] = useState({
+    Vibrant: '#ffffff',
+    LightVibrant: '#ffffff',
+    DarkVibrant: '#ffffff',
+    Muted: '#ffffff',
+    LightMuted: '#ffffff',
+    DarkMuted: '#ffffff'
+  });
+  const [colorData, setColorData] = useState(null);
+  const [randomImage, setRandomImage] = useState(null);
+
+  const pathname = usePathname(); // get current path
+
+  // Header name follows the site you're on (RipTag, Trawl, RenderTune...).
+  const sidebarTitle = getSidebarTitle(pathname);
+  // Scale the name to its own width so a long title shrinks to fit instead of
+  // clipping. A flat per-character average undersized all-caps names ("FFMPEG
+  // WASM" rendered 164px in a 160px box), so glyphs are weighted by class. The
+  // weights are bold widths in em measured from the wider fallback font, so
+  // they also hold if Poppins fails to load; 4% on top is headroom. The CSS
+  // clamp then caps short names at 22px.
+  const sidebarTitleEm = [...sidebarTitle].reduce(
+    (em, ch) => em + (/[A-Z0-9]/.test(ch) ? 0.82 : /[a-z]/.test(ch) ? 0.62 : 0.32),
+    0
+  ) * 1.04;
+  const sidebarTitleCqi = `${(100 / Math.max(sidebarTitleEm, 1)).toFixed(2)}cqi`;
+
+
+  // Load dark mode preference from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('darkMode');
+      if (stored === 'true') setDarkMode(true);
+    } catch {}
+  }, []);
+
+  const toggleDarkMode = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    try { localStorage.setItem('darkMode', next.toString()); } catch {}
+  };
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      // Remove this line to prevent automatic sidebar collapse on mobile
+      // setSidebarActive(!mobile);
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+    // Function to calculate readable text color based on background color
+    const getReadableTextColor = (backgroundColor) => {
+      // Remove "#" and parse hex color values
+      const color = backgroundColor.replace('#', '');
+      const r = parseInt(color.substr(0, 2), 16);
+      const g = parseInt(color.substr(2, 2), 16);
+      const b = parseInt(color.substr(4, 2), 16);
+      // Calculate brightness
+      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+      return brightness > 125 ? '#000' : '#fff'; // Use black if light, white if dark
+    };
+  
+    useEffect(() => {
+      // Fetch colors.json from the public folder
+      fetch('/images/aesthetic-images/colors.json')
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error("Failed to load colors.json");
+          }
+          return response.json();
+        })
+        .then((data) => {
+          setColorData(data);
+          const imageKeys = Object.keys(data);
+          const randomKey = imageKeys[Math.floor(Math.random() * imageKeys.length)];
+          setRandomImage(`/images/aesthetic-images/images/${randomKey}`);
+          setColors(data[randomKey].colors);
+        })
+        .catch((error) => console.error("Error loading colors.json:", error));
+    }, []);
+  
+    const toggleSidebar = () => {
+      if (sidebarActive) {
+        setContactExpanded(false); // Close the Contact submenu when collapsing the sidebar
+      }
+      setSidebarActive(!sidebarActive);
+    };
+  
+    const handleContactClick = () => {
+      if (!sidebarActive) {
+        // If the sidebar is collapsed, open it first
+        setSidebarActive(true);
+      }
+      // Then, toggle the Contact submenu
+      setContactExpanded((prev) => !prev);
+    };
+  
+    // Thanos Snap refresh colors logic 
+    const maxDisplacementScale = 300; // Reduced from 700 for faster transitions
+    let isAnimating = false;
+  
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+  
+    const setRandomSeed = (bigNoise) => {
+      const randomSeed = Math.floor(Math.random() * 1000);
+      bigNoise.setAttribute("seed", randomSeed);
+    };
+  
+    const refreshColors = () => {
+      if (isAnimating || !colorData) return; // Prevent multiple animations
+      isAnimating = true;
+  
+      const imageKeys = Object.keys(colorData);
+      const randomKey = imageKeys[Math.floor(Math.random() * imageKeys.length)];
+      const newColors = colorData[randomKey].colors;
+      setColors(newColors);
+  
+      // Dissolve animation logic
+      const displayedImage = document.querySelector(`.${styles.colorImage}`);
+      const dissolveFilter = document.getElementById("dissolve-filter");
+      const displacementMap = dissolveFilter.querySelector("feDisplacementMap");
+      const bigNoise = dissolveFilter.querySelector('feTurbulence[result="bigNoise"]');
+  
+      setRandomSeed(bigNoise);
+  
+      const initialDuration = 100; 
+      const reverseDuration = 200;  
+      const startTime = performance.now();
+  
+      // First part: Dissolve out the current image
+      const animateOut = (currentTime) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / initialDuration, 1);
+        const easedProgress = easeOutCubic(progress);
+  
+        // Scale displacement for dissolve effect
+        const displacementScale = easedProgress * maxDisplacementScale;
+        displacementMap.setAttribute("scale", displacementScale);
+  
+        // Scale and fade out
+        displayedImage.style.transform = `scale(${1 + 0.05 * easedProgress})`; // Reduced scale effect
+        displayedImage.style.opacity = 1 - progress;
+  
+        // Start the dissolve-in for the new image when halfway through the dissolve-out
+        if (progress >= 0.4) { // Start transition earlier
+          // Set the new image source and trigger the "reform" animation
+          setRandomImage(`/images/aesthetic-images/images/${randomKey}`);
+          const startTimeReform = performance.now();
+  
+          // Second part: Reform into the new image
+          const animateIn = (currentTime) => {
+            const elapsed = currentTime - startTimeReform;
+            const progress = Math.min(elapsed / reverseDuration, 1);
+            const easedProgress = easeOutCubic(progress);
+  
+            // Reverse scale displacement for reform effect
+            const displacementScale = (1 - easedProgress) * maxDisplacementScale;
+            displacementMap.setAttribute("scale", displacementScale);
+  
+            // Scale back down to normal
+            displayedImage.style.transform = `scale(${1 + 0.05 * (1 - easedProgress)})`; // Reduced scale effect
+            displayedImage.style.opacity = easedProgress;
+  
+            if (progress < 1) {
+              requestAnimationFrame(animateIn);
+            } else {
+              // Reset values to complete the transition smoothly
+              displayedImage.style.transform = "scale(1)";
+              displacementMap.setAttribute("scale", "0");
+              isAnimating = false;
+            }
+          };
+  
+          requestAnimationFrame(animateIn);
+        }
+  
+        if (progress < 1) {
+          requestAnimationFrame(animateOut);
+        }
+      };
+  
+      requestAnimationFrame(animateOut);
+    };
+  
+    const handleImageClick = () => {
+      if (!sidebarActive) {
+        setSidebarActive(true);
+      } else {
+        setImageModalOpen(true);
+      }
+    };
+  
+    const sidebarTextColor = getReadableTextColor(colors.DarkVibrant); // Get text color based on DarkVibrant
+  
+    // Tooltip helper function
+    const ProjectLink = ({ to, icon: Icon, label, iconColor }) => (
+      <li className={styles.tooltipContainer} data-tooltip={label}>
+        <Link
+          href={to}                          // <-- use href instead of to
+          className={styles.navbarItem}
+          style={{
+            color: sidebarTextColor,
+            background: pathname === to     // <-- use pathname variable
+              ? colors.LightMuted
+              : 'transparent'
+          }}
+        >
+          <div className={styles.iconContainer}>
+            <Icon size={20} color={iconColor || sidebarTextColor} />
+          </div>
+          <span className={!sidebarActive ? styles.hidden : ''}>{label}</span>
+        </Link>
+      </li>
+    );
+
+  // Function to sanitize filename for safe filesystem operations (matches ingestImages.js)
+  const sanitizeFilename = (filename) => {
+    return filename
+      .replace(/['"]/g, '') // Remove quotes
+      .replace(/[()]/g, '') // Remove parentheses
+      .replace(/\s+/g, '_') // Replace spaces with underscores
+      .replace(/[^\w\-_.]/g, '') // Remove any other special characters except dash, underscore, dot
+      .replace(/_+/g, '_') // Replace multiple underscores with single
+      .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
+  };
+
+  // Function to convert image path to thumbnail path (mobile-aware)
+  const getThumbnailPath = (imagePath, forceDesktop = false) => {
+    if (!imagePath) return null;
+    // Extract filename from path like "/images/aesthetic-images/images/1597379681161.jpg"
+    const filename = imagePath.split('/').pop();
+    const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+    const sanitizedName = sanitizeFilename(nameWithoutExt);
+    
+    // For sidebar images: always use mobile thumbnails when browser dimensions are small
+    // For modals: respect forceDesktop parameter to show higher quality
+    const useMobile = isMobile && !forceDesktop;
+    const suffix = useMobile ? '-thumbnail-mobile.jpg' : '-thumbnail.jpg';
+    
+    // Mobile thumbnail path logic
+    
+    return `/images/aesthetic-images/thumbnails/${sanitizedName}${suffix}`;
+  };
+
+  return (
+    <ColorContext.Provider value={{ colors, colorData, darkMode, setDarkMode: toggleDarkMode }}>
+      <svg xmlns="http://www.w3.org/2000/svg" style={{ display: 'none' }}>
+        <defs>
+          <filter id="dissolve-filter" x="-200%" y="-200%" width="500%" height="500%" colorInterpolationFilters="sRGB" overflow="visible">
+            <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="1" result="bigNoise" /> {/* Increased baseFrequency for fewer particles */}
+            <feComponentTransfer in="bigNoise" result="bigNoiseAdjusted">
+              <feFuncR type="linear" slope="2" intercept="-0.8" /> {/* Adjusted values for less intense effect */}
+              <feFuncG type="linear" slope="2" intercept="-0.8" />
+            </feComponentTransfer>
+            <feTurbulence type="fractalNoise" baseFrequency="1.5" numOctaves="1" result="fineNoise" /> {/* Adjusted baseFrequency */}
+            <feMerge result="mergedNoise">
+              <feMergeNode in="bigNoiseAdjusted" />
+              <feMergeNode in="fineNoise" />
+            </feMerge>
+            <feDisplacementMap in="SourceGraphic" in2="mergedNoise" scale="0" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </defs>
+      </svg>
+      {/* Toggle buttons below set --toggle-bg-image inline; consumed by a
+          ::before pseudo-element so the thumbnail can fade in/out behind the
+          icon as the sidebar collapses/expands. */}
+      <div className={`${styles.wrapper} ${isMobile ? styles.mobile : ''}`}>
+        {/* Mobile toggle button - always visible */}
+        {isMobile && (
+          <button
+            id="sidebarToggle"
+            className={`${styles.mobileToggle} ${!sidebarActive ? styles.toggleShowImage : ''}`}
+            onClick={toggleSidebar}
+            style={randomImage ? { '--toggle-bg-image': `url(${getThumbnailPath(randomImage)})` } : undefined}
+          >
+            {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
+          </button>
+        )}
+
+        <div className={`${styles.sidebarOverlay} ${sidebarActive && isMobile ? styles.active : ''}`}
+          onClick={toggleSidebar} />
+        <nav className={`${styles.sidebar} ${sidebarActive ? styles.active : styles.collapsed}`}
+          style={{ background: colors.Vibrant }}>
+          <div className={styles.sidebarHeader} style={{ background: colors.DarkMuted }}>
+            {/* Desktop toggle button - only visible on desktop */}
+            {!isMobile && (
+              <button
+                id="sidebarToggleDesktop"
+                className={styles.sidebarCollapse}
+                onClick={toggleSidebar}
+                style={randomImage ? { '--toggle-bg-image': `url(${getThumbnailPath(randomImage)})` } : undefined}
+              >
+                {sidebarActive ? <ChevronRight size={24} /> : <Menu size={24} />}
+              </button>
+            )}
+            <h3 className={`${styles.sidebarHeaderText} ${!sidebarActive && styles.hidden}`} style={{ '--sidebar-title-cqi': sidebarTitleCqi }}>
+              <strong>{sidebarTitle}</strong>
+            </h3>
+          </div>
+          {/* Only this part scrolls. The header above stays put, so the
+              scrollbar starts below it instead of running the full height. */}
+          <div className={styles.sidebarScroll}>
+            <ul className={styles.sidebarMenu} style={{ background: colors.DarkVibrant }}>
+
+              {/* Home */}
+              <ProjectLink
+                to="/"
+                icon={Home}
+                label="Home"
+              />
+
+              <li className={styles.tooltipContainer} data-tooltip="RenderTune">
+                <Link
+                  href="/rendertune"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/rendertune"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <img 
+                      src="/ico/rendertune.ico" 
+                      alt="RenderTune" 
+                      style={{ width: '20px', height: '20px' }}
+                    />
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>RenderTune</span>
+                </Link>
+              </li>
+
+              <ProjectLink
+                to="/tagger"
+                icon={FileText}
+                label="tagger.site"
+              />
+
+              {/* <ProjectLink
+                to="/ffmpegwasm"
+                icon={Zap}
+                label="ffmpeg wasm"
+              /> */}
+
+              <ProjectLink
+                to="/listogs"
+                icon={List}
+                label="Listogs"
+              />
+
+              <li className={styles.tooltipContainer} data-tooltip="RipTag">
+                <Link
+                  href="/riptag"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/riptag"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 14c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>RipTag</span>
+                </Link>
+              </li>
+
+              <li className={styles.tooltipContainer} data-tooltip="Trawl">
+                <Link
+                  href="/trawl"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/trawl" || pathname?.startsWith("/trawl/")
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 50 50"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      {/* Discord logo — Trawl is a Discord bot. Same artwork as
+                          public/svg/discord-icon.svg, but filled with
+                          currentColor so it follows the sidebar text colour. */}
+                      <path d="M 41.625 10.769531 C 37.644531 7.566406 31.347656 7.023438 31.078125 7.003906 C 30.660156 6.96875 30.261719 7.203125 30.089844 7.589844 C 30.074219 7.613281 29.9375 7.929688 29.785156 8.421875 C 32.417969 8.867188 35.652344 9.761719 38.578125 11.578125 C 39.046875 11.867188 39.191406 12.484375 38.902344 12.953125 C 38.710938 13.261719 38.386719 13.429688 38.050781 13.429688 C 37.871094 13.429688 37.6875 13.378906 37.523438 13.277344 C 32.492188 10.15625 26.210938 10 25 10 C 23.789063 10 17.503906 10.15625 12.476563 13.277344 C 12.007813 13.570313 11.390625 13.425781 11.101563 12.957031 C 10.808594 12.484375 10.953125 11.871094 11.421875 11.578125 C 14.347656 9.765625 17.582031 8.867188 20.214844 8.425781 C 20.0625 7.929688 19.925781 7.617188 19.914063 7.589844 C 19.738281 7.203125 19.34375 6.960938 18.921875 7.003906 C 18.652344 7.023438 12.355469 7.566406 8.320313 10.8125 C 6.214844 12.761719 2 24.152344 2 34 C 2 34.175781 2.046875 34.34375 2.132813 34.496094 C 5.039063 39.605469 12.972656 40.941406 14.78125 41 C 14.789063 41 14.800781 41 14.8125 41 C 15.132813 41 15.433594 40.847656 15.621094 40.589844 L 17.449219 38.074219 C 12.515625 36.800781 9.996094 34.636719 9.851563 34.507813 C 9.4375 34.144531 9.398438 33.511719 9.765625 33.097656 C 10.128906 32.683594 10.761719 32.644531 11.175781 33.007813 C 11.234375 33.0625 15.875 37 25 37 C 34.140625 37 38.78125 33.046875 38.828125 33.007813 C 39.242188 32.648438 39.871094 32.683594 40.238281 33.101563 C 40.601563 33.515625 40.5625 34.144531 40.148438 34.507813 C 40.003906 34.636719 37.484375 36.800781 32.550781 38.074219 L 34.378906 40.589844 C 34.566406 40.847656 34.867188 41 35.1875 41 C 35.199219 41 35.210938 41 35.21875 41 C 37.027344 40.941406 44.960938 39.605469 47.867188 34.496094 C 47.953125 34.34375 48 34.175781 48 34 C 48 24.152344 43.785156 12.761719 41.625 10.769531 Z M 18.5 30 C 16.566406 30 15 28.210938 15 26 C 15 23.789063 16.566406 22 18.5 22 C 20.433594 22 22 23.789063 22 26 C 22 28.210938 20.433594 30 18.5 30 Z M 31.5 30 C 29.566406 30 28 28.210938 28 26 C 28 23.789063 29.566406 22 31.5 22 C 33.433594 22 35 23.789063 35 26 C 35 28.210938 33.433594 30 31.5 30 Z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Trawl</span>
+                </Link>
+              </li>
+
+              {/* Hidden from sidebar: ALS to CUE, Vibrant.js Demo, discord2playlist, Vinyl2Digital, FFMPEG WASM, Color Review */}
+              {/* <ProjectLink to="/ALS2CUE" icon={Music} label="ALS to CUE" /> */}
+              {/* <ProjectLink to="/vibrant" icon={Palette} label="Vibrant.js Demo" /> */}
+              {/* <li className={styles.tooltipContainer} data-tooltip="discord2playlist">...</li> */}
+              {/* <li className={styles.tooltipContainer} data-tooltip="Vinyl2Digital">...</li> */}
+              {/* <li className={styles.tooltipContainer} data-tooltip="FFMPEG WASM">...</li> */}
+              {/* <li className={styles.tooltipContainer} data-tooltip="Color Review">...</li> */}
+
+              {/* <li className={styles.tooltipContainer} data-tooltip="Auto-Split Tool">
+                <Link
+                  href="/auto-split"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/auto-split"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg 
+                      width="20" 
+                      height="20" 
+                      viewBox="0 0 24 24" 
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Auto-Split Tool</span>
+                </Link>
+              </li> */}
+
+              {/* <li className={styles.tooltipContainer} data-tooltip="Waveform Visualizer">
+                <Link
+                  href="/waveform-visualizer"
+                  className={styles.navbarItem}
+                  style={{
+                    color: sidebarTextColor,
+                    background: pathname === "/waveform-visualizer"
+                      ? colors.LightMuted
+                      : 'transparent'
+                  }}
+                >
+                  <div className={styles.iconContainer}>
+                    <svg 
+                      width="20" 
+                      height="20" 
+                      viewBox="0 0 24 24" 
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                    </svg>
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Waveform Visualizer</span>
+                </Link>
+              </li> */}
+
+              {/* 
+              <ProjectLink
+                to="/retro-roulette"
+                icon={FileMusicIcon}
+                label="Retro Roulette"
+              />
+
+              <ProjectLink
+                to="/discogs-video-extension"
+                icon={Music}
+                label="Discogs Extension"
+              />
+
+              <ProjectLink
+                to="/rap-genius-producer-exporter"
+                icon={BarChart}
+                label="Rap Genius Exporter"
+              />
+            
+              <ProjectLink
+                to="/bandcamp-api"
+                icon={FileMusicIcon}
+                label="Bandcamp API"
+              />
+            
+              <ProjectLink
+                to="/split-by-silence"
+                icon={FileMusicIcon}
+                label="Split By Silence"
+              />
+            
+              <ProjectLink
+                to="/jermasearch"
+                icon={FileMusicIcon}
+                label="Jerma985 Search"
+              />
+            
+              <ProjectLink
+                to="/ableton-to-cue"
+                icon={FileMusicIcon}
+                label="Ableton .als to .cue"
+              />
+              */}
+            
+              {/* <ProjectLink
+                to="/popularify"
+                icon={BarChart}
+                label="Popularify"
+              />
+               */}
+              {/* Contact Submenu */}
+              <li className={`${styles.navbarItem} ${styles.contactSection}`}>
+                <button className={styles.contactToggle} onClick={handleContactClick} style={{ color: sidebarTextColor }}>
+                  <div className={styles.iconContainer}>
+                    <Contact size={20} color={sidebarTextColor} />
+                  </div>
+                  <span className={!sidebarActive ? styles.hidden : ''}>Contact</span>
+                  {sidebarActive && (
+                    <span className={`${styles.arrowIcon} ${contactExpanded ? styles.expanded : ''}`} style={{ color: sidebarTextColor }}>
+                      ▼
+                    </span>
+                  )}
+                </button>
+                <ul className={`${styles.contactList} ${contactExpanded ? styles.expanded : ''}`}>
+                  <li>
+                    <a href="/pdf/Martin_Barker_Resume.pdf"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.contactItem}
+                      style={{ color: sidebarTextColor }}>
+                      <ResumeIcon size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      Resume
+                    </a>
+                  </li>
+                  <li>
+                    <a href="mailto:martinbarker99@gmail.com" className={styles.contactItem} style={{ color: sidebarTextColor }}>
+                      <Mail size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      Email
+                    </a>
+                  </li>
+                  <li>
+                    <a href="https://github.com/MartinBarker"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.contactItem}
+                      style={{ color: sidebarTextColor }}>
+                      <Github size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      Github
+                    </a>
+                  </li>
+                  <li>
+                    <a href="https://www.linkedin.com/in/martinbarker99"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.contactItem}
+                      style={{ color: sidebarTextColor }}>
+                      <Linkedin size={20} className={styles.contactIcon} color={sidebarTextColor} />
+                      LinkedIn
+                    </a>
+                  </li>
+                </ul>
+              </li>
+            </ul> 
+          
+            <div className={styles.sidebarFooter}>
+              <button
+                onClick={toggleDarkMode}
+                className={`${styles.darkModeToggle} ${!sidebarActive ? styles.darkModeToggleCollapsed : ''}`}
+                title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                style={{ color: sidebarTextColor }}
+              >
+                <span className={styles.darkModeIcon}>{darkMode ? '☀️' : '🌙'}</span>
+                <span className={`${styles.darkModeLabel} ${!sidebarActive ? styles.hidden : ''}`}>
+                  {darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                </span>
+              </button>
+              <button onClick={refreshColors} className={`${styles.refreshButton} ${!sidebarActive && styles.hidden}`} style={{ border: '1px solid black' }}>
+                Refresh Colors
+              </button>
+              <div className={`${styles.colorBoxes} ${!sidebarActive && styles.hidden}`}>
+                {Object.entries(colors).map(([name, color]) => (
+                  <div
+                    key={name}
+                    className={styles.colorBox}
+                    style={{ background: color }}
+                    title={`${name}: ${color}`}
+                  />
+                ))}
+              </div>
+              {/* Show image thumbnail conditionally based on thumbnailVisible state */}
+              {randomImage && thumbnailVisible && (
+                <img
+                  id="colorImage"
+                  key={`${randomImage}-${isMobile}`} // Force re-render when mobile state changes
+                  src={getThumbnailPath(randomImage)}
+                  alt="Random aesthetic"
+                  className={styles.colorImage}
+                  onClick={handleImageClick}
+                  loading="lazy"
+                  decoding="async"
+                  style={{
+                    willChange: isMobile ? 'auto' : (sidebarActive ? 'auto' : 'transform, opacity'),
+                    backfaceVisibility: isMobile ? 'visible' : 'hidden',
+                    transform: isMobile ? 'none' : 'translateZ(0)', // No hardware acceleration on mobile
+                    opacity: imageLoaded ? 1 : 0.8,
+                    transition: 'opacity 0.3s ease'
+                  }}
+                  onLoad={(e) => {
+                    // Optimize image rendering after load
+                    setImageLoaded(true);
+                    e.target.style.willChange = 'auto';
+                  }}
+                  onError={(e) => {
+                    // Thumbnail generation has gaps (and the thumbnails folder
+                    // has some case mismatches that only bite on a
+                    // case-sensitive host), so fall back to the original before
+                    // giving up — hiding the image left an empty sidebar slot.
+                    const full = randomImage;
+                    if (full && e.target.src !== new URL(full, window.location.origin).href) {
+                      console.warn('Thumbnail missing, falling back to full image:', e.target.src);
+                      e.target.src = full;
+                      return;
+                    }
+                    console.warn('Failed to load image:', e.target.src);
+                    e.target.style.display = 'none';
+                  }}
+                />
+              )}
+              <p className={`${styles.creditText} ${!sidebarActive ? styles.hidden : ''}`}>
+                <a href="https://codepen.io/Mikhail-Bespalov/pen/yLmpxOG" target="_blank" rel="noopener noreferrer">
+                  Refresh color effect by Mike Bespalov
+                </a>
+              </p>
+              {/* Convert mobile text to a toggle button */}
+              {isMobile && (
+                <button
+                  className={`${styles.creditText} ${styles.mobileText} ${!sidebarActive ? styles.hidden : ''}`}
+                  onClick={() => setThumbnailVisible(!thumbnailVisible)}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    padding: '0.25rem 0.5rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {thumbnailVisible ? 'Hide Thumbnail' : 'Show Thumbnail'}
+                </button>
+              )}
+            </div>
+          </div>
+        </nav>
+        {typeof children === 'function' ? children({ sidebarActive, isMobile, darkMode, colors }) : children}
+        {imageModalOpen && (
+          <ImageModal
+            // The original, not a thumbnail — this is the full-size viewer.
+            imageUrl={randomImage}
+            // Already in cache from the sidebar, so it paints instantly while
+            // the original downloads.
+            placeholderUrl={getThumbnailPath(randomImage, true)}
+            onClose={() => setImageModalOpen(false)}
+          />
+        )}
+      </div>
+    </ColorContext.Provider>
+  );
+}

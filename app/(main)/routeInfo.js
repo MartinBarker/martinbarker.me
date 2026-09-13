@@ -110,3 +110,28 @@ export function getRouteInfo(pathname) {
   return info;
 }
  
+
+// Name shown at the top of the sidebar. A branded site shows its own name on
+// every one of its pages (so /trawl/results/1 still reads "Trawl"); the home
+// page, Color Review and anything unbranded fall back to the portfolio name.
+const SIDEBAR_TITLE_FALLBACK = "Martin Barker";
+const SIDEBAR_TITLE_EXCLUDED = new Set(["/", "/color-review"]);
+// Routes whose routeInfo entry has no usable `title`, or that live outside it.
+const SIDEBAR_TITLE_OVERRIDES = {
+  "/tagger": "Tagger",
+  "/trawl": "Trawl",
+  "/ALS2CUE": "ALS2CUE",
+  "/rendertune": "RenderTune",
+};
+
+export function getSidebarTitle(pathname) {
+  if (!pathname) return SIDEBAR_TITLE_FALLBACK;
+  const roots = [...new Set([...Object.keys(routeInfo), ...Object.keys(SIDEBAR_TITLE_OVERRIDES)])];
+  // Longest matching root wins, matched on whole path segments so /riptagfoo
+  // doesn't count as /riptag.
+  const root = roots
+    .filter(r => r !== "/" && (pathname === r || pathname.startsWith(`${r}/`)))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!root || SIDEBAR_TITLE_EXCLUDED.has(root)) return SIDEBAR_TITLE_FALLBACK;
+  return SIDEBAR_TITLE_OVERRIDES[root] || routeInfo[root]?.title || SIDEBAR_TITLE_FALLBACK;
+}

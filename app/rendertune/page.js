@@ -49,6 +49,13 @@ export default function RenderTune() {
 
       <section className={styles.hero}>
         <div className={styles.heroContent}>
+          {/* The page's main heading — the RenderTune name used to live in the
+              layout's header bar, which has since been removed. */}
+          {/* Wrapper is the size container the title scales against, so it
+              follows this column's width rather than the viewport's. */}
+          <div className={styles.rtHeroTitleWrap}>
+            <h1 className={styles.rtHeroTitle}>RenderTune</h1>
+          </div>
           <h2>Combine Audio &amp; Images into Professional Videos</h2>
           <div className={styles.downloadSection}>
             <h3>Download Latest Release</h3>

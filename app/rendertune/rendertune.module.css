@@ -215,6 +215,28 @@
     align-items: center;
   }
   
+  /* Big RenderTune name at the top of the home page hero. It scales with its
+     own column, not the viewport: the column's width depends on the site
+     sidebar and on the hero's split with the screenshot, so a viewport-based
+     size overflowed it (72px, 470px wide, in a 390px column at 1100px with the
+     sidebar open). The wrapper is the size container; the title is 6.53em
+     wide, so 14cqi leaves ~9% headroom for a wider fallback font. The wrapper
+     rather than .heroContent is the container so the hero's own layout and
+     wrapping are untouched. */
+  .rtHeroTitleWrap {
+    container-type: inline-size;
+    width: 100%;
+  }
+
+  .rtHeroTitle {
+    font-size: clamp(40px, 14cqi, 72px);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    margin: 10px 0 0;
+    color: #ffffff;
+  }
+
   .heroContent h2 {
     font-size: 32px;
     margin-bottom: 20px;
@@ -441,4 +463,106 @@
     flex-wrap: wrap;
     gap: 15px;
     justify-content: space-evenly;
+  }
+
+  /* Content column beside the shared site sidebar (app/(main)/SiteShell).
+     Same sizing as the main layout's .content, without its padding or
+     background, so the RenderTune pages look exactly as they did under their
+     own header. No background here: the dark body still shows below a short
+     page, as before. */
+  .shellContent {
+    flex: 1;
+    min-width: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Static RenderTune taskbar at the top of every RenderTune page. It is its
+     own size container, so the switch to icons follows the bar's real width
+     (which the sidebar eats into), not the viewport. Labels go when there is
+     no room for them on one line; icons are never hidden, they wrap. */
+  .rtNav {
+    container-type: inline-size;
+    container-name: rtnav;
+    background-color: #1c1c1c;
+    border-bottom: 1px solid #2d2d2d;
+    padding: 10px 20px;
+  }
+
+  .rtNavList {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .rtNavLink {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    color: #dddddd;
+    text-decoration: none;
+    font-size: 14px;
+    white-space: nowrap;
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  .rtNavLink:hover {
+    background-color: #2d2d2d;
+    color: #ffffff;
+  }
+
+  .rtNavActive {
+    background-color: #333333;
+    color: #ffffff;
+  }
+
+  .rtNavIcon {
+    flex-shrink: 0;
+  }
+
+  @container rtnav (max-width: 1000px) {
+    .rtNavLabel {
+      display: none;
+    }
+
+    .rtNavLink {
+      padding: 8px;
+    }
+  }
+
+  @container rtnav (max-width: 360px) {
+    .rtNavList {
+      gap: 2px;
+    }
+
+    .rtNavLink {
+      padding: 6px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .shellContent {
+      width: 100%;
+    }
+
+    /* On small screens the sidebar's menu button is fixed to the top-left
+       corner, so the bar leaves room for it on the left. */
+    .rtNav {
+      display: flex;
+      align-items: center;
+      min-height: 80px;
+      padding-left: 72px;
+      box-sizing: border-box;
+    }
+
+    .rtNavList {
+      flex: 1;
+    }
   }
