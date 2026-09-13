@@ -5259,7 +5259,8 @@
 /* ---- Page-wide file drag overlay ----
    Shown while an OS file drag is anywhere over the window. pointer-events:none
    matters: the overlay must never swallow the drop (or a click on "choose
-   files"), it only dims the page and says where the files can go. Sits above
+   files"), it only dims the page and says where the files can go. The close
+   button is the one exception and re-enables pointer events for itself. Sits above
    the image modal backdrop (z-index 1000) so the prompt stays readable when
    the modal is open. */
 .dragOverlay {
@@ -5283,6 +5284,7 @@
 }
 
 .dragOverlayCard {
+  position: relative;
   text-align: center;
   padding: 2rem 2.75rem;
   max-width: 90vw;
@@ -5309,6 +5311,38 @@
   margin: 0;
   font-size: 0.9rem;
   color: rgba(255, 255, 255, 0.85);
+}
+
+/* Escape hatch in the card's corner, in case the overlay is ever left up. */
+.dragOverlayClose {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 0.15s, transform 0.15s;
+}
+
+.dragOverlayClose:hover {
+  background: rgba(0, 0, 0, 0.6);
+  transform: scale(1.08);
+}
+
+.dragOverlayClose:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
