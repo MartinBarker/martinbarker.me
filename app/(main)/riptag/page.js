@@ -863,6 +863,8 @@ export default function RipTagPage() {
   // moving the cursor between child elements doesn't flicker the overlay off.
   const [fileDragActive, setFileDragActive] = useState(false);
   const dragDepthRef = useRef(0);
+  // Clears the overlay if a drag ends without a drop or dragleave reaching us.
+  const dragWatchdogRef = useRef(null);
   const [isRenderingVideo, setIsRenderingVideo] = useState(false);
   const [videoRenderProgress, setVideoRenderProgress] = useState(null);
   const [videoRenderStartTime, setVideoRenderStartTime] = useState(null);
@@ -3340,49 +3342,82 @@ export default function RipTagPage() {
   const routeDropRef = useRef(null);
   routeDropRef.current = routeDroppedFiles;
 
+  // Hides the drop overlay and forgets any drag in progress. Used by the
+  // listeners below, the overlay's close button, and Esc.
+  const closeDragOverlay = () => {
+    dragDepthRef.current = 0;
+    clearTimeout(dragWatchdogRef.current);
+    setFileDragActive(false);
+  };
+  const closeDragOverlayRef = useRef(closeDragOverlay);
+  closeDragOverlayRef.current = closeDragOverlay;
+
   // Page-wide file drag. Listeners sit on window so the whole viewport counts,
   // not just the page element, which is a centred max-width column.
+  //
+  // They listen in the CAPTURE phase. The drop zones handle their own drops
+  // and call e.stopPropagation() through React, which stops the native event
+  // at React's root container, before it can bubble up to window. A bubbling
+  // listener therefore never saw a drop onto a zone, so the overlay stayed on
+  // screen after the files were dropped. Capture runs on window first, so no
+  // handler further down can hide a drop from it.
   useEffect(() => {
     // Only real file drags from the OS — internal drags (reordering tracks or
     // images) carry other types and must not dim the page.
     const isFileDrag = (e) => Array.from(e.dataTransfer?.types || []).includes("Files");
+    const hide = () => closeDragOverlayRef.current();
+    // dragover keeps firing while a drag is over the page, even with the cursor
+    // held still (at least every ~350ms per the spec). If it stops, the drag
+    // ended without a drop or dragleave reaching us — Esc, released outside the
+    // window, Safari's unreliable dragleave — so clear the overlay instead of
+    // leaving it stuck.
+    const armWatchdog = () => {
+      clearTimeout(dragWatchdogRef.current);
+      dragWatchdogRef.current = setTimeout(hide, 1000);
+    };
     const onDragEnter = (e) => {
       if (!isFileDrag(e)) return;
       dragDepthRef.current += 1;
       setFileDragActive(true);
+      armWatchdog();
     };
     const onDragOver = (e) => {
       if (!isFileDrag(e)) return;
       // Without this the drop event never fires outside a registered zone.
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      armWatchdog();
     };
     const onDragLeave = (e) => {
       if (!isFileDrag(e)) return;
       dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-      if (dragDepthRef.current === 0) setFileDragActive(false);
+      if (dragDepthRef.current === 0) hide();
     };
     const onDrop = (e) => {
       if (!isFileDrag(e)) return;
-      dragDepthRef.current = 0;
-      setFileDragActive(false);
-      // A drop that landed on one of the real droppers is already handled by
-      // that element (step 1's zone hands it to the file input inside it), and
-      // handling it again here would add every file twice.
+      // The files have landed, wherever that was: always clear the overlay.
+      hide();
+      // A drop onto one of the real droppers is handled by that element (step
+      // 1's zone, the step 5 zone, the image modal); routing it here as well
+      // would add every file twice.
       if (typeof e.target?.closest === "function" && e.target.closest("[data-riptag-drop]")) return;
       // Otherwise the browser navigates away to the dropped file.
       e.preventDefault();
       routeDropRef.current?.(e.dataTransfer?.files);
     };
-    window.addEventListener("dragenter", onDragEnter);
-    window.addEventListener("dragover", onDragOver);
-    window.addEventListener("dragleave", onDragLeave);
-    window.addEventListener("drop", onDrop);
+    const onKeyDown = (e) => { if (e.key === "Escape") hide(); };
+    window.addEventListener("dragenter", onDragEnter, true);
+    window.addEventListener("dragover", onDragOver, true);
+    window.addEventListener("dragleave", onDragLeave, true);
+    window.addEventListener("drop", onDrop, true);
+    window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("dragenter", onDragEnter);
-      window.removeEventListener("dragover", onDragOver);
-      window.removeEventListener("dragleave", onDragLeave);
-      window.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragenter", onDragEnter, true);
+      window.removeEventListener("dragover", onDragOver, true);
+      window.removeEventListener("dragleave", onDragLeave, true);
+      window.removeEventListener("drop", onDrop, true);
+      window.removeEventListener("keydown", onKeyDown);
+      clearTimeout(dragWatchdogRef.current);
     };
   }, []);
 
@@ -6253,8 +6288,17 @@ export default function RipTagPage() {
   return (
     <div className={styles.page}>
       {fileDragActive && (
-        <div className={styles.dragOverlay} aria-hidden="true">
+        <div className={styles.dragOverlay}>
           <div className={styles.dragOverlayCard}>
+            <button
+              type="button"
+              className={styles.dragOverlayClose}
+              onClick={closeDragOverlay}
+              aria-label="Close"
+              title="Close (Esc)"
+            >
+              ×
+            </button>
             <div className={styles.dragOverlayIcon}>⬇️</div>
             <p className={styles.dragOverlayTitle}>Drop files anywhere on this page</p>
             <p className={styles.dragOverlayHint}>
