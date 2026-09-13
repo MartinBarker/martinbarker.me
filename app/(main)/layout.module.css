@@ -31,32 +31,47 @@
   /* Stick to the top of the viewport so the sidebar stays visible as the
      page scrolls. align-self prevents the flex parent (align-items: stretch)
      from stretching it, which would defeat sticky. The sidebar fills the
-     viewport height and scrolls its own menu internally when it overflows. */
+     viewport height but never scrolls itself: it is a column of a fixed
+     header over .sidebarScroll, and only that lower part scrolls. */
   position: sticky;
   top: 0;
   align-self: flex-start;
   height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Everything below the header: the menu and the footer. This is the only part
+   of the sidebar that scrolls, so the scrollbar starts under the header rather
+   than beside it. Deliberately a plain block, not a flex column, so the footer
+   still sits right after the menu instead of being pushed to the bottom.
+   min-height: 0 lets it shrink below its content height, which is what makes
+   it scroll instead of overflowing the sidebar. */
+.sidebarScroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   /* Thin scrollbar that only shows when the menu actually overflows. Unlike
      scrollbar-gutter: stable, it reserves NO space when there's nothing to
      scroll (no blank gutter strip on the right), and being thin (~8px) it only
-     nudges the content a few px when it does appear — not the ~15px a classic
-     scrollbar would take, which was cropping the "Martin Barker" header. */
+     nudges the content a few px when it does appear. */
   scrollbar-width: thin;                 /* Firefox */
   scrollbar-color: rgba(0, 0, 0, 0.28) transparent; /* thumb / track (Firefox) */
 }
 /* WebKit/Blink (Chrome, Edge, Safari): thin, track-less scrollbar. */
-.sidebar::-webkit-scrollbar {
+.sidebarScroll::-webkit-scrollbar {
   width: 8px;
 }
-.sidebar::-webkit-scrollbar-track {
+.sidebarScroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.sidebar::-webkit-scrollbar-thumb {
+.sidebarScroll::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.28);
   border-radius: 4px;
 }
-.sidebar::-webkit-scrollbar-thumb:hover {
+.sidebarScroll::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.45);
 }
 
@@ -73,6 +88,8 @@
   color: #ffffff;
   position: relative;
   height: 80px;
+  /* Never squeezed by the sidebar's column layout, however short the window. */
+  flex-shrink: 0;
   box-sizing: border-box;
   white-space: nowrap;
   overflow: hidden;
@@ -82,14 +99,13 @@
 }
 
 .sidebarHeaderText {
-  /* Scales to fit rather than truncating to "Martin Bar...". The content box
-     is 160px (250px sidebar minus 70px + 20px padding), and 152px once the
-     thin scrollbar appears; at a fixed 22px the name is 155px wide in Poppins
-     Bold, so the scrollbar alone tipped it into the ellipsis. At 12.5cqi the
-     name fits even the widest bold fallback measured (DejaVu Sans, 7.78x the
-     font size, if Poppins fails to load) with ~3% to spare; clamp() holds it
-     between a legible floor and the original 22px. */
-  font-size: clamp(12px, 12.5cqi, 22px);
+  /* Scales to fit rather than truncating. The content box is 160px (250px
+     sidebar minus 70px + 20px padding); the scrollbar lives below the header, so it never narrows it.
+     The name is now the current site's (RipTag, Waveform Visualizer...), so
+     the scale comes from SiteShell as --sidebar-title-cqi, sized to the
+     title's length; 12.5cqi is the fallback tuned for "Martin Barker".
+     clamp() holds it between a legible floor and the original 22px. */
+  font-size: clamp(12px, var(--sidebar-title-cqi, 12.5cqi), 22px);
   margin: 0;
   font-weight: bold;
   transition: opacity 0.2s ease;
@@ -450,10 +466,13 @@
     height: 100vh;
     z-index: 999;
     transition: left 0.3s ease;
-    overflow-y: auto;
     /* Mobile performance optimizations */
     will-change: transform;
     transform: translate3d(0, 0, 0); /* Force hardware acceleration */
+  }
+
+  /* As on desktop, only the part below the header scrolls. */
+  .sidebarScroll {
     -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
   }
   
@@ -525,7 +544,7 @@
   
   /* Smaller cap on mobile, with the same fit-to-width scaling as desktop. */
   .sidebarHeaderText {
-    font-size: clamp(12px, 12.5cqi, 16px);
+    font-size: clamp(12px, var(--sidebar-title-cqi, 12.5cqi), 16px);
   }
   
   /* Make all sidebar menu text smaller on mobile */

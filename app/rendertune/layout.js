@@ -1,33 +1,61 @@
 'use client'
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link'; // <-- Import Link
+import React from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Home, Download, Sparkles, HeartHandshake, LifeBuoy, HelpCircle, Github } from 'lucide-react';
 import styles from './rendertune.module.css';
+import SiteShell from '../(main)/SiteShell/SiteShell';
 const logo = '/ico/rendertune.ico';
-const githubIcon = '/svg/icons8-github.svg';
-const discordIcon = '/svg/discord-icon.svg';
-const appleIcon = '/svg/apple-icon.svg';
-const linuxIcon = '/svg/linux-icon.svg';
-const windowsIcon = '/svg/windows-icon.svg';
 
+// RenderTune's pages, shown in a static bar at the top of every RenderTune
+// route. When the bar is too narrow for the labels they are dropped and only
+// the icons remain; the icons are never hidden (they wrap instead).
+const NAV_LINKS = [
+  { href: '/rendertune', label: 'Home', icon: Home },
+  { href: '/rendertune/download', label: 'Download', icon: Download },
+  { href: '/rendertune/features', label: 'Features', icon: Sparkles },
+  { href: '/rendertune/contribute', label: 'Contribute', icon: HeartHandshake },
+  { href: '/rendertune/support', label: 'Support', icon: LifeBuoy },
+  { href: '/rendertune/help', label: 'Help', icon: HelpCircle },
+  { href: 'https://github.com/MartinBarker/RenderTune', label: 'GitHub Repo', icon: Github, external: true },
+];
+
+function RenderTuneNav() {
+  const pathname = usePathname();
+  return (
+    <nav className={styles.rtNav} aria-label="RenderTune">
+      <ul className={styles.rtNavList}>
+        {NAV_LINKS.map(({ href, label, icon: Icon, external }) => {
+          const active = !external && (pathname === href || pathname === `${href}/`);
+          const className = `${styles.rtNavLink} ${active ? styles.rtNavActive : ''}`;
+          // title + aria-label keep each icon identifiable once its label is hidden.
+          const content = (
+            <>
+              <Icon className={styles.rtNavIcon} size={18} aria-hidden="true" />
+              <span className={styles.rtNavLabel}>{label}</span>
+            </>
+          );
+          return (
+            <li key={href}>
+              {external ? (
+                <a href={href} target="_blank" rel="noopener noreferrer" className={className} title={label} aria-label={label}>
+                  {content}
+                </a>
+              ) : (
+                <Link href={href} className={className} title={label} aria-label={label} aria-current={active ? 'page' : undefined}>
+                  {content}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
 
 export default function RenderTuneLayout({ children }) {
-
-  const [menuActive, setMenuActive] = useState(false);
-  const router = useRouter();
-
-  const toggleMenu = () => {
-    setMenuActive((prev) => !prev);
-  };
-
-  // This function might still be useful if you need programmatic navigation elsewhere,
-  // but for simple links, <Link> is preferred.
-  // const navigateHome = () => {
-  //   router.push('/rendertune');
-  // };
-
-
   return (
     <html lang="en">
       <head>
@@ -35,80 +63,40 @@ export default function RenderTuneLayout({ children }) {
         <link rel="icon" href={logo} />
       </head>
       <body style={{ margin: '0px', backgroundColor: '#1c1c1c' }}>
-        <div className={styles.wrapper}>
-          <header className={styles.header}>
-            {/* Make the entire logo container link to /rendertune */}
-            <Link href="/rendertune" className={styles.logoContainer}>
-                <img src={logo} alt="RenderTune Logo" className={styles.logo} />
-              <div className={styles.headerTitle}>
-                <h1 className={styles.mainTitle}>RenderTune</h1>
-                <p className={styles.subTitle}>Video Rendering App</p>
-              </div>
-            </Link>
+        {/* The same sidebar as the rest of the site, with RenderTune's own
+            pages in a static bar at the top of the content. */}
+        <SiteShell>
+          {() => (
+            <div className={styles.shellContent}>
+              <div className={styles.wrapper}>
+                <RenderTuneNav />
+                {children}
 
-            {/* Mobile Menu Toggle */}
-            <button className={styles.menuToggle} onClick={toggleMenu}>
-              <span></span>
-              <span></span>
-              <span></span>
-            </button>
-
-            {/* Navigation Menu */}
-            <nav className={`${styles.nav} ${menuActive ? styles.show : ''}`}>
-              <ul className={styles.menu}>
-                {/* External links still use <a> */}
-                <li>
-                  <div className={styles.iconContainer}>
+                <footer className={styles.footer}>
+                  <p>© 2025 RenderTune. All rights reserved.</p>
+                  <div className={styles.footerLinks}>
+                    {/* External links remain <a> tags */}
+                    <a href="https://github.com/MartinBarker/RenderTune/releases" target="_blank" rel="noopener noreferrer">
+                      <img src="https://img.shields.io/github/v/release/MartinBarker/RenderTune" alt="GitHub Release Version" />
+                    </a>
                     <a href="https://github.com/MartinBarker/RenderTune" target="_blank" rel="noopener noreferrer">
-                      <img src={githubIcon} alt="GitHub" className={styles.icon} />
+                      <img src="https://img.shields.io/github/followers/MartinBarker?style=social" alt="GitHub Followers" />
                     </a>
-                    <span className={styles.iconText}>GitHub Repo</span>
-                  </div>
-                </li>
-                <li>
-                  <div className={styles.iconContainer}>
-                    <a href="https://discord.com/invite/pEAjDjPceY" target="_blank" rel="noopener noreferrer">
-                      <img src={discordIcon} alt="Discord" className={styles.icon} />
+                    <a href="https://ko-fi.com/martinradio" target="_blank" rel="noopener noreferrer">
+                      Ko-fi
                     </a>
-                    <span className={styles.iconText}>Discord Channel</span>
+                    <a href="https://www.patreon.com/c/martinradio" target="_blank" rel="noopener noreferrer">
+                      Patreon
+                    </a>
+                    <a href="https://github.com/sponsors/MartinBarker" target="_blank" rel="noopener noreferrer">
+                      GitHub Sponsors
+                    </a>
                   </div>
-                </li>
-                {/* Internal links use <Link> */}
-                <li><Link href="/rendertune/">Home</Link></li>
-                <li><Link href="/rendertune/download">Download</Link></li>
-                <li><Link href="/rendertune/features">Features</Link></li>
-                <li><Link href="/rendertune/contribute">Contribute</Link></li>
-                <li><Link href="/rendertune/support">Support</Link></li>
-                <li><Link href="/rendertune/help">Help</Link></li>
-                <li><Link href="/">Return</Link></li> {/* Link back to main site root */}
-              </ul>
-            </nav>
-          </header>
-
-          {children}
-
-          <footer className={styles.footer}>
-            <p>© 2025 RenderTune. All rights reserved.</p>
-            <div className={styles.footerLinks}>
-              {/* External links remain <a> tags */}
-              <a href="https://github.com/MartinBarker/RenderTune/releases" target="_blank" rel="noopener noreferrer">
-                <img src="https://img.shields.io/github/v/release/MartinBarker/RenderTune" alt="GitHub Release Version" />
-              </a>
-              <a href="https://github.com/MartinBarker/RenderTune" target="_blank" rel="noopener noreferrer">
-                <img src="https://img.shields.io/github/followers/MartinBarker?style=social" alt="GitHub Followers" />
-              </a>
-              <a href="https://ko-fi.com/martinradio" target="_blank" rel="noopener noreferrer">
-                Ko-fi
-              </a>
-              <a href="https://www.patreon.com/c/martinradio" target="_blank" rel="noopener noreferrer">
-                Patreon
-              </a>
-              <a href="https://github.com/sponsors/MartinBarker" target="_blank" rel="noopener noreferrer">
-                GitHub Sponsors
-              </a>
+                </footer>
+              </div>
             </div>
-          </footer>
-        </div>
+          )}
+        </SiteShell>
       </body>
     </html>
   );

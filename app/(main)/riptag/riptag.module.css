@@ -245,16 +245,20 @@
   flex-shrink: 0;
   transition: all 0.2s;
 }
-.stepActive .stepCircle { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
-.stepDone .stepCircle { background: #48bb78; color: white; }
+/* Only the step you are on is green, so exactly one step reads as "here" at a
+   time (stepActive and stepDone never apply to the same step). Completed steps
+   take the bar's indigo instead: visibly visited, never mistaken for the
+   current one. Steps ahead stay grey. */
+.stepActive .stepCircle { background: #48bb78; color: white; box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.3); }
+.stepDone .stepCircle { background: #a3bffa; color: #1a202c; }
 .stepLabel {
   font-size: 0.78rem;
   font-weight: 600;
   color: #000000;
   white-space: nowrap;
 }
-.stepActive .stepLabel { color: #000000; }
-.stepDone .stepLabel { color: #48bb78; }
+.stepActive .stepLabel { color: #2f855a; }
+.stepDone .stepLabel { color: #4c51bf; }
 .stepProgress {
   font-size: 0.65rem;
   font-weight: 700;
@@ -837,6 +841,39 @@
 .boundarySolo .boundaryBar:hover { background: #bfdbfe; }
 .boundarySolo .boundaryLeg::before { background: rgba(147, 197, 253, 0.55); }
 .boundarySolo .boundaryLeg:hover::before { background: rgba(191, 219, 254, 0.85); }
+
+/* Play-from-here button on each boundary handle. Sits just under the drag bar,
+   on the handle's vertical line, and above the leg so the press hits the button
+   rather than starting a drag. pointer-events must be re-enabled because the
+   whole .boundaryOverlay is pointer-events: none. */
+.boundaryPlayBtn {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #b45309;
+  background: #fbbf24;
+  color: #1f2937;
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.boundaryPlayBtn:hover { background: #fcd34d; transform: translateX(-50%) scale(1.12); }
+.boundaryPlayBtnActive { background: #34d399; border-color: #047857; color: #053b2c; }
+.boundaryPlayBtnActive:hover { background: #6ee7b7; }
+.boundarySolo .boundaryPlayBtn { background: #93c5fd; border-color: #1d4ed8; }
+.boundarySolo .boundaryPlayBtn:hover { background: #bfdbfe; }
+.boundarySolo .boundaryPlayBtnActive { background: #34d399; border-color: #047857; }
 .overview {
   height: 60px;
   background: #0f1117;
@@ -3621,22 +3658,23 @@
   color: #ffffff;
 }
 :global(.darkContent) .stepActive .stepCircle {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: #48bb78;
   color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(104, 211, 145, 0.3);
 }
 :global(.darkContent) .stepDone .stepCircle {
-  background: #48bb78;
+  background: #5a67d8;
   color: #ffffff;
 }
 :global(.darkContent) .stepLabel {
   color: #cbd5e0;
 }
 :global(.darkContent) .stepActive .stepLabel {
-  color: #ffffff;
+  color: #68d391;
   font-weight: 700;
 }
 :global(.darkContent) .stepDone .stepLabel {
-  color: #68d391;
+  color: #a3bffa;
 }
 :global(.darkContent) .stepItem:hover {
   background: rgba(144, 176, 255, 0.18);
@@ -5216,4 +5254,63 @@
   letter-spacing: 0.06em;
   opacity: 0.5;
   padding-top: 10px;
+}
+
+/* ---- Page-wide file drag overlay ----
+   Shown while an OS file drag is anywhere over the window. pointer-events:none
+   matters: the overlay must never swallow the drop (or a click on "choose
+   files"), it only dims the page and says where the files can go. Sits above
+   the image modal backdrop (z-index 1000) so the prompt stays readable when
+   the modal is open. */
+.dragOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 18, 34, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: none;
+  animation: dragOverlayIn 0.12s ease-out;
+}
+
+@keyframes dragOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dragOverlayCard {
+  text-align: center;
+  padding: 2rem 2.75rem;
+  max-width: 90vw;
+  border-radius: 16px;
+  border: 3px dashed rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+}
+
+.dragOverlayIcon {
+  font-size: 2.5rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.dragOverlayTitle {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.dragOverlayHint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dragOverlay { animation: none; }
 }
