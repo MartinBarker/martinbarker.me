@@ -267,6 +267,22 @@
   line-height: 1;
   margin-top: 2px;
 }
+/* Busy indicator beside a step's label while that step's long job runs: the
+   audio export (Step 4) or a video render (Step 5). Sized to the 0.78rem label
+   rather than reusing the 18px file-loading spinner. */
+.stepSpinner {
+  width: 12px;
+  height: 12px;
+  /* Without this the 2px border sits outside the 12px and the ring is 16px:
+     nothing on the page sets border-box globally. */
+  box-sizing: border-box;
+  border: 2px solid #cbd5e0;
+  border-top-color: #48bb78;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  animation: spin 0.7s linear infinite;
+}
 
 /* ---- Render status banner (Step 6) ---- */
 .renderStatusBanner {
@@ -790,7 +806,12 @@
   top: 0;
   width: 1px;
   height: 100%;
-  transform: translateX(-50%);
+  /* Centred with a margin, not transform: a transform would make every handle
+     its own stacking context, and then one handle's full-height drag leg could
+     cover a neighbour's bar or play button whatever their z-index. Without it
+     the z-index layering below (legs 1, bars 3, play buttons 4) applies across
+     all handles. */
+  margin-left: -0.5px;
   pointer-events: none;
 }
 .boundaryBar {
@@ -805,6 +826,7 @@
   border-radius: 2px;
   cursor: ew-resize;
   pointer-events: auto;
+  z-index: 3;
   box-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 .boundaryBar:hover { background: #fcd34d; }
@@ -817,6 +839,7 @@
   height: calc(100% - 12px);
   cursor: col-resize;
   pointer-events: auto;
+  z-index: 1;
 }
 .boundaryLeg::before {
   content: '';
@@ -865,7 +888,7 @@
   justify-content: center;
   cursor: pointer;
   pointer-events: auto;
-  z-index: 2;
+  z-index: 4;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 .boundaryPlayBtn:hover { background: #fcd34d; transform: translateX(-50%) scale(1.12); }
@@ -3675,6 +3698,10 @@
 }
 :global(.darkContent) .stepDone .stepLabel {
   color: #a3bffa;
+}
+:global(.darkContent) .stepSpinner {
+  border-color: #4a5568;
+  border-top-color: #68d391;
 }
 :global(.darkContent) .stepItem:hover {
   background: rgba(144, 176, 255, 0.18);

@@ -32,6 +32,7 @@ import {
   idbSave, idbLoad, idbDelete,
 } from "./riptagStore";
 import * as renderQueue from "./renderQueue";
+import { layoutBoundaryHandles, maxBoundaryLanes, BOUNDARY_LANE_STEP, BOUNDARY_PLAY_OFFSET } from "./boundaryLayout";
 
 // ---- Helpers ----
 // The one duration/timestamp format for the whole page: hh:mm:ss once past an
@@ -897,6 +898,28 @@ export default function RipTagPage() {
   const [embedArtFile, setEmbedArtFile] = useState(null); // album art to embed in FLAC exports
   const [embedArtPreview, setEmbedArtPreview] = useState(null);
   const embedArtInputRef = useRef(null);
+  // True while a Discogs cover is downloading for the Album Art box.
+  const [embedArtFetching, setEmbedArtFetching] = useState(false);
+  // Where the current album art came from: "user" (uploaded or dropped),
+  // "discogs:<releaseId>", or null when there is none. A new release replaces
+  // Discogs art but leaves art the user picked themselves.
+  const embedArtSourceRef = useRef(null);
+  const embedArtPreviewRef = useRef(null);
+  // Bumped on every change to the album art, so a Discogs cover that finishes
+  // downloading after something newer was chosen is thrown away.
+  const embedArtRequestRef = useRef(0);
+  // The one way the album art changes, so the file, its preview URL and its
+  // source can't get out of step. Pass null to clear it.
+  const setEmbedArt = (file, source = "user") => {
+    embedArtRequestRef.current++;
+    setEmbedArtFetching(false);
+    if (embedArtPreviewRef.current) { try { URL.revokeObjectURL(embedArtPreviewRef.current); } catch {} }
+    const url = file ? URL.createObjectURL(file) : null;
+    embedArtPreviewRef.current = url;
+    embedArtSourceRef.current = file ? source : null;
+    setEmbedArtFile(file);
+    setEmbedArtPreview(url);
+  };
   const [autoUploadYt, setAutoUploadYt] = useState(false);
   const autoUploadYtRef = useRef(false);
   // Whether the user has explicitly toggled the auto-upload ("Queue upload")
@@ -1037,6 +1060,10 @@ export default function RipTagPage() {
     setSilenceRegions([]); setVolumeSuggestion(null);
     setYtUploadData({ title: "", description: "", privacyStatus: "private", tags: "" }); setYtTitleSuggestions([]);
     setYtUploadResult(null); setYtUploadError(""); setThumbnailFile(null); setThumbnailPreview(null);
+    // The album art isn't stored with the project, so without this a new
+    // project showed the previous one's cover in the Step 4 Album Art box.
+    setEmbedArt(null);
+    discogsArtReleaseRef.current = null;
     setRiaaEnabled(false); setVolumeDb(0); setStep(1);
     autoSplitDoneRef.current = false;
     lastYtDiscogsUrlRef.current = null;
@@ -1718,9 +1745,10 @@ export default function RipTagPage() {
   }, [showMarkerJson, markerJsonDirty, tracks, audioFile, duration]);
 
   // Step 4 exists to produce the track files, so arriving there starts that
-  // rather than waiting for a click. Held back until the Discogs art has
-  // finished loading: FLAC embeds the cover, and exporting a second early would
-  // write every track without one.
+  // rather than waiting for a click. It used to wait for Discogs art to land in
+  // the Step 5 image table, but the embedded FLAC cover is embedArtFile, which
+  // that table never feeds — and with the art now imported only on request the
+  // wait would never end.
   const autoExportDoneRef = useRef(false);
   useEffect(() => { autoExportDoneRef.current = false; }, [audioFile, outputFormat]);
   useEffect(() => {
@@ -1730,15 +1758,13 @@ export default function RipTagPage() {
     // this effect — naming it in the dependency array reads it during render,
     // inside its temporal dead zone.
     if (tracks.length === 0 || !audioFile || selectedTracks.size === 0) return;
-    // "Art loaded already" means the fetch isn't still in flight. A release with
-    // no art at all doesn't block it.
-    if (discogsArtStatus) return;
-    if (discogsData?.images?.length && videoImages.every(im => im.source !== "discogs")) return;
+    // FLAC embeds the cover, so wait for a Discogs cover that is still downloading.
+    if (outputFormat === "flac" && embedArtFetching) return;
     autoExportDoneRef.current = true;
     setMessage(`Exporting ${selectedTracks.size} track(s) as ${outputFormat.toUpperCase()}…`);
     exportTracks();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, tracks.length, audioFile, selectedTracks, isExporting, exportedTracks.length, discogsArtStatus, discogsData, videoImages, outputFormat]);
+  }, [step, tracks.length, audioFile, selectedTracks, isExporting, exportedTracks.length, outputFormat, embedArtFetching]);
 
   // Auto-run split detection when first entering Step 3
   const autoSplitDoneRef = useRef(false);
@@ -2427,10 +2453,7 @@ export default function RipTagPage() {
       addImagesToVideo(imageFiles);
       // Also set the first dropped image as the embedded album art for FLAC export (step 4)
       if (!embedArtFile) {
-        const f = imageFiles[0];
-        setEmbedArtFile(f);
-        if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
-        setEmbedArtPreview(URL.createObjectURL(f));
+        setEmbedArt(imageFiles[0], "user");
         setExportedTracks([]);
       }
     }
@@ -2461,13 +2484,14 @@ export default function RipTagPage() {
   };
 
   // ---- Discogs ----
-  // Which release the Step 5 image table currently holds art for. Compared on
-  // every successful lookup so a *new* release refetches and an unchanged one
-  // (or a project being restored) doesn't.
+  // The release most recently loaded. Compared on every successful lookup so
+  // that switching to a *different* release clears the previous one's imported
+  // art, while reloading the same release (or restoring a project) leaves the
+  // table alone.
   const discogsArtReleaseRef = useRef(null);
 
   // Shared by the URL box and the search-result picker: both are the user
-  // choosing a release, and both should leave the art matching that release.
+  // choosing a release.
   const onDiscogsReleaseLoaded = (data) => {
     setDiscogsData(data);
     setProjectName(data.title || "My Album");
@@ -2476,10 +2500,42 @@ export default function RipTagPage() {
     const releaseId = data.id ?? null;
     if (releaseId != null && discogsArtReleaseRef.current === releaseId) return;
     discogsArtReleaseRef.current = releaseId;
-    if (!data.images?.length) { removeDiscogsImages(); return; }
-    // Fire and forget — the button's own progress bar reports it, and the user
-    // can carry on with Step 2 while the art downloads.
-    fetchDiscogsImage({ replace: true, release: data }).catch(() => {});
+    // Discogs images are no longer added to the Step 5 table automatically;
+    // "Import Discogs Images" there does it on request. A new release still
+    // drops art imported for the previous one (images added by hand stay), so
+    // the table never shows a different album's covers.
+    removeDiscogsImages();
+    // The Step 4 Album Art box follows the release: its cover replaces any
+    // earlier Discogs cover, or clears the box if it has none. Art the user
+    // uploaded or dropped is kept.
+    if (embedArtSourceRef.current !== "user") {
+      if (data.images?.length) loadDiscogsCover(data);
+      else setEmbedArt(null);
+    }
+  };
+
+  // Downloads a release's primary image into the Step 4 Album Art box.
+  const loadDiscogsCover = async (release, { announce = false } = {}) => {
+    const image = release?.images?.[0];
+    const uri = image?.uri || image?.uri150;
+    if (!uri) return;
+    const token = ++embedArtRequestRef.current;
+    setEmbedArtFetching(true);
+    if (announce) setMessage("Fetching Discogs album art…");
+    try {
+      const res = await fetch(`${apiBaseURL()}/discogs/image-proxy?url=${encodeURIComponent(uri)}`);
+      if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+      const blob = await res.blob();
+      // A newer release, upload or reset happened while this was downloading.
+      if (token !== embedArtRequestRef.current) return;
+      setEmbedArt(new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" }), `discogs:${release.id ?? ""}`);
+      setExportedTracks([]);
+      if (announce) setMessage("Album art loaded from Discogs");
+    } catch (err) {
+      if (token === embedArtRequestRef.current) setMessage("Failed to fetch album art: " + err.message);
+    } finally {
+      if (token === embedArtRequestRef.current) setEmbedArtFetching(false);
+    }
   };
 
   const fetchDiscogs = async () => {
@@ -5190,6 +5246,8 @@ export default function RipTagPage() {
       setAudioDurationMap({});
       setSilenceRegions([]);
       setVolumeSuggestion(null);
+      // Album art isn't stored with projects; don't carry the outgoing one's over.
+      setEmbedArt(null);
       if (peaksRef.current) { try { peaksRef.current.destroy(); } catch {} peaksRef.current = null; }
 
       applySettings(rec.settings);
@@ -6155,6 +6213,7 @@ export default function RipTagPage() {
           setDiscogsSearchResults([]); setDiscogsSearchQuery(""); setDiscogsSearchError("");
           setTrackNames([]); setManualTrackCount("");
           discogsArtReleaseRef.current = null;
+          if (embedArtSourceRef.current !== "user") setEmbedArt(null);
         },
       };
       case 3: return {
@@ -6477,6 +6536,19 @@ export default function RipTagPage() {
             >
               <div className={styles.stepCircle}>{i + 1}</div>
               <span className={styles.stepLabel}>{label}</span>
+              {/* Spins beside Export while the audio export runs, and beside
+                  Video while a render of this project is running or queued —
+                  single (isRenderingVideo) or batch (batchInFlight), which the
+                  queue tracks under different job ids. Shown whichever step
+                  you are on, so you can see the job is still going. */}
+              {((i === 3 && isExporting) || (i === 4 && (isRenderingVideo || batchInFlight.length > 0))) && (
+                <span
+                  className={styles.stepSpinner}
+                  role="status"
+                  aria-label={i === 3 ? "Exporting audio" : "Rendering video"}
+                  title={i === 3 ? "Exporting audio…" : "Rendering video…"}
+                />
+              )}
               {i === 4 && isRenderingVideo && (
                 <span className={styles.stepProgress}>{videoRenderProgress !== null ? ` ${(videoRenderProgress * 100).toFixed(0)}%` : " …"}</span>
               )}
@@ -6683,11 +6755,7 @@ export default function RipTagPage() {
                                 title="Remove this image"
                                 onClick={() => {
                                   removeVideoImage(img.id);
-                                  if (embedArtFile === img.file) {
-                                    if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
-                                    setEmbedArtFile(null);
-                                    setEmbedArtPreview(null);
-                                  }
+                                  if (embedArtFile === img.file) setEmbedArt(null);
                                 }}
                               >×</button>
                             </td>
@@ -7073,9 +7141,7 @@ export default function RipTagPage() {
                   <div ref={zoomviewRef} className={styles.zoomview} />
                   {/* Boundary handles overlay (above the waveform) */}
                   {(() => {
-                    const range = viewRange.end - viewRange.start;
-                    if (!range || !zoomviewWidth || tracks.length === 0) return null;
-                    const timeToX = (t) => ((t - viewRange.start) / range) * zoomviewWidth;
+                    if (!zoomviewWidth || tracks.length === 0 || !(viewRange.end > viewRange.start)) return null;
                     // Read live segment times from peaks during a drag, falling back to React state
                     const liveTime = (trackId, field) => {
                       const seg = peaksRef.current?.segments?.getSegment?.(trackId);
@@ -7084,40 +7150,62 @@ export default function RipTagPage() {
                       return t ? t[field] : 0;
                     };
                     const EPS = 0.02;
-                    const handles = [];
                     // Play button carried by every handle. stopPropagation on
                     // mousedown matters: without it the press would also start
                     // a boundary drag, since the bar and leg listen for it.
-                    const playBtn = (key, time) => (
+                    const playBtn = (key, time, style) => (
                       <button
                         type="button"
                         className={`${styles.boundaryPlayBtn} ${playingBoundary === key ? styles.boundaryPlayBtnActive : ""}`}
+                        style={style}
                         title={`Play from ${formatTime(time)}`}
                         aria-label={`Play from ${formatTime(time)}`}
                         onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}
                         onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); playFromBoundary(key, time); }}
-                      >{playingBoundary === key && isPlaying ? "\u23F8" : "\u25B6"}</button>
+                      >{playingBoundary === key && isPlaying ? "⏸" : "▶"}</button>
                     );
+                    // Every boundary as data first: a shared cut is one "joint"
+                    // handle, a gap between two tracks is a separate end and start.
+                    const boundaries = [];
                     for (let i = 0; i < tracks.length - 1; i++) {
                       const a = tracks[i];
                       const b = tracks[i + 1];
                       const aEnd = liveTime(a.id, 'endTime');
                       const bStart = liveTime(b.id, 'startTime');
-                      const shared = Math.abs(aEnd - bStart) < EPS;
-                      if (shared) {
-                        const x = timeToX(aEnd);
-                        if (x < -20 || x > zoomviewWidth + 20) continue;
+                      if (Math.abs(aEnd - bStart) < EPS) {
+                        boundaries.push({ key: `joint-${a.id}-${b.id}`, kind: 'joint', time: aEnd, i, a, b });
+                      } else {
+                        boundaries.push({ key: `solo-end-${a.id}`, kind: 'solo-end', time: aEnd, i, a, b });
+                        boundaries.push({ key: `solo-start-${b.id}`, kind: 'solo-start', time: bStart, i, a, b });
+                      }
+                    }
+                    // Placement is what keeps every drag bar and play button
+                    // visible at any zoom: handles closer than a bar's width are
+                    // stacked into lanes instead of drawn on top of each other,
+                    // and a bar near either edge is nudged inward instead of being
+                    // clipped in half. See boundaryLayout.js.
+                    const handles = layoutBoundaryHandles(boundaries, {
+                      start: viewRange.start,
+                      end: viewRange.end,
+                      width: zoomviewWidth,
+                      lanes: maxBoundaryLanes(zoomviewRef.current?.clientHeight || 200),
+                    }).map(({ key, kind, time, i, a, b, x, vx, lane }) => {
+                      const nudge = vx - x;
+                      const barStyle = { top: lane * BOUNDARY_LANE_STEP, marginLeft: nudge };
+                      const btnStyle = { top: lane * BOUNDARY_LANE_STEP + BOUNDARY_PLAY_OFFSET, marginLeft: nudge };
+                      if (kind === 'joint') {
                         const ds = dragStateRef.current;
                         const isDragging = ds && ds.idxLeft === i && ds.idxRight === i + 1;
                         const splitDir = isDragging && ds.mode === 'joint-split' ? ds.splitDir : null;
-                        handles.push(
-                          <div key={`joint-${a.id}-${b.id}`} className={styles.boundaryHandle} style={{ left: x }}>
+                        return (
+                          <div key={key} className={styles.boundaryHandle} style={{ left: x }}>
                             <div
                               className={styles.boundaryBar}
+                              style={barStyle}
                               title="Drag to move both boundaries together"
                               onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-move', i, i + 1)}
                             />
-                            {playBtn(`joint-${a.id}-${b.id}`, aEnd)}
+                            {playBtn(key, time, btnStyle)}
                             <div
                               className={`${styles.boundaryLeg} ${splitDir === 'left' ? styles.boundaryLegLeft : ''} ${splitDir === 'right' ? styles.boundaryLegRight : ''}`}
                               title="Drag left/right to split into separate start/end"
@@ -7125,38 +7213,34 @@ export default function RipTagPage() {
                             />
                           </div>
                         );
-                      } else {
-                        // Two separate handles
-                        const xL = timeToX(aEnd);
-                        const xR = timeToX(bStart);
-                        if (xL >= -20 && xL <= zoomviewWidth + 20) {
-                          handles.push(
-                            <div key={`solo-end-${a.id}`} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: xL }}>
-                              <div
-                                className={styles.boundaryBar}
-                                title={`Drag to move "${a.name}" end`}
-                                onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)}
-                              />
-                              {playBtn(`solo-end-${a.id}`, aEnd)}
-                              <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)} />
-                            </div>
-                          );
-                        }
-                        if (xR >= -20 && xR <= zoomviewWidth + 20) {
-                          handles.push(
-                            <div key={`solo-start-${b.id}`} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: xR }}>
-                              <div
-                                className={styles.boundaryBar}
-                                title={`Drag to move "${b.name}" start`}
-                                onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
-                              />
-                              {playBtn(`solo-start-${b.id}`, bStart)}
-                              <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)} />
-                            </div>
-                          );
-                        }
                       }
-                    }
+                      if (kind === 'solo-end') {
+                        return (
+                          <div key={key} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: x }}>
+                            <div
+                              className={styles.boundaryBar}
+                              style={barStyle}
+                              title={`Drag to move "${a.name}" end`}
+                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)}
+                            />
+                            {playBtn(key, time, btnStyle)}
+                            <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)} />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={key} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: x }}>
+                          <div
+                            className={styles.boundaryBar}
+                            style={barStyle}
+                            title={`Drag to move "${b.name}" start`}
+                            onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
+                          />
+                          {playBtn(key, time, btnStyle)}
+                          <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)} />
+                        </div>
+                      );
+                    });
                     return <div className={styles.boundaryOverlay}>{handles}</div>;
                   })()}
                 </div>
@@ -7339,34 +7423,23 @@ export default function RipTagPage() {
                       <input ref={embedArtInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
-                        setEmbedArtFile(file);
-                        setEmbedArtPreview(URL.createObjectURL(file));
+                        setEmbedArt(file, "user");
                         setExportedTracks([]);
+                        // Let the same file be picked again after a Remove.
+                        e.target.value = "";
                       }} />
                       <button className={styles.selectBtn} onClick={() => embedArtInputRef.current?.click()}>Upload Image</button>
                       {discogsData?.images?.[0] && !embedArtFile && (
-                        <button className={styles.selectBtn} onClick={async () => {
-                          try {
-                            setMessage("Fetching Discogs album art…");
-                            const imgUrl = `${apiBaseURL()}/discogs/image-proxy?url=${encodeURIComponent(discogsData.images[0].uri)}`;
-                            const res = await fetch(imgUrl);
-                            if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
-                            const blob = await res.blob();
-                            const file = new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" });
-                            if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
-                            setEmbedArtFile(file);
-                            setEmbedArtPreview(URL.createObjectURL(file));
-                            setExportedTracks([]);
-                            setMessage("Album art loaded from Discogs");
-                          } catch (err) { setMessage("Failed to fetch album art: " + err.message); }
-                        }}>Use Discogs Art</button>
+                        <button className={styles.selectBtn} disabled={embedArtFetching} onClick={() => loadDiscogsCover(discogsData, { announce: true })}>
+                          {embedArtFetching ? "Fetching…" : "Use Discogs Art"}
+                        </button>
                       )}
                       {embedArtFile && (
                         <button className={styles.selectBtn} style={{ color: "#e53e3e" }} onClick={() => {
-                          if (embedArtPreview) URL.revokeObjectURL(embedArtPreview);
-                          setEmbedArtFile(null);
-                          setEmbedArtPreview(null);
+                          // Removing it counts as the user's choice: a later
+                          // release won't refill the box behind their back.
+                          setEmbedArt(null);
+                          embedArtSourceRef.current = "user";
                           setExportedTracks([]);
                         }}>Remove</button>
                       )}
@@ -7814,8 +7887,8 @@ export default function RipTagPage() {
                 <div className={styles.videoImgActions}>
                   <button className={styles.fetchBtn} onClick={() => setShowImageModal(true)}>+ Add Image</button>
                   {discogsData?.images?.length > 0 && (
-                    <button className={styles.fetchBtn} onClick={fetchDiscogsImage} disabled={!!discogsArtStatus}>
-                      {discogsArtStatus ? "Fetching…" : `Use Discogs Art (${discogsData.images.length})`}
+                    <button className={styles.fetchBtn} onClick={() => fetchDiscogsImage()} disabled={!!discogsArtStatus}>
+                      {discogsArtStatus ? "Fetching…" : `Import Discogs Images (${discogsData.images.length})`}
                     </button>
                   )}
                 </div>
