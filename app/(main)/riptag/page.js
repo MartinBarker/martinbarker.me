@@ -32,7 +32,14 @@ import {
   idbSave, idbLoad, idbDelete,
 } from "./riptagStore";
 import * as renderQueue from "./renderQueue";
-import { layoutBoundaryHandles, maxBoundaryLanes, BOUNDARY_LANE_STEP, BOUNDARY_PLAY_OFFSET } from "./boundaryLayout";
+import { layoutBoundaryHandles, maxBoundaryLanes, BOUNDARY_LANE_STEP, BOUNDARY_PLAY_OFFSET, BOUNDARY_TOUCH_MIN_GAP } from "./boundaryLayout";
+import { computeAudioPeaks } from "./audioPeaks";
+import {
+  BG_BLUR_MAX, clampBgBlur, bgBlurFilter,
+  BG_DRIFT_ZOOM, BG_DRIFT_AMOUNT, BG_DRIFT_PERIOD,
+  MOTION_SPEED_MIN, MOTION_SPEED_MAX, MOTION_SPEED_STEP, clampMotionSpeed,
+  STILL_FPS, IMAGE_MOTIONS, BG_MOTIONS, motionZoompanFilter,
+} from "./videoLayout";
 
 // ---- Helpers ----
 // The one duration/timestamp format for the whole page: hh:mm:ss once past an
@@ -98,15 +105,6 @@ const IMG_COLORS   = ["#f7971e","#12c2e9","#f64f59","#c471ed","#11998e","#ee0979
 // Applied to the composed frame (after letterbox / blur-bg compositing) via
 // zoompan. STILL_FPS is enough for a static slideshow; anything with motion
 // has to be encoded at a real frame rate, which costs a lot more time.
-const IMAGE_MOTIONS = [
-  { value: "none",      label: "Still (no motion)", short: "still" },
-  { value: "zoom-in",   label: "Zoom in",           short: "zoom in" },
-  { value: "zoom-out",  label: "Zoom out",          short: "zoom out" },
-  { value: "pan-right", label: "Pan left → right",  short: "pan →" },
-  { value: "pan-left",  label: "Pan right → left",  short: "pan ←" },
-  { value: "pan-down",  label: "Pan top → bottom",  short: "pan ↓" },
-  { value: "pan-up",    label: "Pan bottom → top",  short: "pan ↑" },
-];
 // CSS-module class that mimics each motion in the in-table preview.
 const MOTION_PREVIEW_CLASS = {
   "zoom-in": "motionZoomIn",
@@ -116,23 +114,9 @@ const MOTION_PREVIEW_CLASS = {
   "pan-down": "motionPanDown",
   "pan-up": "motionPanUp",
 };
-const BG_MOTIONS = [
-  { value: "none",  label: "Static blur", short: "static bg" },
-  { value: "drift", label: "Slow drift",  short: "drifting bg" },
-];
-const MOTION_ZOOM = 1.25;      // how far zoom/pan moves (1.25 = 25%)
-// Speed is relative to the image's own on-screen time: 1× sweeps the full
-// travel exactly once across the segment, 2× sweeps out and back, 0.5× covers
-// half of it. Foreground and background speeds are stored separately per image.
-const MOTION_SPEED_MIN = 0.25;
-const MOTION_SPEED_MAX = 4;
-const MOTION_SPEED_STEP = 0.25;
-const clampMotionSpeed = (v) => {
-  const n = parseFloat(v);
-  if (!isFinite(n) || n <= 0) return 1;
-  return Math.min(MOTION_SPEED_MAX, Math.max(MOTION_SPEED_MIN, n));
-};
-const STILL_FPS = 2;           // frame rate for motionless slideshows
+// Motion travel, speed limits and the still frame rate are shared with
+// /bandcamposter through videoLayout.js. Foreground and background speeds are
+// still stored separately per image.
 
 // The ffmpeg core is ~32 MB. It was fetched and turned into blob URLs on every
 // single render — once per batch video — which is the bulk of the wait before
@@ -210,39 +194,8 @@ async function computeDownscale(file, maxDim) {
     img.src = url;
   });
 }
-// Background blur strength, 0-100. 100 reproduces the look the render has
-// always had. Expressed as a share of the frame width so a 4K render and a 720p
-// one are blurred the same amount relative to the picture, not in raw pixels.
-// 100 is the strength the render has always used, kept as the reference point
-// so an existing project looks unchanged. The scale runs past it because that
-// turned out not to be blurry enough for a backdrop.
-const BG_BLUR_DEFAULT = 175;
-const BG_BLUR_MAX = 400;
-const BG_BLUR_MAX_SIGMA_PCT = 0.027;
-// Repeated box passes approximate a Gaussian; three is where it stops being
-// visibly boxy. The old expression used twenty, which is ~7x the work for no
-// visible difference — the radius below is scaled to match its blur strength
-// (sigma ~= radius * sqrt(passes / 3)), so the picture is unchanged.
-const BG_BLUR_PASSES = 3;
-const clampBgBlur = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.max(0, Math.min(BG_BLUR_MAX, Math.round(n))) : BG_BLUR_DEFAULT;
-};
-// The boxblur clause for a frame `width` px wide, or "" when blur is off.
-const bgBlurFilter = (width, blurPct) => {
-  const pct = clampBgBlur(blurPct);
-  if (pct === 0) return "";
-  // Past roughly a quarter of the frame the kernel is wider than the picture,
-  // so a bigger radius costs time without looking any softer.
-  const radius = Math.max(1, Math.min(
-    Math.round(width / 4),
-    Math.round(width * BG_BLUR_MAX_SIGMA_PCT * (pct / 100)),
-  ));
-  return `,boxblur=${radius}:${BG_BLUR_PASSES}`;
-};
-const BG_DRIFT_ZOOM = 1.2;     // blur bg is scaled this much larger so it has room to drift
-const BG_DRIFT_AMOUNT = 0.06;  // drift travel, as a fraction of the output size
-const BG_DRIFT_PERIOD = 24;    // seconds for one full drift cycle
+// Background blur strength and the drift constants are shared with
+// /bandcamposter through videoLayout.js.
 
 // ---- Text overlay ----
 // The overlay is rasterised in the browser with a 2D canvas at the output
@@ -771,6 +724,18 @@ export default function RipTagPage() {
   // Visible time range of the zoomview (for positioning boundary handles)
   const [viewRange, setViewRange] = useState({ start: 0, end: 0 });
   const [zoomviewWidth, setZoomviewWidth] = useState(0);
+  // True on a touch screen. Boundary handles then need more room between them
+  // than a mouse does, because a fingertip covers far more than a cursor tip.
+  // Read after mount so server and first client render agree.
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(pointer: coarse)");
+    const apply = () => setCoarsePointer(mq.matches);
+    apply();
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
+  }, []);
   // Tracks currently being dragged (live override for handle rendering during drag)
   const dragStateRef = useRef(null);
   const [, forceHandleRender] = useState(0);
@@ -2226,8 +2191,14 @@ export default function RipTagPage() {
   }, [step]);
 
   // ---- Boundary handle drag (above-waveform splitters) ----
+  // Pointer events rather than mouse events: on a touch screen the emulated
+  // mousedown only arrives after the finger lifts (and no mousemove arrives at
+  // all), so a mouse-only drag could never follow a finger. The handles also
+  // set `touch-action: none` in CSS, without which the browser would scroll the
+  // page instead of letting the drag run.
   const beginBoundaryDrag = useCallback((e, mode, idxLeft, idxRight) => {
     // mode: 'joint-move' | 'joint-split' | 'solo-end' | 'solo-start'
+    if (e.button != null && e.button > 0) return;
     e.preventDefault();
     e.stopPropagation();
     if (!peaksRef.current) return;
@@ -2235,6 +2206,11 @@ export default function RipTagPage() {
     const containerEl = zoomviewRef.current;
     if (!view || !containerEl) return;
     snapshotTracks();
+    const pointerId = e.pointerId;
+    const dragEl = e.currentTarget;
+    // Capture keeps the moves coming to this handle even once the finger or
+    // cursor slides off it.
+    try { dragEl?.setPointerCapture?.(pointerId); } catch { /* not captureable */ }
     const startMouseX = e.clientX;
     const containerRect = containerEl.getBoundingClientRect();
     const widthPx = containerRect.width || 1;
@@ -2252,6 +2228,7 @@ export default function RipTagPage() {
     };
 
     const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
       const dx = ev.clientX - startMouseX;
       const dt = pxToSeconds(dx);
       const segL = idxLeft != null ? peaksRef.current.segments.getSegment(tracks[idxLeft].id) : null;
@@ -2299,9 +2276,12 @@ export default function RipTagPage() {
       }
     };
 
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+    const onUp = (ev) => {
+      if (ev && ev.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      try { dragEl?.releasePointerCapture?.(pointerId); } catch { /* already released */ }
       // Commit final times from peaks segments back to React state
       const segs = peaksRef.current.segments.getSegments().sort((a, b) => a.startTime - b.startTime);
       const stripNum = (label) => { const m = (label || '').match(/^\d+\.\s*(.*)$/); return m ? m[1] : (label || 'Track'); };
@@ -2311,8 +2291,9 @@ export default function RipTagPage() {
       forceHandleRender(n => n + 1);
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }, [tracks, duration, snapshotTracks]);
 
   // ---- Track manipulation ----
@@ -4636,27 +4617,8 @@ export default function RipTagPage() {
       // crop comes out of a larger source instead of magnifying the finished
       // canvas. `d=1` makes zoompan emit one frame per input frame, so `on`
       // counts output frames within this segment.
-      const motionFilter = (motion, frames, speed) => {
-        if (!motion || motion === "none") return "";
-        const z = MOTION_ZOOM;
-        const sw = Math.round(w * z / 2) * 2, sh = Math.round(h * z / 2) * 2;
-        const last = Math.max(1, frames - 1);
-        // Frames per one-way sweep. At 1× that's the whole segment (so the move
-        // finishes exactly as the image leaves); faster speeds sweep out and
-        // back, slower ones only get partway. `p` is a 0→1→0 triangle over it.
-        const sweep = Math.max(1, Math.round(last / clampMotionSpeed(speed)));
-        const p = `abs(mod(on/${sweep}+1,2)-1)`;
-        const cx = "iw/2-(iw/zoom/2)", cy = "ih/2-(ih/zoom/2)";
-        const d = (z - 1).toFixed(5);
-        let zExpr = String(z), xExpr = cx, yExpr = cy;
-        if (motion === "zoom-in") zExpr = `1+${d}*${p}`;
-        else if (motion === "zoom-out") zExpr = `${z}-${d}*${p}`;
-        else if (motion === "pan-right") xExpr = `(iw-iw/zoom)*${p}`;
-        else if (motion === "pan-left") xExpr = `(iw-iw/zoom)*(1-${p})`;
-        else if (motion === "pan-down") yExpr = `(ih-ih/zoom)*${p}`;
-        else if (motion === "pan-up") yExpr = `(ih-ih/zoom)*(1-${p})`;
-        return `scale=w=${sw}:h=${sh},zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=1:s=${w}x${h}:fps=${outFps},`;
-      };
+      const motionFilter = (motion, frames, speed) =>
+        motionZoompanFilter({ motion, frames, speed, w, h, fps: outFps });
 
       // One image input (plus an optional text-overlay input) → one finished
       // segment of `dur` seconds.
@@ -7151,8 +7113,10 @@ export default function RipTagPage() {
                     };
                     const EPS = 0.02;
                     // Play button carried by every handle. stopPropagation on
-                    // mousedown matters: without it the press would also start
+                    // pointerdown matters: without it the press would also start
                     // a boundary drag, since the bar and leg listen for it.
+                    // preventDefault is skipped for touch so iOS still delivers
+                    // the click that actually starts playback.
                     const playBtn = (key, time, style) => (
                       <button
                         type="button"
@@ -7160,7 +7124,7 @@ export default function RipTagPage() {
                         style={style}
                         title={`Play from ${formatTime(time)}`}
                         aria-label={`Play from ${formatTime(time)}`}
-                        onMouseDown={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}
+                        onPointerDown={(ev) => { ev.stopPropagation(); if (ev.pointerType !== 'touch') ev.preventDefault(); }}
                         onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); playFromBoundary(key, time); }}
                       >{playingBoundary === key && isPlaying ? "⏸" : "▶"}</button>
                     );
@@ -7189,6 +7153,7 @@ export default function RipTagPage() {
                       end: viewRange.end,
                       width: zoomviewWidth,
                       lanes: maxBoundaryLanes(zoomviewRef.current?.clientHeight || 200),
+                      ...(coarsePointer ? { minGap: BOUNDARY_TOUCH_MIN_GAP } : {}),
                     }).map(({ key, kind, time, i, a, b, x, vx, lane }) => {
                       const nudge = vx - x;
                       const barStyle = { top: lane * BOUNDARY_LANE_STEP, marginLeft: nudge };
@@ -7203,13 +7168,13 @@ export default function RipTagPage() {
                               className={styles.boundaryBar}
                               style={barStyle}
                               title="Drag to move both boundaries together"
-                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-move', i, i + 1)}
+                              onPointerDown={(ev) => beginBoundaryDrag(ev, 'joint-move', i, i + 1)}
                             />
                             {playBtn(key, time, btnStyle)}
                             <div
                               className={`${styles.boundaryLeg} ${splitDir === 'left' ? styles.boundaryLegLeft : ''} ${splitDir === 'right' ? styles.boundaryLegRight : ''}`}
                               title="Drag left/right to split into separate start/end"
-                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'joint-split', i, i + 1)}
+                              onPointerDown={(ev) => beginBoundaryDrag(ev, 'joint-split', i, i + 1)}
                             />
                           </div>
                         );
@@ -7221,10 +7186,10 @@ export default function RipTagPage() {
                               className={styles.boundaryBar}
                               style={barStyle}
                               title={`Drag to move "${a.name}" end`}
-                              onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)}
+                              onPointerDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)}
                             />
                             {playBtn(key, time, btnStyle)}
-                            <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)} />
+                            <div className={styles.boundaryLeg} onPointerDown={(ev) => beginBoundaryDrag(ev, 'solo-end', i, null)} />
                           </div>
                         );
                       }
@@ -7234,10 +7199,10 @@ export default function RipTagPage() {
                             className={styles.boundaryBar}
                             style={barStyle}
                             title={`Drag to move "${b.name}" start`}
-                            onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
+                            onPointerDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
                           />
                           {playBtn(key, time, btnStyle)}
-                          <div className={styles.boundaryLeg} onMouseDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)} />
+                          <div className={styles.boundaryLeg} onPointerDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)} />
                         </div>
                       );
                     });
@@ -10064,22 +10029,7 @@ function TrackClipPanel({ track, range, onChange, onReset }) {
         const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
         const decoded = await new OfflineCtx(1, 1, 8000).decodeAudioData(buf);
         if (cancelled) return;
-        const data = decoded.getChannelData(0);
-        // Far more bars than the canvas has pixels: the draw pass reduces this
-        // to one column per pixel for whatever window is on screen, so zooming
-        // in surfaces detail rather than stretching 800 bars.
-        const BARS = 4000;
-        const block = Math.max(1, Math.floor(data.length / BARS));
-        const out = new Float32Array(BARS);
-        for (let i = 0; i < BARS; i++) {
-          let max = 0;
-          const base = i * block;
-          for (let j = 0; j < block && base + j < data.length; j++) {
-            const v = Math.abs(data[base + j]);
-            if (v > max) max = v;
-          }
-          out[i] = max;
-        }
+        const out = computeAudioPeaks(decoded.getChannelData(0));
         if (!cancelled) { setPeaks(out); setWfStatus("ready"); }
       } catch {
         if (!cancelled) setWfStatus("error");

@@ -12,6 +12,7 @@
 
 export const BOUNDARY_BAR_HALF = 11;     // half of the 22px drag bar, the widest control
 export const BOUNDARY_MIN_GAP = 24;      // bar width + 2px: any closer and two bars touch
+export const BOUNDARY_TOUCH_MIN_GAP = 42; // on touch the bar's hit area is wider than the bar
 export const BOUNDARY_LANE_STEP = 36;    // 12px bar + 2px + 18px play button + 4px
 export const BOUNDARY_PLAY_OFFSET = 14;  // the play button sits this far below its bar
 
@@ -25,12 +26,13 @@ export function maxBoundaryLanes(height) {
  * Lays out boundary handles for the visible part of the waveform.
  *
  * @param {Array<{time: number}>} boundaries  anything with a time, in seconds
- * @param {{start: number, end: number, width: number, lanes?: number}} view
- *   the zoomview's visible time range and pixel width
+ * @param {{start: number, end: number, width: number, lanes?: number, minGap?: number}} view
+ *   the zoomview's visible time range and pixel width; minGap is how far apart
+ *   two bars must be to share a lane, which touch raises to fingertip size
  * @returns the boundaries whose line is on screen, left to right, each with
  *   x (the true line position), vx (where its bar and button are drawn) and lane
  */
-export function layoutBoundaryHandles(boundaries, { start, end, width, lanes = 5 }) {
+export function layoutBoundaryHandles(boundaries, { start, end, width, lanes = 5, minGap = BOUNDARY_MIN_GAP }) {
   const range = end - start;
   if (!(range > 0) || !(width > 0)) return [];
   const minVx = Math.min(BOUNDARY_BAR_HALF, width / 2);
@@ -49,7 +51,7 @@ export function layoutBoundaryHandles(boundaries, { start, end, width, lanes = 5
   const laneLastVx = [];
   for (const p of placed) {
     // The top-most lane whose last bar is far enough to the left...
-    let lane = laneLastVx.findIndex(last => p.vx - last >= BOUNDARY_MIN_GAP);
+    let lane = laneLastVx.findIndex(last => p.vx - last >= minGap);
     if (lane === -1) {
       if (laneLastVx.length < lanes) {
         // ...otherwise a new lane below...

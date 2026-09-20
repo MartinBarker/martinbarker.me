@@ -80,6 +80,20 @@ export const routeInfo = {
     ogImage: "/images/vinyldigitizer_previewCard.jpg",
     ogUrl: "https://riptag.app",
     icon: "/ico/martinbarker.ico"
+  },
+
+  "/bandcamposter": {
+    title: "Bandcamp Poster",
+    subtitle: "Turn a Bandcamp track into a 1080x1920 video",
+    tabTitle: "Bandcamp Poster - Bandcamp track to vertical video",
+    icon: "/ico/martinbarker.ico"
+  },
+  "/discogs-theme-generator": {
+    title: "Discogs Theme Generator",
+    subtitle: "VS Code colour themes built from Discogs album art",
+    tabTitle: "Discogs Theme Generator - VS Code & Cursor Extension",
+    description: "A VS Code and Cursor extension that pulls a random vinyl release from Discogs, extracts the colours from its cover, and applies them to your editor.",
+    icon: "/ico/martinbarker.ico"
   }
 };
 
