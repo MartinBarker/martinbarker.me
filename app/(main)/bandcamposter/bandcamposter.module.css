@@ -1,0 +1,557 @@
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.header { padding: 0.25rem 0.25rem 0; }
+.title {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+.subtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  opacity: 0.75;
+  line-height: 1.45;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+}
+.cardTitle {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+/* ---- URL row ---- */
+.urlRow {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.urlInput {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.95rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+}
+.urlInput:focus {
+  outline: 2px solid #6366f1;
+  outline-offset: -1px;
+}
+.hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  opacity: 0.65;
+  line-height: 1.45;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: #4f46e5;
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.primaryBtn:hover:not(:disabled) { background: #4338ca; }
+.primaryBtn:disabled { opacity: 0.55; cursor: default; }
+
+.error {
+  margin-top: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+/* ---- Track ---- */
+.metaRow {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.metaInfo { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.metaArtist { font-size: 0.82rem; opacity: 0.65; }
+.metaTitle { font-size: 1.05rem; font-weight: 600; }
+.metaSub { font-size: 0.8rem; opacity: 0.6; }
+.ready {
+  margin-top: 0.7rem;
+  font-size: 0.82rem;
+  color: #047857;
+}
+
+.select {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.87rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  color: inherit;
+  max-width: 100%;
+}
+
+/* ---- Frame: preview beside the settings table ---- */
+.frameLayout {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.previewPane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: center;
+}
+.preview {
+  width: 216px;
+  height: 384px;
+  border-radius: 8px;
+  background: #0f1117;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.previewLabel { font-size: 0.75rem; opacity: 0.6; }
+
+.settingsTable {
+  flex: 1 1 340px;
+  min-width: 0;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+.settingsTable th {
+  text-align: left;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  vertical-align: top;
+  white-space: nowrap;
+  width: 1%;
+  opacity: 0.8;
+}
+.settingsTable td {
+  padding: 0.5rem 0;
+  vertical-align: top;
+}
+.settingsTable tr + tr th,
+.settingsTable tr + tr td {
+  border-top: 1px solid #f1f5f9;
+}
+
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.3rem;
+}
+.sliderRow input[type="range"] {
+  flex: 1 1 140px;
+  min-width: 100px;
+  accent-color: #4f46e5;
+}
+.sliderValue {
+  font-size: 0.78rem;
+  opacity: 0.7;
+  white-space: nowrap;
+  min-width: 5.5em;
+}
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  cursor: pointer;
+}
+
+/* ---- Render ---- */
+.renderRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+.renderBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.2rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: #059669;
+  color: #fff;
+  cursor: pointer;
+}
+.renderBtn:hover { background: #047857; }
+.est { font-size: 0.78rem; opacity: 0.85; font-weight: 500; }
+
+.progressWrap {
+  position: relative;
+  flex: 1 1 240px;
+  height: 26px;
+  border-radius: 6px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+.progressBar {
+  height: 100%;
+  background: #059669;
+  transition: width 0.2s linear;
+}
+.progressText {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+.cancelBtn {
+  padding: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+}
+
+.log {
+  margin: 0.8rem 0 0;
+  padding: 0.6rem 0.7rem;
+  max-height: 180px;
+  overflow: auto;
+  background: #0f1117;
+  color: #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- Result ---- */
+.resultRow {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.resultVideo {
+  width: 216px;
+  height: 384px;
+  border-radius: 8px;
+  background: #000;
+}
+.resultInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.resultName {
+  font-size: 0.9rem;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.subTitle {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+/* A swatch that keeps the native picker but loses the chunky default chrome. */
+.colorInput {
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.colorInput::-webkit-color-swatch-wrapper { padding: 2px; }
+.colorInput::-webkit-color-swatch { border: none; border-radius: 3px; }
+
+.linkBtn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #4f46e5;
+  font-size: 0.78rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.linkBtn:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+
+.note {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  opacity: 0.7;
+}
+.liveTag {
+  font-size: 0.72rem;
+  color: #059669;
+  text-align: center;
+  max-width: 216px;
+  line-height: 1.35;
+}
+
+/* ---- Audio trim ---- */
+.trimPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.trimCanvasWrap {
+  position: relative;
+  height: 76px;
+  border-radius: 6px;
+  background: #0f1117;
+  overflow: hidden;
+  cursor: ew-resize;
+  /* Without this the browser claims the drag as a page scroll on a touch
+     screen and cancels the pointer mid-gesture. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.trimDisabled { opacity: 0.55; cursor: default; }
+.trimCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.trimOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+.trimControls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.trimPlayBtn {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.trimPlayBtn:disabled { opacity: 0.5; cursor: default; }
+.trimField {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
+.trimInput {
+  width: 5.5em;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #fff;
+  color: inherit;
+}
+.trimError {
+  font-size: 0.78rem;
+  color: #b91c1c;
+}
+.trimSummary {
+  font-size: 0.78rem;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Post text ---- */
+.postBox {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.postInput {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  resize: vertical;
+}
+.postInput:focus {
+  outline: 2px solid #6366f1;
+  outline-offset: -1px;
+}
+.postActions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* ---- Colour field: swatch, artwork presets, eyedropper ---- */
+.colorField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.swatchRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+/* A near-white swatch needs a dark edge or it vanishes into the panel. */
+.swatchLight { border-color: rgba(15, 23, 42, 0.3); }
+.swatchOn {
+  outline: 2px solid #4f46e5;
+  outline-offset: 1px;
+}
+
+.eyedropper {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.2rem;
+}
+.eyedropperCanvas {
+  width: 168px;
+  height: 168px;
+  border-radius: 6px;
+  cursor: crosshair;
+  /* Dragging samples colours, so the browser must not read it as a scroll. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.eyedropperHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.eyedropperChip {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+}
+
+@media (max-width: 640px) {
+  .page { padding: 0.6rem; }
+  .card { padding: 0.8rem; border-radius: 8px; }
+  .frameLayout { gap: 1rem; }
+  .previewPane, .settingsTable { flex-basis: 100%; }
+  .preview, .resultVideo { width: 180px; height: 320px; }
+  .settingsTable th { white-space: normal; }
+}
+
+/* ---- Dark mode (the sidebar toggles .darkContent on the content wrapper) ---- */
+:global(.darkContent) .card {
+  background: #252538;
+  border-color: #444;
+  color: #fff;
+}
+:global(.darkContent) .urlInput,
+:global(.darkContent) .select,
+:global(.darkContent) .cancelBtn {
+  background: #2a2a3d;
+  border-color: #4b5563;
+  color: #fff;
+}
+:global(.darkContent) .settingsTable tr + tr th,
+:global(.darkContent) .settingsTable tr + tr td {
+  border-top-color: #3b3b50;
+}
+:global(.darkContent) .progressWrap { background: #3b3b50; }
+:global(.darkContent) .progressText { color: #fff; }
+:global(.darkContent) .error {
+  background: #3b1d1d;
+  border-color: #7f1d1d;
+  color: #fca5a5;
+}
+:global(.darkContent) .ready { color: #6ee7b7; }
+
+:global(.darkContent) .trimPlayBtn,
+:global(.darkContent) .trimInput {
+  background: #2a2a3d;
+  border-color: #4b5563;
+  color: #fff;
+}
+:global(.darkContent) .colorInput { border-color: #4b5563; }
+:global(.darkContent) .linkBtn { color: #a5b4fc; }
+:global(.darkContent) .liveTag { color: #6ee7b7; }
+:global(.darkContent) .postInput {
+  background: #2a2a3d;
+  border-color: #4b5563;
+  color: #fff;
+}
+:global(.darkContent) .trimError { color: #fca5a5; }

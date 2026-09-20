@@ -826,6 +826,13 @@
   border-radius: 2px;
   cursor: ew-resize;
   pointer-events: auto;
+  /* touch-action: none is what makes the drag work under a finger — without it
+     the browser claims the gesture as a page scroll and cancels the pointer. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   z-index: 3;
   box-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
@@ -839,6 +846,11 @@
   height: calc(100% - 12px);
   cursor: col-resize;
   pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   z-index: 1;
 }
 .boundaryLeg::before {
@@ -888,6 +900,8 @@
   justify-content: center;
   cursor: pointer;
   pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
   z-index: 4;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
@@ -897,6 +911,26 @@
 .boundarySolo .boundaryPlayBtn { background: #93c5fd; border-color: #1d4ed8; }
 .boundarySolo .boundaryPlayBtn:hover { background: #bfdbfe; }
 .boundarySolo .boundaryPlayBtnActive { background: #34d399; border-color: #047857; }
+
+/* Touch screens. A 22x12 bar and a 14px leg are well under a fingertip, so each
+   control grows an invisible hit area around itself. Only the hit area grows —
+   the drawn handle and the lane layout stay as they are, and the areas are
+   clipped by .waveContainer's overflow so none of them reaches outside the
+   waveform. The play button keeps the highest z-index, so a tap on it still
+   plays rather than starting a drag. */
+@media (pointer: coarse) {
+  .boundaryBar::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    bottom: -10px;
+    left: -6px;
+    right: -6px;
+  }
+  .boundaryLeg { width: 30px; }
+  .boundaryPlayBtn { width: 22px; height: 22px; font-size: 10px; }
+}
+
 .overview {
   height: 60px;
   background: #0f1117;

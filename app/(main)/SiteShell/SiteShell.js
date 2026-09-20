@@ -435,6 +435,18 @@ export default function SiteShell({ children }) {
                 </Link>
               </li>
 
+              <ProjectLink
+                to="/bandcamposter"
+                icon={Video}
+                label="Bandcamp Poster"
+              />
+
+              <ProjectLink
+                to="/discogs-theme-generator"
+                icon={Palette}
+                label="Discogs Theme Generator"
+              />
+
               {/* Hidden from sidebar: ALS to CUE, Vibrant.js Demo, discord2playlist, Vinyl2Digital, FFMPEG WASM, Color Review */}
               {/* <ProjectLink to="/ALS2CUE" icon={Music} label="ALS to CUE" /> */}
               {/* <ProjectLink to="/vibrant" icon={Palette} label="Vibrant.js Demo" /> */}
