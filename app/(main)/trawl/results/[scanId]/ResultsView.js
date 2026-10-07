@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } from 'react';
 import { ColorContext } from '../../../ColorContext';
+import YouTubeAuthPanel from '../../../YouTubeAuth/YouTubeAuthPanel';
 
 // Bot API base for browser calls (OAuth popup + SSE). NEXT_PUBLIC_* is inlined
 // at build time; since we don't set it during the Docker build, derive the URL
@@ -212,6 +213,30 @@ export default function ResultsView({
     window.open(url, 'connect-youtube', 'width=520,height=680');
   };
 
+  // Sign out: the bot revokes the Google grant and deletes its stored token.
+  const [signingOut, setSigningOut] = useState(false);
+  const signOutYouTube = async () => {
+    if (!window.confirm(
+      'Sign out of YouTube? Scheduled auto-adds for this Discord account will stop until you connect again.'
+    )) return;
+    setSigningOut(true);
+    try {
+      const res = await fetch(
+        `${BOT_API_URL}/api/scans/${scanId}/youtube/disconnect?t=${encodeURIComponent(token)}`,
+        { method: 'POST' }
+      );
+      if (!res.ok) throw new Error(`Could not sign out (HTTP ${res.status}).`);
+      setConnected(false);
+      setChannel(null);
+      setPlaylists(null);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
   const pushUrl = () => {
     const params = new URLSearchParams({ t: token, order: playlistOrder });
     if (!skipDuplicates) params.set('allowDuplicates', '1');
@@ -385,20 +410,20 @@ export default function ResultsView({
       {/* ---------- Step 1: YouTube connection ---------- */}
       <Card t={t}>
         <SectionTitle t={t}>1 · Connect YouTube</SectionTitle>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          {connected ? (
-            <>
-              <span style={{ color: t.ok, fontWeight: 600 }}>
-                ✅ Connected{channel?.name ? ` as ${channel.name}` : ''}
-              </span>
-              <button onClick={connectYouTube} style={btnStyle('transparent', false, t.sub, t.border)}>
-                Reconnect
-              </button>
-            </>
-          ) : (
-            <button onClick={connectYouTube} style={btnStyle('#dc2626')}>Connect YouTube</button>
+        <YouTubeAuthPanel
+          status={connected ? 'signedIn' : 'signedOut'}
+          accountName={channel?.name}
+          darkMode={darkMode}
+          onSignIn={connectYouTube}
+          onSignOut={signOutYouTube}
+          signOutBusy={signingOut}
+          signOutDisabled={pushing}
+          extraActions={connected && (
+            <button type="button" className="ytPanelSecondary" onClick={connectYouTube}>
+              Reconnect
+            </button>
           )}
-        </div>
+        />
       </Card>
 
       {/* ---------- Step 2: Destination playlist ---------- */}

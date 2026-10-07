@@ -1,0 +1,55 @@
+.footer {
+  --f-text: #3b4252;
+  --f-muted: #5b6475;
+  --f-link: #2f6fdb;
+  --f-border: rgba(0, 0, 0, 0.12);
+
+  margin-top: 48px;
+  padding: 20px 16px 28px;
+  border-top: 1px solid var(--f-border);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--f-text);
+}
+
+.footer[data-theme='dark'] {
+  --f-text: #e6e8ee;
+  --f-muted: #a5abba;
+  --f-link: #6cb6ff;
+  --f-border: rgba(255, 255, 255, 0.16);
+}
+
+.youtube {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ytLink {
+  display: inline-flex;
+}
+
+.links {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 10px;
+  font-weight: 600;
+}
+
+.footer a {
+  color: var(--f-link);
+}
+
+.links span {
+  color: var(--f-muted);
+}
+
+.copy {
+  margin: 10px 0 0;
+  color: var(--f-muted);
+}
