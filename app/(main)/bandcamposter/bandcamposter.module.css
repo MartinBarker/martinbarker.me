@@ -505,6 +505,61 @@
   border: 1px solid rgba(128, 128, 128, 0.5);
 }
 
+/* ---- Source badge, artwork / audio rows ---- */
+.sourceTag {
+  display: inline-block;
+  margin-right: 0.45rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #fff;
+  vertical-align: 1px;
+}
+.source_bandcamp { background: #1da0c3; }
+.source_discogs { background: #333; }
+.source_youtube { background: #c4302b; }
+
+.sourceRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* A native file input can't be styled, so the real one is hidden inside the
+   label and the label is what gets drawn. */
+.fileBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.87rem;
+  font-weight: 600;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fileBtn:hover { border-color: #4f46e5; }
+.fileBtn input { display: none; }
+
+.videoList {
+  margin: 0;
+  padding-left: 1.15rem;
+  font-size: 0.83rem;
+  line-height: 1.6;
+}
+.videoList a { color: #4f46e5; }
+
+.renderBtn:disabled {
+  background: #94a3b8;
+  cursor: default;
+}
+
 @media (max-width: 640px) {
   .page { padding: 0.6rem; }
   .card { padding: 0.8rem; border-radius: 8px; }
@@ -555,3 +610,10 @@
   color: #fff;
 }
 :global(.darkContent) .trimError { color: #fca5a5; }
+:global(.darkContent) .fileBtn {
+  background: #2a2a3d;
+  border-color: #4b5563;
+  color: #fff;
+}
+:global(.darkContent) .source_discogs { background: #666; }
+:global(.darkContent) .videoList a { color: #a5b4fc; }

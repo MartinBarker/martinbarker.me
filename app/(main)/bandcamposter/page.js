@@ -24,6 +24,8 @@ import {
   STILL_FPS, IMAGE_MOTIONS, BG_MOTIONS, evenDimension,
 } from "../riptag/videoLayout";
 
+const SOURCE_LABELS = { bandcamp: "Bandcamp", discogs: "Discogs", youtube: "YouTube" };
+
 // The one output size this page makes: a 9:16 portrait frame.
 const OUT_W = 1080;
 const OUT_H = 1920;
@@ -635,8 +637,12 @@ export default function BandcamposterPage() {
   const [trackIdx, setTrackIdx] = useState(0);
   const [error, setError] = useState("");
 
-  // Fetched media, held as blobs for the renderer.
-  const [media, setMedia] = useState(null);   // { audio, art, artImg, artObjUrl, duration }
+  // Artwork and audio arrive independently now: Bandcamp hands over both, but
+  // a Discogs or YouTube link carries no audio this page can take, so the file
+  // comes from the user. Either half is usable on its own until a render.
+  const [art, setArt] = useState(null);      // { blob, img, label }
+  const [audio, setAudio] = useState(null);  // { blob, duration, name, from }
+  const [artIdx, setArtIdx] = useState(0);
   const [fetching, setFetching] = useState("");
 
   // Frame settings — the same knobs as a riptag image row, plus this page's own.
@@ -671,7 +677,7 @@ export default function BandcamposterPage() {
   const cancelRef = useRef(false);
 
   const track = meta?.tracks?.[trackIdx] || null;
-  const fullDur = media?.duration || track?.duration || 0;
+  const fullDur = audio?.duration || 0;
   const clipStart = clip ? clip.start : 0;
   const clipEnd = clip ? clip.end : fullDur;
   // `duration` is the length that actually gets rendered, so every estimate,
@@ -683,7 +689,9 @@ export default function BandcamposterPage() {
   const generatedPost = useMemo(() => {
     if (!meta || !track) return "";
     const line1 = [track.title, meta.artist].filter(Boolean).join(" - ");
-    const line2 = [meta.year, meta.label].filter(Boolean).join(" - ");
+    // Discogs supplies a catalogue number; the other two don't.
+    const imprint = [meta.label, meta.catno].filter(Boolean).join(" ");
+    const line2 = [meta.year, imprint].filter(Boolean).join(" - ");
     // Spaces and punctuation come out so "New York" reads as one tag; the
     // artist's own capitalisation stays, since that is how they wrote it.
     const line3 = (meta.tags || [])
@@ -742,14 +750,14 @@ export default function BandcamposterPage() {
     if (on && shape === "square") setShape("circle");
   }, [shape]);
 
-  // A freshly downloaded file starts untrimmed.
+  // A freshly loaded file starts untrimmed.
   useEffect(() => {
-    setClip(media ? { start: 0, end: media.duration } : null);
-  }, [media]);
+    setClip(audio ? { start: 0, end: audio.duration } : null);
+  }, [audio]);
 
   // Warm the core as soon as there is something to render, so pressing Render
   // doesn't start with a 32MB download.
-  useEffect(() => { if (media) loadFFmpegCore().catch(() => {}); }, [media]);
+  useEffect(() => { if (art || audio) loadFFmpegCore().catch(() => {}); }, [art, audio]);
 
   useEffect(() => () => { if (output?.url) URL.revokeObjectURL(output.url); }, [output]);
 
@@ -765,9 +773,10 @@ export default function BandcamposterPage() {
   const resolve = useCallback(async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
-    setResolving(true); setError(""); setMeta(null); setMedia(null); setOutput(null);
+    setResolving(true); setError(""); setMeta(null);
+    setArt(null); setAudio(null); setArtIdx(0); setOutput(null);
     try {
-      const res = await fetch(`/api/bandcamp/resolve?url=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(`/api/poster/resolve?url=${encodeURIComponent(trimmed)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Lookup failed (${res.status})`);
       setMeta(data);
@@ -780,93 +789,152 @@ export default function BandcamposterPage() {
   }, [url]);
 
   // ---- Step 2: pull the audio and the cover through the proxy ----
-  const proxied = (u) => `/api/bandcamp/media?url=${encodeURIComponent(u)}`;
+  const proxied = (u) => `/api/poster/media?url=${encodeURIComponent(u)}`;
 
-  const fetchMedia = useCallback(async () => {
-    if (!meta || !track) return;
-    setError(""); setOutput(null); setFetching("Downloading cover art…");
+  // A decoded <img> holds its own pixels, so the blob URL is finished with the
+  // moment it loads — and it must not outlive a failed decode either.
+  const decodeImage = useCallback(async (blob) => {
+    const url = URL.createObjectURL(blob);
     try {
-      // The API offers the original upload first and a 1200px JPEG second; the
-      // original is occasionally missing, so they are tried in order.
-      let artBlob = null;
-      for (const candidate of meta.art) {
-        try {
-          const r = await fetch(proxied(candidate));
-          if (r.ok) { artBlob = await r.blob(); break; }
-        } catch { /* try the next size */ }
-      }
-      if (!artBlob) throw new Error("Couldn't download the cover art.");
+      return await new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error("That image didn't decode."));
+        im.src = url;
+      });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }, []);
 
-      setFetching("Downloading audio…");
-      const aRes = await fetch(proxied(track.audioUrl));
-      if (!aRes.ok) {
-        const j = await aRes.json().catch(() => ({}));
-        throw new Error(j.error || `Audio download failed (${aRes.status})`);
-      }
-      const audioBlob = await aRes.blob();
-
-      setFetching("Reading media…");
-      const artObjUrl = URL.createObjectURL(artBlob);
-      let artImg;
-      try {
-        artImg = await new Promise((resolve, reject) => {
-          const im = new Image();
-          im.onload = () => resolve(im);
-          im.onerror = () => reject(new Error("The cover art didn't decode."));
-          im.src = artObjUrl;
-        });
-      } finally {
-        // A decoded <img> holds its own pixels, so the URL is finished with
-        // either way — and it must not outlive a failed decode.
-        URL.revokeObjectURL(artObjUrl);
-      }
-
-      // Bandcamp's own duration is usually right, but the file is the authority
-      // — a render cut short or padded with silence is the visible symptom.
-      const probeUrl = URL.createObjectURL(audioBlob);
-      const probed = await new Promise((resolve) => {
+  // Whatever a source claims, the file is the authority on its own length — a
+  // render cut short or padded with silence is the visible symptom otherwise.
+  const probeDuration = useCallback(async (blob) => {
+    const url = URL.createObjectURL(blob);
+    try {
+      return await new Promise((resolve) => {
         const el = document.createElement("audio");
         el.preload = "metadata";
         el.onloadedmetadata = () => resolve(isFinite(el.duration) ? el.duration : 0);
         el.onerror = () => resolve(0);
-        el.src = probeUrl;
+        el.src = url;
       });
-      URL.revokeObjectURL(probeUrl);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }, []);
 
-      setMedia({
-        audio: audioBlob,
-        art: artBlob,
-        artImg,
-        duration: probed || track.duration || 0,
-      });
+  // Fetch one artwork candidate. `auto` walks past ones that aren't there,
+  // which matters because the candidate lists are speculative: Bandcamp's
+  // original-size upload and YouTube's maxresdefault both 404 routinely.
+  const loadArtwork = useCallback(async (from, { auto = false } = {}) => {
+    const candidates = meta?.art || [];
+    if (!candidates.length) throw new Error("This page offers no artwork.");
+    const last = auto ? candidates.length - 1 : from;
+    for (let i = from; i <= last; i++) {
+      try {
+        const r = await fetch(proxied(candidates[i].url));
+        if (!r.ok) continue;
+        const blob = await r.blob();
+        const img = await decodeImage(blob);
+        return { blob, img, label: candidates[i].label, index: i };
+      } catch {
+        // Only reached on a network or decode failure; try the next one.
+      }
+    }
+    throw new Error(auto
+      ? "None of the artwork this page offers could be downloaded."
+      : `"${candidates[from]?.label || "That image"}" couldn't be downloaded.`);
+  }, [meta, decodeImage]);
+
+  // ---- Step 2 button: artwork, plus streamed audio where there is any ----
+  const fetchSource = useCallback(async () => {
+    if (!meta) return;
+    setError(""); setOutput(null);
+    try {
+      setFetching("Fetching artwork\u2026");
+      const got = await loadArtwork(0, { auto: true });
+      setArt(got); setArtIdx(got.index);
+
+      // Only Bandcamp hands over audio; the others say so in `audioNote` and
+      // the file picker below takes over.
+      if (track?.audioUrl) {
+        setFetching("Fetching audio\u2026");
+        const res = await fetch(proxied(track.audioUrl));
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `Audio fetch failed (${res.status})`);
+        }
+        const blob = await res.blob();
+        setFetching("Reading audio\u2026");
+        setAudio({
+          blob,
+          duration: (await probeDuration(blob)) || track.duration || 0,
+          name: `${track.title}.mp3`,
+          from: "stream",
+        });
+      }
       setFetching("");
     } catch (e) {
       setError(e.message);
       setFetching("");
     }
-  }, [meta, track]);
+  }, [meta, track, loadArtwork, probeDuration]);
+
+  // Swapping artwork without disturbing the audio or the trim.
+  const chooseArtwork = useCallback(async (idx) => {
+    setError("");
+    setFetching("Fetching artwork\u2026");
+    try {
+      const got = await loadArtwork(idx);
+      setArt(got); setArtIdx(got.index);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setFetching("");
+    }
+  }, [loadArtwork]);
+
+  // Audio from the user's own machine — the only route for a Discogs or
+  // YouTube link, and a way past Bandcamp's 128kbps stream for the rest.
+  const useLocalAudio = useCallback(async (file) => {
+    if (!file) return;
+    setError(""); setOutput(null);
+    setFetching("Reading audio\u2026");
+    try {
+      const duration = await probeDuration(file);
+      if (!(duration > 0)) {
+        throw new Error("That file's length couldn't be read — is it audio this browser can decode?");
+      }
+      setAudio({ blob: file, duration, name: file.name, from: "file" });
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setFetching("");
+    }
+  }, [probeDuration]);
 
   // The cover's own colours, read once per cover and offered as presets.
   const palette = useMemo(
-    () => (media?.artImg ? extractPalette(media.artImg) : []),
-    [media]);
+    () => (art?.img ? extractPalette(art.img) : []),
+    [art]);
 
   // The shaped cover, rasterised once per shape rather than once per frame —
   // the preview redraws up to 60 times a second while it spins.
   const coverCanvas = useMemo(
-    () => (media?.artImg ? renderCoverCanvas(media.artImg, 512, shape) : null),
-    [media, shape]);
+    () => (art?.img ? renderCoverCanvas(art.img, 512, shape) : null),
+    [art, shape]);
 
   // ---- Preview ----
   // The same composite the encode produces, drawn small — and moving, so the
   // spin and drift speeds can be judged before spending a render on them.
   useEffect(() => {
     const canvas = previewRef.current;
-    if (!canvas || !media?.artImg || !coverCanvas) return;
+    if (!canvas || !art?.img || !coverCanvas) return;
     const PW = 324, PH = 576;            // 1080x1920 / 3.33
     canvas.width = PW; canvas.height = PH;
     const ctx = canvas.getContext("2d");
-    const img = media.artImg;
+    const img = art.img;
     const geo = coverGeometry(img, { artScale, artOffset, shape, spin }, PW, PH);
 
     const draw = (t) => {
@@ -916,12 +984,12 @@ export default function BandcamposterPage() {
     };
     loop();
     return () => cancelAnimationFrame(raf);
-  }, [media, coverCanvas, bgMode, bgColor, bgBlur, driftOn, bgSpeed, artScale,
+  }, [art, coverCanvas, bgMode, bgColor, bgBlur, driftOn, bgSpeed, artScale,
       artOffset, shape, spin, spinPeriod, caption, track, meta]);
 
   // ---- Step 3: render ----
   const render = useCallback(async () => {
-    if (!media || !track || rendering) return;
+    if (!art || !audio || !track || rendering) return;
     if (!(duration > 0)) { setError("That track reports no duration, so there's nothing to render."); return; }
 
     setRendering(true); setError(""); setProgress(0); setLogLines([]); setOutput(null);
@@ -949,7 +1017,7 @@ export default function BandcamposterPage() {
       await ff.load(await loadFFmpegCore());
       if (cancelRef.current) throw new Error("__CANCELLED__");
 
-      const img = media.artImg;
+      const img = art.img;
       const geo = coverGeometry(img, { artScale, artOffset, shape, spin }, OUT_W, OUT_H);
       const dur = duration;
 
@@ -964,8 +1032,8 @@ export default function BandcamposterPage() {
       // means no lavfi source has to exist in this wasm build.
       let bgName;
       if (bgMode === "blur") {
-        bgName = `bgsrc.${(media.art.type || "").includes("png") ? "png" : "jpg"}`;
-        await ff.writeFile(bgName, new Uint8Array(await media.art.arrayBuffer()));
+        bgName = `bgsrc.${(art.blob.type || "").includes("png") ? "png" : "jpg"}`;
+        await ff.writeFile(bgName, new Uint8Array(await art.blob.arrayBuffer()));
       } else {
         const c = document.createElement("canvas");
         c.width = OUT_W; c.height = OUT_H;
@@ -986,9 +1054,9 @@ export default function BandcamposterPage() {
         await ff.writeFile(capName, await canvasToPngBytes(c));
       }
 
-      await ff.writeFile("audio.mp3", new Uint8Array(await media.audio.arrayBuffer()));
+      await ff.writeFile("audio.mp3", new Uint8Array(await audio.blob.arrayBuffer()));
       log(`Wrote cover ${coverPx}px, ${bgMode === "blur" ? "blurred backdrop" : "flat backdrop"}`
-        + `${capName ? ", caption" : ""}, ${fmtBytes(media.audio.size)} audio.`);
+        + `${capName ? ", caption" : ""}, ${fmtBytes(audio.blob.size)} audio.`);
       if (cancelRef.current) throw new Error("__CANCELLED__");
 
       // ---- Inputs ----
@@ -1087,7 +1155,7 @@ export default function BandcamposterPage() {
       ffRef.current = null;
       setRendering(false);
     }
-  }, [media, track, meta, duration, trimmed, clipStart, clipEnd, bgMode, bgColor,
+  }, [art, audio, track, meta, duration, trimmed, clipStart, clipEnd, bgMode, bgColor,
       bgBlur, bgMotion, bgSpeed, motion, motionSpeed, artScale, artOffset, shape,
       spin, spinPeriod, caption, anyMotion, outFps, rendering, log]);
 
@@ -1138,22 +1206,27 @@ export default function BandcamposterPage() {
         {error && <div className={styles.error}>{error}</div>}
       </section>
 
-      {/* ---- 2. Track + media ---- */}
+      {/* ---- 2. Source, artwork, audio ---- */}
       {meta && (
         <section className={styles.card}>
           <h2 className={styles.cardTitle}>2. Track</h2>
           <div className={styles.metaRow}>
             <div className={styles.metaInfo}>
-              <div className={styles.metaArtist}>{meta.artist || "Unknown artist"}</div>
+              <div className={styles.metaArtist}>
+                <span className={`${styles.sourceTag} ${styles[`source_${meta.source}`]}`}>
+                  {SOURCE_LABELS[meta.source] || meta.source}
+                </span>
+                {meta.artist || "Unknown artist"}
+              </div>
               {meta.tracks.length > 1 ? (
                 <select
                   className={styles.select}
                   value={trackIdx}
-                  onChange={e => { setTrackIdx(Number(e.target.value)); setMedia(null); setOutput(null); }}
+                  onChange={e => { setTrackIdx(Number(e.target.value)); setOutput(null); }}
                 >
                   {meta.tracks.map((t, i) => (
                     <option key={t.index} value={i}>
-                      {t.num}. {t.title} ({fmtTime(t.duration)})
+                      {t.num}. {t.title}{t.duration ? ` (${fmtTime(t.duration)})` : ""}
                     </option>
                   ))}
                 </select>
@@ -1161,20 +1234,92 @@ export default function BandcamposterPage() {
                 <div className={styles.metaTitle}>{track?.title}</div>
               )}
               <div className={styles.metaSub}>
-                {fmtTime(track?.duration)}
-                {meta.kind === "album" && meta.albumTitle ? ` · from ${meta.albumTitle}` : ""}
+                {[
+                  meta.year,
+                  [meta.label, meta.catno].filter(Boolean).join(" "),
+                  meta.kind,
+                ].filter(Boolean).join(" \u00b7 ")}
               </div>
             </div>
-            <button className={styles.primaryBtn} onClick={fetchMedia} disabled={!!fetching}>
-              {fetching || (media ? "Re-fetch" : "Fetch audio + art")}
+            <button className={styles.primaryBtn} onClick={fetchSource} disabled={!!fetching}>
+              {fetching || (art ? "Re-fetch" : track?.audioUrl ? "Fetch audio + art" : "Fetch artwork")}
             </button>
           </div>
-          {media && (
-            <div className={styles.ready}>
-              Ready: {fmtBytes(media.audio.size)} audio, {fmtBytes(media.art.size)} art,{" "}
-              {media.artImg.naturalWidth}&times;{media.artImg.naturalHeight}, {fmtTime(media.duration)}.
-            </div>
+
+          {/* Artwork. Discogs hands back scans, inserts and every attached
+              video's thumbnail, so which one to use is a real choice. */}
+          {art && (
+            <>
+              <h3 className={styles.subTitle}>Artwork</h3>
+              <div className={styles.sourceRow}>
+                {meta.art.length > 1 && (
+                  <select
+                    className={styles.select}
+                    value={artIdx}
+                    disabled={!!fetching}
+                    onChange={e => chooseArtwork(Number(e.target.value))}
+                  >
+                    {meta.art.map((a, i) => (
+                      <option key={a.url} value={i}>
+                        {a.label}{a.width ? ` (${a.width}\u00d7${a.height})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className={styles.ready}>
+                  {art.img.naturalWidth}&times;{art.img.naturalHeight}, {fmtBytes(art.blob.size)}
+                  {art.img.naturalWidth < OUT_W && " \u2014 smaller than 1080px wide, so it will be upscaled"}
+                </span>
+              </div>
+            </>
           )}
+
+          {/* Audio. Bandcamp streams it; the other two can't, and say why. */}
+          <h3 className={styles.subTitle}>Audio</h3>
+          {meta.audioNote && !audio && (
+            <p className={styles.note}>{meta.audioNote}</p>
+          )}
+          <div className={styles.sourceRow}>
+            <label className={styles.fileBtn}>
+              {audio?.from === "file" ? "Choose a different file" : "Choose audio file\u2026"}
+              <input
+                type="file"
+                accept="audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus"
+                disabled={!!fetching}
+                onChange={e => { useLocalAudio(e.target.files?.[0]); e.target.value = ""; }}
+              />
+            </label>
+            {audio ? (
+              <span className={styles.ready}>
+                {audio.from === "stream"
+                  ? `Streamed from Bandcamp \u2014 ${fmtBytes(audio.blob.size)}, ${fmtTime(audio.duration)}`
+                  : `${audio.name} \u2014 ${fmtBytes(audio.blob.size)}, ${fmtTime(audio.duration)}`}
+              </span>
+            ) : (
+              <span className={styles.metaSub}>No audio yet.</span>
+            )}
+          </div>
+
+          {/* The attached videos, for reference — this page reads their
+              thumbnails, not their audio. */}
+          {meta.videos.length > 0 && (
+            <>
+              <h3 className={styles.subTitle}>
+                Attached video{meta.videos.length > 1 ? "s" : ""} ({meta.videos.length})
+              </h3>
+              <ul className={styles.videoList}>
+                {meta.videos.slice(0, 8).map(v => (
+                  <li key={v.id}>
+                    <a href={v.url} target="_blank" rel="noopener noreferrer">{v.title || v.url}</a>
+                  </li>
+                ))}
+                {meta.videos.length > 8 && (
+                  <li className={styles.metaSub}>and {meta.videos.length - 8} more</li>
+                )}
+              </ul>
+            </>
+          )}
+
           <h3 className={styles.subTitle}>Post text</h3>
           <div className={styles.postBox}>
             <textarea
@@ -1195,11 +1340,11 @@ export default function BandcamposterPage() {
             </div>
           </div>
 
-          {media && clip && (
+          {audio && clip && (
             <>
               <h3 className={styles.subTitle}>Trim</h3>
               <TrimPanel
-                audioBlob={media.audio}
+                audioBlob={audio.blob}
                 fullDur={fullDur}
                 clip={clip}
                 onChange={setClip}
@@ -1211,7 +1356,7 @@ export default function BandcamposterPage() {
       )}
 
       {/* ---- 3. Frame + render ---- */}
-      {media && (
+      {art && (
         <section className={styles.card}>
           <h2 className={styles.cardTitle}>3. Frame</h2>
           <div className={styles.frameLayout}>
@@ -1242,7 +1387,7 @@ export default function BandcamposterPage() {
                         value={bgColor}
                         onChange={setBgColor}
                         palette={palette}
-                        artImg={media.artImg}
+                        artImg={art.img}
                         resetTo="#000000"
                         resetLabel="black"
                       />
@@ -1399,7 +1544,7 @@ export default function BandcamposterPage() {
                           value={caption.color}
                           onChange={hex => setCaption(c => ({ ...c, color: hex }))}
                           palette={palette}
-                          artImg={media.artImg}
+                          artImg={art.img}
                           resetTo="#ffffff"
                           resetLabel="white"
                         />
@@ -1428,8 +1573,10 @@ export default function BandcamposterPage() {
 
           <div className={styles.renderRow}>
             {!rendering ? (
-              <button className={styles.renderBtn} onClick={render}>
-                Render 1080&times;1920 video {estimate && <span className={styles.est}>{estimate}</span>}
+              <button className={styles.renderBtn} onClick={render} disabled={!audio}>
+                {audio
+                  ? <>Render 1080&times;1920 video {estimate && <span className={styles.est}>{estimate}</span>}</>
+                  : "Choose an audio file to render"}
               </button>
             ) : (
               <>

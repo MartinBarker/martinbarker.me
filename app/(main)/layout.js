@@ -4,6 +4,7 @@ import styles from './layout.module.css';
 import { usePathname } from 'next/navigation';
 import { getRouteInfo } from './routeInfo';
 import SiteShell from './SiteShell/SiteShell';
+import SiteFooter from './SiteFooter/SiteFooter';
 
 export default function RootLayout({ children }) {
   const pathname = usePathname(); // get current path
@@ -50,6 +51,8 @@ export default function RootLayout({ children }) {
             >
               <div className={styles.contentWrapper}>
                 <div className={styles.contentBody}>{children}</div>
+                {/* /trawl pages carry their own footer with these links. */}
+                {!isTrawlRoute && <SiteFooter darkMode={darkMode} />}
               </div>
             </main>
           )}
