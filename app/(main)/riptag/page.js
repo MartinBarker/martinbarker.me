@@ -33,6 +33,7 @@ import {
 } from "./riptagStore";
 import * as renderQueue from "./renderQueue";
 import { layoutBoundaryHandles, maxBoundaryLanes, BOUNDARY_LANE_STEP, BOUNDARY_PLAY_OFFSET, BOUNDARY_TOUCH_MIN_GAP } from "./boundaryLayout";
+import { findCountedSplits, parseTrackDuration } from "./silenceSplit";
 import { computeAudioPeaks } from "./audioPeaks";
 import {
   BG_BLUR_MAX, clampBgBlur, bgBlurFilter,
@@ -2626,8 +2627,8 @@ export default function RipTagPage() {
     setMessage(`✓ Updated ${updated.length} track name(s)`);
   };
 
-  // Create exactly `count` tracks by dividing the audio evenly, without running
-  // silence auto-detection. Used when the user specified a track count in the
+  // Create exactly `count` tracks, with each boundary placed at a quiet gap
+  // (see silenceSplit.js). Used when the user specified a track count in the
   // previous step (manual count or Discogs tracklist) — we honor that number
   // and let them drag the boundaries to fine-tune.
   // ---- Marker JSON: export / import track boundaries ------------------------
@@ -2732,12 +2733,23 @@ export default function RipTagPage() {
     if (tracks.length > 0) { applyTrackNames(); return; }
     const n = Math.max(1, Math.floor(count));
     setSilenceRegions([]);
+    // Snap each boundary to the quiet gap nearest where that track should end,
+    // guided by the Discogs track lengths when every track has one.
+    let splits = Array.from({ length: n - 1 }, (_, i) => (duration * (i + 1)) / n);
+    let snapped = 0, usedDurations = false;
+    if (channelData?.length && n > 1) {
+      const durations = discogsData?.tracklist?.length === n
+        ? discogsData.tracklist.map(tr => parseTrackDuration(tr.duration))
+        : null;
+      ({ splits, snapped, usedDurations } = findCountedSplits(channelData, channelData.length / duration, n, { durations }));
+    }
+    const bounds = [0, ...splits, duration];
     const newTracks = [];
     for (let i = 0; i < n; i++) {
       newTracks.push({
         id: generateTrackId(),
-        startTime: (duration * i) / n,
-        endTime: (duration * (i + 1)) / n,
+        startTime: bounds[i],
+        endTime: bounds[i + 1],
         name: trackNames[i] || discogsData?.tracklist?.[i]?.title || `Track ${i + 1}`,
       });
     }
@@ -2755,7 +2767,9 @@ export default function RipTagPage() {
         });
       });
     }
-    setMessage(`✓ ${n} track(s) created from your specified count — drag the boundaries to adjust`);
+    setMessage(n > 1
+      ? `✓ ${n} track(s): ${snapped}/${n - 1} boundaries snapped to silence${usedDurations ? " using Discogs track lengths" : ""} — drag to adjust`
+      : `✓ 1 track created`);
   };
 
   const detectSilence = () => {
@@ -2949,6 +2963,9 @@ export default function RipTagPage() {
       await ff.writeFile("input", await fetchFile(audioFile));
       // Write album art image if embedding in FLAC
       const hasEmbedArt = outputFormat === "flac" && embedArtFile;
+      // JPEG and PNG go into the FLAC picture block as-is; anything else
+      // (WebP, GIF…) is re-encoded to JPEG, which every player can show.
+      const artIsNative = /^image\/(jpe?g|png)$/i.test(embedArtFile?.type || "");
       if (hasEmbedArt) {
         await ff.writeFile("cover.jpg", await fetchFile(embedArtFile));
       }
@@ -2972,8 +2989,12 @@ export default function RipTagPage() {
         const fn = getFilename(i), out = `track_${i}.${outputFormat}`;
         setExportProgress({ current: idx + 1, total, name: fn });
         setMessage(`Exporting ${idx + 1}/${total}: ${fn}`);
-        const artArgs = hasEmbedArt ? ["-i", "cover.jpg", "-map", "0:a", "-map", "1:v", "-c:v", "mjpeg", "-disposition:v", "attached_pic"] : [];
-        await ff.exec(["-i", "input", ...artArgs, "-ss", track.startTime.toFixed(4), "-to", track.endTime.toFixed(4), ...volFilter, ...codec, ...metaArgs(i), "-y", out]);
+        const artArgs = hasEmbedArt ? ["-i", "cover.jpg", "-map", "0:a", "-map", "1:v", "-c:v", artIsNative ? "copy" : "mjpeg", "-disposition:v", "attached_pic"] : [];
+        // Seek on the audio input, not the output. As output options, -ss/-to
+        // also trimmed the cover image — a single frame at 0s — so every track
+        // after the first came out without album art.
+        const trim = ["-ss", track.startTime.toFixed(4), "-t", (track.endTime - track.startTime).toFixed(4)];
+        await ff.exec([...trim, "-i", "input", ...artArgs, ...volFilter, ...codec, ...metaArgs(i), "-y", out]);
         const data = await ff.readFile(out);
         const blob = new Blob([data.buffer], { type: mime });
         // Keep the Blob itself, not only an object URL for it. Everything that
@@ -6081,6 +6102,64 @@ export default function RipTagPage() {
   const lastYtDiscogsUrlRef = useRef(null);
   const lastYtVideoSrcRef = useRef(null);
 
+  // Step 5's own Discogs box: fetch a release and fill the upload title,
+  // description and tags from it. Unlike Step 2's fetch this leaves the track
+  // count, names and album art alone, so the exported tracks and the rendered
+  // video survive.
+  const [ytDiscogsUrl, setYtDiscogsUrl] = useState("");
+  const [ytDiscogsFetching, setYtDiscogsFetching] = useState(false);
+  const [ytDiscogsError, setYtDiscogsError] = useState("");
+  const applyDiscogsToYt = async () => {
+    const url = (ytDiscogsUrl || discogsUrl).trim();
+    const id = parseDiscogsId(url);
+    if (!id) { setYtDiscogsError("Could not parse release ID. Use: https://www.discogs.com/release/XXXXX"); return; }
+    setYtDiscogsError("");
+    setYtDiscogsFetching(true);
+    try {
+      const data = await fetchDiscogsRelease(id, apiBaseURL(), {
+        onRetry: (attempt, delay) => setYtDiscogsError(`Rate limited. Retrying in ${delay}s (attempt ${attempt + 1})…`),
+      });
+      setYtDiscogsError("");
+
+      const suggestions = generateVideoTitleRecommendations(data, ytTitleVariation);
+      const extracted = extractTagsFromDiscogs(data);
+      const filters = { artists: { enabled: true, sliderValue: 100 }, album: { enabled: true, sliderValue: 100 }, tracklist: { enabled: true, sliderValue: 100 }, combinations: { enabled: true, sliderValue: 100 }, credits: { enabled: false, sliderValue: 100 }, filenames: { enabled: false, sliderValue: 100 } };
+      // Timestamps come from the video's actual audio; the names from the
+      // release's tracklist where it has one for that track.
+      const audioList = getOrderedAudios();
+      const trackTimestamps = audioList.map((t, i) => ({
+        title: data.tracklist?.[t.index]?.title || t.title,
+        startOffset: i === 0 ? 0 : audioList.slice(0, i).reduce((sum, x) => sum + (x.end - x.start), 0),
+      }));
+      const description = trackTimestamps.length
+        ? buildTimestampDescription(trackTimestamps, {
+            timestampFormat: ytTimestampFormat,
+            separator: ytTimestampSeparator,
+            includeTrackNumbers: ytIncludeTrackNums,
+            suffix: ytDescSuffix,
+          }).slice(0, YT_LIMITS.description)
+        : null;
+
+      // Mark this release as already applied so the Step 5 pre-fill effect
+      // doesn't regenerate over what we set here.
+      lastYtDiscogsUrlRef.current = url;
+      setDiscogsUrl(url);
+      setDiscogsData(data);
+      setYtTitleSuggestions(suggestions);
+      setYtUploadData(prev => ({
+        ...prev,
+        title: (suggestions[0] || prev.title).slice(0, YT_LIMITS.title),
+        description: description ?? prev.description,
+        tags: buildTagString(extracted, filters),
+      }));
+      setMessage(`YouTube title, description and tags filled from “${data.title}”`);
+    } catch (err) {
+      setYtDiscogsError(err.message);
+    } finally {
+      setYtDiscogsFetching(false);
+    }
+  };
+
   // Pre-fill YouTube metadata when entering Step 5 or when discogs data / rendered video changes
   useEffect(() => {
     if (step !== 5) return;
@@ -6732,11 +6811,9 @@ export default function RipTagPage() {
               {message && <p className={styles.msg}>{message}</p>}
 
               {/* YouTube sign-in (optional, for upload later) */}
-              <div style={{ marginTop: 16, padding: '12px 16px', border: `1px solid ${darkMode ? '#444' : '#e2e8f0'}`, borderRadius: 8, background: darkMode ? '#252538' : '#f8f9fa' }}>
-                <p style={{ margin: '0 0 8px 0', fontSize: 13, color: darkMode ? '#ffffff' : '#000000' }}>
-                  Sign in now if you want to upload to YouTube later.
-                </p>
-                <YouTubeAuth compact={true} returnUrl="/riptag" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState} />
+              <div style={{ marginTop: 16 }}>
+                <YouTubeAuth compact={true} returnUrl="/riptag" darkMode={darkMode} getTokensRef={getTokensRef} onAuthStateChange={setYtAuthState}
+                  hint="Optional: sign in now if you want to upload to YouTube in step 5." />
               </div>
 
               {/* Real progress, not a spinner: the read is a byte count, and the
@@ -9378,6 +9455,31 @@ export default function RipTagPage() {
                     const anyOver = titleOver || descOver || tagsOver;
                     return (
                     <div className={styles.ytForm}>
+                      {/* Fill title / description / tags from a Discogs release */}
+                      <div className={styles.ytFormatSection} style={{gridColumn:"1/-1"}}>
+                        <h4 className={styles.ytFormatTitle}>Generate from Discogs</h4>
+                        <form
+                          style={{display:"flex",gap:8,flexWrap:"wrap"}}
+                          onSubmit={e => { e.preventDefault(); applyDiscogsToYt(); }}
+                        >
+                          <input
+                            type="url"
+                            className={styles.input}
+                            style={{flex:1,minWidth:220}}
+                            placeholder={discogsUrl || "https://www.discogs.com/release/12345"}
+                            value={ytDiscogsUrl}
+                            onChange={e => setYtDiscogsUrl(e.target.value)}
+                          />
+                          <button type="submit" className={styles.fetchBtn} disabled={ytDiscogsFetching || !(ytDiscogsUrl.trim() || discogsUrl)}>
+                            {ytDiscogsFetching ? "Fetching…" : "Generate"}
+                          </button>
+                        </form>
+                        <span className={styles.ytFormatHint}>
+                          Fills the title, description and tags below from the release{discogsUrl && !ytDiscogsUrl ? " (leave blank to use the one from Step 2)" : ""}.
+                        </span>
+                        {ytDiscogsError && <div style={{color:"#e53e3e",fontSize:13,marginTop:4}}>{ytDiscogsError}</div>}
+                      </div>
+
                       {/* Format options */}
                       <div className={styles.ytFormatSection} style={{gridColumn:"1/-1"}}>
                         <h4 className={styles.ytFormatTitle}>Format Options</h4>

@@ -169,6 +169,13 @@ function DiscogsAuthTestPageInner() {
   useEffect(() => {
     return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
   }, []);
+  // Stop/resume for the "add videos to playlist" job. The loop checks the ref
+  // between videos (and during retry countdowns); a stopped job is kept in
+  // `pausedPlaylistJob` so Resume can pick up on the same playlist. Videos
+  // already added are skipped on resume via the localStorage record.
+  const stopPlaylistJobRef = useRef(false);
+  const [stoppingPlaylistJob, setStoppingPlaylistJob] = useState(false);
+  const [pausedPlaylistJob, setPausedPlaylistJob] = useState(null);
   const [useExistingPlaylist, setUseExistingPlaylist] = useState(false);
   const [existingPlaylistId, setExistingPlaylistId] = useState('');
   const [filteredTableRows, setFilteredTableRows] = useState([]);
@@ -1299,6 +1306,8 @@ function DiscogsAuthTestPageInner() {
 
     // Reset rate limiting state when starting new playlist creation
     resetRateLimitState();
+    stopPlaylistJobRef.current = false;
+    setPausedPlaylistJob(null);
     setPlaylistLoading(true);
     setPlaylistProgress({ added: 0, total: filteredVideoIds.length });
 
@@ -1365,8 +1374,9 @@ function DiscogsAuthTestPageInner() {
       if (process.env.NODE_ENV === 'development') {
         console.log(`Adding ${filteredVideoIds.length} videos to playlist...`);
       }
-      await addVideosToPlaylist(playlistId, filteredVideoIds, tokens);
-        
+      const outcome = await addVideosToPlaylist(playlistId, filteredVideoIds, tokens);
+      if (outcome === 'stopped') return;
+
       setPlaylistData({
         title: '',
         description: '',
@@ -1377,6 +1387,40 @@ function DiscogsAuthTestPageInner() {
       setYoutubeError(err.message || 'Failed to create playlist');
     } finally {
       setPlaylistLoading(false);
+      setStoppingPlaylistJob(false);
+      setPlaylistProgress({ added: 0, total: 0 });
+    }
+  };
+
+  // Ask the running job to stop. It finishes the video it's on, then halts.
+  const stopPlaylistJob = () => {
+    stopPlaylistJobRef.current = true;
+    setStoppingPlaylistJob(true);
+  };
+
+  // Continue a stopped job on the same playlist with the same video list.
+  const resumePlaylistJob = async () => {
+    const job = pausedPlaylistJob;
+    if (!job) return;
+    resetRateLimitState();
+    stopPlaylistJobRef.current = false;
+    setPausedPlaylistJob(null);
+    setPlaylistLoading(true);
+    setPlaylistProgress({ added: job.added, total: job.total });
+    try {
+      const tokens = await getTokensRef.current?.getTokens();
+      if (!tokens) {
+        setPausedPlaylistJob(job);
+        setYoutubeError('Not authenticated with YouTube. Please sign in first.');
+        return;
+      }
+      await addVideosToPlaylist(job.playlistId, job.videoIds, tokens);
+    } catch (err) {
+      console.error('Error resuming playlist job:', err);
+      setYoutubeError(err.message || 'Failed to resume');
+    } finally {
+      setPlaylistLoading(false);
+      setStoppingPlaylistJob(false);
       setPlaylistProgress({ added: 0, total: 0 });
     }
   };
@@ -1404,7 +1448,16 @@ function DiscogsAuthTestPageInner() {
     return new Promise((resolve) => {
       setCountdownSeconds(seconds);
       if (countdownRef.current) clearInterval(countdownRef.current);
+      let timeoutId;
       countdownRef.current = setInterval(() => {
+        if (stopPlaylistJobRef.current) {
+          clearInterval(countdownRef.current);
+          countdownRef.current = null;
+          clearTimeout(timeoutId);
+          setCountdownSeconds(0);
+          resolve();
+          return;
+        }
         setCountdownSeconds(prev => {
           if (prev <= 1) {
             clearInterval(countdownRef.current);
@@ -1414,7 +1467,7 @@ function DiscogsAuthTestPageInner() {
           return prev - 1;
         });
       }, 1000);
-      setTimeout(() => {
+      timeoutId = setTimeout(() => {
         if (countdownRef.current) {
           clearInterval(countdownRef.current);
           countdownRef.current = null;
@@ -1487,6 +1540,14 @@ function DiscogsAuthTestPageInner() {
         let serverErrorRetries = 0;
 
         while (!success) {
+          if (stopPlaylistJobRef.current) {
+            setRateLimited(false);
+            setRetryAfter(null);
+            setRetryAttempt(0);
+            setPausedPlaylistJob({ playlistId, videoIds: uniqueVideoIds, added: addedCount, total: uniqueVideoIds.length });
+            setYoutubeError('');
+            return 'stopped';
+          }
           try {
             const response = await fetch(`${apiBaseURL}/youtube/addVideoToPlaylist`, {
               method: 'POST',
@@ -2184,7 +2245,6 @@ function DiscogsAuthTestPageInner() {
               returnUrl="/listogs"
               getTokensRef={getTokensRef}
               onAuthStateChange={setYtAuthState}
-              blackTextOnWhite
               darkMode={darkMode}
               invalidAuthMessage="If you are not signed in you cannot create YouTube playlists"
             />
@@ -2338,6 +2398,79 @@ function DiscogsAuthTestPageInner() {
               >
                 {playlistLoading ? (useExistingPlaylist ? 'Adding videos...' : 'Creating...') : (useExistingPlaylist ? `Add to Playlist (${filteredVideoIds.length} videos)` : `Create Playlist (${filteredVideoIds.length} videos)`)}
               </button>
+              {playlistLoading && (
+                <button
+                  onClick={stopPlaylistJob}
+                  disabled={stoppingPlaylistJob}
+                  style={{
+                    marginLeft: 10,
+                    padding: '12px 24px',
+                    fontSize: 16,
+                    background: stoppingPlaylistJob ? '#6c757d' : '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: stoppingPlaylistJob ? 'not-allowed' : 'pointer',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {stoppingPlaylistJob ? 'Stopping…' : 'Stop'}
+                </button>
+              )}
+
+              {/* Stopped job: resume on the same playlist or discard */}
+              {!playlistLoading && pausedPlaylistJob && (
+                <div style={{
+                  marginTop: 12,
+                  padding: 12,
+                  background: t.bgAlt,
+                  border: `1px solid ${t.border}`,
+                  borderRadius: 4,
+                  color: t.text
+                }}>
+                  <div style={{ fontSize: 14, marginBottom: 10 }}>
+                    ⏸️ Stopped: <strong>{pausedPlaylistJob.added} / {pausedPlaylistJob.total}</strong> videos added to{' '}
+                    <a
+                      href={`https://www.youtube.com/playlist?list=${pausedPlaylistJob.playlistId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: buttonColor }}
+                    >
+                      the playlist
+                    </a>.
+                  </div>
+                  <button
+                    onClick={resumePlaylistJob}
+                    style={{
+                      padding: '8px 18px',
+                      fontSize: 14,
+                      background: '#28a745',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    Resume ({pausedPlaylistJob.total - pausedPlaylistJob.added} left)
+                  </button>
+                  <button
+                    onClick={() => setPausedPlaylistJob(null)}
+                    style={{
+                      marginLeft: 10,
+                      padding: '8px 18px',
+                      fontSize: 14,
+                      background: 'transparent',
+                      color: t.text,
+                      border: `1px solid ${t.border}`,
+                      borderRadius: 6,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Discard
+                  </button>
+                </div>
+              )}
               
               {/* Progress Display */}
               {playlistLoading && playlistProgress.total > 0 && (

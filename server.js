@@ -2648,55 +2648,65 @@ async function _validateYouTubeTokensHandler(req, res) {
 app.post('/youtube/validateTokens', ensureSecretsInitialized, _validateYouTubeTokensHandler);
 app.post('/internal-api/youtube/validateTokens', ensureSecretsInitialized, _validateYouTubeTokensHandler);
 
-// Clear YouTube authentication
-app.post('/youtube/clearAuth', (req, res) => {
-  logger.info("🧹 [POST /youtube/clearAuth] Hit");
-  
-  try {
-    // Clear session data
-    if (req.session) {
-      delete req.session.youtubeAuth;
-    }
-    
-    // Update global auth status
-    authStatus.isAuthenticated = false;
-    
-    // Clear OAuth2 client credentials
-    if (oauth2Client) {
-      oauth2Client.setCredentials({});
-    }
-    
-    res.status(200).json({ message: 'YouTube authentication cleared successfully.' });
-  } catch (error) {
-    console.error('Error clearing YouTube auth:', error.message);
-    res.status(500).json({ error: 'Failed to clear authentication.' });
-  }
-});
+// Revoke a Google OAuth token (refresh or access) so the grant disappears
+// from the user's Google Account permissions. Uses Node's https module for
+// the same Node 24 undici reason as refreshYouTubeAccessToken. Best-effort:
+// resolves { ok, status } and never throws.
+function revokeGoogleToken(token) {
+  const postData = querystring.stringify({ token });
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'oauth2.googleapis.com',
+      path: '/revoke',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ ok: res.statusCode === 200, status: res.statusCode }));
+      res.on('error', () => resolve({ ok: false, status: 0 }));
+    });
+    req.on('error', () => resolve({ ok: false, status: 0 }));
+    req.setTimeout(8000, () => req.destroy());
+    req.write(postData);
+    req.end();
+  });
+}
 
-// Clear YouTube authentication (production route)
-app.post('/internal-api/youtube/clearAuth', (req, res) => {
-  console.log("🧹 [POST /internal-api/youtube/clearAuth] Hit");
-  
+// Sign out of YouTube: revoke the grant at Google, then clear the session.
+// The client also sends its localStorage copy of the tokens, so the revoke
+// still happens when the server session has already expired. Revoking the
+// refresh token also invalidates its access tokens.
+async function _clearYouTubeAuthHandler(req, res) {
+  console.log(`🧹 [POST ${req.path}] Hit`);
   try {
-    // Clear session data
+    const sessionTokens = req.session?.youtubeAuth?.tokens || {};
+    const bodyTokens = (req.body && typeof req.body.tokens === 'object' && req.body.tokens) || {};
+    const toRevoke = [...new Set([
+      sessionTokens.refresh_token || sessionTokens.access_token,
+      bodyTokens.refresh_token || bodyTokens.access_token,
+    ].filter(t => typeof t === 'string' && t))];
+    const results = await Promise.all(toRevoke.map(revokeGoogleToken));
+    console.log(`🧹 revoked ${results.filter(r => r.ok).length}/${toRevoke.length} Google token(s)`);
+
     if (req.session) {
       delete req.session.youtubeAuth;
     }
-    
-    // Update global auth status
     authStatus.isAuthenticated = false;
-    
-    // Clear OAuth2 client credentials
     if (oauth2Client) {
       oauth2Client.setCredentials({});
     }
-    
-    res.status(200).json({ message: 'YouTube authentication cleared successfully.' });
+
+    res.status(200).json({ message: 'YouTube authentication cleared successfully.', revoked: results.some(r => r.ok) });
   } catch (error) {
     console.error('Error clearing YouTube auth:', error.message);
     res.status(500).json({ error: 'Failed to clear authentication.' });
   }
-});
+}
+app.post('/youtube/clearAuth', _clearYouTubeAuthHandler);
+app.post('/internal-api/youtube/clearAuth', _clearYouTubeAuthHandler);
 
 // Exchange auth code for tokens
 // Dedup concurrent exchanges of the same single-use code. The browser fires

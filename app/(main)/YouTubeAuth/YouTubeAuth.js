@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
+import YouTubeAuthPanel from './YouTubeAuthPanel';
 
 const YOUTUBE_AUTH_EXPIRY_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -23,7 +24,7 @@ const apiBaseURL = () => {
   return 'https://martinbarker.me/internal-api';
 };
 
-function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, blackTextOnWhite = false, darkMode = false, invalidAuthMessage = 'YouTube sign-in is invalid — uploads will fail' }, _ref) {
+function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChange, getTokensRef, darkMode = false, hint, invalidAuthMessage = 'YouTube sign-in is invalid — uploads will fail' }, _ref) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
   const [authUrlLoading, setAuthUrlLoading] = useState(true);
@@ -199,8 +200,17 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     if (clearAuthLoading) return;
     setClearAuthLoading(true);
     setError('');
+    // Send the browser's copy of the tokens too, so the server can revoke the
+    // grant at Google even if its session has already expired.
+    let tokens;
+    try { tokens = JSON.parse(localStorage.getItem('youtube_tokens') || 'null') || undefined; } catch {}
     try {
-      await fetch(`${apiBaseURL()}/youtube/clearAuth`, { method: 'POST', credentials: 'include' });
+      await fetch(`${apiBaseURL()}/youtube/clearAuth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tokens }),
+      });
     } catch {}
     setIsAuthenticated(false);
     ['youtube_auth_code', 'youtube_auth_scope', 'youtube_auth_set_time', 'youtube_tokens'].forEach(
@@ -363,11 +373,8 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
   }, [isAuthenticated, youtubeAuthStatus.exists, canAuth, tokenValidity, tokenValidityReason]);
 
   // ---------- COMPACT MODE ----------
+  // The shared YouTube box (same one the Trawl results page uses).
   if (compact) {
-    const textColor = darkMode ? '#ffffff' : '#000000';
-    const signedInColor = (blackTextOnWhite || darkMode) ? textColor : '#155724';
-    const notSignedInColor = (blackTextOnWhite || darkMode) ? textColor : '#721c24';
-    const errorColor = (blackTextOnWhite || darkMode) ? textColor : '#721c24';
     const reasonLabel = (() => {
       const r = (tokenValidityReason || '').toLowerCase();
       if (r.includes('invalid_grant')) return 'Your YouTube sign-in expired or was revoked.';
@@ -380,75 +387,28 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
     })();
 
     // Show the expired/invalid state when we have local auth but verification failed
-    const showInvalidBanner = hasLocalAuth && tokenValidity === 'invalid';
-    const isChecking = hasLocalAuth && tokenValidity === 'checking';
+    const status = canAuth
+      ? 'signedIn'
+      : hasLocalAuth && tokenValidity === 'checking'
+        ? 'checking'
+        : hasLocalAuth && tokenValidity === 'invalid'
+          ? 'invalid'
+          : 'signedOut';
 
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 14, color: textColor }}>
-        {canAuth ? (
-          <>
-            <span style={{ color: signedInColor, fontWeight: 'bold' }}>✅ YouTube signed in (verified)</span>
-            <button
-              onClick={clearAuth}
-              disabled={clearAuthLoading}
-              style={{
-                padding: '4px 10px', fontSize: 12, background: clearAuthLoading ? '#6c757d' : '#dc3545',
-                color: 'white', border: 'none', borderRadius: 4, cursor: clearAuthLoading ? 'not-allowed' : 'pointer'
-              }}
-            >
-              {clearAuthLoading ? 'Clearing...' : 'Clear YouTube Auth'}
-            </button>
-          </>
-        ) : isChecking ? (
-          <>
-            <span style={{ color: textColor }}>⏳ Verifying YouTube sign-in…</span>
-          </>
-        ) : showInvalidBanner ? (
-          <div style={{
-            width: '100%',
-            display: 'flex', flexDirection: 'column', gap: 8,
-            padding: '10px 12px',
-            background: darkMode ? 'rgba(220,53,69,0.15)' : '#fff5f5',
-            border: `1px solid ${darkMode ? '#b14b56' : '#feb2b2'}`,
-            borderRadius: 6, color: textColor,
-          }}>
-            <div style={{ fontWeight: 700, color: darkMode ? '#fc8181' : '#c53030' }}>
-              ⚠️ {invalidAuthMessage}
-            </div>
-            <div style={{ fontSize: 13 }}>
-              {reasonLabel || 'Your stored YouTube credentials are no longer valid.'} Please sign in again to continue.
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                onClick={handleSignIn}
-                disabled={authUrlLoading || !authUrl}
-                style={{
-                  padding: '6px 14px', fontSize: 13, background: authUrlLoading ? '#6c757d' : '#007bff',
-                  color: 'white', border: 'none', borderRadius: 4, cursor: authUrlLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold',
-                }}
-              >
-                {authUrlLoading ? 'Loading…' : 'Sign in to YouTube again'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <span style={{ color: notSignedInColor }}>Not signed in to YouTube</span>
-            <button
-              onClick={handleSignIn}
-              disabled={authUrlLoading || !authUrl}
-              style={{
-                padding: '6px 14px', fontSize: 13, background: authUrlLoading ? '#6c757d' : '#007bff',
-                color: 'white', border: 'none', borderRadius: 4, cursor: authUrlLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold'
-              }}
-            >
-              {authUrlLoading ? 'Loading...' : 'Sign in with YouTube'}
-            </button>
-          </>
-        )}
-        {error && (
-          <span style={{ color: errorColor, fontFamily: 'monospace', fontSize: 12 }}>{error}</span>
-        )}
+      <YouTubeAuthPanel
+        status={status}
+        hint={hint}
+        darkMode={darkMode}
+        invalidTitle={invalidAuthMessage}
+        invalidDetail={`${reasonLabel || 'Your stored YouTube credentials are no longer valid.'} Please sign in again to continue.`}
+        onSignIn={handleSignIn}
+        signInLoading={authUrlLoading}
+        signInDisabled={!authUrl}
+        onSignOut={clearAuth}
+        signOutBusy={clearAuthLoading}
+        error={error}
+      >
         {showDebugLog && debugLog.length > 0 && (
           <div style={{ width: '100%', marginTop: 8 }}>
             <div style={{
@@ -474,7 +434,7 @@ function YouTubeAuth({ compact = false, returnUrl = '/youtube', onAuthStateChang
             </button>
           </div>
         )}
-      </div>
+      </YouTubeAuthPanel>
     );
   }
 

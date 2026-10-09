@@ -1,6 +1,13 @@
 'use client';
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } from 'react';
 import { ColorContext } from '../../../ColorContext';
+import YouTubeAuthPanel from '../../../YouTubeAuth/YouTubeAuthPanel';
+import { Card, SectionTitle, Field, Radio, Banner, inputStyle, pagerStyle, btnStyle } from './ui';
+import PlaylistPicker from './PlaylistPicker';
+import {
+  tallyKey, readTally, writeTally, clearTally, RunningTally,
+  isRetryable, retryDelayMs, AutoRetryPanel,
+} from './pushProgress';
 
 // Bot API base for browser calls (OAuth popup + SSE). NEXT_PUBLIC_* is inlined
 // at build time; since we don't set it during the Docker build, derive the URL
@@ -73,7 +80,10 @@ export default function ResultsView({
   const [playlistsError, setPlaylistsError] = useState('');
   const [loadingPlaylists, setLoadingPlaylists] = useState(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(targetPlaylist?.id || '');
-  const [playlistFilter, setPlaylistFilter] = useState('');
+  // Playlists known from this session but possibly missing from YouTube's list:
+  // one Trawl just created (the list lags behind for a while, so a Refresh used
+  // to make it vanish) or one resolved from a pasted link.
+  const [extraPlaylists, setExtraPlaylists] = useState([]);
 
   const defaultTitle = discord.inputChannelName
     ? `#${discord.inputChannelName} — Trawl`
@@ -103,6 +113,20 @@ export default function ResultsView({
   const [resultPlaylist, setResultPlaylist] = useState(targetPlaylist || null);
   const evtRef = useRef(null);
 
+  // The playlist the current/last push in this tab targeted (from 'start').
+  const [pushTargetId, setPushTargetId] = useState(null);
+  const pushTargetRef = useRef(null);
+
+  // Auto-retry after a quota / rate-limit / dropped-connection stop. On by
+  // default; the choice is remembered in this browser.
+  const [autoRetry, setAutoRetryState] = useState(true);
+  const autoRetryRef = useRef(true);
+  const [retryPlan, setRetryPlan] = useState(null); // { attempt, reason, resumeAt }
+  const [lastRetryReason, setLastRetryReason] = useState(null);
+  const retryTimerRef = useRef(null);
+  const retryAttemptRef = useRef(0);
+  const addAllRef = useRef(null);
+
   const t = {
     bg: darkMode ? '#1e1e2e' : '#ffffff',
     card: darkMode ? '#252538' : '#f7f9fc',
@@ -123,11 +147,96 @@ export default function ResultsView({
   // statuses no longer describe the destination, so they're hidden.
   const activePlaylistId = mode === 'existing' ? selectedPlaylistId : null;
   const savedStatusesApply = !!activePlaylistId && activePlaylistId === targetPlaylist?.id;
+  const activePlaylistRef = useRef(activePlaylistId);
+  activePlaylistRef.current = activePlaylistId;
 
+  // This browser's saved tally for the active playlist (see pushProgress.js).
+  const [persisted, setPersisted] = useState({});
+  const [persistedAt, setPersistedAt] = useState(null);
+  useEffect(() => {
+    if (!activePlaylistId) { setPersisted({}); setPersistedAt(null); return; }
+    const saved = readTally(tallyKey(scanId, activePlaylistId));
+    setPersisted(saved.statuses);
+    setPersistedAt(saved.updatedAt);
+  }, [scanId, activePlaylistId]);
+
+  // Live results only describe the playlist the push is targeting.
+  const liveApplies = !pushTargetId || pushTargetId === activePlaylistId;
+
+  // Newest source first: this tab's live results, then the server's record
+  // (only for the playlist the scan last used), then this browser's tally.
   const statusFor = useCallback(
-    mediaId => liveStatuses[mediaId] || (savedStatusesApply ? itemStatuses[mediaId] : undefined),
-    [liveStatuses, savedStatusesApply, itemStatuses]
+    mediaId =>
+      (liveApplies ? liveStatuses[mediaId] : undefined) ||
+      (savedStatusesApply ? itemStatuses[mediaId] : undefined) ||
+      persisted[mediaId],
+    [liveApplies, liveStatuses, savedStatusesApply, itemStatuses, persisted]
   );
+
+  // Save live results to the tally at most once a second while a push runs,
+  // and once more when the page closes.
+  const liveRef = useRef(liveStatuses);
+  liveRef.current = liveStatuses;
+  const saveTimerRef = useRef(null);
+  const flushTally = useCallback(() => {
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    const pid = pushTargetRef.current;
+    if (!pid || Object.keys(liveRef.current).length === 0) return;
+    const saved = writeTally(tallyKey(scanId, pid), liveRef.current);
+    if (pid === activePlaylistRef.current) {
+      setPersisted(saved.statuses);
+      setPersistedAt(saved.updatedAt);
+    }
+  }, [scanId]);
+  useEffect(() => {
+    if (!pushTargetId || Object.keys(liveStatuses).length === 0 || saveTimerRef.current) return;
+    saveTimerRef.current = setTimeout(flushTally, 1000);
+  }, [liveStatuses, pushTargetId, flushTally]);
+  useEffect(() => {
+    window.addEventListener('beforeunload', flushTally);
+    return () => { window.removeEventListener('beforeunload', flushTally); flushTally(); };
+  }, [flushTally]);
+
+  const resetTally = () => {
+    if (!activePlaylistId) return;
+    clearTally(tallyKey(scanId, activePlaylistId));
+    setPersisted({});
+    setPersistedAt(null);
+    if (liveApplies) setLiveStatuses({});
+  };
+
+  // Every playlist the picker can offer: YouTube's list, plus ones this session
+  // knows about that the list may not show yet, plus the scan's saved target.
+  const allPlaylists = useMemo(() => {
+    if (playlists === null && extraPlaylists.length === 0) return null;
+    const byId = new Map();
+    for (const p of [...(playlists || []), ...extraPlaylists]) if (!byId.has(p.id)) byId.set(p.id, p);
+    if (targetPlaylist?.id && !byId.has(targetPlaylist.id)) {
+      byId.set(targetPlaylist.id, {
+        id: targetPlaylist.id, title: targetPlaylist.title || targetPlaylist.id,
+        itemCount: null, privacyStatus: 'unknown', publishedAt: null, url: targetPlaylist.url,
+      });
+    }
+    return [...byId.values()];
+  }, [playlists, extraPlaylists, targetPlaylist]);
+
+  // Resolve a pasted playlist ID against the connected channel. Older bot
+  // versions don't have this endpoint (HTML 404), in which case the ID is
+  // accepted and checked when the push starts.
+  const lookupPlaylist = useCallback(async id => {
+    const res = await fetch(
+      `${BOT_API_URL}/api/scans/${scanId}/youtube/playlists/${encodeURIComponent(id)}?t=${encodeURIComponent(token)}`
+    );
+    const isJson = (res.headers.get('content-type') || '').includes('application/json');
+    const body = isJson ? await res.json().catch(() => null) : null;
+    if (res.ok && body?.playlist) {
+      setExtraPlaylists(prev => [body.playlist, ...prev.filter(p => p.id !== body.playlist.id)]);
+      return { verified: true, playlist: body.playlist };
+    }
+    if (!body) return { verified: false };
+    throw new Error(body.message || `Couldn't check that playlist (HTTP ${res.status}).`);
+  }, [scanId, token]);
 
   const pendingCount = useMemo(
     () =>
@@ -201,15 +310,85 @@ export default function ResultsView({
 
   // Countdown ticker, only mounted while YouTube is throttling us.
   const [, forceTick] = useState(0);
+  const ticking = !!(rateLimit || retryPlan || lastRetryReason);
   useEffect(() => {
-    if (!rateLimit) return undefined;
+    if (!ticking) return undefined;
     const id = setInterval(() => forceTick(n => n + 1), 500);
     return () => clearInterval(id);
-  }, [rateLimit]);
+  }, [ticking]);
+
+  // ---- auto-retry ----
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('trawl:autoRetry') === '0') { setAutoRetryState(false); autoRetryRef.current = false; }
+    } catch {}
+    return () => clearTimeout(retryTimerRef.current);
+  }, []);
+
+  const cancelRetry = useCallback(() => {
+    clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    setRetryPlan(null);
+  }, []);
+
+  // Schedule the next resume with exponential backoff. Called from the push's
+  // EventSource handlers, so it reads everything through refs, and the timer
+  // calls the *current* addAll (with the current playlist selection) rather
+  // than the one that started the stream.
+  const scheduleRetry = useCallback(reason => {
+    setLastRetryReason(reason);
+    if (!autoRetryRef.current) return;
+    const attempt = ++retryAttemptRef.current;
+    const delay = retryDelayMs(attempt, reason);
+    clearTimeout(retryTimerRef.current);
+    setRetryPlan({ attempt, reason, resumeAt: Date.now() + delay });
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      setRetryPlan(null);
+      addAllRef.current?.({ retry: true });
+    }, delay);
+  }, []);
+
+  const setAutoRetry = on => {
+    setAutoRetryState(on);
+    autoRetryRef.current = on;
+    try { localStorage.setItem('trawl:autoRetry', on ? '1' : '0'); } catch {}
+    if (!on) cancelRetry();
+    else if (lastRetryReason && !pushing && !retryTimerRef.current) scheduleRetry(lastRetryReason);
+  };
+
+  const retryNow = () => {
+    cancelRetry();
+    addAllRef.current?.({ retry: true });
+  };
 
   const connectYouTube = () => {
     const url = `${BOT_API_URL}/api/scans/${scanId}/youtube/oauth/start?t=${encodeURIComponent(token)}`;
     window.open(url, 'connect-youtube', 'width=520,height=680');
+  };
+
+  // Sign out: the bot revokes the Google grant and deletes its stored token.
+  const [signingOut, setSigningOut] = useState(false);
+  const signOutYouTube = async () => {
+    if (!window.confirm(
+      'Sign out of YouTube? Scheduled auto-adds for this Discord account will stop until you connect again.'
+    )) return;
+    setSigningOut(true);
+    try {
+      const res = await fetch(
+        `${BOT_API_URL}/api/scans/${scanId}/youtube/disconnect?t=${encodeURIComponent(token)}`,
+        { method: 'POST' }
+      );
+      if (!res.ok) throw new Error(`Could not sign out (HTTP ${res.status}).`);
+      setConnected(false);
+      setChannel(null);
+      setPlaylists(null);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const pushUrl = () => {
@@ -232,13 +411,21 @@ export default function ResultsView({
   // the bot detects (res 'close') and uses to abort its loop between videos —
   // so the backend actually stops, not just the on-screen progress.
   const stopAdding = () => {
+    cancelRetry();
+    setLastRetryReason(null);
     if (evtRef.current) { evtRef.current.close(); evtRef.current = null; }
     setPushing(false);
     setRateLimit(null);
     setStopped({ inserted, skipped, failed });
   };
 
-  const addAll = () => {
+  const addAll = ({ retry = false } = {}) => {
+    // A manual start begins a fresh backoff sequence; a retry continues it.
+    if (!retry) retryAttemptRef.current = 0;
+    cancelRetry();
+    setLastRetryReason(null);
+    pushTargetRef.current = null;
+    setPushTargetId(null);
     setError('');
     setAborted(null);
     setStopped(null);
@@ -256,15 +443,20 @@ export default function ResultsView({
     evt.addEventListener('start', e => {
       const d = JSON.parse(e.data);
       setTotal(d.total);
+      pushTargetRef.current = d.playlistId;
+      setPushTargetId(d.playlistId);
       setResultPlaylist({ id: d.playlistId, title: d.playlistTitle, url: d.playlistUrl });
       // A freshly created playlist becomes the selection, so hitting "resume"
       // after a rate-limit abort tops it up instead of creating another one.
       if (d.createdPlaylist) {
         setMode('existing');
         setSelectedPlaylistId(d.playlistId);
-        setPlaylists(prev => [
-          { id: d.playlistId, title: d.playlistTitle, itemCount: 0, privacyStatus: newPlaylist.privacy, url: d.playlistUrl },
-          ...(prev || []),
+        setExtraPlaylists(prev => [
+          {
+            id: d.playlistId, title: d.playlistTitle, itemCount: 0, privacyStatus: newPlaylist.privacy,
+            publishedAt: new Date().toISOString(), description: newPlaylist.description, url: d.playlistUrl,
+          },
+          ...prev.filter(p => p.id !== d.playlistId),
         ]);
       }
     });
@@ -276,7 +468,10 @@ export default function ResultsView({
         ...prev,
         [d.mediaId]: { status: d.status, error: d.message, reason: d.reason },
       }));
-      if (d.status === 'inserted') setInserted(n => n + 1);
+      if (d.status === 'inserted') {
+        setInserted(n => n + 1);
+        retryAttemptRef.current = 0; // making progress again: next stop backs off from 1 min
+      }
       else if (d.status === 'skipped') setSkipped(n => n + 1);
       else if (d.status === 'failed') setFailed(n => n + 1);
     });
@@ -294,6 +489,7 @@ export default function ResultsView({
       if (d.playlistId) setResultPlaylist(p => p || { id: d.playlistId, url: d.playlistUrl });
       setPushing(false);
       evt.close();
+      if (isRetryable(d.reason)) scheduleRetry(d.reason);
     });
 
     // Server-confirmed stop (rare: normally the client closes the stream first,
@@ -312,6 +508,7 @@ export default function ResultsView({
       setResultPlaylist({ id: d.playlistId, title: d.playlistTitle, url: d.playlistUrl });
       setRateLimit(null);
       setPushing(false);
+      retryAttemptRef.current = 0;
       evt.close();
     });
 
@@ -334,8 +531,14 @@ export default function ResultsView({
       setRateLimit(null);
       setPushing(false);
       evt.close();
+      // No payload means the stream itself dropped (bot restart, network).
+      const retryReason = code || (message ? null : 'connection');
+      if (isRetryable(retryReason)) scheduleRetry(retryReason);
     });
   };
+  addAllRef.current = addAll;
+
+  const showRetryPanel = !pushing && !!(retryPlan || lastRetryReason);
 
   const canPush =
     connected &&
@@ -385,20 +588,20 @@ export default function ResultsView({
       {/* ---------- Step 1: YouTube connection ---------- */}
       <Card t={t}>
         <SectionTitle t={t}>1 · Connect YouTube</SectionTitle>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          {connected ? (
-            <>
-              <span style={{ color: t.ok, fontWeight: 600 }}>
-                ✅ Connected{channel?.name ? ` as ${channel.name}` : ''}
-              </span>
-              <button onClick={connectYouTube} style={btnStyle('transparent', false, t.sub, t.border)}>
-                Reconnect
-              </button>
-            </>
-          ) : (
-            <button onClick={connectYouTube} style={btnStyle('#dc2626')}>Connect YouTube</button>
+        <YouTubeAuthPanel
+          status={connected ? 'signedIn' : 'signedOut'}
+          accountName={channel?.name}
+          darkMode={darkMode}
+          onSignIn={connectYouTube}
+          onSignOut={signOutYouTube}
+          signOutBusy={signingOut}
+          signOutDisabled={pushing}
+          extraActions={connected && (
+            <button type="button" className="ytPanelSecondary" onClick={connectYouTube}>
+              Reconnect
+            </button>
           )}
-        </div>
+        />
       </Card>
 
       {/* ---------- Step 2: Destination playlist ---------- */}
@@ -423,18 +626,17 @@ export default function ResultsView({
         </div>
 
         {mode === 'existing' ? (
-          <ExistingPlaylistPicker
+          <PlaylistPicker
             t={t}
             connected={connected}
-            playlists={playlists}
+            playlists={allPlaylists}
             loading={loadingPlaylists}
             error={playlistsError}
-            filter={playlistFilter}
-            setFilter={setPlaylistFilter}
             selectedId={selectedPlaylistId}
             setSelectedId={setSelectedPlaylistId}
             onReload={loadPlaylists}
             savedId={targetPlaylist?.id}
+            onLookup={lookupPlaylist}
           />
         ) : (
           <NewPlaylistForm t={t} value={newPlaylist} onChange={setNewPlaylist} />
@@ -481,7 +683,7 @@ export default function ResultsView({
         </label>
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button onClick={addAll} disabled={!canPush} style={btnStyle(t.accent, !canPush)}>
+          <button onClick={() => addAll()} disabled={!canPush} style={btnStyle(t.accent, !canPush)}>
             {pushing
               ? `Adding ${processed}/${total}…`
               : youtubeTracks.length === 0
@@ -515,7 +717,28 @@ export default function ResultsView({
 
         {rateLimit && <RateLimitNotice t={t} rateLimit={rateLimit} />}
 
-        {aborted && (
+        {showRetryPanel && (
+          <AutoRetryPanel
+            t={t}
+            plan={retryPlan}
+            lastReason={lastRetryReason}
+            autoRetry={autoRetry}
+            onToggle={setAutoRetry}
+            onRetryNow={retryNow}
+          />
+        )}
+
+        {activePlaylistId && youtubeTracks.length > 0 && (
+          <RunningTally
+            t={t}
+            tracks={youtubeTracks}
+            statusFor={statusFor}
+            updatedAt={persistedAt}
+            onReset={pushing ? () => {} : resetTally}
+          />
+        )}
+
+        {aborted && !showRetryPanel && (
           <Banner t={t} tone={aborted.rateLimited ? 'warn' : 'bad'}>
             <strong>Stopped early — {aborted.message}</strong>
             <div style={{ marginTop: 6, fontSize: 13 }}>
@@ -536,7 +759,7 @@ export default function ResultsView({
           </Banner>
         )}
 
-        {error && <Banner t={t} tone="bad">{error}</Banner>}
+        {error && !showRetryPanel && <Banner t={t} tone="bad">{error}</Banner>}
 
         {!pushing && !aborted && !stopped && !error && processed > 0 && (
           <Banner t={t} tone={failed > 0 ? 'warn' : 'ok'}>
@@ -550,8 +773,8 @@ export default function ResultsView({
         <p style={{ color: t.sub, fontSize: 12, marginBottom: 0, marginTop: 14 }}>
           Each video added costs {quotaCostPerInsert} units of YouTube&apos;s 10,000/day API quota
           (about {Math.floor(10000 / quotaCostPerInsert)} videos per day, shared across everyone using
-          this bot). If the quota runs out the push stops cleanly and resumes after it resets at
-          midnight Pacific Time.
+          this bot). If the quota runs out, the push stops cleanly and, with Auto-retry on, keeps
+          retrying with growing waits until it resets at midnight Pacific Time. Keep this tab open.
         </p>
       </Card>
 
@@ -579,70 +802,6 @@ export default function ResultsView({
 /* ------------------------------------------------------------------ */
 /* Destination pickers                                                 */
 /* ------------------------------------------------------------------ */
-
-function ExistingPlaylistPicker({
-  t, connected, playlists, loading, error, filter, setFilter,
-  selectedId, setSelectedId, onReload, savedId,
-}) {
-  const visible = useMemo(() => {
-    if (!playlists) return [];
-    const q = filter.trim().toLowerCase();
-    return q ? playlists.filter(p => p.title.toLowerCase().includes(q)) : playlists;
-  }, [playlists, filter]);
-
-  if (!connected) {
-    return <p style={{ color: t.sub, margin: 0 }}>Connect YouTube above to see your playlists.</p>;
-  }
-  if (loading) return <p style={{ color: t.sub, margin: 0 }}>Loading your playlists…</p>;
-  if (error) return <Banner t={t} tone="bad">{error}</Banner>;
-  if (playlists && playlists.length === 0) {
-    return (
-      <p style={{ color: t.sub, margin: 0 }}>
-        This channel has no playlists yet — switch to <em>Create a new playlist</em>.
-      </p>
-    );
-  }
-
-  const selected = playlists?.find(p => p.id === selectedId);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <input
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          placeholder="Filter playlists by name…"
-          style={inputStyle(t, { flex: 1, minWidth: 220 })}
-        />
-        <button onClick={onReload} style={btnStyle('transparent', false, t.sub, t.border)}>Refresh</button>
-      </div>
-
-      <select
-        value={selectedId}
-        onChange={e => setSelectedId(e.target.value)}
-        size={Math.min(Math.max(visible.length, 2), 8)}
-        style={inputStyle(t, { padding: 6 })}
-      >
-        {visible.length === 0 && <option disabled>No playlists match “{filter}”</option>}
-        {visible.map(p => (
-          <option key={p.id} value={p.id}>
-            {p.title} · {p.itemCount} video{p.itemCount === 1 ? '' : 's'} · {p.privacyStatus}
-            {p.id === savedId ? ' · last used for this scan' : ''}
-          </option>
-        ))}
-      </select>
-
-      {selected && (
-        <p style={{ color: t.sub, fontSize: 13, margin: 0 }}>
-          Videos already in <strong>{selected.title}</strong> are skipped, so re-running is safe.{' '}
-          <a href={selected.url} target="_blank" rel="noopener noreferrer" style={{ color: t.accent }}>
-            Open on YouTube →
-          </a>
-        </p>
-      )}
-    </div>
-  );
-}
 
 function NewPlaylistForm({ t, value, onChange }) {
   const set = (key, v) => onChange({ ...value, [key]: v });
@@ -1168,60 +1327,6 @@ function toCsv(rows) {
 /* Small presentational pieces                                         */
 /* ------------------------------------------------------------------ */
 
-function Card({ t, children }) {
-  return (
-    <section style={{
-      padding: 18, background: t.card, border: `1px solid ${t.border}`,
-      borderRadius: 10, margin: '16px 0',
-    }}>
-      {children}
-    </section>
-  );
-}
-
-function SectionTitle({ t, children }) {
-  return <h2 style={{ fontSize: 16, margin: '0 0 14px', color: t.text }}>{children}</h2>;
-}
-
-function Field({ t, label, hint, children, style }) {
-  return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, ...style }}>
-      <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
-      {children}
-      {hint && <span style={{ fontSize: 12, color: t.sub }}>{hint}</span>}
-    </label>
-  );
-}
-
-function Radio({ t, name, checked, onChange, label }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-      <input type="radio" name={name} checked={checked} onChange={onChange} />
-      <span style={{ color: t.text, fontWeight: checked ? 600 : 400 }}>{label}</span>
-    </label>
-  );
-}
-
-function Banner({ t, tone, children, compact }) {
-  // Translucent fills so one set of tones reads correctly on both themes.
-  const tones = {
-    ok:    { fg: t.ok,   bg: 'rgba(22,163,74,.10)', bd: 'rgba(22,163,74,.35)' },
-    warn:  { fg: t.warn, bg: 'rgba(217,119,6,.10)', bd: 'rgba(217,119,6,.35)' },
-    bad:   { fg: t.bad,  bg: 'rgba(197,48,48,.10)', bd: 'rgba(197,48,48,.35)' },
-    plain: { fg: t.text, bg: 'transparent',         bd: t.border },
-  };
-  const c = tones[tone] || tones.plain;
-  return (
-    <div style={{
-      marginTop: compact ? 0 : 14, padding: compact ? '8px 12px' : '10px 14px',
-      borderRadius: 8, background: c.bg, border: `1px solid ${c.bd}`,
-      color: c.fg, fontSize: 14,
-    }}>
-      {children}
-    </div>
-  );
-}
-
 function StatusBadge({ t, status, title }) {
   const colors = {
     inserted: t.ok,
@@ -1264,29 +1369,3 @@ function codeInline(t) {
   };
 }
 
-function inputStyle(t, extra = {}) {
-  return {
-    width: '100%', padding: '8px 10px', fontSize: 14,
-    background: t.input, color: t.text,
-    border: `1px solid ${t.border}`, borderRadius: 6,
-    ...extra,
-  };
-}
-
-function pagerStyle(t, disabled) {
-  return {
-    padding: '5px 10px', fontSize: 13, fontWeight: 600,
-    background: 'transparent', color: disabled ? t.border : t.text,
-    border: `1px solid ${t.border}`, borderRadius: 6,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-  };
-}
-
-function btnStyle(bg, disabled = false, color = '#fff', border) {
-  return {
-    padding: '10px 18px', fontSize: 14, fontWeight: 700,
-    background: disabled ? '#6c757d' : bg, color: disabled ? '#fff' : color,
-    border: border ? `1px solid ${border}` : 'none', borderRadius: 8,
-    cursor: disabled ? 'not-allowed' : 'pointer',
-  };
-}
