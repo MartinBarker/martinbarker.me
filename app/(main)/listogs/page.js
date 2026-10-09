@@ -188,7 +188,6 @@ function DiscogsAuthTestPageInner() {
   const [selectedCategories, setSelectedCategories] = useState(null);
   const [sectionCounts, setSectionCounts] = useState(null);
   const [showFetchFilters, setShowFetchFilters] = useState(true);
-  const [showWhatsNew, setShowWhatsNew] = useState(true);
   const [imageExtractionStatus, setImageExtractionStatus] = useState(null);
   const [imageDownloadUrl, setImageDownloadUrl] = useState(null);
   const [imageDownloadFileName, setImageDownloadFileName] = useState('');
@@ -1842,38 +1841,6 @@ function DiscogsAuthTestPageInner() {
           Turn a <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>Discogs</a> artist, label, master, or list URL into a YouTube playlist, CSV export, or image bundle.
         </p>
 
-        {/* What's new — visible by default */}
-        {showWhatsNew && LISTOGS_CHANGELOG[0] && (
-          <div style={{
-            margin: 0, padding: '12px 16px',
-            background: darkMode ? 'rgba(225,29,72,0.12)' : 'rgba(225,29,72,0.06)',
-            border: `1px solid ${darkMode ? 'rgba(225,29,72,0.4)' : 'rgba(225,29,72,0.25)'}`,
-            borderRadius: 8,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <span style={{
-                padding: '2px 10px', fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
-                textTransform: 'uppercase', color: '#fff', background: '#e11d48', borderRadius: 999,
-              }}>
-                New
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
-                in v{LISTOGS_CHANGELOG[0].version}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowWhatsNew(false)}
-                aria-label="Dismiss what's new"
-                style={{ marginLeft: 'auto', fontSize: 16, lineHeight: 1, color: t.textSecondary, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-              >
-                ×
-              </button>
-            </div>
-            <ul style={{ fontSize: 13, margin: 0, paddingLeft: 20, color: t.text, lineHeight: 1.6 }}>
-              {LISTOGS_CHANGELOG[0].changes.map((c, i) => <li key={i}>{c}</li>)}
-            </ul>
-          </div>
-        )}
       </div>
       {/* Discogs Auth Status and Button (combined in one line) */}
       <div style={{
@@ -1953,6 +1920,19 @@ function DiscogsAuthTestPageInner() {
         ) : (
           <span style={{ color: t.text }}>Not signed in</span>
         )}
+      </div>
+
+      {/* YouTube sign-in: on the front page so it's visible before any search */}
+      <div id="youtube-signin" style={{ marginBottom: 24 }}>
+        <YouTubeAuth
+          compact
+          returnUrl="/listogs"
+          getTokensRef={getTokensRef}
+          onAuthStateChange={setYtAuthState}
+          darkMode={darkMode}
+          hint="Sign in to turn Discogs results into YouTube playlists."
+          invalidAuthMessage="If you are not signed in you cannot create YouTube playlists"
+        />
       </div>
 
       {/* --- Discogs URL Submit Form --- */}
@@ -2239,16 +2219,11 @@ function DiscogsAuthTestPageInner() {
       {videoIds.length > 0 && (
         <div style={{ marginTop: 32, marginBottom: 16, background: t.bg, color: t.text, padding: '20px', borderRadius: 8, border: `1px solid ${t.border}` }}>
           <h3 style={{ color: t.text, marginTop: 0 }}>YouTube Playlist (Sign-In Required):</h3>
-          <div style={{ marginBottom: 16, color: t.text }}>
-            <YouTubeAuth
-              compact
-              returnUrl="/listogs"
-              getTokensRef={getTokensRef}
-              onAuthStateChange={setYtAuthState}
-              darkMode={darkMode}
-              invalidAuthMessage="If you are not signed in you cannot create YouTube playlists"
-            />
-          </div>
+          {!canCreatePlaylists && (
+            <p style={{ marginTop: 0, marginBottom: 16, color: t.textSecondary }}>
+              <a href="#youtube-signin" style={{ color: '#0066cc' }}>Sign in with YouTube</a> at the top of the page to create playlists.
+            </p>
+          )}
           {canCreatePlaylists && (
           <div style={{
             background: t.bg,
