@@ -876,6 +876,16 @@
 .boundarySolo .boundaryBar:hover { background: #bfdbfe; }
 .boundarySolo .boundaryLeg::before { background: rgba(147, 197, 253, 0.55); }
 .boundarySolo .boundaryLeg:hover::before { background: rgba(191, 219, 254, 0.85); }
+/* The first track's start: green rather than the blue of other solo starts. */
+.boundaryFirst .boundaryBar { background: #34d399; border-color: #047857; }
+.boundaryFirst .boundaryBar:hover { background: #6ee7b7; }
+.boundaryFirst .boundaryLeg::before { background: rgba(52, 211, 153, 0.75); width: 3px; }
+.boundaryFirst .boundaryLeg:hover::before { background: rgba(110, 231, 183, 0.95); }
+.boundaryFirst .boundaryPlayBtn { background: #34d399; border-color: #047857; }
+.boundaryFirst .boundaryPlayBtn:hover { background: #6ee7b7; }
+/* Picked in the all-markers strip */
+.boundarySelected .boundaryBar { box-shadow: 0 0 0 2px #ffffff, 0 1px 2px rgba(0,0,0,0.4); }
+.boundarySelected .boundaryLeg::before { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7); }
 
 /* Play-from-here button on each boundary handle. Sits just under the drag bar,
    on the handle's vertical line, and above the leg so the press hits the button
@@ -935,6 +945,125 @@
   height: 60px;
   background: #0f1117;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* All-markers strip under the waveform (MarkerStrip.js) */
+.markerStripWrap {
+  margin: -0.25rem 0 0.5rem;
+}
+.markerStrip {
+  position: relative;
+  height: 30px;
+  background: #0f1117;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.markerStrip:focus-visible { outline: 2px solid #667eea; outline-offset: 1px; }
+.markerStripTrack {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  opacity: 0.35;
+  border-radius: 2px;
+  pointer-events: none;
+  overflow: hidden;
+}
+.markerStripTrack span {
+  display: block;
+  padding-left: 4px;
+  font-size: 10px;
+  line-height: 18px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+}
+.markerStripView {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+}
+.markerStripPlayhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #f87171;
+  pointer-events: none;
+}
+/* 10px hit area, 2px drawn line with a small cap on top */
+.markerStripMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  margin-left: -5px;
+  cursor: ew-resize;
+  z-index: 2;
+}
+.markerStripMarker::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: #fbbf24;
+}
+.markerStripMarker::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 1px;
+  width: 8px;
+  height: 6px;
+  border-radius: 0 0 2px 2px;
+  background: #fbbf24;
+}
+.markerStripSolo::before,
+.markerStripSolo::after { background: #93c5fd; }
+.markerStripFirst::before,
+.markerStripFirst::after { background: #34d399; }
+.markerStripFirst::before { width: 3px; }
+.markerStripMarker:hover::before { width: 3px; }
+.markerStripSelected { z-index: 3; }
+.markerStripSelected::before,
+.markerStripSelected::after { background: #ffffff; box-shadow: 0 0 4px 1px rgba(255, 255, 255, 0.6); }
+.markerStripBand {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(102, 126, 234, 0.25);
+  border: 1px solid #667eea;
+  pointer-events: none;
+  z-index: 4;
+}
+.markerStripBar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+.markerStripActions {
+  display: inline-flex;
+  gap: 0.75rem;
+}
+@media (pointer: coarse) {
+  .markerStrip { height: 40px; }
+  .markerStripMarker { width: 22px; margin-left: -11px; }
+  .markerStripMarker::before { left: 10px; }
+  .markerStripMarker::after { left: 7px; }
 }
 .waveLoading {
   display: flex;

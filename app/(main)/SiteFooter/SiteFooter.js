@@ -11,7 +11,7 @@ export default function SiteFooter({ darkMode = false }) {
     <footer className={styles.footer} data-theme={darkMode ? 'dark' : 'light'}>
       <div className={styles.youtube}>
         <a href="https://www.youtube.com" target="_blank" rel="noopener noreferrer" className={styles.ytLink}>
-          <YouTubeIcon height={18} />
+          <YouTubeIcon />
         </a>
         <span>
           <Link href="/listogs">Listogs</Link>, <Link href="/riptag">RipTag</Link> and{' '}

@@ -35,6 +35,7 @@ import * as renderQueue from "./renderQueue";
 import { layoutBoundaryHandles, maxBoundaryLanes, BOUNDARY_LANE_STEP, BOUNDARY_PLAY_OFFSET, BOUNDARY_TOUCH_MIN_GAP } from "./boundaryLayout";
 import { findCountedSplits, parseTrackDuration } from "./silenceSplit";
 import { computeAudioPeaks } from "./audioPeaks";
+import MarkerStrip from "./MarkerStrip";
 import {
   BG_BLUR_MAX, clampBgBlur, bgBlurFilter,
   BG_DRIFT_ZOOM, BG_DRIFT_AMOUNT, BG_DRIFT_PERIOD,
@@ -740,6 +741,9 @@ export default function RipTagPage() {
   // Tracks currently being dragged (live override for handle rendering during drag)
   const dragStateRef = useRef(null);
   const [, forceHandleRender] = useState(0);
+  // Markers picked in the all-markers strip under the waveform, by key (see
+  // MarkerStrip.buildMarkers). The zoomview handles highlight them too.
+  const [markerSelection, setMarkerSelection] = useState(() => new Set());
 
   // Album info
   const [discogsUrl, setDiscogsUrl] = useState("");
@@ -7208,6 +7212,9 @@ export default function RipTagPage() {
                     // Every boundary as data first: a shared cut is one "joint"
                     // handle, a gap between two tracks is a separate end and start.
                     const boundaries = [];
+                    // The first track's start gets a handle of its own, coloured
+                    // apart from the cuts so where the album begins is obvious.
+                    boundaries.push({ key: `first-start-${tracks[0].id}`, kind: 'first-start', time: liveTime(tracks[0].id, 'startTime'), i: -1, a: null, b: tracks[0] });
                     for (let i = 0; i < tracks.length - 1; i++) {
                       const a = tracks[i];
                       const b = tracks[i + 1];
@@ -7233,6 +7240,7 @@ export default function RipTagPage() {
                       ...(coarsePointer ? { minGap: BOUNDARY_TOUCH_MIN_GAP } : {}),
                     }).map(({ key, kind, time, i, a, b, x, vx, lane }) => {
                       const nudge = vx - x;
+                      const selCls = markerSelection.has(key) ? styles.boundarySelected : '';
                       const barStyle = { top: lane * BOUNDARY_LANE_STEP, marginLeft: nudge };
                       const btnStyle = { top: lane * BOUNDARY_LANE_STEP + BOUNDARY_PLAY_OFFSET, marginLeft: nudge };
                       if (kind === 'joint') {
@@ -7240,7 +7248,7 @@ export default function RipTagPage() {
                         const isDragging = ds && ds.idxLeft === i && ds.idxRight === i + 1;
                         const splitDir = isDragging && ds.mode === 'joint-split' ? ds.splitDir : null;
                         return (
-                          <div key={key} className={styles.boundaryHandle} style={{ left: x }}>
+                          <div key={key} className={`${styles.boundaryHandle} ${selCls}`} style={{ left: x }}>
                             <div
                               className={styles.boundaryBar}
                               style={barStyle}
@@ -7258,7 +7266,7 @@ export default function RipTagPage() {
                       }
                       if (kind === 'solo-end') {
                         return (
-                          <div key={key} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: x }}>
+                          <div key={key} className={`${styles.boundaryHandle} ${styles.boundarySolo} ${selCls}`} style={{ left: x }}>
                             <div
                               className={styles.boundaryBar}
                               style={barStyle}
@@ -7271,11 +7279,11 @@ export default function RipTagPage() {
                         );
                       }
                       return (
-                        <div key={key} className={`${styles.boundaryHandle} ${styles.boundarySolo}`} style={{ left: x }}>
+                        <div key={key} className={`${styles.boundaryHandle} ${kind === 'first-start' ? styles.boundaryFirst : styles.boundarySolo} ${selCls}`} style={{ left: x }}>
                           <div
                             className={styles.boundaryBar}
                             style={barStyle}
-                            title={`Drag to move "${b.name}" start`}
+                            title={kind === 'first-start' ? `First track start — drag to move "${b.name}" start` : `Drag to move "${b.name}" start`}
                             onPointerDown={(ev) => beginBoundaryDrag(ev, 'solo-start', null, i + 1)}
                           />
                           {playBtn(key, time, btnStyle)}
@@ -7288,6 +7296,38 @@ export default function RipTagPage() {
                 </div>
                 <div ref={overviewRef} className={styles.overview} />
               </div>
+
+              {/* Every marker at once, for selecting and moving several together */}
+              <MarkerStrip
+                tracks={tracks}
+                duration={duration}
+                viewRange={viewRange}
+                currentTime={currentTime}
+                colors={AUDIO_COLORS}
+                selection={markerSelection}
+                onSelectionChange={setMarkerSelection}
+                onLiveMove={(next) => {
+                  const segs = peaksRef.current?.segments;
+                  if (!segs) return;
+                  // The zoomview handles read live times from peaks, so redraw them too
+                  requestAnimationFrame(() => forceHandleRender(n => n + 1));
+                  next.forEach(t => {
+                    const seg = segs.getSegment(t.id);
+                    if (seg && (seg.startTime !== t.startTime || seg.endTime !== t.endTime)) {
+                      try { seg.update({ startTime: t.startTime, endTime: t.endTime }); } catch {}
+                    }
+                  });
+                }}
+                onCommit={(next) => {
+                  snapshotTracks();
+                  setTracks(next);
+                  syncPeaksToTracks(next);
+                  setExportedTracks([]);
+                }}
+                onSeek={(t) => {
+                  if (audioRef.current) { audioRef.current.currentTime = t; setCurrentTime(t); }
+                }}
+              />
 
               {/* Auto Split */}
               <div className={styles.autoSplitPanel}>
