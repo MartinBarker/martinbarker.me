@@ -49,6 +49,10 @@
   gap: 8px;
 }
 
+.brandLink {
+  display: inline-flex;
+}
+
 .brandText {
   font-weight: 700;
   font-size: 15px;

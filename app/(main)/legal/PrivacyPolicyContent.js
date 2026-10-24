@@ -139,9 +139,13 @@ export default function PrivacyPolicyContent() {
           server restarts.
         </li>
         <li>
-          <strong>Trawl</strong>: signing out deletes your stored token immediately. If you revoke access from
-          your Google Account instead, the stored token stops working at once and can no longer access your
-          account. Click Sign out in Trawl or email us to remove it from the database as well.
+          <strong>Trawl</strong>: signing out deletes your stored token, channel name and ID, playlist settings
+          and push history immediately. If you revoke access from your Google Account instead, the stored token
+          stops working at once, and Trawl deletes the same data within 24 hours.
+        </li>
+        <li>
+          <strong>Refreshing stored YouTube data</strong>: Trawl re-fetches your channel name and playlist titles
+          from YouTube once a day. Anything it cannot refresh is deleted before it is 30 days old.
         </li>
         <li>
           <strong>On request</strong>: email <a href={`mailto:${CONTACT}`}>{CONTACT}</a> to delete any data
