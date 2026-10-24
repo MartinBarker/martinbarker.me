@@ -1113,7 +1113,7 @@ function CombineImageAudioExample() {
           {/* YouTube Upload Panel — open by default */}
           <div style={{ border: `1px solid ${t.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 24 }}>
             <div style={{ padding: "14px 18px", background: t.bgAlt, borderBottom: `1px solid ${t.border}`, fontWeight: "bold", fontSize: 15, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: "#ff0000", fontSize: 18 }}>▶</span> Upload to YouTube
+              Upload to YouTube
             </div>
             <div style={{ padding: 20 }}>
               <div style={{ marginBottom: 16 }}>

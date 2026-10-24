@@ -62,7 +62,10 @@ export default function YouTubeAuthPanel({
     <div className={styles.panel} data-theme={darkMode ? 'dark' : 'light'}>
       <div className={styles.head}>
         <div className={styles.brand}>
-          <YouTubeIcon height={18} />
+          {/* The guidelines require a YouTube icon shown in an app to link to YouTube. */}
+          <a href="https://www.youtube.com" target="_blank" rel="noopener noreferrer" className={styles.brandLink}>
+            <YouTubeIcon />
+          </a>
           <span className={styles.brandText}>YouTube account</span>
         </div>
         <div className={styles.legal}>
