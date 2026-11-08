@@ -1,6 +1,6 @@
 'use client';
 import React, { useMemo, useState } from 'react';
-import { Banner, inputStyle, pagerStyle, btnStyle } from './ui';
+import { Banner, inputStyle, pagerStyle, btnStyle } from './youtubeUi';
 
 const PAGE_SIZES = [10, 25, 50];
 
@@ -31,9 +31,17 @@ const videos = n => (n == null ? '? videos' : `${n} video${n === 1 ? '' : 's'}`)
 //   3. a searchable, sortable, paginated list.
 // Playlists that share a title are told apart by created date and ID, which
 // the old single <select> didn't show — two same-named playlists looked identical.
-export default function PlaylistPicker({
+//
+// Shared by Trawl results and Listogs. It is presentational: the page loads the
+// playlists (from whichever backend it talks to) and passes them in.
+//   playlists   [{ id, title, description, itemCount, privacyStatus, publishedAt, url }] | null
+//   onReload()  re-fetch the list
+//   onLookup(id) -> { verified, playlist? }  resolve a pasted ID; throw to reject it
+//   savedId / savedLabel  highlight a remembered playlist ("last used for this scan")
+export default function YouTubePlaylistPicker({
   t, connected, playlists, loading, error, selectedId, setSelectedId,
-  onReload, savedId, onLookup,
+  onReload, savedId, savedLabel = 'last used for this scan', onLookup,
+  notConnectedText = 'Connect YouTube above to see your playlists.',
 }) {
   const [paste, setPaste] = useState('');
   const [pasteState, setPasteState] = useState(null); // { tone, text }
@@ -70,7 +78,7 @@ export default function PlaylistPicker({
 
   const selected = list.find(p => p.id === selectedId);
 
-  const usePasted = async () => {
+  const applyPasted = async () => {
     const id = parsePlaylistId(paste);
     if (!id) {
       setPasteState({ tone: 'bad', text: 'That doesn’t look like a playlist link or ID. Paste a link containing “list=…”, or the ID itself.' });
@@ -80,6 +88,11 @@ export default function PlaylistPicker({
     if (known) {
       setSelectedId(id);
       setPasteState({ tone: 'ok', text: `Selected “${known.title}”.` });
+      return;
+    }
+    if (!onLookup) {
+      setSelectedId(id);
+      setPasteState({ tone: 'warn', text: `Selected ${id}. It will be checked against your channel when you start adding.` });
       return;
     }
     setChecking(true);
@@ -98,13 +111,13 @@ export default function PlaylistPicker({
   };
 
   if (!connected) {
-    return <p style={{ color: t.sub, margin: 0 }}>Connect YouTube above to see your playlists.</p>;
+    return <p style={{ color: t.sub, margin: 0 }}>{notConnectedText}</p>;
   }
 
   const label = p =>
     `${p.title} · ${videos(p.itemCount)} · ${p.privacyStatus}` +
     (dupTitles.has(p.title) ? ` · created ${day(p.publishedAt) || '?'} · …${p.id.slice(-6)}` : '') +
-    (p.id === savedId ? ' · last used for this scan' : '');
+    (p.id === savedId ? ` · ${savedLabel}` : '');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -115,11 +128,11 @@ export default function PlaylistPicker({
           <input
             value={paste}
             onChange={e => { setPaste(e.target.value); setPasteState(null); }}
-            onKeyDown={e => { if (e.key === 'Enter') usePasted(); }}
+            onKeyDown={e => { if (e.key === 'Enter') applyPasted(); }}
             placeholder="https://www.youtube.com/playlist?list=PL…  or  PL…"
             style={inputStyle(t, { flex: 1, minWidth: 240 })}
           />
-          <button onClick={usePasted} disabled={checking || !paste.trim()} style={btnStyle(t.accent, checking || !paste.trim())}>
+          <button onClick={applyPasted} disabled={checking || !paste.trim()} style={btnStyle(t.accent, checking || !paste.trim())}>
             {checking ? 'Checking…' : 'Use this playlist'}
           </button>
         </div>
@@ -131,7 +144,7 @@ export default function PlaylistPicker({
 
       {!loading && !error && list.length === 0 && (
         <p style={{ color: t.sub, margin: 0 }}>
-          This channel has no playlists yet. Paste one above, or switch to <em>Create a new playlist</em>.
+          This channel has no playlists yet. Paste one above, or create a new playlist instead.
         </p>
       )}
 
@@ -195,7 +208,7 @@ export default function PlaylistPicker({
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ display: 'block', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {p.title}
-                        {p.id === savedId && <span style={{ color: t.sub, fontWeight: 400 }}> · last used for this scan</span>}
+                        {p.id === savedId && <span style={{ color: t.sub, fontWeight: 400 }}> · {savedLabel}</span>}
                       </span>
                       <span style={{ display: 'block', fontSize: 12, color: t.sub }}>
                         {videos(p.itemCount)} · {p.privacyStatus}
