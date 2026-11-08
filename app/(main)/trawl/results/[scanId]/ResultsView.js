@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } 
 import { ColorContext } from '../../../ColorContext';
 import YouTubeAuthPanel from '../../../YouTubeAuth/YouTubeAuthPanel';
 import { Card, SectionTitle, Field, Radio, Banner, inputStyle, pagerStyle, btnStyle } from './ui';
-import PlaylistPicker from './PlaylistPicker';
+import PlaylistPicker from '../../../YouTubeAuth/YouTubePlaylistPicker';
 import {
   tallyKey, readTally, writeTally, clearTally, RunningTally,
   isRetryable, retryDelayMs, AutoRetryPanel,

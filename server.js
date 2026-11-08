@@ -3096,6 +3096,85 @@ function sendPlaylistInsertError(res, error, videoId) {
   });
 }
 
+// ---- Playlist listing for the shared YouTubePlaylistPicker (Listogs) ----
+// Uses a per-request OAuth client so concurrent users' tokens never mix on the
+// shared module-level client.
+function youtubeClientForRequest(req) {
+  const tokens = (req.session?.youtubeAuth?.isAuthenticated && req.session.youtubeAuth.tokens) || req.body?.tokens;
+  if (!tokens) return null;
+  const client = initializeYouTubeOAuthClient(gcpClientId, gcpClientSecret);
+  client.setCredentials(tokens);
+  return google.youtube({ version: 'v3', auth: client });
+}
+
+// Same shape as the Discord bot's /youtube/playlists so the picker works with both.
+function toPickerPlaylist(item) {
+  return {
+    id: item.id,
+    title: item.snippet?.title || item.id,
+    description: item.snippet?.description || '',
+    itemCount: item.contentDetails?.itemCount ?? null,
+    privacyStatus: item.status?.privacyStatus || 'unknown',
+    publishedAt: item.snippet?.publishedAt || null,
+    url: `https://www.youtube.com/playlist?list=${item.id}`,
+  };
+}
+
+function sendYouTubeReadError(res, error, fallback) {
+  const { status, reason, message } = extractGoogleApiError(error);
+  const code = status === 401 ? 401 : (status === 403 || status === 429) ? 429 : status === 404 ? 404 : 500;
+  res.status(code).json({ error: message || fallback, reason: reason || undefined });
+}
+
+// List every playlist on the connected channel (1 quota unit per 50 playlists).
+async function handleListPlaylists(req, res) {
+  const yt = youtubeClientForRequest(req);
+  if (!yt) return res.status(401).json({ error: 'Not authenticated with YouTube' });
+  try {
+    const playlists = [];
+    let pageToken;
+    for (let page = 0; page < 40; page++) {
+      const { data } = await yt.playlists.list({
+        part: 'snippet,contentDetails,status', mine: true, maxResults: 50, pageToken,
+      });
+      for (const item of data.items || []) playlists.push(toPickerPlaylist(item));
+      pageToken = data.nextPageToken;
+      if (!pageToken) break;
+    }
+    res.json({ playlists });
+  } catch (error) {
+    console.error('[listPlaylists]', error.message);
+    sendYouTubeReadError(res, error, 'Could not load your playlists');
+  }
+}
+
+// Resolve one playlist ID and confirm the connected channel owns it (2 quota units).
+async function handleGetPlaylist(req, res) {
+  const yt = youtubeClientForRequest(req);
+  if (!yt) return res.status(401).json({ error: 'Not authenticated with YouTube' });
+  const playlistId = String(req.body?.playlistId || '').trim();
+  if (!playlistId) return res.status(400).json({ error: 'playlistId is required' });
+  try {
+    const [{ data: pl }, { data: ch }] = await Promise.all([
+      yt.playlists.list({ part: 'snippet,contentDetails,status', id: playlistId, maxResults: 1 }),
+      yt.channels.list({ part: 'id', mine: true }),
+    ]);
+    const item = pl.items?.[0];
+    if (!item) return res.status(404).json({ error: 'No playlist with that ID was found (it may be private to another account).' });
+    const myChannelId = ch.items?.[0]?.id;
+    if (myChannelId && item.snippet?.channelId !== myChannelId) {
+      return res.status(403).json({ error: 'That playlist belongs to another channel — you can only add videos to your own playlists.' });
+    }
+    res.json({ playlist: toPickerPlaylist(item) });
+  } catch (error) {
+    console.error('[getPlaylist]', error.message);
+    sendYouTubeReadError(res, error, 'Could not check that playlist');
+  }
+}
+
+app.post(['/youtube/listPlaylists', '/internal-api/youtube/listPlaylists'], ensureSecretsInitialized, handleListPlaylists);
+app.post(['/youtube/getPlaylist', '/internal-api/youtube/getPlaylist'], ensureSecretsInitialized, handleGetPlaylist);
+
 // Add video to YouTube playlist
 app.post('/youtube/addVideoToPlaylist', async (req, res) => {
   if (process.env.NODE_ENV === 'development') {
