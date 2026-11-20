@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import { Banner, pagerStyle } from './ui';
+import { Banner, pagerStyle } from './youtubeUi';
 
 /* ------------------------------------------------------------------ */
 /* Per-playlist tally, saved in this browser                           */

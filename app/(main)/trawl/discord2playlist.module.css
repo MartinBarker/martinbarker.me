@@ -24,7 +24,9 @@
 }
 
 @media (max-width: 768px) {
-  .page { margin: -12px -8px; }
+  /* Full-bleed: cancels .content's padding, including the room it reserves for
+     the fixed menu button. The sticky nav makes room for the button itself. */
+  .page { margin: -72px -8px -12px; }
 }
 
 .page * { box-sizing: border-box; }
@@ -55,6 +57,10 @@
   border-bottom: 1.5px solid rgba(24,24,27,0.12);
 }
 .navInner { display: flex; align-items: center; justify-content: space-between; height: 74px; }
+@media (max-width: 768px) {
+  /* Clears the fixed menu button, which ends 60px from the left edge. */
+  .navInner { padding-left: 72px; }
+}
 .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
 .brand img { width: 36px; height: 36px; border-radius: 9px; }
 .bname { font-family: var(--font-mono); font-weight: 700; font-size: 19px; letter-spacing: -0.01em; }
