@@ -537,6 +537,9 @@
     width: 100%;
     transition: none;
     padding: 8px;
+    /* Starts below the fixed menu button (20px top + 40px tall + 8px gap), so the
+       button never sits on a page's title. */
+    padding-top: 68px;
   }
   .contentBody {
     padding: 4px 0;

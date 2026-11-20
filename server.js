@@ -3175,6 +3175,15 @@ async function handleGetPlaylist(req, res) {
 app.post(['/youtube/listPlaylists', '/internal-api/youtube/listPlaylists'], ensureSecretsInitialized, handleListPlaylists);
 app.post(['/youtube/getPlaylist', '/internal-api/youtube/getPlaylist'], ensureSecretsInitialized, handleGetPlaylist);
 
+// True if the video is already in the playlist, however it got there (another
+// browser, YouTube itself, or an earlier insert whose response was lost before a
+// retry). 1 quota unit, against 50 for the insert it can prevent.
+async function playlistAlreadyHasVideo(req, playlistId, videoId) {
+  const yt = youtubeClientForRequest(req);
+  const { data } = await yt.playlistItems.list({ part: 'id', playlistId, videoId, maxResults: 1 });
+  return (data.items || []).length > 0;
+}
+
 // Add video to YouTube playlist
 app.post('/youtube/addVideoToPlaylist', async (req, res) => {
   if (process.env.NODE_ENV === 'development') {
@@ -3204,6 +3213,12 @@ app.post('/youtube/addVideoToPlaylist', async (req, res) => {
 
     // Add video to playlist with retry logic
     try {
+      // YouTube accepts the same video twice, so check first. Errors here go to the
+      // same handler as the insert: if we can't confirm, nothing gets added.
+      if (req.body.allowDuplicates !== true && await playlistAlreadyHasVideo(req, playlistId, videoId)) {
+        return res.status(409).json({ error: 'Video is already in this playlist', reason: 'duplicate', videoId });
+      }
+
       const response = await retryWithExponentialBackoff(async () => {
         return new Promise((resolve, reject) => {
           youtube.playlistItems.insert({
@@ -3276,6 +3291,12 @@ app.post('/internal-api/youtube/addVideoToPlaylist', async (req, res) => {
 
     // Add video to playlist with retry logic
     try {
+      // YouTube accepts the same video twice, so check first. Errors here go to the
+      // same handler as the insert: if we can't confirm, nothing gets added.
+      if (req.body.allowDuplicates !== true && await playlistAlreadyHasVideo(req, playlistId, videoId)) {
+        return res.status(409).json({ error: 'Video is already in this playlist', reason: 'duplicate', videoId });
+      }
+
       const response = await retryWithExponentialBackoff(async () => {
         return new Promise((resolve, reject) => {
           youtube.playlistItems.insert({

@@ -4,10 +4,11 @@ import { ColorContext } from '../../../ColorContext';
 import YouTubeAuthPanel from '../../../YouTubeAuth/YouTubeAuthPanel';
 import { Card, SectionTitle, Field, Radio, Banner, inputStyle, pagerStyle, btnStyle } from './ui';
 import PlaylistPicker from '../../../YouTubeAuth/YouTubePlaylistPicker';
+import YouTubeAddVideosControls from '../../../YouTubeAuth/YouTubeAddVideosControls';
 import {
   tallyKey, readTally, writeTally, clearTally, RunningTally,
   isRetryable, retryDelayMs, AutoRetryPanel,
-} from './pushProgress';
+} from '../../../YouTubeAuth/youtubePushProgress';
 
 // Bot API base for browser calls (OAuth popup + SSE). NEXT_PUBLIC_* is inlined
 // at build time; since we don't set it during the Docker build, derive the URL
@@ -34,6 +35,11 @@ const CADENCE_LABEL = {
   '0 0 * * *': 'every day',
   '0 0 * * 0': 'every week',
 };
+
+const ORDER_OPTIONS = [
+  { value: 'newest', label: 'Newest shared on top (most recent first)' },
+  { value: 'oldest', label: 'Oldest shared on top (most recent last)' },
+];
 
 const PAGE_SIZES = [10, 25, 50, 100];
 
@@ -647,69 +653,30 @@ export default function ResultsView({
       <Card t={t}>
         <SectionTitle t={t}>3 · Add the videos</SectionTitle>
 
-        <Field
+        <YouTubeAddVideosControls
           t={t}
-          label="Playlist order"
-          hint="How the videos are stacked in the YouTube playlist. Only affects videos added from now on."
-          style={{ maxWidth: 360, marginBottom: 16 }}
-        >
-          <select
-            value={playlistOrder}
-            onChange={e => setPlaylistOrder(e.target.value)}
-            disabled={pushing}
-            style={inputStyle(t)}
-          >
-            <option value="newest">Newest shared on top (most recent first)</option>
-            <option value="oldest">Oldest shared on top (most recent last)</option>
-          </select>
-        </Field>
-
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16, cursor: pushing ? 'not-allowed' : 'pointer', maxWidth: 520 }}>
-          <input
-            type="checkbox"
-            checked={skipDuplicates}
-            disabled={pushing}
-            onChange={e => setSkipDuplicates(e.target.checked)}
-            style={{ marginTop: 3 }}
-          />
-          <span>
-            <span style={{ fontWeight: 600 }}>Skip videos already in the playlist</span>
-            <span style={{ display: 'block', fontSize: 12, color: t.sub, marginTop: 2 }}>
-              On by default. A video that&apos;s already in the target playlist is skipped instead of
-              added a second time, so re-running never creates duplicates. Un-check to add every
-              scanned video regardless.
-            </span>
-          </span>
-        </label>
-
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <button onClick={() => addAll()} disabled={!canPush} style={btnStyle(t.accent, !canPush)}>
-            {pushing
-              ? `Adding ${processed}/${total}…`
-              : youtubeTracks.length === 0
-                ? 'No YouTube links to add'
-                : pendingCount === 0
-                  ? 'All videos already added'
-                  : stopped || aborted
-                    ? `Resume — add ${pendingCount} remaining`
-                    : `Add ${pendingCount} video${pendingCount === 1 ? '' : 's'} to playlist`}
-          </button>
-          {pushing && (
-            <button onClick={stopAdding} style={btnStyle('#dc2626')}>
-              Stop
-            </button>
-          )}
-          {resultPlaylist?.id && (
-            <a
-              href={resultPlaylist.url || `https://www.youtube.com/playlist?list=${resultPlaylist.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: t.accent, fontWeight: 600 }}
-            >
-              View {resultPlaylist.title ? `“${resultPlaylist.title}”` : 'playlist'} on YouTube →
-            </a>
-          )}
-        </div>
+          order={playlistOrder}
+          onOrderChange={setPlaylistOrder}
+          orderOptions={ORDER_OPTIONS}
+          skipDuplicates={skipDuplicates}
+          onSkipDuplicatesChange={setSkipDuplicates}
+          skipHintItems="scanned video"
+          locked={pushing}
+          canAdd={canPush}
+          onAdd={() => addAll()}
+          pushing={pushing}
+          onStop={stopAdding}
+          playlist={resultPlaylist}
+          buttonLabel={pushing
+            ? `Adding ${processed}/${total}…`
+            : youtubeTracks.length === 0
+              ? 'No YouTube links to add'
+              : pendingCount === 0
+                ? 'All videos already added'
+                : stopped || aborted
+                  ? `Resume — add ${pendingCount} remaining`
+                  : `Add ${pendingCount} video${pendingCount === 1 ? '' : 's'} to playlist`}
+        />
 
         {(pushing || processed > 0) && (
           <ProgressBar t={t} total={total} inserted={inserted} skipped={skipped} failed={failed} />

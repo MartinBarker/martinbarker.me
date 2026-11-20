@@ -6,6 +6,18 @@ import VideoTable from './Table';
 import { ColorContext } from '../ColorContext';
 import YouTubeAuth from '../YouTubeAuth/YouTubeAuth';
 import YouTubePlaylistPicker from '../YouTubeAuth/YouTubePlaylistPicker';
+import YouTubeAddVideosControls from '../YouTubeAuth/YouTubeAddVideosControls';
+import { SectionTitle } from '../YouTubeAuth/youtubeUi';
+import { readTally, writeTally, clearTally, RunningTally } from '../YouTubeAuth/youtubePushProgress';
+
+// YouTube appends each insert, so adding in list order gives this stacking.
+const ORDER_OPTIONS = [
+  { value: 'table', label: 'Same as the Videos table (first video on top)' },
+  { value: 'reversed', label: 'Reversed (last video on top)' },
+];
+
+const listogsTallyKey = playlistId => `listogs:push:${playlistId}`;
+const EMPTY_TALLY = { statuses: {}, updatedAt: null };
 
 // Helper to flatten videoData object to array with deduplication
 function flattenVideoData(videoData) {
@@ -184,6 +196,10 @@ function DiscogsAuthTestPageInner() {
   const [ytPlaylistsLoading, setYtPlaylistsLoading] = useState(false);
   const [ytPlaylistsError, setYtPlaylistsError] = useState('');
   const [lastUsedPlaylistId, setLastUsedPlaylistId] = useState('');
+  const [playlistOrder, setPlaylistOrder] = useState('table');
+  // On by default: the server refuses to add a video the playlist already has.
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [pushTally, setPushTally] = useState(EMPTY_TALLY);
   useEffect(() => {
     try { setLastUsedPlaylistId(localStorage.getItem('listogs_last_playlist_id') || ''); } catch {}
   }, []);
@@ -1354,6 +1370,48 @@ function DiscogsAuthTestPageInner() {
     bad: darkMode ? '#fc8181' : '#c53030', accent: '#2563eb',
   };
 
+  // The playlist the Add controls and running tally are about right now.
+  const activePlaylistId = useExistingPlaylist ? existingPlaylistId.trim() : (playlistCreated?.id || '');
+  const activePlaylistRef = useRef(activePlaylistId);
+  activePlaylistRef.current = activePlaylistId;
+
+  // Load this playlist's tally. Videos added before the tally existed are only
+  // in the older ID list, so bring those across.
+  useEffect(() => {
+    if (!activePlaylistId) { setPushTally(EMPTY_TALLY); return; }
+    const key = listogsTallyKey(activePlaylistId);
+    const saved = readTally(key);
+    const missing = {};
+    for (const id of getPlaylistAddedIds(activePlaylistId)) {
+      if (!saved.statuses[id]) missing[id] = { status: 'inserted' };
+    }
+    setPushTally(Object.keys(missing).length ? writeTally(key, missing) : saved);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlaylistId]);
+
+  const recordPushStatus = (playlistId, videoId, status) => {
+    const saved = writeTally(listogsTallyKey(playlistId), { [videoId]: status });
+    if (activePlaylistRef.current === playlistId) setPushTally(saved);
+  };
+
+  // Forget what this browser knows about the playlist. The next run re-checks
+  // each video against YouTube, so this can't cause duplicates.
+  const resetPushTally = () => {
+    if (!activePlaylistId) return;
+    clearTally(listogsTallyKey(activePlaylistId));
+    try { localStorage.removeItem(`listogs_playlist_videos_${activePlaylistId}`); } catch {}
+    setPushTally(EMPTY_TALLY);
+  };
+
+  const tallyTracks = useMemo(() => filteredVideoIds.map(id => ({ media_id: id })), [filteredVideoIds]);
+  const pendingVideoCount = useMemo(() => {
+    if (!skipDuplicates || !activePlaylistId) return filteredVideoIds.length;
+    return filteredVideoIds.filter(id => {
+      const status = pushTally.statuses[id]?.status;
+      return status !== 'inserted' && status !== 'skipped';
+    }).length;
+  }, [filteredVideoIds, pushTally, skipDuplicates, activePlaylistId]);
+
   // Create YouTube playlist with video IDs
   const createYouTubePlaylist = async () => {
     if (!useExistingPlaylist && !playlistData.title.trim()) {
@@ -1443,7 +1501,8 @@ function DiscogsAuthTestPageInner() {
       if (process.env.NODE_ENV === 'development') {
         console.log(`Adding ${filteredVideoIds.length} videos to playlist...`);
       }
-      const outcome = await addVideosToPlaylist(playlistId, filteredVideoIds, tokens);
+      const orderedVideoIds = playlistOrder === 'reversed' ? [...filteredVideoIds].reverse() : filteredVideoIds;
+      const outcome = await addVideosToPlaylist(playlistId, orderedVideoIds, tokens, { allowDuplicates: !skipDuplicates });
       if (outcome === 'stopped') return;
 
       setPlaylistData({
@@ -1483,7 +1542,9 @@ function DiscogsAuthTestPageInner() {
         setYoutubeError('Not authenticated with YouTube. Please sign in first.');
         return;
       }
-      await addVideosToPlaylist(job.playlistId, job.videoIds, tokens);
+      await addVideosToPlaylist(job.playlistId, job.videoIds, tokens, {
+        allowDuplicates: job.allowDuplicates, startIndex: job.startIndex, addedSoFar: job.added,
+      });
     } catch (err) {
       console.error('Error resuming playlist job:', err);
       setYoutubeError(err.message || 'Failed to resume');
@@ -1553,9 +1614,10 @@ function DiscogsAuthTestPageInner() {
   // failures are retried on the same video forever with exponential backoff
   // (capped), so a long list survives a quota reset or a flaky connection.
   // The only ways a video is passed over are: it's already in the playlist
-  // (409 / localStorage), or YouTube says it can never be added (`skip`).
+  // (409 from the server's check / localStorage), or YouTube says it can never
+  // be added (`skip`). With allowDuplicates the already-in-playlist checks are off.
   // The job ends when every video is handled or the user presses Stop.
-  const addVideosToPlaylist = async (playlistId, videoIds, initialTokens) => {
+  const addVideosToPlaylist = async (playlistId, videoIds, initialTokens, { allowDuplicates = false, startIndex = 0, addedSoFar = 0 } = {}) => {
     let tokens = initialTokens;
     try {
       const apiBaseURL = process.env.NODE_ENV === 'development'
@@ -1574,8 +1636,9 @@ function DiscogsAuthTestPageInner() {
       });
 
       // Count how many we can skip upfront
-      const skippedCount = uniqueVideoIds.filter(id => confirmedAdded.has(id)).length;
-      let addedCount = skippedCount;
+      const knownInPlaylist = allowDuplicates ? new Set() : confirmedAdded;
+      const skippedCount = uniqueVideoIds.filter(id => knownInPlaylist.has(id)).length;
+      let addedCount = allowDuplicates ? addedSoFar : skippedCount;
       let skippedUnavailable = 0;
 
       // Backoff caps (seconds). Rate limits wait longer since quota needs time to recover.
@@ -1620,11 +1683,11 @@ function DiscogsAuthTestPageInner() {
         setYoutubeError('');
       }
 
-      for (let i = 0; i < uniqueVideoIds.length; i++) {
+      for (let i = startIndex; i < uniqueVideoIds.length; i++) {
         const videoId = uniqueVideoIds[i];
 
         // Skip videos we already know are in the playlist
-        if (confirmedAdded.has(videoId)) continue;
+        if (knownInPlaylist.has(videoId)) continue;
 
         let done = false;
         let attempt = 0;
@@ -1632,7 +1695,7 @@ function DiscogsAuthTestPageInner() {
         while (!done) {
           if (stopPlaylistJobRef.current) {
             clearRetryUi();
-            setPausedPlaylistJob({ playlistId, videoIds: uniqueVideoIds, added: addedCount, total: uniqueVideoIds.length });
+            setPausedPlaylistJob({ playlistId, videoIds: uniqueVideoIds, added: addedCount, total: uniqueVideoIds.length, startIndex: i, allowDuplicates });
             setYoutubeError('');
             return 'stopped';
           }
@@ -1644,7 +1707,7 @@ function DiscogsAuthTestPageInner() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
-              body: JSON.stringify({ playlistId, videoId, tokens })
+              body: JSON.stringify({ playlistId, videoId, tokens, allowDuplicates })
             });
           } catch (err) {
             // fetch rejected: offline, DNS, server restarting... keep trying.
@@ -1659,6 +1722,7 @@ function DiscogsAuthTestPageInner() {
           // Added, or already in the playlist (409)
           if (response.ok || response.status === 409) {
             markVideoAdded(playlistId, videoId, confirmedAdded);
+            recordPushStatus(playlistId, videoId, { status: response.ok ? 'inserted' : 'skipped' });
             addedCount++;
             setPlaylistProgress({ added: addedCount, total: uniqueVideoIds.length });
             if (attempt > 0) {
@@ -1676,6 +1740,7 @@ function DiscogsAuthTestPageInner() {
           if (errorData.skip || isNonRetryableVideoError(response.status, errorData)) {
             console.warn(`Skipping video ${videoId} - cannot be added (${errorData.reason || errorData.error || response.status})`);
             clearRetryUi();
+            recordPushStatus(playlistId, videoId, { status: 'failed', error: errorData.error || `HTTP ${response.status}`, reason: errorData.reason || null });
             skippedUnavailable++;
             done = true;
             continue;
@@ -1697,6 +1762,7 @@ function DiscogsAuthTestPageInner() {
 
           // Rate limited / quota exceeded - wait it out, however long it takes.
           if (response.status === 429 || response.status === 403) {
+            recordPushStatus(playlistId, videoId, { status: 'failed', error: errorData.error || 'Rate limited', reason: errorData.reason || 'quotaExceeded' });
             const backoffSec = backoff(RATE_LIMIT_BASE, RATE_LIMIT_CAP, attempt);
             const delaySec = errorData.retryAfter ? Math.max(errorData.retryAfter, backoffSec) : backoffSec;
             await waitAndRetry('rate-limit', attempt, delaySec,
@@ -2328,59 +2394,52 @@ function DiscogsAuthTestPageInner() {
               </>
             )}
 
-            <div style={{ marginBottom: 16 }}>
-              <p style={{ fontSize: 14, color: t.text, margin: 0 }}>
-                This will {useExistingPlaylist ? 'add' : 'create a playlist with'} <strong>{filteredVideoIds.length} video{filteredVideoIds.length === 1 ? '' : 's'}</strong>
-                {filteredVideoIds.length !== videoIds.length ? ` (filtered from ${videoIds.length} — matches the Videos table)` : ' found in your search results'}.
-              </p>
-            </div>
-
             <div>
-              <button
-                onClick={createYouTubePlaylist}
-                disabled={playlistLoading || filteredVideoIds.length === 0}
-                style={{
-                  padding: '12px 24px',
-                  fontSize: 16,
-                  background: (playlistLoading || filteredVideoIds.length === 0) ? '#6c757d' : buttonColor,
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 6,
-                  cursor: (playlistLoading || filteredVideoIds.length === 0) ? 'not-allowed' : 'pointer',
-                  fontWeight: 'bold',
-                  transition: 'background 0.2s'
-                }}
-                onMouseOver={e => {
-                  if (!playlistLoading && filteredVideoIds.length > 0) {
-                    e.currentTarget.style.background = darkenColor(buttonColor);
-                  }
-                }}
-                onMouseOut={e => {
-                  if (!playlistLoading && filteredVideoIds.length > 0) {
-                    e.currentTarget.style.background = buttonColor;
-                  }
-                }}
-              >
-                {playlistLoading ? (useExistingPlaylist ? 'Adding videos...' : 'Creating...') : (useExistingPlaylist ? `Add to Playlist (${filteredVideoIds.length} videos)` : `Create Playlist (${filteredVideoIds.length} videos)`)}
-              </button>
-              {playlistLoading && (
-                <button
-                  onClick={stopPlaylistJob}
-                  disabled={stoppingPlaylistJob}
-                  style={{
-                    marginLeft: 10,
-                    padding: '12px 24px',
-                    fontSize: 16,
-                    background: stoppingPlaylistJob ? '#6c757d' : '#dc3545',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 6,
-                    cursor: stoppingPlaylistJob ? 'not-allowed' : 'pointer',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {stoppingPlaylistJob ? 'Stopping…' : 'Stop'}
-                </button>
+              <SectionTitle t={pickerTheme}>Add the videos</SectionTitle>
+              <YouTubeAddVideosControls
+                t={pickerTheme}
+                order={playlistOrder}
+                onOrderChange={setPlaylistOrder}
+                orderOptions={ORDER_OPTIONS}
+                skipDuplicates={skipDuplicates}
+                onSkipDuplicatesChange={setSkipDuplicates}
+                skipHintItems="video in the list"
+                locked={playlistLoading || !!pausedPlaylistJob}
+                canAdd={!playlistLoading && (!!pausedPlaylistJob || (filteredVideoIds.length > 0 && pendingVideoCount > 0))}
+                onAdd={pausedPlaylistJob ? resumePlaylistJob : createYouTubePlaylist}
+                pushing={playlistLoading}
+                onStop={stopPlaylistJob}
+                stopping={stoppingPlaylistJob}
+                playlist={activePlaylistId ? {
+                  id: activePlaylistId,
+                  title: useExistingPlaylist
+                    ? ytPlaylists?.find(p => p.id === activePlaylistId)?.title
+                    : playlistCreated?.snippet?.title,
+                } : null}
+                buttonLabel={playlistLoading
+                  ? `Adding ${playlistProgress.added}/${playlistProgress.total}…`
+                  : pausedPlaylistJob
+                    ? `Resume — add ${pausedPlaylistJob.total - pausedPlaylistJob.added} remaining`
+                    : filteredVideoIds.length === 0
+                      ? 'No videos to add'
+                      : pendingVideoCount === 0
+                        ? 'All videos already added'
+                        : `${useExistingPlaylist ? 'Add' : 'Create playlist and add'} ${pendingVideoCount} video${pendingVideoCount === 1 ? '' : 's'}${useExistingPlaylist ? ' to playlist' : ''}`}
+              />
+              {filteredVideoIds.length !== videoIds.length && (
+                <p style={{ fontSize: 12, color: pickerTheme.sub, margin: '10px 0 0' }}>
+                  Filtered from {videoIds.length} videos to match the Videos table.
+                </p>
+              )}
+
+              {activePlaylistId && tallyTracks.length > 0 && (
+                <RunningTally
+                  t={pickerTheme}
+                  tracks={tallyTracks}
+                  statusFor={id => pushTally.statuses[id]}
+                  updatedAt={pushTally.updatedAt}
+                  onReset={playlistLoading ? () => {} : resetPushTally}
+                />
               )}
 
               {/* Stopped job: resume on the same playlist or discard */}
@@ -2405,24 +2464,8 @@ function DiscogsAuthTestPageInner() {
                     </a>.
                   </div>
                   <button
-                    onClick={resumePlaylistJob}
-                    style={{
-                      padding: '8px 18px',
-                      fontSize: 14,
-                      background: '#28a745',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    Resume ({pausedPlaylistJob.total - pausedPlaylistJob.added} left)
-                  </button>
-                  <button
                     onClick={() => setPausedPlaylistJob(null)}
                     style={{
-                      marginLeft: 10,
                       padding: '8px 18px',
                       fontSize: 14,
                       background: 'transparent',
